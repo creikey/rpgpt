@@ -1,4 +1,5 @@
-/* quad vertex shader */
+@module quad
+
 @vs vs
 in vec2 position;
 in vec2 texcoord0;
@@ -10,18 +11,22 @@ void main() {
 }
 @end
 
-/* quad fragment shader */
 @fs fs
 uniform sampler2D tex;
+uniform fs_params {
+    vec4 tint;
+    vec2 upper_left;
+    vec2 lower_right;
+};
 
 in vec2 uv;
 out vec4 frag_color;
 
 
 void main() {
-    frag_color = texture(tex, uv);
+    vec2 actual_position = vec2(mix(upper_left.x, lower_right.x, uv.x), mix(upper_left.y, lower_right.y, uv.y));
+    frag_color = texture(tex, actual_position) * tint;
 }
 @end
 
-/* quad shader program */
-@program quad vs fs
+@program program vs fs
