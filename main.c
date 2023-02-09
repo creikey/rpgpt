@@ -6,6 +6,8 @@
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
 #include "quad-sapp.glsl.h"
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
 static struct {
     sg_pass_action pass_action;
@@ -13,18 +15,43 @@ static struct {
     sg_bindings bind;
 } state;
 
+
+
 void init(void) {
     sg_setup(&(sg_desc){
         .context = sapp_sgcontext()
     });
 
+    // load the image
+    state.bind.fs_images[SLOT_tex] = sg_alloc_image();
+    int png_width, png_height, num_channels;
+    const int desired_channels = 4;
+    stbi_uc* pixels = stbi_load(
+        "assets/merchant.png",
+        &png_width, &png_height,
+        &num_channels, 0);
+    if (pixels) {
+        sg_init_image(state.bind.fs_images[0], &(sg_image_desc){
+            .width = png_width,
+            .height = png_height,
+            .pixel_format = SG_PIXELFORMAT_RGBA8,
+            .min_filter = SG_FILTER_LINEAR,
+            .mag_filter = SG_FILTER_LINEAR,
+            .data.subimage[0][0] = {
+                .ptr = pixels,
+                .size = (size_t)(png_width * png_height * 4),
+            }
+        });
+        stbi_image_free(pixels);
+    }
+
     /* a vertex buffer */
     float vertices[] = {
-        // positions            colors
-        -0.5f,  0.5f, 0.5f,     1.0f, 0.0f, 0.0f, 1.0f,
-         0.5f,  0.5f, 0.5f,     0.0f, 1.0f, 0.0f, 1.0f,
-         0.5f, -0.5f, 0.5f,     0.0f, 0.0f, 1.0f, 1.0f,
-        -0.5f, -0.5f, 0.5f,     1.0f, 1.0f, 0.0f, 1.0f,
+        // positions    texcoords
+        -0.5f,  0.5f,   0.0f, 0.0f,
+         0.5f,  0.5f,   1.0f, 0.0f,
+         0.5f, -0.5f,   1.0f, 1.0f,
+        -0.5f, -0.5f,   0.0f, 1.0f,
     };
     state.bind.vertex_buffers[0] = sg_make_buffer(&(sg_buffer_desc){
         .data = SG_RANGE(vertices),
@@ -39,6 +66,7 @@ void init(void) {
         .label = "quad-indices"
     });
 
+
     /* a shader (use separate shader sources here */
     sg_shader shd = sg_make_shader(quad_shader_desc(sg_query_backend()));
 
@@ -48,8 +76,8 @@ void init(void) {
         .index_type = SG_INDEXTYPE_UINT16,
         .layout = {
             .attrs = {
-                [ATTR_vs_position].format = SG_VERTEXFORMAT_FLOAT3,
-                [ATTR_vs_color0].format   = SG_VERTEXFORMAT_FLOAT4
+                [ATTR_vs_position].format = SG_VERTEXFORMAT_FLOAT2,
+                [ATTR_vs_texcoord0].format   = SG_VERTEXFORMAT_FLOAT2,
             }
         },
         .label = "quad-pipeline"
@@ -92,7 +120,10 @@ sapp_desc sokol_main(int argc, char* argv[]) {
         .width = 800,
         .height = 600,
         .gl_force_gles2 = true,
-        .window_title = "Quad (sokol-app)",
+        .window_title = "RPGPT",
+
+        .win32_console_attach = true,
+
         .icon.sokol_default = true,
     };
 }
