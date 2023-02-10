@@ -89,6 +89,45 @@ void init(void) {
         .colors[0] = { .action=SG_ACTION_CLEAR, .value={0.0f, 0.0f, 0.0f, 1.0f } }
     };
 }
+typedef struct AABB {
+    HMM_Vec2 upper_left;
+    HMM_Vec2 lower_right;
+} AABB;
+
+typedef HMM_Vec4 Color;
+
+Color col(float r, float g, float b, float a) {
+    return HMM_V4(r, g, b, a);
+}
+
+// points must be of length 4, and be in the order: upper left, upper right, lower right, lower left
+void draw_quad_tint_region(HMM_Vec2 *points, AABB image_region, Color tint) {
+    float new_vertices[ (2 + 2)*4 ];
+    HMM_Vec2 tex_coords[4] = {
+        HMM_V2(0.0, 0.0),
+        HMM_V2(1.0, 0.0),
+        HMM_V2(1.0, 1.0),
+        HMM_V2(0.0, 1.0),
+    };
+    for(int i = 0; i < 4; i++) {
+        new_vertices[i*4] = points[i].X;
+        new_vertices[i*4 + 1] = points[i].Y;
+        new_vertices[i*4 + 2] = tex_coords[i].X;
+        new_vertices[i*4 + 3] = tex_coords[i].Y;
+    }
+    state.bind.vertex_buffer_offsets[0] = sg_append_buffer(state.bind.vertex_buffers[0], &SG_RANGE(new_vertices));
+    quad_fs_params_t params = {0};
+    params.tint[0] = tint.R;
+    params.tint[1] = tint.G;
+    params.tint[2] = tint.B;
+    params.tint[3] = tint.A;
+    params.upper_left[0] = image_region.upper_left.X;
+    params.upper_left[1] = image_region.upper_left.Y;
+    params.lower_right[0] = image_region.lower_right.X;
+    params.lower_right[1] = image_region.lower_right.Y;
+    sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_quad_fs_params, &SG_RANGE(params));
+    sg_draw(0, 6, 1);
+}
 
 double time = 0.0;
 uint64_t last_frame_time;
@@ -100,16 +139,12 @@ void frame(void) {
         last_frame_time = stm_now();
     }
 
-    float new_vertices[] = {
-        // positions    texcoords
-        -0.5f,  0.5f,   0.0f, 0.0f,
-         0.5f,  0.5f,   1.0f, 0.0f,
-         0.5f, -0.5f,   1.0f, 1.0f,
-        -0.5f, -0.5f,   0.0f, 1.0f,
+    HMM_Vec2 points[] = {
+        HMM_V2(-0.5f, 0.5f),
+        HMM_V2(0.5f, 0.5f),
+        HMM_V2(0.5f, -0.5f),
+        HMM_V2(-0.5f, -0.5f),
     };
-    int offset = sg_append_buffer(state.bind.vertex_buffers[0], &SG_RANGE(new_vertices));
-    state.bind.vertex_buffer_offsets[0] = offset;
-    
 
     sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
     sg_apply_pipeline(state.pip);
@@ -137,8 +172,8 @@ void frame(void) {
     params.upper_left[1] /= (float)info.height;
     params.lower_right[1] /= (float)info.height;
 
-    sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_quad_fs_params, &SG_RANGE(params));
-    sg_draw(0, 6, 1);
+    draw_quad_tint_region(points, (AABB){HMM_V2(params.upper_left[0], params.upper_left[1]), HMM_V2(params.lower_right[0], params.lower_right[1])}, col(1.0, 1.0, 1.0, 1.0));
+
     sg_end_pass();
     sg_commit();
 }
