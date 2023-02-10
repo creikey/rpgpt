@@ -1,3 +1,9 @@
+# allow shader compiler
+!thirdparty\sokol-shdc.exe
+
+# generated files
+gen/
+
 # debugging config
 desktop.rdbg
 

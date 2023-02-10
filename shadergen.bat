@@ -1,5 +1,7 @@
 @echo off
-thirdparty\sokol-shdc.exe --input quad.glsl --output quad-sapp.glsl.h --slang glsl330:hlsl5:metal_macos || goto :error
+rmdir /S /q gen
+mkdir gen
+thirdparty\sokol-shdc.exe --input quad.glsl --output gen\quad-sapp.glsl.h --slang glsl330:hlsl5:metal_macos || goto :error
 
 goto :EOF
 
