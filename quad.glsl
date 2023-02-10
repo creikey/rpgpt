@@ -24,8 +24,8 @@ out vec4 frag_color;
 
 
 void main() {
-    vec2 actual_position = vec2(mix(upper_left.x, lower_right.x, uv.x), mix(upper_left.y, lower_right.y, uv.y));
-    frag_color = texture(tex, actual_position) * tint;
+    //vec2 actual_position = vec2(mix(upper_left.x, lower_right.x, uv.x), mix(upper_left.y, lower_right.y, uv.y));
+    frag_color = texture(tex, uv) * tint;
 }
 @end
 

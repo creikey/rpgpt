@@ -22,6 +22,7 @@ static struct {
     sg_bindings bind;
 } state;
 
+sg_image merchant_tilesheet = {0};
 
 void init(void) {
     stm_setup();
@@ -30,15 +31,16 @@ void init(void) {
     });
 
     // load the image
-    state.bind.fs_images[SLOT_quad_tex] = sg_alloc_image();
+
     int png_width, png_height, num_channels;
     const int desired_channels = 4;
     stbi_uc* pixels = stbi_load(
         "assets/merchant.png",
         &png_width, &png_height,
         &num_channels, 0);
-    if (pixels) {
-        sg_init_image(state.bind.fs_images[0], &(sg_image_desc){
+    assert(pixels);
+    {
+        merchant_tilesheet = sg_make_image(&(sg_image_desc){
             .width = png_width,
             .height = png_height,
             .pixel_format = SG_PIXELFORMAT_RGBA8,
@@ -100,18 +102,34 @@ Color col(float r, float g, float b, float a) {
     return HMM_V4(r, g, b, a);
 }
 
+HMM_Vec2 screen_size() {
+    return HMM_V2((float)sapp_width(), (float)sapp_height());
+}
+
+
 // points must be of length 4, and be in the order: upper left, upper right, lower right, lower left
-void draw_quad_tint_region(HMM_Vec2 *points, AABB image_region, Color tint) {
+// the points are in pixels in screen space
+void draw_quad_all_parameters(HMM_Vec2 *points, sg_image image, AABB image_region, Color tint) {
     float new_vertices[ (2 + 2)*4 ];
+    HMM_Vec2 region_size = HMM_SubV2(image_region.lower_right, image_region.upper_left);
+    assert(region_size.X > 0.0);
+    assert(region_size.Y > 0.0);
     HMM_Vec2 tex_coords[4] = {
-        HMM_V2(0.0, 0.0),
-        HMM_V2(1.0, 0.0),
-        HMM_V2(1.0, 1.0),
-        HMM_V2(0.0, 1.0),
+        HMM_AddV2(image_region.upper_left, HMM_V2(0.0,                     0.0)),
+        HMM_AddV2(image_region.upper_left, HMM_V2(region_size.X,           0.0)),
+        HMM_AddV2(image_region.upper_left, HMM_V2(region_size.X, region_size.Y)),
+        HMM_AddV2(image_region.upper_left, HMM_V2(0.0,           region_size.Y)),
     };
+    // convert to uv space
+    sg_image_info info = sg_query_image_info(image);
     for(int i = 0; i < 4; i++) {
-        new_vertices[i*4] = points[i].X;
-        new_vertices[i*4 + 1] = points[i].Y;
+        tex_coords[i] = HMM_DivV2(tex_coords[i], HMM_V2((float)info.width, (float)info.height));
+    }
+    for(int i = 0; i < 4; i++) {
+        HMM_Vec2 zero_to_one = HMM_DivV2(points[i], screen_size());
+        HMM_Vec2 in_clip_space = HMM_SubV2(HMM_MulV2F(zero_to_one, 2.0), HMM_V2(1.0, 1.0));
+        new_vertices[i*4] = in_clip_space.X;
+        new_vertices[i*4 + 1] = in_clip_space.Y;
         new_vertices[i*4 + 2] = tex_coords[i].X;
         new_vertices[i*4 + 3] = tex_coords[i].Y;
     }
@@ -125,12 +143,19 @@ void draw_quad_tint_region(HMM_Vec2 *points, AABB image_region, Color tint) {
     params.upper_left[1] = image_region.upper_left.Y;
     params.lower_right[0] = image_region.lower_right.X;
     params.lower_right[1] = image_region.lower_right.Y;
+
+    state.bind.fs_images[SLOT_quad_tex] = image;
+    sg_apply_bindings(&state.bind);
     sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_quad_fs_params, &SG_RANGE(params));
     sg_draw(0, 6, 1);
 }
 
 double time = 0.0;
 uint64_t last_frame_time;
+HMM_Vec2 mouse_pos; // in screen space
+#ifdef DEVTOOLS
+bool mouse_frozen = false;
+#endif
 void frame(void) {
     // time
     {
@@ -139,40 +164,38 @@ void frame(void) {
         last_frame_time = stm_now();
     }
 
-    HMM_Vec2 points[] = {
+    /*HMM_Vec2 points[] = {
         HMM_V2(-0.5f, 0.5f),
         HMM_V2(0.5f, 0.5f),
         HMM_V2(0.5f, -0.5f),
         HMM_V2(-0.5f, -0.5f),
+    };*/
+    float size = 200.0;
+    HMM_Vec2 points[] = {
+        HMM_V2(0.0, 0.0),
+        HMM_V2(size, 0.0),
+        HMM_V2(size, -size),
+        HMM_V2(0.0, -size),
     };
+    for(int i = 0; i < 4; i ++) {
+        points[i] = HMM_AddV2(points[i], mouse_pos);
+    }
+
 
     sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
     sg_apply_pipeline(state.pip);
-    sg_apply_bindings(&state.bind);
+
     int index = (int)floor(time/0.3);
 
-    sg_image img = state.bind.fs_images[0];
-    sg_image_info info = sg_query_image_info(img);
+    sg_image_info info = sg_query_image_info(merchant_tilesheet);
 
-    quad_fs_params_t params = {
-        .tint = {1.0, 1.0, 1.0, 1.0},
-        .upper_left = {0.0, 0.0},
-        .lower_right = {1.0, 1.0},
-    };
     int cell_size = 110;
     assert(info.width % cell_size == 0);
-    int upper_left = (index % (info.width/cell_size)) * cell_size;
-    params.upper_left[0] = (float)upper_left;
-    params.lower_right[0] = params.upper_left[0] + (float)cell_size;
-    params.lower_right[1] = (float)cell_size;
+    AABB region;
+    region.upper_left = HMM_V2( (float)((index % (info.width/cell_size)) * cell_size), 0.0);
+    region.lower_right = HMM_V2(region.upper_left.X + (float)cell_size, (float)cell_size);
 
-    // transform from pixels to uv space
-    params.upper_left[0] /= (float)info.width;
-    params.lower_right[0] /= (float)info.width;
-    params.upper_left[1] /= (float)info.height;
-    params.lower_right[1] /= (float)info.height;
-
-    draw_quad_tint_region(points, (AABB){HMM_V2(params.upper_left[0], params.upper_left[1]), HMM_V2(params.lower_right[0], params.lower_right[1])}, col(1.0, 1.0, 1.0, 1.0));
+    draw_quad_all_parameters(points, merchant_tilesheet, region, col(1.0, 1.0, 1.0, 1.0));
 
     sg_end_pass();
     sg_commit();
@@ -187,6 +210,18 @@ void event(const sapp_event *e) {
         if(e->key_code == SAPP_KEYCODE_ESCAPE) {
             sapp_quit();
         }
+#ifdef DEVTOOLS
+        if(e->key_code == SAPP_KEYCODE_T) {
+            mouse_frozen = !mouse_frozen;
+        }
+#endif
+    }
+    if(e->type == SAPP_EVENTTYPE_MOUSE_MOVE) {
+        bool ignore_movement = false;
+#ifdef DEVTOOLS
+        if(mouse_frozen) ignore_movement = true;
+#endif
+        if(!ignore_movement) mouse_pos = HMM_V2(e->mouse_x, (float)sapp_height() - e->mouse_y);
     }
 }
 
