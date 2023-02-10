@@ -9,8 +9,12 @@
 #include "quad-sapp.glsl.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
+#include "HandMadeMath.h"
 
 #include <math.h>
+
+// so can be grep'd and removed
+#define dbgprint(...) { printf("Debug | %s:%d | ", __FILE__, __LINE__); printf(__VA_ARGS__); }
 
 static struct {
     sg_pass_action pass_action;
@@ -48,16 +52,10 @@ void init(void) {
         stbi_image_free(pixels);
     }
 
-    /* a vertex buffer */
-    float vertices[] = {
-        // positions    texcoords
-        -0.5f,  0.5f,   0.0f, 0.0f,
-         0.5f,  0.5f,   1.0f, 0.0f,
-         0.5f, -0.5f,   1.0f, 1.0f,
-        -0.5f, -0.5f,   0.0f, 1.0f,
-    };
     state.bind.vertex_buffers[0] = sg_make_buffer(&(sg_buffer_desc){
-        .data = SG_RANGE(vertices),
+        .usage = SG_USAGE_STREAM,
+        //.data = SG_RANGE(vertices),
+        .size = 1024,
         .label = "quad-vertices"
     });
 
@@ -102,18 +100,28 @@ void frame(void) {
         last_frame_time = stm_now();
     }
 
+    float new_vertices[] = {
+        // positions    texcoords
+        -0.5f,  0.5f,   0.0f, 0.0f,
+         0.5f,  0.5f,   1.0f, 0.0f,
+         0.5f, -0.5f,   1.0f, 1.0f,
+        -0.5f, -0.5f,   0.0f, 1.0f,
+    };
+    int offset = sg_append_buffer(state.bind.vertex_buffers[0], &SG_RANGE(new_vertices));
+    state.bind.vertex_buffer_offsets[0] = offset;
+    
+
     sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
     sg_apply_pipeline(state.pip);
     sg_apply_bindings(&state.bind);
     int index = (int)floor(time/0.3);
 
-    // need to compute upper_left and lower_right still or nothing will display
     sg_image img = state.bind.fs_images[0];
     sg_image_info info = sg_query_image_info(img);
 
     quad_fs_params_t params = {
         .tint = {1.0, 1.0, 1.0, 1.0},
-        .upper_left = {0.5, 0.0},
+        .upper_left = {0.0, 0.0},
         .lower_right = {1.0, 1.0},
     };
     int cell_size = 110;
