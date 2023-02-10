@@ -73,10 +73,8 @@ void init(void) {
     });
 
 
-    /* a shader (use separate shader sources here */
     sg_shader shd = sg_make_shader(quad_program_shader_desc(sg_query_backend()));
 
-    /* a pipeline state object */
     state.pip = sg_make_pipeline(&(sg_pipeline_desc){
         .shader = shd,
         .index_type = SG_INDEXTYPE_UINT16,
@@ -86,10 +84,18 @@ void init(void) {
                 [ATTR_quad_vs_texcoord0].format   = SG_VERTEXFORMAT_FLOAT2,
             }
         },
-        .label = "quad-pipeline"
+        .colors[0].blend = (sg_blend_state) { // allow transparency
+            .enabled = true,
+            .src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
+            .dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+            .op_rgb = SG_BLENDOP_ADD,
+            .src_factor_alpha = SG_BLENDFACTOR_ONE,
+            .dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+            .op_alpha = SG_BLENDOP_ADD,
+        },
+        .label = "quad-pipeline",
     });
 
-    /* default pass action */
     state.pass_action = (sg_pass_action) {
         .colors[0] = { .action=SG_ACTION_CLEAR, .value={0.0f, 0.0f, 0.0f, 1.0f } }
     };
@@ -105,20 +111,64 @@ Color col(float r, float g, float b, float a) {
     return HMM_V4(r, g, b, a);
 }
 
+#define WHITE col(1.0f, 1.0f, 1.0f, 1.0f)
+
 HMM_Vec2 screen_size() {
     return HMM_V2((float)sapp_width(), (float)sapp_height());
 }
 
+typedef struct Camera {
+    HMM_Vec2 pos;
+    float scale;
+} Camera;
+
+
+// everything is in pixels in world space, 43 pixels is approx 1 meter measured from 
+// merchant sprite being 5'6"
+const float pixels_per_meter = 43.0f;
+Camera cam = {.scale = 2.0f };
+
+HMM_Vec2 cam_offset() {
+    return HMM_AddV2(cam.pos, HMM_MulV2F(screen_size(), 0.5f));
+}
+
+// screen coords are in bottom right, and in pixels
+HMM_Vec2 world_to_screen(HMM_Vec2 world) {
+    HMM_Vec2 to_return = world;
+    to_return = HMM_MulV2F(to_return, cam.scale);
+    to_return = HMM_AddV2(to_return, cam_offset());
+    return to_return;
+}
+
+HMM_Vec2 screen_to_world(HMM_Vec2 screen) {
+    HMM_Vec2 to_return = screen;
+    to_return = HMM_SubV2(to_return, cam_offset());
+    to_return = HMM_MulV2F(to_return, 1.0f/cam.scale);
+    return to_return;
+}
+
+// out must be of at least length 4
+void quad_points_centered_size(HMM_Vec2 *out, HMM_Vec2 at, HMM_Vec2 size) {
+    out[0] = HMM_V2(0.0, 0.0);
+    out[1] = HMM_V2(size.X, 0.0);
+    out[2] = HMM_V2(size.X, -size.Y);
+    out[3] = HMM_V2(0.0, -size.Y);
+
+    for(int i = 0; i < 4; i++) {
+        out[i] = HMM_AddV2(out[i], HMM_V2(-size.X*0.5f, size.Y*0.5f));
+        out[i] = HMM_AddV2(out[i], at);
+    }
+}
 
 // points must be of length 4, and be in the order: upper left, upper right, lower right, lower left
-// the points are in pixels in screen space
+// the points are in pixels in screen space. The image region is in pixel space of the image
 void draw_quad_all_parameters(HMM_Vec2 *points, sg_image image, AABB image_region, Color tint) {
     float new_vertices[ (2 + 2)*4 ];
     HMM_Vec2 region_size = HMM_SubV2(image_region.lower_right, image_region.upper_left);
     assert(region_size.X > 0.0);
     assert(region_size.Y > 0.0);
     HMM_Vec2 tex_coords[4] = {
-        HMM_AddV2(image_region.upper_left, HMM_V2(0.0,                     0.0)),
+        HMM_AddV2(image_region.upper_left, HMM_V2(0.0,                    0.0)),
         HMM_AddV2(image_region.upper_left, HMM_V2(region_size.X,           0.0)),
         HMM_AddV2(image_region.upper_left, HMM_V2(region_size.X, region_size.Y)),
         HMM_AddV2(image_region.upper_left, HMM_V2(0.0,           region_size.Y)),
@@ -153,52 +203,79 @@ void draw_quad_all_parameters(HMM_Vec2 *points, sg_image image, AABB image_regio
     sg_draw(0, 6, 1);
 }
 
+void draw_quad_world_all(HMM_Vec2 *points, sg_image image, AABB image_region, Color tint) {
+    HMM_Vec2 into_screen[4] = {0};
+    memcpy(into_screen, points, sizeof(into_screen));
+    for(int i = 0; i < 4; i++) {
+        into_screen[i] = world_to_screen(into_screen[i]);
+    }
+    draw_quad_all_parameters(into_screen, image, image_region, tint);
+}
+
+// in pixels
+HMM_Vec2 img_size(sg_image img) {
+    sg_image_info info = sg_query_image_info(img);
+    return HMM_V2((float)info.width, (float)info.height);
+}
+
+// full region in pixels
+AABB full_region(sg_image img) {
+    return (AABB) {
+        .upper_left = HMM_V2(0.0f, 0.0f),
+        .lower_right = img_size(img),
+    };
+}
+
 double time = 0.0;
 uint64_t last_frame_time;
-HMM_Vec2 mouse_pos; // in screen space
+HMM_Vec2 mouse_pos = {0}; // in screen space
+HMM_Vec2 character_pos = {0}; // world space point
+bool keydown[SAPP_KEYCODE_MENU] = {0};
 #ifdef DEVTOOLS
 bool mouse_frozen = false;
 #endif
 void frame(void) {
     // time
+    double dt_double = 0.0;
     {
-        double dt = stm_sec(stm_diff(stm_now(), last_frame_time));
-        time += dt;
+        dt_double = stm_sec(stm_diff(stm_now(), last_frame_time));
+        time += dt_double;
         last_frame_time = stm_now();
     }
+    float dt = (float)dt_double;
 
-    /*HMM_Vec2 points[] = {
-        HMM_V2(-0.5f, 0.5f),
-        HMM_V2(0.5f, 0.5f),
-        HMM_V2(0.5f, -0.5f),
-        HMM_V2(-0.5f, -0.5f),
-    };*/
-    float size = 200.0;
-    HMM_Vec2 points[] = {
-        HMM_V2(0.0, 0.0),
-        HMM_V2(size, 0.0),
-        HMM_V2(size, -size),
-        HMM_V2(0.0, -size),
-    };
-    for(int i = 0; i < 4; i ++) {
-        points[i] = HMM_AddV2(points[i], mouse_pos);
+    HMM_Vec2 movement = HMM_V2(
+        (float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A],
+        (float)keydown[SAPP_KEYCODE_W] - (float)keydown[SAPP_KEYCODE_S]
+    );
+    if(HMM_LenV2(movement) > 1.0) {
+        movement = HMM_NormV2(movement);
     }
 
+    character_pos = HMM_AddV2(character_pos, HMM_MulV2F(movement, dt * pixels_per_meter * 4.0f));
+    cam.pos = HMM_LerpV2(cam.pos, dt*8.0f, HMM_MulV2F(character_pos, -1.0f * cam.scale));
 
     sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
     sg_apply_pipeline(state.pip);
 
-    int index = (int)floor(time/0.3);
+    // background
+    HMM_Vec2 bg_points[4] = {0};
+    quad_points_centered_size(bg_points, HMM_V2(0.0, 0.0), img_size(image_bg_tilesheet));
+    draw_quad_world_all(bg_points, image_bg_tilesheet, full_region(image_bg_tilesheet), WHITE);
 
-    sg_image_info info = sg_query_image_info(image_merchant);
+    // merchant
+    int index = (int)floor(time/0.3);
+    float size = img_size(image_merchant).Y;
+    HMM_Vec2 points[4] = {0};
+    quad_points_centered_size(points, character_pos, HMM_V2(size, size));
 
     int cell_size = 110;
-    assert(info.width % cell_size == 0);
+    assert((int)img_size(image_merchant).X % cell_size == 0);
     AABB region;
-    region.upper_left = HMM_V2( (float)((index % (info.width/cell_size)) * cell_size), 0.0);
+    region.upper_left = HMM_V2( (float)((index % ((int)img_size(image_merchant).X/cell_size)) * cell_size), 0.0);
     region.lower_right = HMM_V2(region.upper_left.X + (float)cell_size, (float)cell_size);
 
-    draw_quad_all_parameters(points, image_merchant, region, col(1.0, 1.0, 1.0, 1.0));
+    draw_quad_world_all(points, image_merchant, region, WHITE);
 
     sg_end_pass();
     sg_commit();
@@ -210,6 +287,8 @@ void cleanup(void) {
 
 void event(const sapp_event *e) {
     if(e->type == SAPP_EVENTTYPE_KEY_DOWN) {
+        assert(e->key_code < sizeof(keydown)/sizeof(*keydown));
+        keydown[e->key_code] = true;
         if(e->key_code == SAPP_KEYCODE_ESCAPE) {
             sapp_quit();
         }
@@ -218,6 +297,9 @@ void event(const sapp_event *e) {
             mouse_frozen = !mouse_frozen;
         }
 #endif
+    }
+    if(e->type == SAPP_EVENTTYPE_KEY_UP) {
+        keydown[e->key_code] = false;
     }
     if(e->type == SAPP_EVENTTYPE_MOUSE_MOVE) {
         bool ignore_movement = false;

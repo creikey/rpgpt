@@ -1,4 +1,12 @@
 @image merchant:
 {
-    filepath = "merchant.png",
+    filepath = "copyrighted/merchant.png",
+}
+@image bg_tilesheet:
+{
+    filepath = "copyrighted/wall-1 - 3 tiles tall.png",
+}
+@image white_square:
+{
+    filepath = "white square.png",
 }

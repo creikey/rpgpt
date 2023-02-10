@@ -59,7 +59,7 @@ int main(int argc, char **argv) {
             MD_String8 filepath = {0};
             for(MD_EachNode(child, node->first_child)) {
                 if(MD_S8Match(child->string, MD_S8Lit("filepath"), 0)) {
-                    filepath = child->next->next->string;
+                    filepath = child->next->next->string; // segfault here but to check for it is ugly
                 }
             }
             filepath = MD_S8Fmt(cg_arena, "%.*s/%.*s", MD_S8VArg(ASSETS_FOLDER), MD_S8VArg(filepath));
