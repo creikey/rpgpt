@@ -1,0 +1,4 @@
+@image merchant:
+{
+    filepath = "merchant.png",
+}

@@ -6,12 +6,39 @@
 #include "sokol_gfx.h"
 #include "sokol_time.h"
 #include "sokol_glue.h"
-#include "quad-sapp.glsl.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #include "HandMadeMath.h"
 
 #include <math.h>
+
+sg_image load_image(const char *path) {
+    sg_image to_return = {0};
+
+    int png_width, png_height, num_channels;
+    const int desired_channels = 4;
+    stbi_uc* pixels = stbi_load(
+        path,
+        &png_width, &png_height,
+        &num_channels, 0);
+    assert(pixels);
+    to_return = sg_make_image(&(sg_image_desc){
+        .width = png_width,
+        .height = png_height,
+        .pixel_format = SG_PIXELFORMAT_RGBA8,
+        .min_filter = SG_FILTER_NEAREST,
+        .mag_filter = SG_FILTER_NEAREST,
+        .data.subimage[0][0] = {
+            .ptr = pixels,
+            .size = (size_t)(png_width * png_height * 4),
+        }
+    });
+    stbi_image_free(pixels);
+    return to_return;
+}
+
+#include "quad-sapp.glsl.h"
+#include "assets.gen.c"
 
 // so can be grep'd and removed
 #define dbgprint(...) { printf("Debug | %s:%d | ", __FILE__, __LINE__); printf(__VA_ARGS__); }
@@ -22,37 +49,13 @@ static struct {
     sg_bindings bind;
 } state;
 
-sg_image merchant_tilesheet = {0};
-
 void init(void) {
     stm_setup();
     sg_setup(&(sg_desc){
         .context = sapp_sgcontext()
     });
 
-    // load the image
-
-    int png_width, png_height, num_channels;
-    const int desired_channels = 4;
-    stbi_uc* pixels = stbi_load(
-        "assets/merchant.png",
-        &png_width, &png_height,
-        &num_channels, 0);
-    assert(pixels);
-    {
-        merchant_tilesheet = sg_make_image(&(sg_image_desc){
-            .width = png_width,
-            .height = png_height,
-            .pixel_format = SG_PIXELFORMAT_RGBA8,
-            .min_filter = SG_FILTER_NEAREST,
-            .mag_filter = SG_FILTER_NEAREST,
-            .data.subimage[0][0] = {
-                .ptr = pixels,
-                .size = (size_t)(png_width * png_height * 4),
-            }
-        });
-        stbi_image_free(pixels);
-    }
+    load_assets();
 
     state.bind.vertex_buffers[0] = sg_make_buffer(&(sg_buffer_desc){
         .usage = SG_USAGE_STREAM,
@@ -187,7 +190,7 @@ void frame(void) {
 
     int index = (int)floor(time/0.3);
 
-    sg_image_info info = sg_query_image_info(merchant_tilesheet);
+    sg_image_info info = sg_query_image_info(image_merchant);
 
     int cell_size = 110;
     assert(info.width % cell_size == 0);
@@ -195,7 +198,7 @@ void frame(void) {
     region.upper_left = HMM_V2( (float)((index % (info.width/cell_size)) * cell_size), 0.0);
     region.lower_right = HMM_V2(region.upper_left.X + (float)cell_size, (float)cell_size);
 
-    draw_quad_all_parameters(points, merchant_tilesheet, region, col(1.0, 1.0, 1.0, 1.0));
+    draw_quad_all_parameters(points, image_merchant, region, col(1.0, 1.0, 1.0, 1.0));
 
     sg_end_pass();
     sg_commit();
