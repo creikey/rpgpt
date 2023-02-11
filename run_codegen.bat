@@ -7,6 +7,7 @@ rmdir /S /q assets\copyrighted
 mkdir assets\copyrighted
 copy "EPIC RPG World Pack - Ancient Ruins V 1.7\EPIC RPG World Pack - Ancient Ruins V 1.7\Characters\NPC Merchant-idle.png" "assets\copyrighted\merchant.png" || goto :error
 copy "EPIC RPG World Pack - Ancient Ruins V 1.7\EPIC RPG World Pack - Ancient Ruins V 1.7\Tilesets\wall-1 - 3 tiles tall.png" "assets\copyrighted\wall-1 - 3 tiles tall.png" || goto :error
+copy "EPIC RPG World Pack - Ancient Ruins V 1.7\EPIC RPG World Pack - Ancient Ruins V 1.7\Tilesets\Tileset-Animated Terrains-16 frames.png" "assets\copyrighted\animated_terrain.png" || goto :error
 
 rmdir /S /q gen
 mkdir gen
@@ -21,4 +22,5 @@ codegen || goto :error
 goto :EOF
 
 :error
+echo Codegen failed
 exit /B %ERRORLEVEL%

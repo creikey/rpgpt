@@ -12,6 +12,32 @@
 
 #include <math.h>
 
+typedef struct AABB {
+    HMM_Vec2 upper_left;
+    HMM_Vec2 lower_right;
+} AABB;
+
+typedef struct TileInstance {
+    uint16_t kind;
+} TileInstance;
+
+typedef struct TileInfo {
+    uint16_t kind;
+    int num_frames;
+    AABB regions[32];
+    sg_image *img;
+} TileInfo;
+
+#define LEVEL_TILES 60
+#define TILE_SIZE 32 // in pixels
+typedef struct Level {
+    TileInstance tiles[LEVEL_TILES][LEVEL_TILES];
+} Level;
+
+HMM_Vec2 tilecoord_to_world(int x, int y) {
+    return HMM_V2( (float)x * (float)TILE_SIZE * 1.0f, -(float)y * (float)TILE_SIZE * 1.0f );
+}
+
 sg_image load_image(const char *path) {
     sg_image to_return = {0};
 
@@ -22,7 +48,7 @@ sg_image load_image(const char *path) {
         &png_width, &png_height,
         &num_channels, 0);
     assert(pixels);
-    to_return = sg_make_image(&(sg_image_desc){
+    to_return = sg_make_image(&(sg_image_desc) {
         .width = png_width,
         .height = png_height,
         .pixel_format = SG_PIXELFORMAT_RGBA8,
@@ -39,6 +65,20 @@ sg_image load_image(const char *path) {
 
 #include "quad-sapp.glsl.h"
 #include "assets.gen.c"
+
+TileInfo tiles[] = {
+    {
+        .kind = 53,
+        .num_frames = 1,
+        .regions[0] = { 0, 32, 32, 64 },
+        .img = &image_animated_terrain,
+    },
+};
+TileInfo mystery_tile = {
+    .img = &image_mystery_tile,
+    .num_frames = 1,
+    .regions[0] = { 0, 0, 32, 32 },
+};
 
 // so can be grep'd and removed
 #define dbgprint(...) { printf("Debug | %s:%d | ", __FILE__, __LINE__); printf(__VA_ARGS__); }
@@ -60,7 +100,7 @@ void init(void) {
     state.bind.vertex_buffers[0] = sg_make_buffer(&(sg_buffer_desc){
         .usage = SG_USAGE_STREAM,
         //.data = SG_RANGE(vertices),
-        .size = 1024,
+        .size = 1024*500,
         .label = "quad-vertices"
     });
 
@@ -97,21 +137,14 @@ void init(void) {
     });
 
     state.pass_action = (sg_pass_action) {
-        .colors[0] = { .action=SG_ACTION_CLEAR, .value={0.0f, 0.0f, 0.0f, 1.0f } }
+        .colors[0] = { .action=SG_ACTION_CLEAR, .value={1.0f, 1.0f, 1.0f, 1.0f } }
     };
 }
-typedef struct AABB {
-    HMM_Vec2 upper_left;
-    HMM_Vec2 lower_right;
-} AABB;
 
 typedef HMM_Vec4 Color;
 
-Color col(float r, float g, float b, float a) {
-    return HMM_V4(r, g, b, a);
-}
 
-#define WHITE col(1.0f, 1.0f, 1.0f, 1.0f)
+#define WHITE (Color){1.0f, 1.0f, 1.0f, 1.0f}
 
 HMM_Vec2 screen_size() {
     return HMM_V2((float)sapp_width(), (float)sapp_height());
@@ -132,7 +165,7 @@ HMM_Vec2 cam_offset() {
     return HMM_AddV2(cam.pos, HMM_MulV2F(screen_size(), 0.5f));
 }
 
-// screen coords are in bottom right, and in pixels
+// screen coords are in pixels counting from bottom left as (0,0), Y+ is up
 HMM_Vec2 world_to_screen(HMM_Vec2 world) {
     HMM_Vec2 to_return = world;
     to_return = HMM_MulV2F(to_return, cam.scale);
@@ -148,21 +181,80 @@ HMM_Vec2 screen_to_world(HMM_Vec2 screen) {
 }
 
 // out must be of at least length 4
-void quad_points_centered_size(HMM_Vec2 *out, HMM_Vec2 at, HMM_Vec2 size) {
+void quad_points_corner_size(HMM_Vec2 *out, HMM_Vec2 at, HMM_Vec2 size) {
     out[0] = HMM_V2(0.0, 0.0);
     out[1] = HMM_V2(size.X, 0.0);
     out[2] = HMM_V2(size.X, -size.Y);
     out[3] = HMM_V2(0.0, -size.Y);
 
     for(int i = 0; i < 4; i++) {
-        out[i] = HMM_AddV2(out[i], HMM_V2(-size.X*0.5f, size.Y*0.5f));
         out[i] = HMM_AddV2(out[i], at);
     }
+}
+
+// out must be of at least length 4
+void quad_points_centered_size(HMM_Vec2 *out, HMM_Vec2 at, HMM_Vec2 size) {
+    quad_points_corner_size(out, at, size);
+    for(int i = 0; i < 4; i++) {
+        out[i] = HMM_AddV2(out[i], HMM_V2(-size.X*0.5f, size.Y*0.5f));
+    }
+}
+
+// both segment_a and segment_b must be arrays of length 2
+bool segments_overlapping(float *a_segment, float *b_segment) {
+    assert(a_segment[1] >= a_segment[0]);
+    assert(b_segment[1] >= b_segment[0]);
+    float total_length = (a_segment[1] - a_segment[0]) + (b_segment[1] - b_segment[0]);
+    float farthest_to_left = min(a_segment[0], b_segment[0]);
+    float farthest_to_right = max(a_segment[1], b_segment[1]);
+    if (farthest_to_right - farthest_to_left < total_length) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+bool overlapping(AABB a, AABB b) {
+    // x axis
+    {
+        float a_segment[2] = { a.upper_left.X, a.lower_right.X };
+        float b_segment[2] = { b.upper_left.X, b.lower_right.X };
+        if(segments_overlapping(a_segment, b_segment)) {
+        } else {
+            return false;
+        }
+    }
+
+    // y axis
+    {
+        float a_segment[2] = { a.lower_right.Y, a.upper_left.Y };
+        float b_segment[2] = { b.lower_right.Y, b.upper_left.Y };
+        if(segments_overlapping(a_segment, b_segment)) {
+        } else {
+            return false;
+        }
+    }
+
+    return true; // both segments overlapping
 }
 
 // points must be of length 4, and be in the order: upper left, upper right, lower right, lower left
 // the points are in pixels in screen space. The image region is in pixel space of the image
 void draw_quad_all_parameters(HMM_Vec2 *points, sg_image image, AABB image_region, Color tint) {
+    AABB cam_aabb = { .upper_left = HMM_V2(0.0, screen_size().Y), .lower_right = HMM_V2(screen_size().X, 0.0) };
+    AABB points_bounding_box = { .upper_left = HMM_V2(INFINITY, -INFINITY), .lower_right = HMM_V2(-INFINITY, INFINITY) };
+
+    for(int i = 0; i < 4; i++) {
+        points_bounding_box.upper_left.X = min(points_bounding_box.upper_left.X, points[i].X);
+        points_bounding_box.upper_left.Y = max(points_bounding_box.upper_left.Y, points[i].Y);
+
+        points_bounding_box.lower_right.X = max(points_bounding_box.lower_right.X, points[i].X);
+        points_bounding_box.lower_right.Y = min(points_bounding_box.lower_right.Y, points[i].Y);
+    }
+    if(!overlapping(cam_aabb, points_bounding_box)) {
+        return; // cull out of screen quads
+    }
+
     float new_vertices[ (2 + 2)*4 ];
     HMM_Vec2 region_size = HMM_SubV2(image_region.lower_right, image_region.upper_left);
     assert(region_size.X > 0.0);
@@ -258,10 +350,29 @@ void frame(void) {
     sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
     sg_apply_pipeline(state.pip);
 
-    // background
-    HMM_Vec2 bg_points[4] = {0};
-    quad_points_centered_size(bg_points, HMM_V2(0.0, 0.0), img_size(image_bg_tilesheet));
-    draw_quad_world_all(bg_points, image_bg_tilesheet, full_region(image_bg_tilesheet), WHITE);
+    // tilemap
+#if 1
+    Level * cur_level = &level_level0;
+    for(int row = 0; row < LEVEL_TILES; row++) {
+        for(int col = 0; col < LEVEL_TILES; col++)
+        {
+            TileInstance cur = cur_level->tiles[row][col];
+            if(cur.kind != 0){
+                HMM_Vec2 points[4] = {0};
+                quad_points_corner_size(points, tilecoord_to_world(col, row), HMM_V2(TILE_SIZE, TILE_SIZE));
+                TileInfo *info = NULL;
+                for(int i = 0; i < sizeof(tiles)/sizeof(*tiles); i++) {
+                    if(tiles[i].kind == cur.kind) {
+                        info = &tiles[i];
+                        break;
+                    }
+                }
+                if(info == NULL) info = &mystery_tile;
+                draw_quad_world_all(points, *info->img, info->regions[0], WHITE);
+            }
+        }
+    }
+#endif
 
     // merchant
     int index = (int)floor(time/0.3);
@@ -319,7 +430,7 @@ sapp_desc sokol_main(int argc, char* argv[]) {
         .event_cb = event,
         .width = 800,
         .height = 600,
-        .gl_force_gles2 = true,
+        //.gl_force_gles2 = true, not sure why this was here in example, look into
         .window_title = "RPGPT",
 
         .win32_console_attach = true,
