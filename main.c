@@ -8,7 +8,11 @@
 #include "sokol_glue.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "stb_truetype.h"
 #include "HandMadeMath.h"
+
+#pragma warning(disable : 4996) // fopen is safe. I don't care about fopen_s
 
 #include <math.h>
 
@@ -80,6 +84,8 @@ TileInfo mystery_tile = {
     .regions[0] = { 0, 0, 32, 32 },
 };
 
+sg_image image_font;
+
 // so can be grep'd and removed
 #define dbgprint(...) { printf("Debug | %s:%d | ", __FILE__, __LINE__); printf(__VA_ARGS__); }
 
@@ -96,6 +102,44 @@ void init(void) {
     });
 
     load_assets();
+
+    // load font
+    {
+        FILE* fontFile = fopen("assets/orange kid.ttf", "rb");
+        fseek(fontFile, 0, SEEK_END);
+        size_t size = ftell(fontFile); /* how long is the file ? */
+        fseek(fontFile, 0, SEEK_SET); /* reset */
+
+        char *fontBuffer = malloc(size);
+
+        fread(fontBuffer, size, 1, fontFile);
+        fclose(fontFile);
+
+        unsigned char font_bitmap[512*512] = {0};
+        stbtt_bakedchar cdata[96]; // ASCII 32..126 is 95 glyphs
+        stbtt_BakeFontBitmap(fontBuffer, 0, 64.0, font_bitmap, 512, 512, 32, 96, cdata);
+
+        unsigned char *font_bitmap_rgba = malloc(4 * 512 * 512);
+        for(int i = 0; i < 512 * 512; i++) {
+            font_bitmap_rgba[i*4 + 0] = 255;
+            font_bitmap_rgba[i*4 + 1] = 255;
+            font_bitmap_rgba[i*4 + 2] = 255;
+            font_bitmap_rgba[i*4 + 3] = font_bitmap[i];
+        }
+
+        image_font = sg_make_image( &(sg_image_desc){
+            .width = 512,
+            .height = 512,
+            .pixel_format = SG_PIXELFORMAT_RGBA8,
+            .min_filter = SG_FILTER_NEAREST,
+            .mag_filter = SG_FILTER_NEAREST,
+            .data.subimage[0][0] = {
+                .ptr = font_bitmap_rgba,
+                .size = (size_t)(512 * 512 * 4),
+            }
+        });
+        free(font_bitmap_rgba);
+    }
 
     state.bind.vertex_buffers[0] = sg_make_buffer(&(sg_buffer_desc){
         .usage = SG_USAGE_STREAM,
@@ -145,6 +189,7 @@ typedef HMM_Vec4 Color;
 
 
 #define WHITE (Color){1.0f, 1.0f, 1.0f, 1.0f}
+#define BLACK (Color){0.0f, 0.0f, 0.0f, 1.0f}
 
 HMM_Vec2 screen_size() {
     return HMM_V2((float)sapp_width(), (float)sapp_height());
@@ -373,6 +418,13 @@ void frame(void) {
         }
     }
 #endif
+
+    // debug draw font image
+    {
+        HMM_Vec2 points[4] = {0};
+        quad_points_centered_size(points, HMM_V2(0.0, 0.0), HMM_V2(250.0, 250.0));
+        draw_quad_world_all(points, image_font,full_region(image_font), BLACK);
+    }
 
     // merchant
     int index = (int)floor(time/0.3);

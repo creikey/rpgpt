@@ -16,5 +16,5 @@
 }
 @level level0:
 {
-    filepath: "testsmalllevel.json",
+    filepath: "level0.json",
 }
