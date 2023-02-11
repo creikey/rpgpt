@@ -85,6 +85,7 @@ TileInfo mystery_tile = {
 };
 
 sg_image image_font;
+stbtt_bakedchar cdata[96]; // ASCII 32..126 is 95 glyphs
 
 // so can be grep'd and removed
 #define dbgprint(...) { printf("Debug | %s:%d | ", __FILE__, __LINE__); printf(__VA_ARGS__); }
@@ -116,10 +117,9 @@ void init(void) {
         fclose(fontFile);
 
         unsigned char font_bitmap[512*512] = {0};
-        stbtt_bakedchar cdata[96]; // ASCII 32..126 is 95 glyphs
         stbtt_BakeFontBitmap(fontBuffer, 0, 64.0, font_bitmap, 512, 512, 32, 96, cdata);
 
-        unsigned char *font_bitmap_rgba = malloc(4 * 512 * 512);
+        unsigned char *font_bitmap_rgba = malloc(4 * 512 * 512); // stack would be too big if allocated on stack (stack overflow)
         for(int i = 0; i < 512 * 512; i++) {
             font_bitmap_rgba[i*4 + 0] = 255;
             font_bitmap_rgba[i*4 + 1] = 255;
@@ -424,6 +424,39 @@ void frame(void) {
         HMM_Vec2 points[4] = {0};
         quad_points_centered_size(points, HMM_V2(0.0, 0.0), HMM_V2(250.0, 250.0));
         draw_quad_world_all(points, image_font,full_region(image_font), BLACK);
+    }
+    
+    // draw text
+    const char *text = "Hello, can anybody hear me?";
+    {
+        float x = 0.0;
+        float y = 0.0;
+        for(int i = 0; i < strlen(text); i++) {
+            stbtt_aligned_quad q;
+            float old_y = y;
+            stbtt_GetBakedQuad(cdata, 512, 512, text[i]-32, &x, &y, &q, 1);
+            float difference = y - old_y;
+            y = old_y + difference;
+
+            HMM_Vec2 size = HMM_V2(q.x1 - q.x0, q.y1 - q.y0);
+            HMM_Vec2 points[4] = {
+                HMM_AddV2(HMM_V2(q.x0, -q.y0), HMM_V2(0.0f, 0.0f)),
+                HMM_AddV2(HMM_V2(q.x0, -q.y0), HMM_V2(size.X, 0.0f)),
+                HMM_AddV2(HMM_V2(q.x0, -q.y0), HMM_V2(size.X, -size.Y)),
+                HMM_AddV2(HMM_V2(q.x0, -q.y0), HMM_V2(0.0f, -size.Y)),
+            };
+            
+            AABB region = (AABB){
+                .upper_left  = HMM_V2(q.s0, q.t0),
+                .lower_right = HMM_V2(q.s1, q.t1),
+            };
+            region.upper_left.X *= img_size(image_font).X;
+            region.lower_right.X *= img_size(image_font).X;
+            region.upper_left.Y *= img_size(image_font).Y;
+            region.lower_right.Y *= img_size(image_font).Y;
+
+            draw_quad_world_all(points, image_font, region, BLACK);
+        }
     }
 
     // merchant
