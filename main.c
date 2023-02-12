@@ -190,6 +190,7 @@ typedef HMM_Vec4 Color;
 
 #define WHITE (Color){1.0f, 1.0f, 1.0f, 1.0f}
 #define BLACK (Color){0.0f, 0.0f, 0.0f, 1.0f}
+#define RED   (Color){1.0f, 0.0f, 0.0f, 1.0f}
 
 HMM_Vec2 screen_size() {
     return HMM_V2((float)sapp_width(), (float)sapp_height());
@@ -208,6 +209,20 @@ Camera cam = {.scale = 2.0f };
 
 HMM_Vec2 cam_offset() {
     return HMM_AddV2(cam.pos, HMM_MulV2F(screen_size(), 0.5f));
+}
+
+// in pixels
+HMM_Vec2 img_size(sg_image img) {
+    sg_image_info info = sg_query_image_info(img);
+    return HMM_V2((float)info.width, (float)info.height);
+}
+
+// full region in pixels
+AABB full_region(sg_image img) {
+    return (AABB) {
+        .upper_left = HMM_V2(0.0f, 0.0f),
+        .lower_right = img_size(img),
+    };
 }
 
 // screen coords are in pixels counting from bottom left as (0,0), Y+ is up
@@ -285,7 +300,15 @@ bool overlapping(AABB a, AABB b) {
 
 // points must be of length 4, and be in the order: upper left, upper right, lower right, lower left
 // the points are in pixels in screen space. The image region is in pixel space of the image
-void draw_quad_all_parameters(HMM_Vec2 *points, sg_image image, AABB image_region, Color tint) {
+void draw_quad(bool world_space, HMM_Vec2 *points_in, sg_image image, AABB image_region, Color tint) {
+    HMM_Vec2 points[4] = {0};
+    memcpy(points, points_in, sizeof(points));
+
+    if(world_space) {
+        for(int i = 0; i < 4; i++) {
+            points[i] = world_to_screen(points[i]);
+        }
+    }
     AABB cam_aabb = { .upper_left = HMM_V2(0.0, screen_size().Y), .lower_right = HMM_V2(screen_size().X, 0.0) };
     AABB points_bounding_box = { .upper_left = HMM_V2(INFINITY, -INFINITY), .lower_right = HMM_V2(-INFINITY, INFINITY) };
 
@@ -340,27 +363,70 @@ void draw_quad_all_parameters(HMM_Vec2 *points, sg_image image, AABB image_regio
     sg_draw(0, 6, 1);
 }
 
-void draw_quad_world_all(HMM_Vec2 *points, sg_image image, AABB image_region, Color tint) {
-    HMM_Vec2 into_screen[4] = {0};
-    memcpy(into_screen, points, sizeof(into_screen));
-    for(int i = 0; i < 4; i++) {
-        into_screen[i] = world_to_screen(into_screen[i]);
-    }
-    draw_quad_all_parameters(into_screen, image, image_region, tint);
-}
 
-// in pixels
-HMM_Vec2 img_size(sg_image img) {
-    sg_image_info info = sg_query_image_info(img);
-    return HMM_V2((float)info.width, (float)info.height);
-}
-
-// full region in pixels
-AABB full_region(sg_image img) {
-    return (AABB) {
-        .upper_left = HMM_V2(0.0f, 0.0f),
-        .lower_right = img_size(img),
+void colorbox(bool world_space, HMM_Vec2 upper_left, HMM_Vec2 lower_right, Color color) {
+    HMM_Vec2 size = HMM_SubV2(lower_right, upper_left);
+    size.Y *= -1.0;
+    assert(size.Y >= 0.0);
+    HMM_Vec2 points[4] = {
+        HMM_AddV2(upper_left, HMM_V2(0.0f, 0.0f)),
+        HMM_AddV2(upper_left, HMM_V2(size.X, 0.0f)),
+        HMM_AddV2(upper_left, HMM_V2(size.X, -size.Y)),
+        HMM_AddV2(upper_left, HMM_V2(0.0f, -size.Y)),
     };
+    draw_quad(world_space, points, image_white_square, full_region(image_white_square), color);
+}
+
+// returns bounds. To measure text you can set dry run to true and get the bounds
+
+AABB draw_text(bool world_space, bool dry_run, const char *text, size_t length, HMM_Vec2 pos, Color color) {
+    size_t text_len = strlen(text);
+    AABB bounds = {0};
+    float y = 0.0;
+    float x = 0.0;
+    for(int i = 0; i < text_len; i++) {
+        stbtt_aligned_quad q;
+        float old_y = y;
+        stbtt_GetBakedQuad(cdata, 512, 512, text[i]-32, &x, &y, &q, 1);
+        float difference = y - old_y;
+        y = old_y + difference;
+
+        HMM_Vec2 size = HMM_V2(q.x1 - q.x0, q.y1 - q.y0);
+        if(size.Y > 0.0 && size.X > 0.0) { // spaces (and maybe other characters) produce quads of size 0
+            HMM_Vec2 points[4] = {
+                HMM_AddV2(HMM_V2(q.x0, -q.y0), HMM_V2(0.0f, 0.0f)),
+                HMM_AddV2(HMM_V2(q.x0, -q.y0), HMM_V2(size.X, 0.0f)),
+                HMM_AddV2(HMM_V2(q.x0, -q.y0), HMM_V2(size.X, -size.Y)),
+                HMM_AddV2(HMM_V2(q.x0, -q.y0), HMM_V2(0.0f, -size.Y)),
+            };
+            
+            AABB font_atlas_region = (AABB) {
+                .upper_left  = HMM_V2(q.s0, q.t0),
+                .lower_right = HMM_V2(q.s1, q.t1),
+            };
+            font_atlas_region.upper_left.X *= img_size(image_font).X;
+            font_atlas_region.lower_right.X *= img_size(image_font).X;
+            font_atlas_region.upper_left.Y *= img_size(image_font).Y;
+            font_atlas_region.lower_right.Y *= img_size(image_font).Y;
+            
+            for(int i = 0; i < 4; i++) {
+                bounds.upper_left.X = min(bounds.upper_left.X, points[i].X);
+                bounds.upper_left.Y = max(bounds.upper_left.Y, points[i].Y);
+                bounds.lower_right.X = max(bounds.lower_right.X, points[i].X);
+                bounds.lower_right.Y = min(bounds.lower_right.Y, points[i].Y);
+            }
+
+            for(int i = 0; i < 4; i++) {
+                points[i] = HMM_AddV2(points[i], pos);
+            }
+
+            if(!dry_run) {
+                draw_quad(world_space, points, image_font, font_atlas_region, color);
+            }
+        }
+    }
+
+    return bounds;
 }
 
 double time = 0.0;
@@ -376,6 +442,7 @@ void frame(void) {
     double dt_double = 0.0;
     {
         dt_double = stm_sec(stm_diff(stm_now(), last_frame_time));
+        dt_double = min(dt_double, 5.0 / 60.0); // clamp dt at maximum 5 frames, avoid super huge dt
         time += dt_double;
         last_frame_time = stm_now();
     }
@@ -413,7 +480,7 @@ void frame(void) {
                     }
                 }
                 if(info == NULL) info = &mystery_tile;
-                draw_quad_world_all(points, *info->img, info->regions[0], WHITE);
+                draw_quad(true, points, *info->img, info->regions[0], WHITE);
             }
         }
     }
@@ -423,40 +490,29 @@ void frame(void) {
     {
         HMM_Vec2 points[4] = {0};
         quad_points_centered_size(points, HMM_V2(0.0, 0.0), HMM_V2(250.0, 250.0));
-        draw_quad_world_all(points, image_font,full_region(image_font), BLACK);
+        draw_quad(true, points, image_font,full_region(image_font), BLACK);
     }
-    
-    // draw text
-    const char *text = "Hello, can anybody hear me?";
+
+#ifdef DEVTOOLS
+    // statistics
     {
-        float x = 0.0;
-        float y = 0.0;
-        for(int i = 0; i < strlen(text); i++) {
-            stbtt_aligned_quad q;
-            float old_y = y;
-            stbtt_GetBakedQuad(cdata, 512, 512, text[i]-32, &x, &y, &q, 1);
-            float difference = y - old_y;
-            y = old_y + difference;
-
-            HMM_Vec2 size = HMM_V2(q.x1 - q.x0, q.y1 - q.y0);
-            HMM_Vec2 points[4] = {
-                HMM_AddV2(HMM_V2(q.x0, -q.y0), HMM_V2(0.0f, 0.0f)),
-                HMM_AddV2(HMM_V2(q.x0, -q.y0), HMM_V2(size.X, 0.0f)),
-                HMM_AddV2(HMM_V2(q.x0, -q.y0), HMM_V2(size.X, -size.Y)),
-                HMM_AddV2(HMM_V2(q.x0, -q.y0), HMM_V2(0.0f, -size.Y)),
-            };
-            
-            AABB region = (AABB){
-                .upper_left  = HMM_V2(q.s0, q.t0),
-                .lower_right = HMM_V2(q.s1, q.t1),
-            };
-            region.upper_left.X *= img_size(image_font).X;
-            region.lower_right.X *= img_size(image_font).X;
-            region.upper_left.Y *= img_size(image_font).Y;
-            region.lower_right.Y *= img_size(image_font).Y;
-
-            draw_quad_world_all(points, image_font, region, BLACK);
-        }
+        // background panel
+        colorbox(false, HMM_V2(0.0, 0.0), HMM_V2(200.0, -200.0), (Color){1.0, 1.0, 1.0, 0.5});
+        char frametime[128] = {0};
+        snprintf(frametime, 128, "Frametime: %.1f ms", dt*1000.0);
+        draw_text(false, false, frametime, strlen(frametime), HMM_V2(0.0, 0.0), BLACK);
+    }
+#endif
+    
+    const char *text = "great idea";
+    // measure text
+    {
+        AABB bounds = draw_text(true, true, text, strlen(text), HMM_V2(0.0, 0.0), BLACK);
+        colorbox(true, bounds.upper_left, bounds.lower_right, (Color){1.0,0.0,0.0,0.5});
+    }
+    // draw text
+    {
+        draw_text(true, false, text, strlen(text), HMM_V2(0.0, 0.0), BLACK);
     }
 
     // merchant
@@ -471,7 +527,7 @@ void frame(void) {
     region.upper_left = HMM_V2( (float)((index % ((int)img_size(image_merchant).X/cell_size)) * cell_size), 0.0);
     region.lower_right = HMM_V2(region.upper_left.X + (float)cell_size, (float)cell_size);
 
-    draw_quad_world_all(points, image_merchant, region, WHITE);
+    draw_quad(true, points, image_merchant, region, WHITE);
 
     sg_end_pass();
     sg_commit();
