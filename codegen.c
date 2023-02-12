@@ -12,17 +12,25 @@
 #include "md.c"
 #pragma warning(pop)
 
-#include "jsmn.h"
-
 
 MD_String8 OUTPUT_FOLDER = MD_S8LitComp("gen"); // no trailing slash
 MD_String8 ASSETS_FOLDER = MD_S8LitComp("assets");
 
 #define log(...) { printf("Codegen: "); printf(__VA_ARGS__); }
 
-void dump(MD_ParseResult parse) {
+void dump(MD_Node* from) {
+    printf("/ %.*s\n", MD_S8VArg(from->string));
+    int d = 0;
+    for(MD_EachNode(child, from->first_child))
+    {
+        printf("|-- Child %d %.*s\n", d, MD_S8VArg(child->string));
+        d += 1;
+    }
+}
+
+void dump_root(MD_Node* from) {
     // Iterate through each top-level node
-    for(MD_EachNode(node, parse.node->first_child))
+    for(MD_EachNode(node, from->first_child))
     {
         printf("/ %.*s\n", MD_S8VArg(node->string));
 
@@ -42,36 +50,6 @@ void dump(MD_ParseResult parse) {
 
 MD_Arena *cg_arena = NULL;
 
-static bool jsoneq(const char *json, jsmntok_t *tok, const char *s) {
-  if (tok->type == JSMN_STRING && (int)strlen(s) == tok->end - tok->start &&
-      strncmp(json + tok->start, s, tok->end - tok->start) == 0) {
-    return true;
-  }
-  return false;
-}
-
-static int getint(const char *json, jsmntok_t *tok) {
-    assert(tok->type == JSMN_PRIMITIVE, MD_S8Lit("not primitive"));
-    char tmp[256] = {0};
-    strncpy(tmp, json + tok->start, tok->end - tok->start);
-    return atoi(tmp);
-}
-
-// will look over into random memory if can't find...
-static int getnextofname(const char *json, jsmntok_t *starting_at, const char *name) {
-    jsmntok_t *cur = starting_at;
-    // max lookahead, bad
-    for(int i = 0; i < 1024*10; i++) {
-        if(jsoneq(json, cur, name)) {
-            return getint(json, cur+1);
-        }
-        cur++;
-    }
-    assert(false, MD_S8Fmt(cg_arena, "Could not find integer for %s\n", name));
-    return -1;
-}
-
-
 MD_String8 ChildValue(MD_Node *n, MD_String8 name) {
     MD_Node *child_with_value = MD_ChildFromString(n, name, 0);
     assert(child_with_value, MD_S8Fmt(cg_arena, "Could not find child named '%.*s' of node '%.*s'", MD_S8VArg(name), MD_S8VArg(n->string)));
@@ -83,9 +61,18 @@ MD_String8 asset_file_path(MD_String8 filename) {
     return MD_S8Fmt(cg_arena, "%.*s/%.*s", MD_S8VArg(ASSETS_FOLDER), MD_S8VArg(filename));
 }
 
+char *nullterm(MD_String8 s) {
+    char *to_return = malloc(s.size + 1);
+    memcpy(to_return, s.str, s.size);
+    to_return[s.size] = '\0';
+    return to_return;
+}
+
 int main(int argc, char **argv) {
     cg_arena = MD_ArenaAlloc();
     assert(cg_arena, MD_S8Lit("Memory"));
+
+    char *nulled = nullterm(MD_S8Lit("test"));
 
     // I hope to God MD_String8's are null terminated...
     MD_String8 writeto = MD_S8Fmt(cg_arena, "%.*s/assets.gen.c", MD_S8VArg(OUTPUT_FOLDER));
@@ -94,7 +81,7 @@ int main(int argc, char **argv) {
 
     MD_ParseResult parse = MD_ParseWholeFile(cg_arena, MD_S8Lit("assets.mdesk"));
 
-    //dump(parse);
+    //dump(parse.node);
 
     MD_String8List declarations_list = {0};
     MD_String8List load_list = {0};
@@ -115,9 +102,36 @@ int main(int argc, char **argv) {
         }
         if(MD_S8Match(node->first_tag->string, MD_S8Lit("level"), 0)) {
             MD_String8 variable_name = MD_S8Fmt(cg_arena, "level_%.*s", MD_S8VArg(node->string));
+            log("New level variable %.*s\n", MD_S8VArg(variable_name));
             MD_String8 filepath = asset_file_path(ChildValue(node, MD_S8Lit("filepath")));
-            MD_String8 level_file_contents = MD_LoadEntireFile(cg_arena, filepath);
-            assert(level_file_contents.str != 0 && level_file_contents.size > 1, MD_S8Lit("Failed to load level file"));
+            MD_ParseResult level_parse = MD_ParseWholeFile(cg_arena, filepath);
+            assert(level_parse.node != 0, MD_S8Lit("Failed to load level file"));
+
+            //dump(level_parse.node);
+            MD_Node *layers = MD_ChildFromString(level_parse.node->first_child, MD_S8Lit("layers"), 0);
+            int width = atoi(nullterm(MD_ChildFromString(layers->first_child, MD_S8Lit("width"), 0)->first_child->string));
+            int height = atoi(nullterm(MD_ChildFromString(layers->first_child, MD_S8Lit("height"), 0)->first_child->string));
+            MD_Node *data = MD_ChildFromString(layers->first_child, MD_S8Lit("data"), 0);
+
+            fprintf(output, "Level %.*s = {\n.tiles = {\n", MD_S8VArg(variable_name));
+            int num_index = 0;
+            fprintf(output, "{ ");
+            for(MD_EachNode(tile_id_node, data->first_child)) {
+                fprintf(output, "%.*s, ", MD_S8VArg(tile_id_node->string));
+
+                if(num_index % width == width - 1) {
+                    if(MD_NodeIsNil(tile_id_node->next)) {
+                        fprintf(output, "},\n}\n}; // %.*s\n", MD_S8VArg(variable_name));
+                    } else {
+                        fprintf(output, "},\n{ ");
+                    }
+                }
+                num_index += 1;
+            }
+            //fprintf(output, "},\n};\n");
+
+
+#if 0
             jsmn_parser p;
             jsmntok_t t[1024*5];
             jsmn_init(&p);
@@ -152,6 +166,7 @@ int main(int argc, char **argv) {
                     }
                 }
             }
+#endif
 
         }
     }
