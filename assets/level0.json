@@ -1,4 +1,11 @@
 { "compressionlevel":-1,
+ "editorsettings":
+    {
+     "export":
+        {
+         "format":"json"
+        }
+    },
  "height":60,
  "infinite":false,
  "layers":[

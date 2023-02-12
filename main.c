@@ -27,8 +27,8 @@ typedef struct TileInstance {
 
 typedef struct TileInfo {
     uint16_t kind;
-    int num_frames;
-    AABB regions[32];
+    int num_frames; // each frame of animation is same size, to the right of the region
+    HMM_Vec2 region_upper_left;
     sg_image *img;
 } TileInfo;
 
@@ -70,21 +70,95 @@ sg_image load_image(const char *path) {
 #include "quad-sapp.glsl.h"
 #include "assets.gen.c"
 
+// the `kind`, or the ID of the tile, is off by one from what tiled displays in editor. Sucks!
 TileInfo tiles[] = {
     {
         .kind = 53,
+        .num_frames = 15,
+        .region_upper_left = { 0, 32 },
+        .img = &image_animated_terrain,
+    },
+    {
+        .kind = 158,
+        .num_frames = 15,
+        .region_upper_left = { 672, 128 },
+        .img = &image_animated_terrain,
+    },
+    {
+        .kind = 159,
+        .num_frames = 15,
+        .region_upper_left = { 672, 96 },
+        .img = &image_animated_terrain,
+    },
+    {
+        .kind = 160,
+        .num_frames = 15,
+        .region_upper_left = { 160, 192 },
+        .img = &image_animated_terrain,
+    },
+    {
+        .kind = 210,
+        .num_frames = 15,
+        .region_upper_left = { 672, 160 },
+        .img = &image_animated_terrain,
+    },
+    {
+        .kind = 261,
+        .num_frames = 15,
+        .region_upper_left = { 672, 224 },
+        .img = &image_animated_terrain,
+    },
+    {
+        .kind = 367,
+        .num_frames = 15,
+        .region_upper_left = { 1184, 160 },
+        .img = &image_animated_terrain,
+    },
+    {
+        .kind = 316,
+        .num_frames = 15,
+        .region_upper_left = { 160, 96 },
+        .img = &image_animated_terrain,
+    },
+    {
+        .kind = 209,
+        .num_frames = 15,
+        .region_upper_left = { 672, 128 },
+        .img = &image_animated_terrain,
+    },
+    {
+        .kind = 213,
+        .num_frames = 15,
+        .region_upper_left = { 672, 64 },
+        .img = &image_animated_terrain,
+    },
+    {
+        .kind = 263,
         .num_frames = 1,
-        .regions[0] = { 0, 32, 32, 64 },
+        .region_upper_left = { 64, 160 },
+        .img = &image_animated_terrain,
+    },
+    {
+        .kind = 213,
+        .num_frames = 15,
+        .region_upper_left = { 672, 64 },
+        .img = &image_animated_terrain,
+    },
+    {
+        .kind = 213,
+        .num_frames = 15,
+        .region_upper_left = { 672, 64 },
         .img = &image_animated_terrain,
     },
 };
 TileInfo mystery_tile = {
     .img = &image_mystery_tile,
     .num_frames = 1,
-    .regions[0] = { 0, 0, 32, 32 },
+    .region_upper_left = { 0, 0 },
 };
 
-sg_image image_font;
+sg_image image_font = {0};
+const float font_size = 64.0;
 stbtt_bakedchar cdata[96]; // ASCII 32..126 is 95 glyphs
 
 // so can be grep'd and removed
@@ -117,7 +191,7 @@ void init(void) {
         fclose(fontFile);
 
         unsigned char font_bitmap[512*512] = {0};
-        stbtt_BakeFontBitmap(fontBuffer, 0, 64.0, font_bitmap, 512, 512, 32, 96, cdata);
+        stbtt_BakeFontBitmap(fontBuffer, 0, font_size, font_bitmap, 512, 512, 32, 96, cdata);
 
         unsigned char *font_bitmap_rgba = malloc(4 * 512 * 512); // stack would be too big if allocated on stack (stack overflow)
         for(int i = 0; i < 512 * 512; i++) {
@@ -181,7 +255,7 @@ void init(void) {
     });
 
     state.pass_action = (sg_pass_action) {
-        .colors[0] = { .action=SG_ACTION_CLEAR, .value={1.0f, 1.0f, 1.0f, 1.0f } }
+        .colors[0] = { .action=SG_ACTION_CLEAR, .value={12.5f/255.0f, 12.5f/255.0f, 12.5f/255.0f, 1.0f } }
     };
 }
 
@@ -392,6 +466,14 @@ AABB draw_text(bool world_space, bool dry_run, const char *text, size_t length, 
         y = old_y + difference;
 
         HMM_Vec2 size = HMM_V2(q.x1 - q.x0, q.y1 - q.y0);
+        if(text[i] == '\n') {
+#ifdef DEVTOOLS
+            y += font_size*0.75f; // arbitrary, only debug text has newlines
+            x = 0.0;
+#else
+            assert(false);
+#endif
+        }
         if(size.Y > 0.0 && size.X > 0.0) { // spaces (and maybe other characters) produce quads of size 0
             HMM_Vec2 points[4] = {
                 HMM_AddV2(HMM_V2(q.x0, -q.y0), HMM_V2(0.0f, 0.0f)),
@@ -419,17 +501,20 @@ AABB draw_text(bool world_space, bool dry_run, const char *text, size_t length, 
             for(int i = 0; i < 4; i++) {
                 points[i] = HMM_AddV2(points[i], pos);
             }
-
+           
             if(!dry_run) {
                 draw_quad(world_space, points, image_font, font_atlas_region, color);
             }
         }
     }
 
-    return bounds;
+    bounds.upper_left = HMM_AddV2(bounds.upper_left, pos);
+    bounds.lower_right = HMM_AddV2(bounds.lower_right, pos);
+     return bounds;
 }
 
 double time = 0.0;
+double last_frame_processing_time = 0.0;
 uint64_t last_frame_time;
 HMM_Vec2 mouse_pos = {0}; // in screen space
 HMM_Vec2 character_pos = {0}; // world space point
@@ -438,6 +523,7 @@ bool keydown[SAPP_KEYCODE_MENU] = {0};
 bool mouse_frozen = false;
 #endif
 void frame(void) {
+    uint64_t time_start_frame = stm_now();
     // time
     double dt_double = 0.0;
     {
@@ -471,7 +557,8 @@ void frame(void) {
             TileInstance cur = cur_level->tiles[row][col];
             if(cur.kind != 0){
                 HMM_Vec2 points[4] = {0};
-                quad_points_corner_size(points, tilecoord_to_world(col, row), HMM_V2(TILE_SIZE, TILE_SIZE));
+                HMM_Vec2 tile_size = HMM_V2(TILE_SIZE, TILE_SIZE);
+                quad_points_corner_size(points, tilecoord_to_world(col, row), tile_size);
                 TileInfo *info = NULL;
                 for(int i = 0; i < sizeof(tiles)/sizeof(*tiles); i++) {
                     if(tiles[i].kind == cur.kind) {
@@ -480,40 +567,63 @@ void frame(void) {
                     }
                 }
                 if(info == NULL) info = &mystery_tile;
-                draw_quad(true, points, *info->img, info->regions[0], WHITE);
+
+                AABB region;
+                region.upper_left = info->region_upper_left;
+                region.lower_right = HMM_AddV2(region.upper_left, tile_size);
+                double time_per_frame = 0.1;
+                int frame_index = (int)(time/time_per_frame) % info->num_frames;
+                float width = region.lower_right.X - region.upper_left.X;
+                assert(width > 0.0f);
+                region.upper_left.X += width*(float)frame_index;
+                region.lower_right.X += width*(float)frame_index;
+
+                draw_quad(true, points, *info->img, region, WHITE);
             }
         }
     }
 #endif
 
+
+#ifdef DEVTOOLS
     // debug draw font image
     {
         HMM_Vec2 points[4] = {0};
         quad_points_centered_size(points, HMM_V2(0.0, 0.0), HMM_V2(250.0, 250.0));
-        draw_quad(true, points, image_font,full_region(image_font), BLACK);
+        draw_quad(true, points, image_font,full_region(image_font), WHITE);
     }
 
-#ifdef DEVTOOLS
     // statistics
     {
+        char statistics[1024] = {0};
+        snprintf(statistics, sizeof(statistics), "Frametime: %.1f ms\nProcessing: %.1f ms", dt*1000.0, last_frame_processing_time*1000.0);
+        HMM_Vec2 pos = HMM_V2(0.0, screen_size().Y);
+        AABB bounds = draw_text(false, true, statistics, strlen(statistics), pos, BLACK);
+        pos.Y -= bounds.upper_left.Y - screen_size().Y;
+        bounds = draw_text(false, true, statistics, strlen(statistics), pos, BLACK);
         // background panel
-        colorbox(false, HMM_V2(0.0, 0.0), HMM_V2(200.0, -200.0), (Color){1.0, 1.0, 1.0, 0.5});
-        char frametime[128] = {0};
-        snprintf(frametime, 128, "Frametime: %.1f ms", dt*1000.0);
-        draw_text(false, false, frametime, strlen(frametime), HMM_V2(0.0, 0.0), BLACK);
+        colorbox(false, bounds.upper_left, bounds.lower_right, (Color){1.0, 1.0, 1.0, 0.3f});
+        //colorbox(false, HMM_V2(50,screen_size().Y), HMM_V2(100,0), RED);
+        //colorbox(false, bounds.upper_left, bounds.lower_right, RED);
+        draw_text(false, false, statistics, strlen(statistics), pos, BLACK);
     }
-#endif
-    
-    const char *text = "great idea";
+    // text test render
+#if 0
+    const char *text = "great idea\nother idea";
     // measure text
+    HMM_Vec2 pos = character_pos;
     {
-        AABB bounds = draw_text(true, true, text, strlen(text), HMM_V2(0.0, 0.0), BLACK);
+        AABB bounds = draw_text(true, true, text, strlen(text), pos, WHITE);
         colorbox(true, bounds.upper_left, bounds.lower_right, (Color){1.0,0.0,0.0,0.5});
     }
     // draw text
     {
-        draw_text(true, false, text, strlen(text), HMM_V2(0.0, 0.0), BLACK);
+        draw_text(true, false, text, strlen(text), pos, WHITE);
     }
+#endif
+
+#endif
+    
 
     // merchant
     int index = (int)floor(time/0.3);
@@ -531,6 +641,8 @@ void frame(void) {
 
     sg_end_pass();
     sg_commit();
+
+    last_frame_processing_time = stm_sec(stm_diff(stm_now(),time_start_frame));
 }
 
 void cleanup(void) {
