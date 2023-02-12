@@ -68,6 +68,33 @@ char *nullterm(MD_String8 s) {
     return to_return;
 }
 
+char* fillnull(char *s, char c) {
+    while(*s != '\0') {
+        if(*s == c) {
+            *s = '\0';
+            return s + 1;
+        }
+        s++;
+    }
+    assert(false, MD_S8Lit("Couldn't find char"));
+    return NULL;
+}
+
+char* goto_end_of(char *tomove, size_t max_move, char *pattern) {
+    size_t pattern_len = strlen(pattern);
+    for(int i = 0; i < max_move; i++) {
+        if(strncmp(tomove, pattern, pattern_len) == 0) {
+            tomove += pattern_len;
+            return tomove;
+        }
+        tomove++;
+    }
+    return NULL;
+}
+
+#define list_printf(list_ptr, ...) MD_S8ListPush(cg_arena, list_ptr, MD_S8Fmt(cg_arena, __VA_ARGS__))
+
+
 int main(int argc, char **argv) {
     cg_arena = MD_ArenaAlloc();
     assert(cg_arena, MD_S8Lit("Memory"));
@@ -86,6 +113,7 @@ int main(int argc, char **argv) {
     MD_String8List declarations_list = {0};
     MD_String8List load_list = {0};
     MD_String8List level_decl_list = {0};
+    MD_String8List tileset_decls = {0};
     for(MD_EachNode(node, parse.node->first_child)) {
         if(MD_S8Match(node->first_tag->string, MD_S8Lit("image"), 0)) {
             MD_String8 variable_name = MD_S8Fmt(cg_arena, "image_%.*s", MD_S8VArg(node->string));
@@ -100,6 +128,44 @@ int main(int argc, char **argv) {
             MD_S8ListPush(cg_arena, &declarations_list, MD_S8Fmt(cg_arena, "sg_image %.*s = {0};\n", MD_S8VArg(variable_name)));
             MD_S8ListPush(cg_arena, &load_list, MD_S8Fmt(cg_arena, "%.*s = load_image(\"%.*s\");\n", MD_S8VArg(variable_name), MD_S8VArg(filepath)));
         }
+        if(MD_S8Match(node->first_tag->string, MD_S8Lit("tileset"), 0)) {
+            MD_String8 variable_name = MD_S8Fmt(cg_arena, "tileset_%.*s", MD_S8VArg(node->string));
+            log("New tileset %.*s\n", MD_S8VArg(variable_name));
+            MD_String8 filepath = asset_file_path(ChildValue(node, MD_S8Lit("filepath")));
+
+            MD_String8 tileset_file_contents = MD_LoadEntireFile(cg_arena, filepath);
+            list_printf(&tileset_decls, "TileSet %.*s = {\n", MD_S8VArg(variable_name));
+            list_printf(&tileset_decls, ".img = &%.*s,\n", MD_S8VArg(ChildValue(node, MD_S8Lit("image"))));
+
+            list_printf(&tileset_decls, ".animated = {\n");
+            char *end = tileset_file_contents.str + tileset_file_contents.size;
+            char *cur = tileset_file_contents.str;
+            while(cur < end) {
+                cur = goto_end_of(cur, end - cur, "<tile id=\""); 
+                if(cur == NULL) break;
+                char *new_cur = fillnull(cur, '"');
+                int frame_from = atoi(cur);
+                cur = new_cur;
+                list_printf(&tileset_decls, "{ .id_from = %d, .frames = { ", frame_from);
+
+                char *end_of_anim = goto_end_of(cur, end - cur, "</animation>");
+
+                int num_frames = 0;
+                while(true) {
+                    char *next_frame = goto_end_of(cur, end - cur, "<frame tileid=\"");
+                    if(next_frame == NULL || next_frame > end_of_anim) break;
+                    char *new_cur = fillnull(next_frame, '"');
+                    int frame = atoi(next_frame);
+                        
+                    list_printf(&tileset_decls, "%d, ", frame);
+                    num_frames++;
+
+                    cur = new_cur;
+                }
+                list_printf(&tileset_decls, "}, .num_frames = %d },\n", num_frames);
+            }
+            list_printf(&tileset_decls, "}};\n");
+        }
         if(MD_S8Match(node->first_tag->string, MD_S8Lit("level"), 0)) {
             MD_String8 variable_name = MD_S8Fmt(cg_arena, "level_%.*s", MD_S8VArg(node->string));
             log("New level variable %.*s\n", MD_S8VArg(variable_name));
@@ -107,7 +173,6 @@ int main(int argc, char **argv) {
             MD_ParseResult level_parse = MD_ParseWholeFile(cg_arena, filepath);
             assert(level_parse.node != 0, MD_S8Lit("Failed to load level file"));
 
-            //dump(level_parse.node);
             MD_Node *layers = MD_ChildFromString(level_parse.node->first_child, MD_S8Lit("layers"), 0);
             int width = atoi(nullterm(MD_ChildFromString(layers->first_child, MD_S8Lit("width"), 0)->first_child->string));
             int height = atoi(nullterm(MD_ChildFromString(layers->first_child, MD_S8Lit("height"), 0)->first_child->string));
@@ -128,53 +193,14 @@ int main(int argc, char **argv) {
                 }
                 num_index += 1;
             }
-            //fprintf(output, "},\n};\n");
-
-
-#if 0
-            jsmn_parser p;
-            jsmntok_t t[1024*5];
-            jsmn_init(&p);
-            const char *json_string = level_file_contents.str;
-            int r = jsmn_parse(&p, json_string, level_file_contents.size, t, sizeof(t) / sizeof(t[0]));
-            assert(r > 0, MD_S8Lit("Failed to parse json"));
-
-            int layer_obj_token = 0;
-            fprintf(output, "Level %.*s = {\n.tiles = {\n", MD_S8VArg(variable_name));
-            // this code is absolutely disgusting but I think it's fine because this is meta code, I guess time will tell if this needs to be cleaner or not... sorry future self!
-            for(int i = 0; i < r; i++) {
-                if(jsoneq(json_string, &t[i], "data")) {
-                    jsmntok_t *arr = &t[i+1];
-                    assert(arr->type == JSMN_ARRAY, MD_S8Lit("Expected array after data"));
-                    int width = getnextofname(json_string, &t[i+1], "width");
-                    int height = getnextofname(json_string, &t[i+1], "height");
-
-                    fprintf(output, "{ ");
-                    int last_token_index = i + 2 + arr->size;
-                    for(int ii = i + 2; ii < last_token_index; ii++) {
-                        jsmntok_t *num_to_add = &t[ii];
-                        assert(num_to_add->type == JSMN_PRIMITIVE, MD_S8Lit("not a number"));
-                        int num_index = ii - (i + 2);
-                        fprintf(output, "%.*s, ", num_to_add->end - num_to_add->start, json_string + num_to_add->start);
-                        if(num_index % width == width - 1) {
-                            if(ii == last_token_index - 1) {
-                                fprintf(output, "},\n}\n}; // %.*s\n", MD_S8VArg(variable_name));
-                            } else {
-                                fprintf(output, "},\n{ ");
-                            }
-                        }
-                    }
-                }
-            }
-#endif
-
         }
     }
 
     MD_StringJoin join = MD_ZERO_STRUCT;
     MD_String8 declarations = MD_S8ListJoin(cg_arena, declarations_list, &join);
     MD_String8 loads = MD_S8ListJoin(cg_arena, load_list, &join);
-    fprintf(output, "%.*s\nvoid load_assets() {\n%.*s\n}", MD_S8VArg(declarations), MD_S8VArg(loads));
+    fprintf(output, "%.*s\nvoid load_assets() {\n%.*s\n}\n", MD_S8VArg(declarations), MD_S8VArg(loads));
+    fprintf(output, "%.*s\n", MD_S8VArg(MD_S8ListJoin(cg_arena, tileset_decls, &join)));
 
     fclose(output);
     return 0;

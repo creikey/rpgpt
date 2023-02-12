@@ -25,12 +25,16 @@ typedef struct TileInstance {
     uint16_t kind;
 } TileInstance;
 
-typedef struct TileInfo {
-    uint16_t kind;
-    int num_frames; // each frame of animation is same size, to the right of the region
-    HMM_Vec2 region_upper_left;
+typedef struct AnimatedTile {
+    uint16_t id_from;
+    int num_frames;
+    uint16_t frames[32];
+} AnimatedTile;
+
+typedef struct TileSet {
     sg_image *img;
-} TileInfo;
+    AnimatedTile animated[128];
+} TileSet;
 
 #define LEVEL_TILES 60
 #define TILE_SIZE 32 // in pixels
@@ -69,93 +73,6 @@ sg_image load_image(const char *path) {
 
 #include "quad-sapp.glsl.h"
 #include "assets.gen.c"
-
-// the `kind`, or the ID of the tile, is off by one from what tiled displays in editor. Sucks!
-TileInfo tiles[] = {
-    {
-        .kind = 53,
-        .num_frames = 15,
-        .region_upper_left = { 0, 32 },
-        .img = &image_animated_terrain,
-    },
-    {
-        .kind = 158,
-        .num_frames = 15,
-        .region_upper_left = { 672, 128 },
-        .img = &image_animated_terrain,
-    },
-    {
-        .kind = 159,
-        .num_frames = 15,
-        .region_upper_left = { 672, 96 },
-        .img = &image_animated_terrain,
-    },
-    {
-        .kind = 160,
-        .num_frames = 15,
-        .region_upper_left = { 160, 192 },
-        .img = &image_animated_terrain,
-    },
-    {
-        .kind = 210,
-        .num_frames = 15,
-        .region_upper_left = { 672, 160 },
-        .img = &image_animated_terrain,
-    },
-    {
-        .kind = 261,
-        .num_frames = 15,
-        .region_upper_left = { 672, 224 },
-        .img = &image_animated_terrain,
-    },
-    {
-        .kind = 367,
-        .num_frames = 15,
-        .region_upper_left = { 1184, 160 },
-        .img = &image_animated_terrain,
-    },
-    {
-        .kind = 316,
-        .num_frames = 15,
-        .region_upper_left = { 160, 96 },
-        .img = &image_animated_terrain,
-    },
-    {
-        .kind = 209,
-        .num_frames = 15,
-        .region_upper_left = { 672, 128 },
-        .img = &image_animated_terrain,
-    },
-    {
-        .kind = 213,
-        .num_frames = 15,
-        .region_upper_left = { 672, 64 },
-        .img = &image_animated_terrain,
-    },
-    {
-        .kind = 263,
-        .num_frames = 1,
-        .region_upper_left = { 64, 160 },
-        .img = &image_animated_terrain,
-    },
-    {
-        .kind = 213,
-        .num_frames = 15,
-        .region_upper_left = { 672, 64 },
-        .img = &image_animated_terrain,
-    },
-    {
-        .kind = 213,
-        .num_frames = 15,
-        .region_upper_left = { 672, 64 },
-        .img = &image_animated_terrain,
-    },
-};
-TileInfo mystery_tile = {
-    .img = &image_mystery_tile,
-    .num_frames = 1,
-    .region_upper_left = { 0, 0 },
-};
 
 sg_image image_font = {0};
 const float font_size = 64.0;
@@ -451,6 +368,15 @@ void colorbox(bool world_space, HMM_Vec2 upper_left, HMM_Vec2 lower_right, Color
     draw_quad(world_space, points, image_white_square, full_region(image_white_square), color);
 }
 
+HMM_Vec2 tile_id_to_coord(sg_image tileset_image, HMM_Vec2 tile_size, uint16_t tile_id) {
+    int tiles_per_row = (int)(img_size(tileset_image).X / tile_size.X);
+    int tile_index = tile_id - 1;
+    int tile_image_row = tile_index / tiles_per_row;
+    int tile_image_col = tile_index - tile_image_row*tiles_per_row;
+    HMM_Vec2 tile_image_coord = HMM_V2((float)tile_image_col * tile_size.X, (float)tile_image_row*tile_size.Y);
+    return tile_image_coord;
+}
+
 // returns bounds. To measure text you can set dry run to true and get the bounds
 
 AABB draw_text(bool world_space, bool dry_run, const char *text, size_t length, HMM_Vec2 pos, Color color) {
@@ -555,30 +481,33 @@ void frame(void) {
         for(int col = 0; col < LEVEL_TILES; col++)
         {
             TileInstance cur = cur_level->tiles[row][col];
+            TileSet tileset = tileset_ruins_animated;
             if(cur.kind != 0){
                 HMM_Vec2 points[4] = {0};
                 HMM_Vec2 tile_size = HMM_V2(TILE_SIZE, TILE_SIZE);
                 quad_points_corner_size(points, tilecoord_to_world(col, row), tile_size);
-                TileInfo *info = NULL;
-                for(int i = 0; i < sizeof(tiles)/sizeof(*tiles); i++) {
-                    if(tiles[i].kind == cur.kind) {
-                        info = &tiles[i];
-                        break;
+
+                sg_image tileset_image = *tileset.img;
+
+                HMM_Vec2 tile_image_coord = tile_id_to_coord(tileset_image, tile_size, cur.kind);
+
+                AnimatedTile *anim = NULL;
+                for(int i = 0; i < sizeof(tileset.animated)/sizeof(*tileset.animated); i++) {
+                    if(tileset.animated[i].id_from == cur.kind-1) {
+                        anim = &tileset.animated[i];
                     }
                 }
-                if(info == NULL) info = &mystery_tile;
+                if(anim) {
+                    double time_per_frame = 0.1;
+                    int frame_index = (int)(time/time_per_frame) % anim->num_frames;
+                    tile_image_coord = tile_id_to_coord(tileset_image, tile_size, anim->frames[frame_index]+1);
+                }
 
                 AABB region;
-                region.upper_left = info->region_upper_left;
+                region.upper_left = tile_image_coord;
                 region.lower_right = HMM_AddV2(region.upper_left, tile_size);
-                double time_per_frame = 0.1;
-                int frame_index = (int)(time/time_per_frame) % info->num_frames;
-                float width = region.lower_right.X - region.upper_left.X;
-                assert(width > 0.0f);
-                region.upper_left.X += width*(float)frame_index;
-                region.lower_right.X += width*(float)frame_index;
 
-                draw_quad(true, points, *info->img, region, WHITE);
+                draw_quad(true, points, tileset_image, region, WHITE);
             }
         }
     }

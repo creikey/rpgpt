@@ -14,7 +14,12 @@
 {
     filepath: "mystery_tile.png",
 }
+@tileset ruins_animated:
+{
+    image: image_animated_terrain,
+    filepath: "copyrighted/ruins_animated.tsx",
+}
 @level level0:
 {
-    filepath: "testsmalllevel.json",
+    filepath: "level0.json",
 }

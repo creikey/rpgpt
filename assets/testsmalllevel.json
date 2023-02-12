@@ -3,13 +3,13 @@
  "infinite":false,
  "layers":[
         {
-         "data":[53, 53, 53, 53, 53, 53, 53, 53,
-            53, 53, 53, 158, 213, 53, 53, 53,
-            53, 53, 209, 210, 212, 160, 53, 53,
-            53, 158, 210, 263, 263, 212, 213, 53,
-            53, 366, 314, 263, 263, 316, 368, 53,
-            53, 53, 366, 314, 316, 368, 53, 53,
-            53, 53, 53, 366, 368, 53, 53, 53,
+         "data":[53, 53, 53, 209, 160, 53, 53, 53,
+            53, 209, 159, 210, 265, 53, 53, 53,
+            209, 210, 263, 263, 212, 213, 53, 53,
+            261, 263, 263, 263, 263, 265, 53, 53,
+            313, 314, 263, 263, 263, 265, 53, 53,
+            53, 313, 314, 316, 367, 317, 53, 53,
+            53, 53, 366, 317, 53, 53, 53, 53,
             53, 53, 53, 53, 53, 53, 53, 53],
          "height":8,
          "id":1,
@@ -31,6 +31,10 @@
         {
          "firstgid":1,
          "source":"..\/EPIC RPG World Pack - Ancient Ruins V 1.7\/EPIC RPG World Pack - Ancient Ruins V 1.7\/TiledMap Editor\/Ancient Ruins-Animated Terrains-16 frames.tsx"
+        }, 
+        {
+         "firstgid":2341,
+         "source":"..\/EPIC RPG World Pack - Ancient Ruins V 1.7\/EPIC RPG World Pack - Ancient Ruins V 1.7\/TiledMap Editor\/Terrain - Ancient Ruins.tsx"
         }],
  "tilewidth":32,
  "type":"map",
