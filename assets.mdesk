@@ -2,6 +2,14 @@
 {
     filepath: "copyrighted/merchant.png",
 }
+@image knight_idle:
+{
+    filepath: "_Idle.png",
+}
+@image knight_run:
+{
+    filepath: "_Run.png",
+}
 @image animated_terrain:
 {
     filepath: "copyrighted/animated_terrain.png",

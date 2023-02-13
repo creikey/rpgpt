@@ -174,25 +174,42 @@ int main(int argc, char **argv) {
             assert(level_parse.node != 0, MD_S8Lit("Failed to load level file"));
 
             MD_Node *layers = MD_ChildFromString(level_parse.node->first_child, MD_S8Lit("layers"), 0);
-            int width = atoi(nullterm(MD_ChildFromString(layers->first_child, MD_S8Lit("width"), 0)->first_child->string));
-            int height = atoi(nullterm(MD_ChildFromString(layers->first_child, MD_S8Lit("height"), 0)->first_child->string));
-            MD_Node *data = MD_ChildFromString(layers->first_child, MD_S8Lit("data"), 0);
-
-            fprintf(output, "Level %.*s = {\n.tiles = {\n", MD_S8VArg(variable_name));
-            int num_index = 0;
-            fprintf(output, "{ ");
-            for(MD_EachNode(tile_id_node, data->first_child)) {
-                fprintf(output, "%.*s, ", MD_S8VArg(tile_id_node->string));
-
-                if(num_index % width == width - 1) {
-                    if(MD_NodeIsNil(tile_id_node->next)) {
-                        fprintf(output, "},\n}\n}; // %.*s\n", MD_S8VArg(variable_name));
-                    } else {
-                        fprintf(output, "},\n{ ");
+            fprintf(output, "Level %.*s = {\n", MD_S8VArg(variable_name));
+            for(MD_EachNode(lay, layers->first_child)) {
+                MD_String8 type = MD_ChildFromString(lay, MD_S8Lit("type"), 0)->first_child->string;
+                if(MD_S8Match(type, MD_S8Lit("objectgroup"), 0)) {
+                    for(MD_EachNode(object, MD_ChildFromString(lay, MD_S8Lit("objects"), 0)->first_child)) {
+                        dump(object);
+                        if(MD_S8Match(MD_ChildFromString(object, MD_S8Lit("name"), 0)->first_child->string, MD_S8Lit("spawn"), 0)) {
+                            MD_String8 x_string = MD_ChildFromString(object, MD_S8Lit("x"), 0)->first_child->string;
+                            MD_String8 y_string = MD_ChildFromString(object, MD_S8Lit("y"), 0)->first_child->string;
+                            fprintf(output, ".spawnpoint = { %.*s, %.*s },\n", MD_S8VArg(x_string), MD_S8VArg(y_string));
+                        }
                     }
                 }
-                num_index += 1;
+                if(MD_S8Match(type, MD_S8Lit("tilelayer"), 0)) {
+                    int width = atoi(nullterm(MD_ChildFromString(layers->first_child, MD_S8Lit("width"), 0)->first_child->string));
+                    int height = atoi(nullterm(MD_ChildFromString(layers->first_child, MD_S8Lit("height"), 0)->first_child->string));
+                    MD_Node *data = MD_ChildFromString(layers->first_child, MD_S8Lit("data"), 0);
+
+                    int num_index = 0;
+                    fprintf(output, ".tiles = {\n");
+                    fprintf(output, "{ ");
+                    for(MD_EachNode(tile_id_node, data->first_child)) {
+                        fprintf(output, "%.*s, ", MD_S8VArg(tile_id_node->string));
+
+                        if(num_index % width == width - 1) {
+                            if(MD_NodeIsNil(tile_id_node->next)) {
+                                fprintf(output, "},\n},\n");
+                            } else {
+                                fprintf(output, "},\n{ ");
+                            }
+                        }
+                        num_index += 1;
+                    }
+                }
             }
+            fprintf(output, "\n}; // %.*s\n", MD_S8VArg(variable_name));
         }
     }
 

@@ -36,10 +36,21 @@ typedef struct TileSet {
     AnimatedTile animated[128];
 } TileSet;
 
+typedef struct AnimatedSprite {
+    sg_image *img;
+    double time_per_frame;
+    int num_frames;
+    HMM_Vec2 start;
+    float horizontal_diff_btwn_frames;
+    HMM_Vec2 region_size;
+} AnimatedSprite;
+
+
 #define LEVEL_TILES 60
 #define TILE_SIZE 32 // in pixels
 typedef struct Level {
     TileInstance tiles[LEVEL_TILES][LEVEL_TILES];
+    HMM_Vec2 spawnpoint;
 } Level;
 
 HMM_Vec2 tilecoord_to_world(int x, int y) {
@@ -74,6 +85,24 @@ sg_image load_image(const char *path) {
 #include "quad-sapp.glsl.h"
 #include "assets.gen.c"
 
+AnimatedSprite knight_idle = {
+    .img = &image_knight_idle,
+    .time_per_frame = 0.3,
+    .num_frames = 10,
+    .start = {16.0f, 0.0f},
+    .horizontal_diff_btwn_frames = 120.0,
+    .region_size = {80.0f, 80.0f},
+};
+
+AnimatedSprite knight_running = {
+    .img = &image_knight_run,
+    .time_per_frame = 0.06,
+    .num_frames = 10,
+    .start = {19.0f, 0.0f},
+    .horizontal_diff_btwn_frames = 120.0,
+    .region_size = {80.0f, 80.0f},
+};
+
 sg_image image_font = {0};
 const float font_size = 64.0;
 stbtt_bakedchar cdata[96]; // ASCII 32..126 is 95 glyphs
@@ -87,6 +116,8 @@ static struct {
     sg_bindings bind;
 } state;
 
+HMM_Vec2 character_pos = {0}; // world space point
+
 void init(void) {
     stm_setup();
     sg_setup(&(sg_desc){
@@ -94,6 +125,10 @@ void init(void) {
     });
 
     load_assets();
+
+    // player spawnpoint
+    HMM_Vec2 spawnpoint_tilecoord = HMM_MulV2F(level_level0.spawnpoint, 1.0/TILE_SIZE);
+    character_pos = tilecoord_to_world((int)spawnpoint_tilecoord.X, (int)spawnpoint_tilecoord.Y);
 
     // load font
     {
@@ -172,7 +207,10 @@ void init(void) {
     });
 
     state.pass_action = (sg_pass_action) {
-        .colors[0] = { .action=SG_ACTION_CLEAR, .value={12.5f/255.0f, 12.5f/255.0f, 12.5f/255.0f, 1.0f } }
+        //.colors[0] = { .action=SG_ACTION_CLEAR, .value={12.5f/255.0f, 12.5f/255.0f, 12.5f/255.0f, 1.0f } }
+        //.colors[0] = { .action=SG_ACTION_CLEAR, .value={255.5f/255.0f, 255.5f/255.0f, 255.5f/255.0f, 1.0f } }
+        // 0x898989 is the color in tiled
+        .colors[0] = { .action=SG_ACTION_CLEAR, .value={137.0f/255.0f, 137.0f/255.0f, 137.0f/255.0f, 1.0f } }
     };
 }
 
@@ -354,6 +392,31 @@ void draw_quad(bool world_space, HMM_Vec2 *points_in, sg_image image, AABB image
     sg_draw(0, 6, 1);
 }
 
+void swap(HMM_Vec2 *p1, HMM_Vec2 *p2) {
+    HMM_Vec2 tmp = *p1;
+    *p1 = *p2;
+    *p2 = tmp;
+}
+
+void draw_animated_sprite(AnimatedSprite *s, double time, bool flipped, HMM_Vec2 pos, Color tint) {
+    sg_image spritesheet_img = *s->img;
+    int index = (int)floor(time/s->time_per_frame) % s->num_frames;
+
+    HMM_Vec2 points[4] = {0};
+    quad_points_centered_size(points, pos, s->region_size);
+
+    if(flipped) {
+        swap(&points[0], &points[1]);
+        swap(&points[3], &points[2]);
+    }
+
+    AABB region;
+    region.upper_left = HMM_AddV2(s->start, HMM_V2(index * s->horizontal_diff_btwn_frames, 0.0f));
+    region.lower_right = HMM_V2(region.upper_left.X + (float)s->region_size.X, (float)s->region_size.Y);
+
+    draw_quad(true, points, spritesheet_img, region, tint);
+}
+
 
 void colorbox(bool world_space, HMM_Vec2 upper_left, HMM_Vec2 lower_right, Color color) {
     HMM_Vec2 size = HMM_SubV2(lower_right, upper_left);
@@ -443,7 +506,7 @@ double time = 0.0;
 double last_frame_processing_time = 0.0;
 uint64_t last_frame_time;
 HMM_Vec2 mouse_pos = {0}; // in screen space
-HMM_Vec2 character_pos = {0}; // world space point
+bool character_facing_left = false;
 bool keydown[SAPP_KEYCODE_MENU] = {0};
 #ifdef DEVTOOLS
 bool mouse_frozen = false;
@@ -551,22 +614,14 @@ void frame(void) {
     }
 #endif
 
-#endif
-    
+#endif // devtools
 
-    // merchant
-    int index = (int)floor(time/0.3);
-    float size = img_size(image_merchant).Y;
-    HMM_Vec2 points[4] = {0};
-    quad_points_centered_size(points, character_pos, HMM_V2(size, size));
-
-    int cell_size = 110;
-    assert((int)img_size(image_merchant).X % cell_size == 0);
-    AABB region;
-    region.upper_left = HMM_V2( (float)((index % ((int)img_size(image_merchant).X/cell_size)) * cell_size), 0.0);
-    region.lower_right = HMM_V2(region.upper_left.X + (float)cell_size, (float)cell_size);
-
-    draw_quad(true, points, image_merchant, region, WHITE);
+    if(HMM_LenV2(movement) > 0.01) {
+        character_facing_left = movement.X < 0.0;
+        draw_animated_sprite(&knight_running, time, character_facing_left, character_pos, WHITE);
+    } else {
+        draw_animated_sprite(&knight_idle, time, character_facing_left, character_pos, WHITE);
+    }
 
     sg_end_pass();
     sg_commit();
