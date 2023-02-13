@@ -616,8 +616,8 @@ void frame(void) {
 
 #endif // devtools
 
+    if(fabsf(movement.X) > 0.01f) character_facing_left = movement.X < 0.0f;
     if(HMM_LenV2(movement) > 0.01) {
-        character_facing_left = movement.X < 0.0;
         draw_animated_sprite(&knight_running, time, character_facing_left, character_pos, WHITE);
     } else {
         draw_animated_sprite(&knight_idle, time, character_facing_left, character_pos, WHITE);
