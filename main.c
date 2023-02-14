@@ -53,8 +53,32 @@ typedef struct Level {
     HMM_Vec2 spawnpoint;
 } Level;
 
-HMM_Vec2 tilecoord_to_world(int x, int y) {
-    return HMM_V2( (float)x * (float)TILE_SIZE * 1.0f, -(float)y * (float)TILE_SIZE * 1.0f );
+typedef struct TileCoord {
+    int x;
+    int y;
+} TileCoord;
+
+HMM_Vec2 tilecoord_to_world(TileCoord t) {
+    return HMM_V2( (float)t.x * (float)TILE_SIZE * 1.0f, -(float)t.y * (float)TILE_SIZE * 1.0f );
+}
+
+TileCoord world_to_tilecoord(HMM_Vec2 w) {
+    // world = V2(tilecoord.x * tile_size, -tilecoord.y * tile_size)
+    // world.x = tilecoord.x * tile_size
+    // world.x / tile_size = tilecoord.x
+    // world.y = -tilecoord.y * tile_size
+    // - world.y / tile_size = tilecoord.y
+    return (TileCoord){ (int)floorf(w.X / TILE_SIZE), (int)floorf(-w.Y / TILE_SIZE) };
+}
+
+uint16_t get_tile(Level *l, TileCoord t) {
+    bool out_of_bounds = false;
+    out_of_bounds |= t.x < 0;
+    out_of_bounds |= t.x >= LEVEL_TILES;
+    out_of_bounds |= t.y < 0;
+    out_of_bounds |= t.y >= LEVEL_TILES;
+    if(out_of_bounds) return 0;
+    return l->tiles[t.x][t.y].kind;
 }
 
 sg_image load_image(const char *path) {
@@ -128,7 +152,7 @@ void init(void) {
 
     // player spawnpoint
     HMM_Vec2 spawnpoint_tilecoord = HMM_MulV2F(level_level0.spawnpoint, 1.0/TILE_SIZE);
-    character_pos = tilecoord_to_world((int)spawnpoint_tilecoord.X, (int)spawnpoint_tilecoord.Y);
+    character_pos = tilecoord_to_world((TileCoord){(int)spawnpoint_tilecoord.X, (int)spawnpoint_tilecoord.Y});
 
     // load font
     {
@@ -544,11 +568,12 @@ void frame(void) {
         for(int col = 0; col < LEVEL_TILES; col++)
         {
             TileInstance cur = cur_level->tiles[row][col];
+            TileCoord cur_coord = { col, row };
             TileSet tileset = tileset_ruins_animated;
             if(cur.kind != 0){
                 HMM_Vec2 points[4] = {0};
                 HMM_Vec2 tile_size = HMM_V2(TILE_SIZE, TILE_SIZE);
-                quad_points_corner_size(points, tilecoord_to_world(col, row), tile_size);
+                quad_points_corner_size(points, tilecoord_to_world(cur_coord), tile_size);
 
                 sg_image tileset_image = *tileset.img;
 
@@ -578,6 +603,20 @@ void frame(void) {
 
 
 #ifdef DEVTOOLS
+    // mouse pos
+    {
+        HMM_Vec2 points[4] = {0};
+        quad_points_centered_size(points, screen_to_world(mouse_pos), HMM_V2(10.0, 10.0));
+        draw_quad(true, points, image_white_square,full_region(image_font), RED);
+    }
+    // tile coord
+    {
+        TileCoord hovering = world_to_tilecoord(screen_to_world(mouse_pos));
+        HMM_Vec2 points[4] = {0};
+        quad_points_centered_size(points, tilecoord_to_world(hovering), HMM_V2(10.0, 10.0));
+        draw_quad(true, points, image_white_square,full_region(image_font), RED);
+    }
+
     // debug draw font image
     {
         HMM_Vec2 points[4] = {0};
