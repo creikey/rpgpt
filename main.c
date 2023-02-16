@@ -71,6 +71,24 @@ TileCoord world_to_tilecoord(HMM_Vec2 w) {
     return (TileCoord){ (int)floorf(w.X / TILE_SIZE), (int)floorf(-w.Y / TILE_SIZE) };
 }
 
+AABB tile_aabb(TileCoord t) {
+    return (AABB) {
+        .upper_left = tilecoord_to_world(t),
+        .lower_right = HMM_AddV2(tilecoord_to_world(t), HMM_V2(TILE_SIZE, -TILE_SIZE)),
+    };
+}
+
+HMM_Vec2 aabb_center(AABB aabb) {
+    return HMM_MulV2F(HMM_AddV2(aabb.upper_left, aabb.lower_right), 0.5f);
+}
+
+AABB centered_aabb(HMM_Vec2 at, HMM_Vec2 size) {
+    return (AABB){
+        .upper_left  = HMM_AddV2(at, HMM_V2(-size.X/2.0f, size.Y/2.0f)),
+        .lower_right = HMM_AddV2(at, HMM_V2( size.X/2.0f, -size.Y/2.0f)),
+    };
+}
+
 uint16_t get_tile(Level *l, TileCoord t) {
     bool out_of_bounds = false;
     out_of_bounds |= t.x < 0;
@@ -128,7 +146,7 @@ AnimatedSprite knight_running = {
 };
 
 sg_image image_font = {0};
-const float font_size = 64.0;
+const float font_size = 32.0;
 stbtt_bakedchar cdata[96]; // ASCII 32..126 is 95 glyphs
 
 // so can be grep'd and removed
@@ -244,6 +262,7 @@ typedef HMM_Vec4 Color;
 #define WHITE (Color){1.0f, 1.0f, 1.0f, 1.0f}
 #define BLACK (Color){0.0f, 0.0f, 0.0f, 1.0f}
 #define RED   (Color){1.0f, 0.0f, 0.0f, 1.0f}
+
 
 HMM_Vec2 screen_size() {
     return HMM_V2((float)sapp_width(), (float)sapp_height());
@@ -526,6 +545,12 @@ AABB draw_text(bool world_space, bool dry_run, const char *text, size_t length, 
      return bounds;
 }
 
+void redsquare(HMM_Vec2 at) {
+    HMM_Vec2 points[4] = {0};
+    quad_points_centered_size(points, at, HMM_V2(10.0, 10.0));
+    draw_quad(true, points, image_white_square,full_region(image_font), RED);
+}
+
 double time = 0.0;
 double last_frame_processing_time = 0.0;
 uint64_t last_frame_time;
@@ -554,10 +579,6 @@ void frame(void) {
     if(HMM_LenV2(movement) > 1.0) {
         movement = HMM_NormV2(movement);
     }
-
-    character_pos = HMM_AddV2(character_pos, HMM_MulV2F(movement, dt * pixels_per_meter * 4.0f));
-    cam.pos = HMM_LerpV2(cam.pos, dt*8.0f, HMM_MulV2F(character_pos, -1.0f * cam.scale));
-
     sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
     sg_apply_pipeline(state.pip);
 
@@ -570,7 +591,7 @@ void frame(void) {
             TileInstance cur = cur_level->tiles[row][col];
             TileCoord cur_coord = { col, row };
             TileSet tileset = tileset_ruins_animated;
-            if(cur.kind != 0){
+            if(cur.kind != 0) {
                 HMM_Vec2 points[4] = {0};
                 HMM_Vec2 tile_size = HMM_V2(TILE_SIZE, TILE_SIZE);
                 quad_points_corner_size(points, tilecoord_to_world(cur_coord), tile_size);
@@ -602,12 +623,54 @@ void frame(void) {
 #endif
 
 
+
+    HMM_Vec2 new_pos = HMM_AddV2(character_pos, HMM_MulV2F(movement, dt * pixels_per_meter * 4.0f));
+    HMM_Vec2 character_aabb_size = { TILE_SIZE, TILE_SIZE };
+    AABB at_new = centered_aabb(new_pos, character_aabb_size);
+    HMM_Vec2 at_new_size_vector = HMM_SubV2(at_new.lower_right, at_new.upper_left);
+    HMM_Vec2 points_to_check[] = {
+        HMM_AddV2(at_new.upper_left, HMM_V2(0.0, 0.0)),
+        HMM_AddV2(at_new.upper_left, HMM_V2(at_new_size_vector.X, 0.0)),
+        HMM_AddV2(at_new.upper_left, HMM_V2(at_new_size_vector.X, at_new_size_vector.Y)),
+        HMM_AddV2(at_new.upper_left, HMM_V2(0.0, at_new_size_vector.Y)),
+    };
+    //redsquare(character_pos);
+    //redsquare(at_new.upper_left);
+    //redsquare(at_new.lower_right);
+    for(int i = 0; i < sizeof(points_to_check)/sizeof(*points_to_check); i++) {
+        HMM_Vec2 *it = &points_to_check[i];
+        TileCoord to_check = world_to_tilecoord(*it);
+        char num[10] = {0};
+        snprintf(num, 10, "%d", get_tile(&level_level0, to_check));
+        draw_text(false, false, num, strlen(num), world_to_screen(tilecoord_to_world(to_check)), BLACK);
+
+        if(get_tile(&level_level0, to_check) == 53) {
+            redsquare(tilecoord_to_world(to_check));
+            AABB to_depenetrate_from = tile_aabb(to_check);
+            while(overlapping(to_depenetrate_from, at_new)) { 
+            //while(false) {
+                //redsquare(to_depenetrate_from.upper_left);
+                //redsquare(to_depenetrate_from.lower_right);
+                const float move_dist = 0.05f;
+                HMM_Vec2 move_dir = HMM_NormV2(HMM_SubV2(aabb_center(at_new), aabb_center(to_depenetrate_from)));
+                HMM_Vec2 move = HMM_MulV2F(move_dir, move_dist);
+                at_new.upper_left = HMM_AddV2(at_new.upper_left,move);
+                at_new.lower_right = HMM_AddV2(at_new.lower_right,move);
+            }
+        }
+    }
+    character_pos = aabb_center(at_new);
+    cam.pos = HMM_LerpV2(cam.pos, dt*8.0f, HMM_MulV2F(character_pos, -1.0f * cam.scale));
+
 #ifdef DEVTOOLS
     // mouse pos
     {
+        redsquare(screen_to_world(mouse_pos));
+        /*
         HMM_Vec2 points[4] = {0};
         quad_points_centered_size(points, screen_to_world(mouse_pos), HMM_V2(10.0, 10.0));
         draw_quad(true, points, image_white_square,full_region(image_font), RED);
+        */
     }
     // tile coord
     {
@@ -656,10 +719,11 @@ void frame(void) {
 #endif // devtools
 
     if(fabsf(movement.X) > 0.01f) character_facing_left = movement.X < 0.0f;
+    HMM_Vec2 character_sprite_pos = HMM_AddV2(character_pos, HMM_V2(0.0, 20.0f));
     if(HMM_LenV2(movement) > 0.01) {
-        draw_animated_sprite(&knight_running, time, character_facing_left, character_pos, WHITE);
+        draw_animated_sprite(&knight_running, time, character_facing_left, character_sprite_pos, WHITE);
     } else {
-        draw_animated_sprite(&knight_idle, time, character_facing_left, character_pos, WHITE);
+        draw_animated_sprite(&knight_idle, time, character_facing_left, character_sprite_pos, WHITE);
     }
 
     sg_end_pass();
