@@ -18,9 +18,24 @@
 
 typedef struct AABB
 {
- HMM_Vec2 upper_left;
- HMM_Vec2 lower_right;
+ Vec2 upper_left;
+ Vec2 lower_right;
 } AABB;
+
+typedef struct Quad
+{
+ union
+ {
+  struct
+  {
+   Vec2 ul; // upper left
+   Vec2 ur; // upper right
+   Vec2 lr; // lower right
+   Vec2 ll; // lower left
+  };
+  Vec2 points[4];
+ };
+} Quad;
 
 typedef struct TileInstance
 {
@@ -45,9 +60,9 @@ typedef struct AnimatedSprite
  sg_image *img;
  double time_per_frame;
  int num_frames;
- HMM_Vec2 start;
+ Vec2 start;
  float horizontal_diff_btwn_frames;
- HMM_Vec2 region_size;
+ Vec2 region_size;
 } AnimatedSprite;
 
 
@@ -56,7 +71,7 @@ typedef struct AnimatedSprite
 typedef struct Level
 {
  TileInstance tiles[LEVEL_TILES][LEVEL_TILES];
- HMM_Vec2 spawnpoint;
+ Vec2 spawnpoint;
 } Level;
 
 typedef struct TileCoord
@@ -65,12 +80,63 @@ typedef struct TileCoord
  int y;
 } TileCoord;
 
-HMM_Vec2 tilecoord_to_world(TileCoord t)
+// no alignment etc because lazy
+typedef struct Arena
 {
- return HMM_V2( (float)t.x * (float)TILE_SIZE * 1.0f, -(float)t.y * (float)TILE_SIZE * 1.0f );
+ char *data;
+ size_t data_size;
+ size_t cur;
+} Arena;
+
+Arena make(size_t max_size)
+{
+ return (Arena)
+ {
+  .data = calloc(1, max_size),
+  .data_size = max_size,
+  .cur = 0,
+ };
 }
 
-TileCoord world_to_tilecoord(HMM_Vec2 w)
+void reset(Arena *a)
+{
+ memset(a->data, 0, a->data_size);
+ a->cur = 0;
+}
+
+char *get(Arena *a, size_t of_size)
+{
+ assert(a->data != NULL);
+ char *to_return = a->data + a->cur;
+ a->cur += of_size;
+ assert(a->cur < a->data_size);
+ return to_return;
+}
+
+Arena scratch = {0};
+
+char *tprint(const char *format, ...)
+{
+ va_list argptr;
+ va_start(argptr, format);
+
+ int size = vsnprintf(NULL, 0, format, argptr) + 1; // for null terminator
+
+ char *to_return = get(&scratch, size);
+
+ vsnprintf(to_return, size, format, argptr);
+
+  va_end(argptr);
+
+  return to_return;
+}
+
+Vec2 tilecoord_to_world(TileCoord t)
+{
+ return V2( (float)t.x * (float)TILE_SIZE * 1.0f, -(float)t.y * (float)TILE_SIZE * 1.0f );
+}
+
+TileCoord world_to_tilecoord(Vec2 w)
 {
  // world = V2(tilecoord.x * tile_size, -tilecoord.y * tile_size)
  // world.x = tilecoord.x * tile_size
@@ -80,43 +146,49 @@ TileCoord world_to_tilecoord(HMM_Vec2 w)
  return (TileCoord){ (int)floorf(w.X / TILE_SIZE), (int)floorf(-w.Y / TILE_SIZE) };
 }
 
+
 AABB tile_aabb(TileCoord t)
 {
  return (AABB)
  {
   .upper_left = tilecoord_to_world(t),
-   .lower_right = HMM_AddV2(tilecoord_to_world(t), HMM_V2(TILE_SIZE, -TILE_SIZE)),
+   .lower_right = AddV2(tilecoord_to_world(t), V2(TILE_SIZE, -TILE_SIZE)),
  };
 }
 
-HMM_Vec2 aabb_center(AABB aabb)
+Vec2 rotate_counter_clockwise(Vec2 v)
 {
- return HMM_MulV2F(HMM_AddV2(aabb.upper_left, aabb.lower_right), 0.5f);
+ return V2(-v.Y, v.X);
 }
 
-AABB centered_aabb(HMM_Vec2 at, HMM_Vec2 size)
+Vec2 aabb_center(AABB aabb)
+{
+ return MulV2F(AddV2(aabb.upper_left, aabb.lower_right), 0.5f);
+}
+
+AABB centered_aabb(Vec2 at, Vec2 size)
 {
  return (AABB){
-  .upper_left  = HMM_AddV2(at, HMM_V2(-size.X/2.0f, size.Y/2.0f)),
-   .lower_right = HMM_AddV2(at, HMM_V2( size.X/2.0f, -size.Y/2.0f)),
+  .upper_left  = AddV2(at, V2(-size.X/2.0f, size.Y/2.0f)),
+   .lower_right = AddV2(at, V2( size.X/2.0f, -size.Y/2.0f)),
  };
 }
 
-uint16_t get_tile(Level *l, TileCoord t)
+TileInstance get_tile(Level *l, TileCoord t)
 {
  bool out_of_bounds = false;
  out_of_bounds |= t.x < 0;
  out_of_bounds |= t.x >= LEVEL_TILES;
  out_of_bounds |= t.y < 0;
  out_of_bounds |= t.y >= LEVEL_TILES;
- if(out_of_bounds) return 0;
- return l->tiles[t.x][t.y].kind;
+ //assert(!out_of_bounds);
+ if(out_of_bounds) return (TileInstance){0};
+ return l->tiles[t.y][t.x];
 }
 
 sg_image load_image(const char *path)
 {
- sg_image to_return =
- {0};
+ sg_image to_return = {0};
 
  int png_width, png_height, num_channels;
  const int desired_channels = 4;
@@ -175,8 +247,7 @@ const float font_size = 32.0;
 stbtt_bakedchar cdata[96]; // ASCII 32..126 is 95 glyphs
 
 // so can be grep'd and removed
-#define dbgprint(...)
-{ printf("Debug | %s:%d | ", __FILE__, __LINE__); printf(__VA_ARGS__); }
+#define dbgprint(...) { printf("Debug | %s:%d | ", __FILE__, __LINE__); printf(__VA_ARGS__); }
 
 static struct
 {
@@ -185,24 +256,24 @@ static struct
  sg_bindings bind;
 } state;
 
-HMM_Vec2 character_pos =
+Vec2 character_pos =
 {0}; // world space point
 
 void init(void)
 {
+ scratch = make(1024 * 10);
  stm_setup();
- sg_setup(&(sg_desc){
-   .context = sapp_sgcontext()
-   });
+ sg_setup(& (sg_desc){
+  .context = sapp_sgcontext()
+ });
 
  load_assets();
 
  // player spawnpoint
- HMM_Vec2 spawnpoint_tilecoord = HMM_MulV2F(level_level0.spawnpoint, 1.0/TILE_SIZE);
+ Vec2 spawnpoint_tilecoord = MulV2F(level_level0.spawnpoint, 1.0/TILE_SIZE);
  character_pos = tilecoord_to_world((TileCoord){(int)spawnpoint_tilecoord.X, (int)spawnpoint_tilecoord.Y});
 
  // load font
-
  {
   FILE* fontFile = fopen("assets/orange kid.ttf", "rb");
   fseek(fontFile, 0, SEEK_END);
@@ -287,17 +358,15 @@ void init(void)
 
  state.pass_action = (sg_pass_action)
  {
-  //.colors[0] =
-  { .action=SG_ACTION_CLEAR, .value={12.5f/255.0f, 12.5f/255.0f, 12.5f/255.0f, 1.0f } }
-  //.colors[0] =
-  { .action=SG_ACTION_CLEAR, .value={255.5f/255.0f, 255.5f/255.0f, 255.5f/255.0f, 1.0f } }
+  //.colors[0] = { .action=SG_ACTION_CLEAR, .value={12.5f/255.0f, 12.5f/255.0f, 12.5f/255.0f, 1.0f } }
+  //.colors[0] = { .action=SG_ACTION_CLEAR, .value={255.5f/255.0f, 255.5f/255.0f, 255.5f/255.0f, 1.0f } }
   // 0x898989 is the color in tiled
   .colors[0] =
   { .action=SG_ACTION_CLEAR, .value={137.0f/255.0f, 137.0f/255.0f, 137.0f/255.0f, 1.0f } }
  };
 }
 
-typedef HMM_Vec4 Color;
+typedef Vec4 Color;
 
 
 #define WHITE (Color){1.0f, 1.0f, 1.0f, 1.0f}
@@ -305,14 +374,14 @@ typedef HMM_Vec4 Color;
 #define RED   (Color){1.0f, 0.0f, 0.0f, 1.0f}
 
 
-HMM_Vec2 screen_size()
+Vec2 screen_size()
 {
- return HMM_V2((float)sapp_width(), (float)sapp_height());
+ return V2((float)sapp_width(), (float)sapp_height());
 }
 
 typedef struct Camera
 {
- HMM_Vec2 pos;
+ Vec2 pos;
  float scale;
 } Camera;
 
@@ -323,16 +392,16 @@ const float pixels_per_meter = 43.0f;
 Camera cam =
 {.scale = 2.0f };
 
-HMM_Vec2 cam_offset()
+Vec2 cam_offset()
 {
- return HMM_AddV2(cam.pos, HMM_MulV2F(screen_size(), 0.5f));
+ return AddV2(cam.pos, MulV2F(screen_size(), 0.5f));
 }
 
 // in pixels
-HMM_Vec2 img_size(sg_image img)
+Vec2 img_size(sg_image img)
 {
  sg_image_info info = sg_query_image_info(img);
- return HMM_V2((float)info.width, (float)info.height);
+ return V2((float)info.width, (float)info.height);
 }
 
 // full region in pixels
@@ -340,51 +409,74 @@ AABB full_region(sg_image img)
 {
  return (AABB)
  {
-  .upper_left = HMM_V2(0.0f, 0.0f),
+  .upper_left = V2(0.0f, 0.0f),
    .lower_right = img_size(img),
  };
 }
 
 // screen coords are in pixels counting from bottom left as (0,0), Y+ is up
-HMM_Vec2 world_to_screen(HMM_Vec2 world)
+Vec2 world_to_screen(Vec2 world)
 {
- HMM_Vec2 to_return = world;
- to_return = HMM_MulV2F(to_return, cam.scale);
- to_return = HMM_AddV2(to_return, cam_offset());
+ Vec2 to_return = world;
+ to_return = MulV2F(to_return, cam.scale);
+ to_return = AddV2(to_return, cam_offset());
  return to_return;
 }
 
-HMM_Vec2 screen_to_world(HMM_Vec2 screen)
+Vec2 screen_to_world(Vec2 screen)
 {
- HMM_Vec2 to_return = screen;
- to_return = HMM_SubV2(to_return, cam_offset());
- to_return = HMM_MulV2F(to_return, 1.0f/cam.scale);
+ Vec2 to_return = screen;
+ to_return = SubV2(to_return, cam_offset());
+ to_return = MulV2F(to_return, 1.0f/cam.scale);
  return to_return;
 }
 
-// out must be of at least length 4
-void quad_points_corner_size(HMM_Vec2 *out, HMM_Vec2 at, HMM_Vec2 size)
+
+Quad quad_at(Vec2 at, Vec2 size)
 {
- out[0] = HMM_V2(0.0, 0.0);
- out[1] = HMM_V2(size.X, 0.0);
- out[2] = HMM_V2(size.X, -size.Y);
- out[3] = HMM_V2(0.0, -size.Y);
+ Quad to_return;
+
+ to_return.points[0] = V2(0.0, 0.0);
+ to_return.points[1] = V2(size.X, 0.0);
+ to_return.points[2] = V2(size.X, -size.Y);
+ to_return.points[3] = V2(0.0, -size.Y);
 
  for(int i = 0; i < 4; i++)
  {
-  out[i] = HMM_AddV2(out[i], at);
+  to_return.points[i] = AddV2(to_return.points[i], at);
  }
+ return to_return;
+}
+
+Quad tile_quad(TileCoord coord)
+{
+  return quad_at(tilecoord_to_world(coord), V2(TILE_SIZE, TILE_SIZE));
 }
 
 // out must be of at least length 4
-void quad_points_centered_size(HMM_Vec2 *out, HMM_Vec2 at, HMM_Vec2 size)
+Quad quad_centered(Vec2 at, Vec2 size)
 {
- quad_points_corner_size(out, at, size);
+ Quad to_return = quad_at(at, size);
  for(int i = 0; i < 4; i++)
  {
-  out[i] = HMM_AddV2(out[i], HMM_V2(-size.X*0.5f, size.Y*0.5f));
+  to_return.points[i] = AddV2(to_return.points[i], V2(-size.X*0.5f, size.Y*0.5f));
  }
+ return to_return;
 }
+
+Quad quad_aabb(AABB aabb)
+{
+ Vec2 size_vec = SubV2(aabb.lower_right, aabb.upper_left); // negative in vertical direction
+ assert(size_vec.Y <= 0.0f);
+ assert(size_vec.X >= 0.0f);
+ return (Quad) {
+  .ul = aabb.upper_left,
+  .ur = AddV2(aabb.upper_left, V2(size_vec.X, 0.0f)),
+  .lr = AddV2(aabb.upper_left, size_vec),
+  .ll = AddV2(aabb.upper_left, V2(0.0f, size_vec.Y)),
+ };
+}
+
 
 // both segment_a and segment_b must be arrays of length 2
 bool segments_overlapping(float *a_segment, float *b_segment)
@@ -440,11 +532,9 @@ bool overlapping(AABB a, AABB b)
 
 // points must be of length 4, and be in the order: upper left, upper right, lower right, lower left
 // the points are in pixels in screen space. The image region is in pixel space of the image
-void draw_quad(bool world_space, HMM_Vec2 *points_in, sg_image image, AABB image_region, Color tint)
+void draw_quad(bool world_space, Quad quad, sg_image image, AABB image_region, Color tint)
 {
- HMM_Vec2 points[4] =
- {0};
- memcpy(points, points_in, sizeof(points));
+ Vec2 *points = quad.points;
 
  if(world_space)
  {
@@ -454,9 +544,9 @@ void draw_quad(bool world_space, HMM_Vec2 *points_in, sg_image image, AABB image
   }
  }
  AABB cam_aabb =
- { .upper_left = HMM_V2(0.0, screen_size().Y), .lower_right = HMM_V2(screen_size().X, 0.0) };
+ { .upper_left = V2(0.0, screen_size().Y), .lower_right = V2(screen_size().X, 0.0) };
  AABB points_bounding_box =
- { .upper_left = HMM_V2(INFINITY, -INFINITY), .lower_right = HMM_V2(-INFINITY, INFINITY) };
+ { .upper_left = V2(INFINITY, -INFINITY), .lower_right = V2(-INFINITY, INFINITY) };
 
  for(int i = 0; i < 4; i++)
  {
@@ -472,26 +562,26 @@ void draw_quad(bool world_space, HMM_Vec2 *points_in, sg_image image, AABB image
  }
 
  float new_vertices[ (2 + 2)*4 ];
- HMM_Vec2 region_size = HMM_SubV2(image_region.lower_right, image_region.upper_left);
+ Vec2 region_size = SubV2(image_region.lower_right, image_region.upper_left);
  assert(region_size.X > 0.0);
  assert(region_size.Y > 0.0);
- HMM_Vec2 tex_coords[4] =
+ Vec2 tex_coords[4] =
  {
-  HMM_AddV2(image_region.upper_left, HMM_V2(0.0,                    0.0)),
-  HMM_AddV2(image_region.upper_left, HMM_V2(region_size.X,           0.0)),
-  HMM_AddV2(image_region.upper_left, HMM_V2(region_size.X, region_size.Y)),
-  HMM_AddV2(image_region.upper_left, HMM_V2(0.0,           region_size.Y)),
+  AddV2(image_region.upper_left, V2(0.0,                    0.0)),
+  AddV2(image_region.upper_left, V2(region_size.X,           0.0)),
+  AddV2(image_region.upper_left, V2(region_size.X, region_size.Y)),
+  AddV2(image_region.upper_left, V2(0.0,           region_size.Y)),
  };
  // convert to uv space
  sg_image_info info = sg_query_image_info(image);
  for(int i = 0; i < 4; i++)
  {
-  tex_coords[i] = HMM_DivV2(tex_coords[i], HMM_V2((float)info.width, (float)info.height));
+  tex_coords[i] = DivV2(tex_coords[i], V2((float)info.width, (float)info.height));
  }
  for(int i = 0; i < 4; i++)
  {
-  HMM_Vec2 zero_to_one = HMM_DivV2(points[i], screen_size());
-  HMM_Vec2 in_clip_space = HMM_SubV2(HMM_MulV2F(zero_to_one, 2.0), HMM_V2(1.0, 1.0));
+  Vec2 zero_to_one = DivV2(points[i], screen_size());
+  Vec2 in_clip_space = SubV2(MulV2F(zero_to_one, 2.0), V2(1.0, 1.0));
   new_vertices[i*4] = in_clip_space.X;
   new_vertices[i*4 + 1] = in_clip_space.Y;
   new_vertices[i*4 + 2] = tex_coords[i].X;
@@ -515,64 +605,47 @@ void draw_quad(bool world_space, HMM_Vec2 *points_in, sg_image image, AABB image
  sg_draw(0, 6, 1);
 }
 
-void swap(HMM_Vec2 *p1, HMM_Vec2 *p2)
+void swap(Vec2 *p1, Vec2 *p2)
 {
- HMM_Vec2 tmp = *p1;
+ Vec2 tmp = *p1;
  *p1 = *p2;
  *p2 = tmp;
 }
 
-void draw_animated_sprite(AnimatedSprite *s, double time, bool flipped, HMM_Vec2 pos, Color tint)
+void draw_animated_sprite(AnimatedSprite *s, double time, bool flipped, Vec2 pos, Color tint)
 {
  sg_image spritesheet_img = *s->img;
  int index = (int)floor(time/s->time_per_frame) % s->num_frames;
 
- HMM_Vec2 points[4] =
- {0};
- quad_points_centered_size(points, pos, s->region_size);
+ Quad q = quad_centered(pos, s->region_size);
 
  if(flipped)
  {
-  swap(&points[0], &points[1]);
-  swap(&points[3], &points[2]);
+  swap(&q.points[0], &q.points[1]);
+  swap(&q.points[3], &q.points[2]);
  }
 
  AABB region;
- region.upper_left = HMM_AddV2(s->start, HMM_V2(index * s->horizontal_diff_btwn_frames, 0.0f));
- region.lower_right = HMM_V2(region.upper_left.X + (float)s->region_size.X, (float)s->region_size.Y);
+ region.upper_left = AddV2(s->start, V2(index * s->horizontal_diff_btwn_frames, 0.0f));
+ region.lower_right = V2(region.upper_left.X + (float)s->region_size.X, (float)s->region_size.Y);
 
- draw_quad(true, points, spritesheet_img, region, tint);
+ draw_quad(true, q, spritesheet_img, region, tint);
 }
 
 
-void colorbox(bool world_space, HMM_Vec2 upper_left, HMM_Vec2 lower_right, Color color)
-{
- HMM_Vec2 size = HMM_SubV2(lower_right, upper_left);
- size.Y *= -1.0;
- assert(size.Y >= 0.0);
- HMM_Vec2 points[4] =
- {
-  HMM_AddV2(upper_left, HMM_V2(0.0f, 0.0f)),
-  HMM_AddV2(upper_left, HMM_V2(size.X, 0.0f)),
-  HMM_AddV2(upper_left, HMM_V2(size.X, -size.Y)),
-  HMM_AddV2(upper_left, HMM_V2(0.0f, -size.Y)),
- };
- draw_quad(world_space, points, image_white_square, full_region(image_white_square), color);
-}
 
-HMM_Vec2 tile_id_to_coord(sg_image tileset_image, HMM_Vec2 tile_size, uint16_t tile_id)
+Vec2 tile_id_to_coord(sg_image tileset_image, Vec2 tile_size, uint16_t tile_id)
 {
  int tiles_per_row = (int)(img_size(tileset_image).X / tile_size.X);
  int tile_index = tile_id - 1;
  int tile_image_row = tile_index / tiles_per_row;
  int tile_image_col = tile_index - tile_image_row*tiles_per_row;
- HMM_Vec2 tile_image_coord = HMM_V2((float)tile_image_col * tile_size.X, (float)tile_image_row*tile_size.Y);
+ Vec2 tile_image_coord = V2((float)tile_image_col * tile_size.X, (float)tile_image_row*tile_size.Y);
  return tile_image_coord;
 }
 
 // returns bounds. To measure text you can set dry run to true and get the bounds
-
-AABB draw_text(bool world_space, bool dry_run, const char *text, size_t length, HMM_Vec2 pos, Color color)
+AABB draw_text(bool world_space, bool dry_run, const char *text, Vec2 pos, Color color)
 {
  size_t text_len = strlen(text);
  AABB bounds =
@@ -587,7 +660,7 @@ AABB draw_text(bool world_space, bool dry_run, const char *text, size_t length, 
   float difference = y - old_y;
   y = old_y + difference;
 
-  HMM_Vec2 size = HMM_V2(q.x1 - q.x0, q.y1 - q.y0);
+  Vec2 size = V2(q.x1 - q.x0, q.y1 - q.y0);
   if(text[i] == '\n')
   {
 #ifdef DEVTOOLS
@@ -599,18 +672,19 @@ AABB draw_text(bool world_space, bool dry_run, const char *text, size_t length, 
   }
   if(size.Y > 0.0 && size.X > 0.0)
   { // spaces (and maybe other characters) produce quads of size 0
-   HMM_Vec2 points[4] =
-   {
-    HMM_AddV2(HMM_V2(q.x0, -q.y0), HMM_V2(0.0f, 0.0f)),
-    HMM_AddV2(HMM_V2(q.x0, -q.y0), HMM_V2(size.X, 0.0f)),
-    HMM_AddV2(HMM_V2(q.x0, -q.y0), HMM_V2(size.X, -size.Y)),
-    HMM_AddV2(HMM_V2(q.x0, -q.y0), HMM_V2(0.0f, -size.Y)),
+   Quad to_draw = {
+   .points = {
+     AddV2(V2(q.x0, -q.y0), V2(0.0f, 0.0f)),
+     AddV2(V2(q.x0, -q.y0), V2(size.X, 0.0f)),
+     AddV2(V2(q.x0, -q.y0), V2(size.X, -size.Y)),
+     AddV2(V2(q.x0, -q.y0), V2(0.0f, -size.Y)),
+    },
    };
 
    AABB font_atlas_region = (AABB)
    {
-    .upper_left  = HMM_V2(q.s0, q.t0),
-     .lower_right = HMM_V2(q.s1, q.t1),
+    .upper_left  = V2(q.s0, q.t0),
+     .lower_right = V2(q.s1, q.t1),
    };
    font_atlas_region.upper_left.X *= img_size(image_font).X;
    font_atlas_region.lower_right.X *= img_size(image_font).X;
@@ -619,41 +693,76 @@ AABB draw_text(bool world_space, bool dry_run, const char *text, size_t length, 
 
    for(int i = 0; i < 4; i++)
    {
-    bounds.upper_left.X = min(bounds.upper_left.X, points[i].X);
-    bounds.upper_left.Y = max(bounds.upper_left.Y, points[i].Y);
-    bounds.lower_right.X = max(bounds.lower_right.X, points[i].X);
-    bounds.lower_right.Y = min(bounds.lower_right.Y, points[i].Y);
+    bounds.upper_left.X = min(bounds.upper_left.X, to_draw.points[i].X);
+    bounds.upper_left.Y = max(bounds.upper_left.Y, to_draw.points[i].Y);
+    bounds.lower_right.X = max(bounds.lower_right.X, to_draw.points[i].X);
+    bounds.lower_right.Y = min(bounds.lower_right.Y, to_draw.points[i].Y);
    }
 
    for(int i = 0; i < 4; i++)
    {
-    points[i] = HMM_AddV2(points[i], pos);
+    to_draw.points[i] = AddV2(to_draw.points[i], pos);
    }
 
    if(!dry_run)
    {
-    draw_quad(world_space, points, image_font, font_atlas_region, color);
+    draw_quad(world_space, to_draw, image_font, font_atlas_region, color);
    }
   }
  }
 
- bounds.upper_left = HMM_AddV2(bounds.upper_left, pos);
- bounds.lower_right = HMM_AddV2(bounds.lower_right, pos);
+ bounds.upper_left = AddV2(bounds.upper_left, pos);
+ bounds.lower_right = AddV2(bounds.lower_right, pos);
  return bounds;
 }
 
-void redsquare(HMM_Vec2 at)
+void colorquad(bool world_space, Quad q, Color col)
 {
- HMM_Vec2 points[4] =
- {0};
- quad_points_centered_size(points, at, HMM_V2(10.0, 10.0));
- draw_quad(true, points, image_white_square,full_region(image_font), RED);
+ draw_quad(world_space, q, image_white_square, full_region(image_white_square), col);
 }
+
+void dbgsquare(Vec2 at)
+{
+ colorquad(true, quad_centered(at, V2(10.0, 10.0)), RED);
+}
+
+// in world coordinates
+void line(Vec2 from, Vec2 to, float line_width, Color color)
+{
+ Vec2 normal = rotate_counter_clockwise(NormV2(SubV2(to, from)));
+ Quad line_quad = {
+  .points = {
+  AddV2(from, MulV2F(normal, line_width)),  // upper left
+  AddV2(to, MulV2F(normal, line_width)),    // upper right
+  AddV2(to, MulV2F(normal, -line_width)),   // lower right
+  AddV2(from, MulV2F(normal, -line_width)), // lower left
+  }
+ };
+ colorquad(true, line_quad, color);
+}
+
+void dbgline(Vec2 from, Vec2 to)
+{
+ line(from, to, 2.0f, RED);
+}
+
+// in world space
+void dbgrect(AABB rect)
+{
+ const float line_width = 0.5;
+ const Color col = RED;
+ Quad q = quad_aabb(rect);
+ line(q.ul, q.ur, line_width, col);
+ line(q.ur, q.lr, line_width, col);
+ line(q.lr, q.ll, line_width, col);
+ line(q.ll, q.ul, line_width, col);
+}
+
 
 double time = 0.0;
 double last_frame_processing_time = 0.0;
 uint64_t last_frame_time;
-HMM_Vec2 mouse_pos =
+Vec2 mouse_pos =
 {0}; // in screen space
 bool character_facing_left = false;
 bool keydown[SAPP_KEYCODE_MENU] =
@@ -675,13 +784,13 @@ void frame(void)
  }
  float dt = (float)dt_double;
 
- HMM_Vec2 movement = HMM_V2(
-   (float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A],
-   (float)keydown[SAPP_KEYCODE_W] - (float)keydown[SAPP_KEYCODE_S]
-   );
- if(HMM_LenV2(movement) > 1.0)
+ Vec2 movement = V2(
+  (float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A],
+  (float)keydown[SAPP_KEYCODE_W] - (float)keydown[SAPP_KEYCODE_S]
+ );
+ if(LenV2(movement) > 1.0)
  {
-  movement = HMM_NormV2(movement);
+  movement = NormV2(movement);
  }
  sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
  sg_apply_pipeline(state.pip);
@@ -694,20 +803,16 @@ void frame(void)
   for(int col = 0; col < LEVEL_TILES; col++)
 
   {
-   TileInstance cur = cur_level->tiles[row][col];
-   TileCoord cur_coord =
-   { col, row };
+   TileCoord cur_coord = { col, row };
+   TileInstance cur = get_tile(cur_level, cur_coord);
    TileSet tileset = tileset_ruins_animated;
    if(cur.kind != 0)
    {
-    HMM_Vec2 points[4] =
-    {0};
-    HMM_Vec2 tile_size = HMM_V2(TILE_SIZE, TILE_SIZE);
-    quad_points_corner_size(points, tilecoord_to_world(cur_coord), tile_size);
+    Vec2 tile_size = V2(TILE_SIZE, TILE_SIZE);
 
     sg_image tileset_image = *tileset.img;
 
-    HMM_Vec2 tile_image_coord = tile_id_to_coord(tileset_image, tile_size, cur.kind);
+    Vec2 tile_image_coord = tile_id_to_coord(tileset_image, tile_size, cur.kind);
 
     AnimatedTile *anim = NULL;
     for(int i = 0; i < sizeof(tileset.animated)/sizeof(*tileset.animated); i++)
@@ -726,9 +831,9 @@ void frame(void)
 
     AABB region;
     region.upper_left = tile_image_coord;
-    region.lower_right = HMM_AddV2(region.upper_left, tile_size);
+    region.lower_right = AddV2(region.upper_left, tile_size);
 
-    draw_quad(true, points, tileset_image, region, WHITE);
+    draw_quad(true, tile_quad(cur_coord), tileset_image, region, WHITE);
    }
   }
  }
@@ -736,103 +841,105 @@ void frame(void)
 
 
 
- HMM_Vec2 new_pos = HMM_AddV2(character_pos, HMM_MulV2F(movement, dt * pixels_per_meter * 4.0f));
- HMM_Vec2 character_aabb_size =
- { TILE_SIZE, TILE_SIZE };
+ Vec2 new_pos = AddV2(character_pos, MulV2F(movement, dt * pixels_per_meter * 4.0f));
+ Vec2 character_aabb_size = { TILE_SIZE, TILE_SIZE };
  AABB at_new = centered_aabb(new_pos, character_aabb_size);
- HMM_Vec2 at_new_size_vector = HMM_SubV2(at_new.lower_right, at_new.upper_left);
- HMM_Vec2 points_to_check[] =
+ Vec2 at_new_size_vector = SubV2(at_new.lower_right, at_new.upper_left);
+ Vec2 points_to_check[] =
  {
-  HMM_AddV2(at_new.upper_left, HMM_V2(0.0, 0.0)),
-  HMM_AddV2(at_new.upper_left, HMM_V2(at_new_size_vector.X, 0.0)),
-  HMM_AddV2(at_new.upper_left, HMM_V2(at_new_size_vector.X, at_new_size_vector.Y)),
-  HMM_AddV2(at_new.upper_left, HMM_V2(0.0, at_new_size_vector.Y)),
+  AddV2(at_new.upper_left, V2(0.0, 0.0)),
+  AddV2(at_new.upper_left, V2(at_new_size_vector.X, 0.0)),
+  AddV2(at_new.upper_left, V2(at_new_size_vector.X, at_new_size_vector.Y)),
+  AddV2(at_new.upper_left, V2(0.0, at_new_size_vector.Y)),
  };
- //redsquare(character_pos);
- //redsquare(at_new.upper_left);
- //redsquare(at_new.lower_right);
+ //dbgsquare(character_pos);
+ //dbgsquare(at_new.upper_left);
+ //dbgsquare(at_new.lower_right);
  for(int i = 0; i < sizeof(points_to_check)/sizeof(*points_to_check); i++)
  {
-  HMM_Vec2 *it = &points_to_check[i];
+  Vec2 *it = &points_to_check[i];
   TileCoord to_check = world_to_tilecoord(*it);
-  char num[10] =
-  {0};
-  snprintf(num, 10, "%d", get_tile(&level_level0, to_check));
-  draw_text(false, false, num, strlen(num), world_to_screen(tilecoord_to_world(to_check)), BLACK);
 
-  if(get_tile(&level_level0, to_check) == 53)
+  uint16_t tile_id = get_tile(&level_level0, to_check).kind;
+  if(tile_id == 53 || tile_id == 0 || tile_id == 367 || tile_id == 317 || tile_id == 313 || tile_id == 366)
   {
-   redsquare(tilecoord_to_world(to_check));
+   dbgsquare(tilecoord_to_world(to_check));
    AABB to_depenetrate_from = tile_aabb(to_check);
    while(overlapping(to_depenetrate_from, at_new))
    { 
     //while(false)
     {
-     //redsquare(to_depenetrate_from.upper_left);
-     //redsquare(to_depenetrate_from.lower_right);
+     //dbgsquare(to_depenetrate_from.upper_left);
+     //dbgsquare(to_depenetrate_from.lower_right);
      const float move_dist = 0.05f;
-     HMM_Vec2 move_dir = HMM_NormV2(HMM_SubV2(aabb_center(at_new), aabb_center(to_depenetrate_from)));
-     HMM_Vec2 move = HMM_MulV2F(move_dir, move_dist);
-     at_new.upper_left = HMM_AddV2(at_new.upper_left,move);
-     at_new.lower_right = HMM_AddV2(at_new.lower_right,move);
+
+     Vec2 to_player = NormV2(SubV2(aabb_center(at_new), aabb_center(to_depenetrate_from)));
+     Vec2 compass_dirs[4] = {
+      V2( 1.0, 0.0),
+      V2(-1.0, 0.0),
+      V2(0.0,  1.0),
+      V2(0.0, -1.0),
+     };
+     int closest_index = -1;
+     float closest_dot = -99999999.0f;
+     for(int i = 0; i < 4; i++)
+     {
+      float dot = DotV2(compass_dirs[i], to_player);
+      if(dot > closest_dot)
+      {
+       closest_index = i;
+       closest_dot = dot;
+      }
+     }
+     Vec2 move_dir = compass_dirs[closest_index];
+     Vec2 move = MulV2F(move_dir, move_dist);
+     at_new.upper_left = AddV2(at_new.upper_left,move);
+     at_new.lower_right = AddV2(at_new.lower_right,move);
     }
    }
   }
+ }
   character_pos = aabb_center(at_new);
-  cam.pos = HMM_LerpV2(cam.pos, dt*8.0f, HMM_MulV2F(character_pos, -1.0f * cam.scale));
+  cam.pos = LerpV2(cam.pos, dt*8.0f, MulV2F(character_pos, -1.0f * cam.scale));
 
 #ifdef DEVTOOLS
-  // mouse pos
-
-  {
-   redsquare(screen_to_world(mouse_pos));
-   /*
-      HMM_Vec2 points[4] =
-      {0};
-      quad_points_centered_size(points, screen_to_world(mouse_pos), HMM_V2(10.0, 10.0));
-      draw_quad(true, points, image_white_square,full_region(image_font), RED);
-      */
-  }
+  dbgsquare(screen_to_world(mouse_pos));
+  
   // tile coord
-
   {
    TileCoord hovering = world_to_tilecoord(screen_to_world(mouse_pos));
-   HMM_Vec2 points[4] =
-   {0};
-   quad_points_centered_size(points, tilecoord_to_world(hovering), HMM_V2(10.0, 10.0));
-   draw_quad(true, points, image_white_square,full_region(image_font), RED);
+   Vec2 points[4] ={0};
+   AABB q = tile_aabb(hovering);
+   dbgrect(q);
+   draw_text(false, false, tprint("%d", get_tile(&level_level0, hovering).kind), world_to_screen(tilecoord_to_world(hovering)), BLACK);
+  }
+
+  // line test
+  {
+   dbgline(character_pos, screen_to_world(mouse_pos));
   }
 
   // debug draw font image
-
   {
-   HMM_Vec2 points[4] =
-   {0};
-   quad_points_centered_size(points, HMM_V2(0.0, 0.0), HMM_V2(250.0, 250.0));
-   draw_quad(true, points, image_font,full_region(image_font), WHITE);
+   draw_quad(true, quad_centered(V2(0.0, 0.0), V2(250.0, 250.0)), image_font,full_region(image_font), WHITE);
   }
 
   // statistics
-
   {
-   char statistics[1024] =
-   {0};
-   snprintf(statistics, sizeof(statistics), "Frametime: %.1f ms\nProcessing: %.1f ms", dt*1000.0, last_frame_processing_time*1000.0);
-   HMM_Vec2 pos = HMM_V2(0.0, screen_size().Y);
-   AABB bounds = draw_text(false, true, statistics, strlen(statistics), pos, BLACK);
+   Vec2 pos = V2(0.0, screen_size().Y);
+   char *stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms", dt*1000.0, last_frame_processing_time*1000.0);
+   AABB bounds = draw_text(false, true, stats, pos, BLACK);
    pos.Y -= bounds.upper_left.Y - screen_size().Y;
-   bounds = draw_text(false, true, statistics, strlen(statistics), pos, BLACK);
+   bounds = draw_text(false, true, stats, pos, BLACK);
    // background panel
-   colorbox(false, bounds.upper_left, bounds.lower_right, (Color){1.0, 1.0, 1.0, 0.3f});
-   //colorbox(false, HMM_V2(50,screen_size().Y), HMM_V2(100,0), RED);
-   //colorbox(false, bounds.upper_left, bounds.lower_right, RED);
-   draw_text(false, false, statistics, strlen(statistics), pos, BLACK);
+   colorquad(false, quad_aabb(bounds), (Color){1.0, 1.0, 1.0, 0.3f});
+   draw_text(false, false, stats, pos, BLACK);
   }
   // text test render
 #if 0
   const char *text = "great idea\nother idea";
   // measure text
-  HMM_Vec2 pos = character_pos;
+  Vec2 pos = character_pos;
 
   {
    AABB bounds = draw_text(true, true, text, strlen(text), pos, WHITE);
@@ -848,8 +955,8 @@ void frame(void)
 #endif // devtools
 
   if(fabsf(movement.X) > 0.01f) character_facing_left = movement.X < 0.0f;
-  HMM_Vec2 character_sprite_pos = HMM_AddV2(character_pos, HMM_V2(0.0, 20.0f));
-  if(HMM_LenV2(movement) > 0.01)
+  Vec2 character_sprite_pos = AddV2(character_pos, V2(0.0, 20.0f));
+  if(LenV2(movement) > 0.01)
   {
    draw_animated_sprite(&knight_running, time, character_facing_left, character_sprite_pos, WHITE);
   } else
@@ -857,63 +964,65 @@ void frame(void)
    draw_animated_sprite(&knight_idle, time, character_facing_left, character_sprite_pos, WHITE);
   }
 
+
   sg_end_pass();
   sg_commit();
 
   last_frame_processing_time = stm_sec(stm_diff(stm_now(),time_start_frame));
- }
 
- void cleanup(void)
- {
-  sg_shutdown();
- }
+  reset(&scratch);
+}
+void cleanup(void)
+{
+ sg_shutdown();
+}
 
- void event(const sapp_event *e)
+void event(const sapp_event *e)
+{
+ if(e->type == SAPP_EVENTTYPE_KEY_DOWN)
  {
-  if(e->type == SAPP_EVENTTYPE_KEY_DOWN)
+  assert(e->key_code < sizeof(keydown)/sizeof(*keydown));
+  keydown[e->key_code] = true;
+  if(e->key_code == SAPP_KEYCODE_ESCAPE)
   {
-   assert(e->key_code < sizeof(keydown)/sizeof(*keydown));
-   keydown[e->key_code] = true;
-   if(e->key_code == SAPP_KEYCODE_ESCAPE)
-   {
-    sapp_quit();
-   }
+   sapp_quit();
+  }
 #ifdef DEVTOOLS
-   if(e->key_code == SAPP_KEYCODE_T)
-   {
-    mouse_frozen = !mouse_frozen;
-   }
-#endif
-  }
-  if(e->type == SAPP_EVENTTYPE_KEY_UP)
+  if(e->key_code == SAPP_KEYCODE_T)
   {
-   keydown[e->key_code] = false;
+   mouse_frozen = !mouse_frozen;
   }
-  if(e->type == SAPP_EVENTTYPE_MOUSE_MOVE)
-  {
-   bool ignore_movement = false;
-#ifdef DEVTOOLS
-   if(mouse_frozen) ignore_movement = true;
 #endif
-   if(!ignore_movement) mouse_pos = HMM_V2(e->mouse_x, (float)sapp_height() - e->mouse_y);
-  }
  }
-
- sapp_desc sokol_main(int argc, char* argv[])
+ if(e->type == SAPP_EVENTTYPE_KEY_UP)
  {
-  (void)argc; (void)argv;
-  return (sapp_desc){
-   .init_cb = init,
-    .frame_cb = frame,
-    .cleanup_cb = cleanup,
-    .event_cb = event,
-    .width = 800,
-    .height = 600,
-    //.gl_force_gles2 = true, not sure why this was here in example, look into
-    .window_title = "RPGPT",
-
-    .win32_console_attach = true,
-
-    .icon.sokol_default = true,
-  };
+  keydown[e->key_code] = false;
  }
+ if(e->type == SAPP_EVENTTYPE_MOUSE_MOVE)
+ {
+  bool ignore_movement = false;
+#ifdef DEVTOOLS
+  if(mouse_frozen) ignore_movement = true;
+#endif
+  if(!ignore_movement) mouse_pos = V2(e->mouse_x, (float)sapp_height() - e->mouse_y);
+ }
+}
+
+sapp_desc sokol_main(int argc, char* argv[])
+{
+ (void)argc; (void)argv;
+ return (sapp_desc){
+  .init_cb = init,
+   .frame_cb = frame,
+   .cleanup_cb = cleanup,
+   .event_cb = event,
+   .width = 800,
+   .height = 600,
+   //.gl_force_gles2 = true, not sure why this was here in example, look into
+   .window_title = "RPGPT",
+
+   .win32_console_attach = true,
+
+   .icon.sokol_default = true,
+ };
+}
