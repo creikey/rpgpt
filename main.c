@@ -105,7 +105,7 @@ typedef struct Entity
 #define LEVEL_TILES 60
 #define TILE_SIZE 32 // in pixels
 #define MAX_ENTITIES 128
-#define PLAYER_SPEED 3.0f // in meters per second
+#define PLAYER_SPEED 3.5f // in meters per second
 #define PLAYER_ROLL_SPEED 7.0f
 typedef struct Level
 {
@@ -168,6 +168,23 @@ char *tprint(const char *format, ...)
   va_end(argptr);
 
   return to_return;
+}
+
+Vec2 entity_aabb_size(Entity *e)
+{
+ if(e->kind == ENTITY_PLAYER)
+ {
+  return V2(TILE_SIZE, TILE_SIZE);
+ }
+ else if(e->kind == ENTITY_OLD_MAN)
+ {
+  return V2(TILE_SIZE*0.5f, TILE_SIZE*0.5f);
+ }
+ else
+ {
+  assert(false);
+  return (Vec2){0};
+ }
 }
 
 // tilecoord is integer tile position, not like tile coord
@@ -858,12 +875,18 @@ void line(Vec2 from, Vec2 to, float line_width, Color color)
 
 void dbgline(Vec2 from, Vec2 to)
 {
+#ifdef DEVTOOLS
  line(from, to, 2.0f, RED);
+#else
+ (void)from;
+ (void)to;
+#endif
 }
 
 // in world space
 void dbgrect(AABB rect)
 {
+#ifdef DEVTOOLS
  const float line_width = 0.5;
  const Color col = RED;
  Quad q = quad_aabb(rect);
@@ -871,65 +894,88 @@ void dbgrect(AABB rect)
  line(q.ur, q.lr, line_width, col);
  line(q.lr, q.ll, line_width, col);
  line(q.ll, q.ul, line_width, col);
+#else
+ (void)rect;
+#endif
 }
 
 // returns new pos after moving and sliding against collidable things
-Vec2 move_and_slide(Vec2 position, Vec2 movement_this_frame, Vec2 collision_aabb_size)
+Vec2 move_and_slide(Entity *from, Vec2 position, Vec2 movement_this_frame)
 {
+ Vec2 collision_aabb_size = entity_aabb_size(from);
  Vec2 new_pos = AddV2(position, movement_this_frame);
  AABB at_new = centered_aabb(new_pos, collision_aabb_size);
- Vec2 at_new_size_vector = SubV2(at_new.lower_right, at_new.upper_left);
- Vec2 points_to_check[] = {
-  AddV2(at_new.upper_left, V2(0.0, 0.0)),
-  AddV2(at_new.upper_left, V2(at_new_size_vector.X, 0.0)),
-  AddV2(at_new.upper_left, V2(at_new_size_vector.X, at_new_size_vector.Y)),
-  AddV2(at_new.upper_left, V2(0.0, at_new_size_vector.Y)),
- };
- //dbgsquare(position);
- //dbgsquare(at_new.upper_left);
- //dbgsquare(at_new.lower_right);
- for(int i = 0; i < sizeof(points_to_check)/sizeof(*points_to_check); i++)
+ dbgrect(at_new);
+ AABB to_check[64] = {0};
+ int to_check_index = 0;
+
+ // add tilemap boxes
  {
-  Vec2 *it = &points_to_check[i];
-  TileCoord to_check = world_to_tilecoord(*it);
-
-  uint16_t tile_id = get_tile(&level_level0, to_check).kind;
-  if(tile_id == 53 || tile_id == 0 || tile_id == 367 || tile_id == 317 || tile_id == 313 || tile_id == 366 || tile_id == 368)
+  Vec2 at_new_size_vector = SubV2(at_new.lower_right, at_new.upper_left);
+  Vec2 points_to_check[] = {
+   AddV2(at_new.upper_left, V2(0.0, 0.0)),
+   AddV2(at_new.upper_left, V2(at_new_size_vector.X, 0.0)),
+   AddV2(at_new.upper_left, V2(at_new_size_vector.X, at_new_size_vector.Y)),
+   AddV2(at_new.upper_left, V2(0.0, at_new_size_vector.Y)),
+  };
+  for(int i = 0; i < ARRLEN(points_to_check); i++)
   {
-   dbgsquare(tilecoord_to_world(to_check));
-   AABB to_depenetrate_from = tile_aabb(to_check);
-   while(overlapping(to_depenetrate_from, at_new))
-   { 
-    //while(false)
-    {
-     //dbgsquare(to_depenetrate_from.upper_left);
-     //dbgsquare(to_depenetrate_from.lower_right);
-     const float move_dist = 0.05f;
+   Vec2 *it = &points_to_check[i];
+   TileCoord tilecoord_to_check = world_to_tilecoord(*it);
 
-     Vec2 to_player = NormV2(SubV2(aabb_center(at_new), aabb_center(to_depenetrate_from)));
-     Vec2 compass_dirs[4] = {
-      V2( 1.0, 0.0),
-      V2(-1.0, 0.0),
-      V2(0.0,  1.0),
-      V2(0.0, -1.0),
-     };
-     int closest_index = -1;
-     float closest_dot = -99999999.0f;
-     for(int i = 0; i < 4; i++)
-     {
-      float dot = DotV2(compass_dirs[i], to_player);
-      if(dot > closest_dot)
-      {
-       closest_index = i;
-       closest_dot = dot;
-      }
-     }
-     Vec2 move_dir = compass_dirs[closest_index];
-     Vec2 move = MulV2F(move_dir, move_dist);
-     at_new.upper_left = AddV2(at_new.upper_left,move);
-     at_new.lower_right = AddV2(at_new.lower_right,move);
+   uint16_t tile_id = get_tile(&level_level0, tilecoord_to_check).kind;
+   if(tile_id == 53 || tile_id == 0 || tile_id == 367 || tile_id == 317 || tile_id == 313 || tile_id == 366 || tile_id == 368)
+   {
+    to_check[to_check_index++] = tile_aabb(tilecoord_to_check);
+    assert(to_check_index < ARRLEN(to_check));
+   }
+  }
+ }
+
+ // add entity boxes
+ if(!(from->kind == ENTITY_PLAYER && from->is_rolling))
+ {
+  for(int i = 0; i < ARRLEN(entities); i++) if(entities[i].exists)
+  {
+   if(&entities[i] != from)
+   {
+    to_check[to_check_index++] = centered_aabb(entities[i].pos, entity_aabb_size(&entities[i]));
+   }
+  }
+ }
+
+ for(int i = 0; i < to_check_index; i++)
+ {
+  AABB to_depenetrate_from = to_check[i];
+  dbgrect(to_depenetrate_from);
+  while(overlapping(to_depenetrate_from, at_new))
+  { 
+   //dbgsquare(to_depenetrate_from.upper_left);
+   //dbgsquare(to_depenetrate_from.lower_right);
+   const float move_dist = 0.05f;
+
+   Vec2 to_player = NormV2(SubV2(aabb_center(at_new), aabb_center(to_depenetrate_from)));
+   Vec2 compass_dirs[4] = {
+    V2( 1.0, 0.0),
+    V2(-1.0, 0.0),
+    V2(0.0,  1.0),
+    V2(0.0, -1.0),
+   };
+   int closest_index = -1;
+   float closest_dot = -99999999.0f;
+   for(int i = 0; i < 4; i++)
+   {
+    float dot = DotV2(compass_dirs[i], to_player);
+    if(dot > closest_dot)
+    {
+     closest_index = i;
+     closest_dot = dot;
     }
    }
+   Vec2 move_dir = compass_dirs[closest_index];
+   Vec2 move = MulV2F(move_dir, move_dist);
+   at_new.upper_left = AddV2(at_new.upper_left,move);
+   at_new.lower_right = AddV2(at_new.lower_right,move);
   }
  }
 
@@ -1114,7 +1160,7 @@ void frame(void)
    {
     if(player->speed <= 0.01f) player->speed = PLAYER_SPEED;
     player->speed = Lerp(player->speed, dt * 3.0f, PLAYER_SPEED);
-    player->pos = move_and_slide(player->pos, MulV2F(movement, dt * pixels_per_meter * player->speed), V2(TILE_SIZE, TILE_SIZE));
+    player->pos = move_and_slide(player, player->pos, MulV2F(movement, dt * pixels_per_meter * player->speed));
     if(player->is_rolling)
     {
      draw_animated_sprite(&knight_rolling, player->roll_progress, player->facing_left, character_sprite_pos, WHITE);
