@@ -14,6 +14,10 @@
 {
  filepath: "_Attack.png",
 }
+@image old_man:
+{
+ filepath: "small_old_man.png",
+}
 @image animated_terrain:
 {
  filepath: "copyrighted/animated_terrain.png",

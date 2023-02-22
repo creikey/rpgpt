@@ -16,6 +16,8 @@
 
 #include <math.h>
 
+#define ARRLEN(x) ((sizeof(x)/sizeof(0[x])) / ((size_t)(!(sizeof(x) % sizeof(0[x])))))
+
 typedef struct AABB
 {
  Vec2 upper_left;
@@ -137,6 +139,13 @@ Vec2 tilecoord_to_world(TileCoord t)
  return V2( (float)t.x * (float)TILE_SIZE * 1.0f, -(float)t.y * (float)TILE_SIZE * 1.0f );
 }
 
+// points from tiled editor have their own strange and alien coordinate system (local to the tilemap Y+ down)
+Vec2 tilepoint_to_world(Vec2 tilepoint)
+{
+ Vec2 tilecoord = MulV2F(tilepoint, 1.0/TILE_SIZE);
+ return tilecoord_to_world((TileCoord){(int)tilecoord.X, (int)tilecoord.Y});
+}
+
 TileCoord world_to_tilecoord(Vec2 w)
 {
  // world = V2(tilecoord.x * tile_size, -tilecoord.y * tile_size)
@@ -251,6 +260,16 @@ AnimatedSprite knight_attack =
  .no_wrap = true,
 };
 
+AnimatedSprite old_man_idle = 
+{
+ .img = &image_old_man,
+ .time_per_frame = 0.4,
+ .num_frames = 4,
+ .start = {0.0, 0.0},
+ .horizontal_diff_btwn_frames = 16.0f,
+ .region_size = {16.0f, 16.0f},
+};
+
 sg_image image_font = {0};
 const float font_size = 32.0;
 stbtt_bakedchar cdata[96]; // ASCII 32..126 is 95 glyphs
@@ -272,17 +291,44 @@ typedef enum CharacterState
  CHARACTER_ATTACK,
 } CharacterState;
 
-typedef struct Character
+typedef enum EntityKind
 {
- CharacterState state;
+ Player,
+ OldMan,
+} EntityKind;
+
+typedef struct Entity
+{
+ bool exists;
+ EntityKind kind;
+
  Vec2 pos;
  bool facing_left;
 
- // swinging
+ // character
+ CharacterState state;
  double swing_progress;
-} Character;
 
-Character player = {0};
+} Entity;
+
+Entity entities[128] = {0};
+Entity *player = NULL;
+
+Entity *new_entity()
+{
+ for(int i = 0; i < ARRLEN(entities); i++)
+ {
+  if(!entities[i].exists)
+  {
+   Entity *to_return = &entities[i];
+   *to_return = (Entity){0};
+   to_return->exists = true;
+   return to_return;
+  }
+ }
+ assert(false);
+ return NULL;
+}
 
 void init(void)
 {
@@ -294,9 +340,8 @@ void init(void)
 
  load_assets();
 
- // player spawnpoint
- Vec2 spawnpoint_tilecoord = MulV2F(level_level0.spawnpoint, 1.0/TILE_SIZE);
- player.pos = tilecoord_to_world((TileCoord){(int)spawnpoint_tilecoord.X, (int)spawnpoint_tilecoord.Y});
+ player = new_entity();
+ player->pos = tilepoint_to_world(spawn_tilepoint);
 
  // load font
  {
@@ -555,8 +600,7 @@ bool overlapping(AABB a, AABB b)
  return true; // both segments overlapping
 }
 
-// points must be of length 4, and be in the order: upper left, upper right, lower right, lower left
-// the points are in pixels in screen space. The image region is in pixel space of the image
+// The image region is in pixel space of the image
 void draw_quad(bool world_space, Quad quad, sg_image image, AABB image_region, Color tint)
 {
  Vec2 *points = quad.points;
@@ -597,6 +641,7 @@ void draw_quad(bool world_space, Quad quad, sg_image image, AABB image_region, C
   AddV2(image_region.upper_left, V2(region_size.X, region_size.Y)),
   AddV2(image_region.upper_left, V2(0.0,           region_size.Y)),
  };
+
  // convert to uv space
  sg_image_info info = sg_query_image_info(image);
  for(int i = 0; i < 4; i++)
@@ -935,7 +980,7 @@ void frame(void)
  }
 #endif
 
- //if(LengthV2(movement) > 0.01 && player.state == CHARACTER_)
+ //if(LengthV2(movement) > 0.01 && player->state == CHARACTER_)
 #ifdef DEVTOOLS
   dbgsquare(screen_to_world(mouse_pos));
   
@@ -950,7 +995,7 @@ void frame(void)
 
   // line test
   {
-   dbgline(player.pos, screen_to_world(mouse_pos));
+   dbgline(player->pos, screen_to_world(mouse_pos));
   }
 
   // debug draw font image
@@ -973,7 +1018,7 @@ void frame(void)
 #if 0
   const char *text = "great idea\nother idea";
   // measure text
-  Vec2 pos = player.pos;
+  Vec2 pos = player->pos;
 
   {
    AABB bounds = draw_text(true, true, text, strlen(text), pos, WHITE);
@@ -988,43 +1033,44 @@ void frame(void)
 
 #endif // devtools
 
+  draw_animated_sprite(&old_man_idle, time, false, V2(884.788635f, -928.000000f), WHITE);
   // player character
   {
 
-   Vec2 character_sprite_pos = AddV2(player.pos, V2(0.0, 20.0f));
+   Vec2 character_sprite_pos = AddV2(player->pos, V2(0.0, 20.0f));
 
-   if(attack && (player.state == CHARACTER_IDLE || player.state == CHARACTER_WALKING))
+   if(attack && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
    {
-    player.state = CHARACTER_ATTACK;
-    player.swing_progress = 0.0;
+    player->state = CHARACTER_ATTACK;
+    player->swing_progress = 0.0;
    }
 
-   cam.pos = LerpV2(cam.pos, dt*8.0f, MulV2F(player.pos, -1.0f * cam.scale));
-   if(player.state == CHARACTER_WALKING)
+   cam.pos = LerpV2(cam.pos, dt*8.0f, MulV2F(player->pos, -1.0f * cam.scale));
+   if(player->state == CHARACTER_WALKING)
    {
-    player.pos = move_and_slide(player.pos, MulV2F(movement, dt * pixels_per_meter * 4.0f), V2(TILE_SIZE, TILE_SIZE));
-    draw_animated_sprite(&knight_running, time, player.facing_left, character_sprite_pos, WHITE);
+    player->pos = move_and_slide(player->pos, MulV2F(movement, dt * pixels_per_meter * 4.0f), V2(TILE_SIZE, TILE_SIZE));
+    draw_animated_sprite(&knight_running, time, player->facing_left, character_sprite_pos, WHITE);
     if(LenV2(movement) == 0.0)
     {
-     player.state = CHARACTER_IDLE;
+     player->state = CHARACTER_IDLE;
     }
     else
     {
-     player.facing_left = movement.X < 0.0f;
+     player->facing_left = movement.X < 0.0f;
     }
    }
-   else if(player.state == CHARACTER_IDLE)
+   else if(player->state == CHARACTER_IDLE)
    {
-    draw_animated_sprite(&knight_idle, time, player.facing_left, character_sprite_pos, WHITE);
-    if(LenV2(movement) > 0.01) player.state = CHARACTER_WALKING;
+    draw_animated_sprite(&knight_idle, time, player->facing_left, character_sprite_pos, WHITE);
+    if(LenV2(movement) > 0.01) player->state = CHARACTER_WALKING;
    }
-   else if(player.state == CHARACTER_ATTACK)
+   else if(player->state == CHARACTER_ATTACK)
    {
-    player.swing_progress += dt;
-    draw_animated_sprite(&knight_attack, player.swing_progress, player.facing_left, character_sprite_pos, WHITE);
-    if(player.swing_progress > anim_sprite_duration(&knight_attack))
+    player->swing_progress += dt;
+    draw_animated_sprite(&knight_attack, player->swing_progress, player->facing_left, character_sprite_pos, WHITE);
+    if(player->swing_progress > anim_sprite_duration(&knight_attack))
     {
-     player.state = CHARACTER_IDLE;
+     player->state = CHARACTER_IDLE;
     }
    }
   }
