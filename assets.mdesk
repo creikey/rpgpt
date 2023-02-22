@@ -1,33 +1,37 @@
 @image merchant:
 {
-    filepath: "copyrighted/merchant.png",
+ filepath: "copyrighted/merchant.png",
 }
 @image knight_idle:
 {
-    filepath: "_Idle.png",
+ filepath: "_Idle.png",
 }
 @image knight_run:
 {
-    filepath: "_Run.png",
+ filepath: "_Run.png",
+}
+@image knight_attack:
+{
+ filepath: "_Attack.png",
 }
 @image animated_terrain:
 {
-    filepath: "copyrighted/animated_terrain.png",
+ filepath: "copyrighted/animated_terrain.png",
 }
 @image white_square:
 {
-    filepath: "white square.png",
+ filepath: "white square.png",
 }
 @image mystery_tile:
 {
-    filepath: "mystery_tile.png",
+ filepath: "mystery_tile.png",
 }
 @tileset ruins_animated:
 {
-    image: image_animated_terrain,
-    filepath: "copyrighted/ruins_animated.tsx",
+ image: image_animated_terrain,
+ filepath: "copyrighted/ruins_animated.tsx",
 }
 @level level0:
 {
-    filepath: "level0.json",
+ filepath: "level0.json",
 }

@@ -63,6 +63,7 @@ typedef struct AnimatedSprite
  Vec2 start;
  float horizontal_diff_btwn_frames;
  Vec2 region_size;
+ bool no_wrap; // does not wrap when playing
 } AnimatedSprite;
 
 
@@ -234,15 +235,23 @@ AnimatedSprite knight_running =
  .img = &image_knight_run,
  .time_per_frame = 0.06,
  .num_frames = 10,
- .start =
- {19.0f, 0.0f},
+ .start = {19.0f, 0.0f},
  .horizontal_diff_btwn_frames = 120.0,
- .region_size =
- {80.0f, 80.0f},
+ .region_size = {80.0f, 80.0f},
 };
 
-sg_image image_font =
-{0};
+AnimatedSprite knight_attack = 
+{
+ .img = &image_knight_attack,
+ .time_per_frame = 0.06,
+ .num_frames = 4,
+ .start = {37.0f, 0.0f},
+ .horizontal_diff_btwn_frames = 120.0,
+ .region_size = {80.0f, 80.0f},
+ .no_wrap = true,
+};
+
+sg_image image_font = {0};
 const float font_size = 32.0;
 stbtt_bakedchar cdata[96]; // ASCII 32..126 is 95 glyphs
 
@@ -256,8 +265,24 @@ static struct
  sg_bindings bind;
 } state;
 
-Vec2 character_pos =
-{0}; // world space point
+typedef enum CharacterState
+{
+ CHARACTER_WALKING,
+ CHARACTER_IDLE,
+ CHARACTER_ATTACK,
+} CharacterState;
+
+typedef struct Character
+{
+ CharacterState state;
+ Vec2 pos;
+ bool facing_left;
+
+ // swinging
+ double swing_progress;
+} Character;
+
+Character player = {0};
 
 void init(void)
 {
@@ -271,7 +296,7 @@ void init(void)
 
  // player spawnpoint
  Vec2 spawnpoint_tilecoord = MulV2F(level_level0.spawnpoint, 1.0/TILE_SIZE);
- character_pos = tilecoord_to_world((TileCoord){(int)spawnpoint_tilecoord.X, (int)spawnpoint_tilecoord.Y});
+ player.pos = tilecoord_to_world((TileCoord){(int)spawnpoint_tilecoord.X, (int)spawnpoint_tilecoord.Y});
 
  // load font
  {
@@ -612,10 +637,20 @@ void swap(Vec2 *p1, Vec2 *p2)
  *p2 = tmp;
 }
 
+double anim_sprite_duration(AnimatedSprite *s)
+{
+ return s->num_frames * s->time_per_frame;
+}
+
 void draw_animated_sprite(AnimatedSprite *s, double time, bool flipped, Vec2 pos, Color tint)
 {
  sg_image spritesheet_img = *s->img;
  int index = (int)floor(time/s->time_per_frame) % s->num_frames;
+ if(s->no_wrap)
+ {
+  index = (int)floor(time/s->time_per_frame);
+  if(index >= s->num_frames) index = s->num_frames - 1;
+ }
 
  Quad q = quad_centered(pos, s->region_size);
 
@@ -758,15 +793,75 @@ void dbgrect(AABB rect)
  line(q.ll, q.ul, line_width, col);
 }
 
+// returns new pos after moving and sliding against collidable things
+Vec2 move_and_slide(Vec2 position, Vec2 movement_this_frame, Vec2 collision_aabb_size)
+{
+ Vec2 new_pos = AddV2(position, movement_this_frame);
+ AABB at_new = centered_aabb(new_pos, collision_aabb_size);
+ Vec2 at_new_size_vector = SubV2(at_new.lower_right, at_new.upper_left);
+ Vec2 points_to_check[] = {
+  AddV2(at_new.upper_left, V2(0.0, 0.0)),
+  AddV2(at_new.upper_left, V2(at_new_size_vector.X, 0.0)),
+  AddV2(at_new.upper_left, V2(at_new_size_vector.X, at_new_size_vector.Y)),
+  AddV2(at_new.upper_left, V2(0.0, at_new_size_vector.Y)),
+ };
+ //dbgsquare(position);
+ //dbgsquare(at_new.upper_left);
+ //dbgsquare(at_new.lower_right);
+ for(int i = 0; i < sizeof(points_to_check)/sizeof(*points_to_check); i++)
+ {
+  Vec2 *it = &points_to_check[i];
+  TileCoord to_check = world_to_tilecoord(*it);
+
+  uint16_t tile_id = get_tile(&level_level0, to_check).kind;
+  if(tile_id == 53 || tile_id == 0 || tile_id == 367 || tile_id == 317 || tile_id == 313 || tile_id == 366 )
+  {
+   dbgsquare(tilecoord_to_world(to_check));
+   AABB to_depenetrate_from = tile_aabb(to_check);
+   while(overlapping(to_depenetrate_from, at_new))
+   { 
+    //while(false)
+    {
+     //dbgsquare(to_depenetrate_from.upper_left);
+     //dbgsquare(to_depenetrate_from.lower_right);
+     const float move_dist = 0.05f;
+
+     Vec2 to_player = NormV2(SubV2(aabb_center(at_new), aabb_center(to_depenetrate_from)));
+     Vec2 compass_dirs[4] = {
+      V2( 1.0, 0.0),
+      V2(-1.0, 0.0),
+      V2(0.0,  1.0),
+      V2(0.0, -1.0),
+     };
+     int closest_index = -1;
+     float closest_dot = -99999999.0f;
+     for(int i = 0; i < 4; i++)
+     {
+      float dot = DotV2(compass_dirs[i], to_player);
+      if(dot > closest_dot)
+      {
+       closest_index = i;
+       closest_dot = dot;
+      }
+     }
+     Vec2 move_dir = compass_dirs[closest_index];
+     Vec2 move = MulV2F(move_dir, move_dist);
+     at_new.upper_left = AddV2(at_new.upper_left,move);
+     at_new.lower_right = AddV2(at_new.lower_right,move);
+    }
+   }
+  }
+ }
+
+ return aabb_center(at_new);
+}
+
 
 double time = 0.0;
 double last_frame_processing_time = 0.0;
 uint64_t last_frame_time;
-Vec2 mouse_pos =
-{0}; // in screen space
-bool character_facing_left = false;
-bool keydown[SAPP_KEYCODE_MENU] =
-{0};
+Vec2 mouse_pos = {0}; // in screen space
+bool keydown[SAPP_KEYCODE_MENU] = {0};
 #ifdef DEVTOOLS
 bool mouse_frozen = false;
 #endif
@@ -788,6 +883,7 @@ void frame(void)
   (float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A],
   (float)keydown[SAPP_KEYCODE_W] - (float)keydown[SAPP_KEYCODE_S]
  );
+ bool attack = keydown[SAPP_KEYCODE_J];
  if(LenV2(movement) > 1.0)
  {
   movement = NormV2(movement);
@@ -839,69 +935,7 @@ void frame(void)
  }
 #endif
 
-
-
- Vec2 new_pos = AddV2(character_pos, MulV2F(movement, dt * pixels_per_meter * 4.0f));
- Vec2 character_aabb_size = { TILE_SIZE, TILE_SIZE };
- AABB at_new = centered_aabb(new_pos, character_aabb_size);
- Vec2 at_new_size_vector = SubV2(at_new.lower_right, at_new.upper_left);
- Vec2 points_to_check[] =
- {
-  AddV2(at_new.upper_left, V2(0.0, 0.0)),
-  AddV2(at_new.upper_left, V2(at_new_size_vector.X, 0.0)),
-  AddV2(at_new.upper_left, V2(at_new_size_vector.X, at_new_size_vector.Y)),
-  AddV2(at_new.upper_left, V2(0.0, at_new_size_vector.Y)),
- };
- //dbgsquare(character_pos);
- //dbgsquare(at_new.upper_left);
- //dbgsquare(at_new.lower_right);
- for(int i = 0; i < sizeof(points_to_check)/sizeof(*points_to_check); i++)
- {
-  Vec2 *it = &points_to_check[i];
-  TileCoord to_check = world_to_tilecoord(*it);
-
-  uint16_t tile_id = get_tile(&level_level0, to_check).kind;
-  if(tile_id == 53 || tile_id == 0 || tile_id == 367 || tile_id == 317 || tile_id == 313 || tile_id == 366)
-  {
-   dbgsquare(tilecoord_to_world(to_check));
-   AABB to_depenetrate_from = tile_aabb(to_check);
-   while(overlapping(to_depenetrate_from, at_new))
-   { 
-    //while(false)
-    {
-     //dbgsquare(to_depenetrate_from.upper_left);
-     //dbgsquare(to_depenetrate_from.lower_right);
-     const float move_dist = 0.05f;
-
-     Vec2 to_player = NormV2(SubV2(aabb_center(at_new), aabb_center(to_depenetrate_from)));
-     Vec2 compass_dirs[4] = {
-      V2( 1.0, 0.0),
-      V2(-1.0, 0.0),
-      V2(0.0,  1.0),
-      V2(0.0, -1.0),
-     };
-     int closest_index = -1;
-     float closest_dot = -99999999.0f;
-     for(int i = 0; i < 4; i++)
-     {
-      float dot = DotV2(compass_dirs[i], to_player);
-      if(dot > closest_dot)
-      {
-       closest_index = i;
-       closest_dot = dot;
-      }
-     }
-     Vec2 move_dir = compass_dirs[closest_index];
-     Vec2 move = MulV2F(move_dir, move_dist);
-     at_new.upper_left = AddV2(at_new.upper_left,move);
-     at_new.lower_right = AddV2(at_new.lower_right,move);
-    }
-   }
-  }
- }
-  character_pos = aabb_center(at_new);
-  cam.pos = LerpV2(cam.pos, dt*8.0f, MulV2F(character_pos, -1.0f * cam.scale));
-
+ //if(LengthV2(movement) > 0.01 && player.state == CHARACTER_)
 #ifdef DEVTOOLS
   dbgsquare(screen_to_world(mouse_pos));
   
@@ -916,7 +950,7 @@ void frame(void)
 
   // line test
   {
-   dbgline(character_pos, screen_to_world(mouse_pos));
+   dbgline(player.pos, screen_to_world(mouse_pos));
   }
 
   // debug draw font image
@@ -939,7 +973,7 @@ void frame(void)
 #if 0
   const char *text = "great idea\nother idea";
   // measure text
-  Vec2 pos = character_pos;
+  Vec2 pos = player.pos;
 
   {
    AABB bounds = draw_text(true, true, text, strlen(text), pos, WHITE);
@@ -954,16 +988,46 @@ void frame(void)
 
 #endif // devtools
 
-  if(fabsf(movement.X) > 0.01f) character_facing_left = movement.X < 0.0f;
-  Vec2 character_sprite_pos = AddV2(character_pos, V2(0.0, 20.0f));
-  if(LenV2(movement) > 0.01)
+  // player character
   {
-   draw_animated_sprite(&knight_running, time, character_facing_left, character_sprite_pos, WHITE);
-  } else
-  {
-   draw_animated_sprite(&knight_idle, time, character_facing_left, character_sprite_pos, WHITE);
-  }
 
+   Vec2 character_sprite_pos = AddV2(player.pos, V2(0.0, 20.0f));
+
+   if(attack && (player.state == CHARACTER_IDLE || player.state == CHARACTER_WALKING))
+   {
+    player.state = CHARACTER_ATTACK;
+    player.swing_progress = 0.0;
+   }
+
+   cam.pos = LerpV2(cam.pos, dt*8.0f, MulV2F(player.pos, -1.0f * cam.scale));
+   if(player.state == CHARACTER_WALKING)
+   {
+    player.pos = move_and_slide(player.pos, MulV2F(movement, dt * pixels_per_meter * 4.0f), V2(TILE_SIZE, TILE_SIZE));
+    draw_animated_sprite(&knight_running, time, player.facing_left, character_sprite_pos, WHITE);
+    if(LenV2(movement) == 0.0)
+    {
+     player.state = CHARACTER_IDLE;
+    }
+    else
+    {
+     player.facing_left = movement.X < 0.0f;
+    }
+   }
+   else if(player.state == CHARACTER_IDLE)
+   {
+    draw_animated_sprite(&knight_idle, time, player.facing_left, character_sprite_pos, WHITE);
+    if(LenV2(movement) > 0.01) player.state = CHARACTER_WALKING;
+   }
+   else if(player.state == CHARACTER_ATTACK)
+   {
+    player.swing_progress += dt;
+    draw_animated_sprite(&knight_attack, player.swing_progress, player.facing_left, character_sprite_pos, WHITE);
+    if(player.swing_progress > anim_sprite_duration(&knight_attack))
+    {
+     player.state = CHARACTER_IDLE;
+    }
+   }
+  }
 
   sg_end_pass();
   sg_commit();
