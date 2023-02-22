@@ -48,6 +48,15 @@ void dump_root(MD_Node* from) {
     }
 }
 
+bool has_decimal(MD_String8 s)
+{
+ for(int i = 0; i < s.size; i++)
+ {
+  if(s.str[i] == '.') return true;
+ }
+ return false;
+}
+
 MD_Arena *cg_arena = NULL;
 
 MD_String8 ChildValue(MD_Node *n, MD_String8 name) {
@@ -114,7 +123,6 @@ int main(int argc, char **argv) {
     MD_String8List load_list = {0};
     MD_String8List level_decl_list = {0};
     MD_String8List tileset_decls = {0};
-    MD_String8List object_decls_list = {0};
     for(MD_EachNode(node, parse.node->first_child)) {
         if(MD_S8Match(node->first_tag->string, MD_S8Lit("image"), 0)) {
             MD_String8 variable_name = MD_S8Fmt(cg_arena, "image_%.*s", MD_S8VArg(node->string));
@@ -172,20 +180,28 @@ int main(int argc, char **argv) {
             log("New level variable %.*s\n", MD_S8VArg(variable_name));
             MD_String8 filepath = asset_file_path(ChildValue(node, MD_S8Lit("filepath")));
             MD_ParseResult level_parse = MD_ParseWholeFile(cg_arena, filepath);
-            assert(level_parse.node != 0, MD_S8Lit("Failed to load level file"));
+            assert(!MD_NodeIsNil(level_parse.node->first_child), MD_S8Lit("Failed to load level file"));
 
             MD_Node *layers = MD_ChildFromString(level_parse.node->first_child, MD_S8Lit("layers"), 0);
             fprintf(output, "Level %.*s = {\n", MD_S8VArg(variable_name));
             for(MD_EachNode(lay, layers->first_child)) {
                 MD_String8 type = MD_ChildFromString(lay, MD_S8Lit("type"), 0)->first_child->string;
                 if(MD_S8Match(type, MD_S8Lit("objectgroup"), 0)) {
+                    fprintf(output, ".initial_entities = {\n");
                     for(MD_EachNode(object, MD_ChildFromString(lay, MD_S8Lit("objects"), 0)->first_child)) {
                         dump(object);
+                        // negative numbers for object position aren't supported here
                         MD_String8 name = MD_ChildFromString(object, MD_S8Lit("name"), 0)->first_child->string;
                         MD_String8 x_string = MD_ChildFromString(object, MD_S8Lit("x"), 0)->first_child->string;
                         MD_String8 y_string = MD_ChildFromString(object, MD_S8Lit("y"), 0)->first_child->string;
-                        list_printf(&object_decls_list, "Vec2 %.*s_tilepoint = { %.*s, %.*s };\n", MD_S8VArg(name), MD_S8VArg(x_string), MD_S8VArg(y_string));
+                        y_string = MD_S8Fmt(cg_arena, "-%.*s", MD_S8VArg(y_string));
+
+                        if(has_decimal(x_string)) x_string = MD_S8Fmt(cg_arena, "%.*sf", MD_S8VArg(x_string));
+                        if(has_decimal(y_string)) y_string = MD_S8Fmt(cg_arena, "%.*sf", MD_S8VArg(y_string));
+
+                        fprintf(output, "{ .exists = true, .kind = ENTITY_%.*s, .pos = { .X=%.*s, .Y=%.*s }, }, ", MD_S8VArg(name), MD_S8VArg(x_string), MD_S8VArg(y_string));
                     }
+                    fprintf(output, "\n}, // entities\n");
                 }
                 if(MD_S8Match(type, MD_S8Lit("tilelayer"), 0)) {
                     int width = atoi(nullterm(MD_ChildFromString(layers->first_child, MD_S8Lit("width"), 0)->first_child->string));
@@ -215,10 +231,9 @@ int main(int argc, char **argv) {
 
     MD_StringJoin join = MD_ZERO_STRUCT;
     MD_String8 declarations = MD_S8ListJoin(cg_arena, declarations_list, &join);
-    MD_String8 object_declarations = MD_S8ListJoin(cg_arena, object_decls_list, &join);
     MD_String8 loads = MD_S8ListJoin(cg_arena, load_list, &join);
     fprintf(output, "%.*s\nvoid load_assets() {\n%.*s\n}\n", MD_S8VArg(declarations), MD_S8VArg(loads));
-    fprintf(output, "%.*s\n%.*s\n", MD_S8VArg(MD_S8ListJoin(cg_arena, tileset_decls, &join)), MD_S8VArg(object_declarations));
+    fprintf(output, "%.*s\n", MD_S8VArg(MD_S8ListJoin(cg_arena, tileset_decls, &join)));
 
     fclose(output);
     return 0;

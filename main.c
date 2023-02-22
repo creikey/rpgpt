@@ -68,13 +68,49 @@ typedef struct AnimatedSprite
  bool no_wrap; // does not wrap when playing
 } AnimatedSprite;
 
+typedef enum CharacterState
+{
+ CHARACTER_WALKING,
+ CHARACTER_IDLE,
+ CHARACTER_ATTACK,
+} CharacterState;
+
+typedef enum EntityKind
+{
+ ENTITY_INVALID, // zero initialized is invalid entity
+
+ ENTITY_PLAYER,
+ ENTITY_OLD_MAN,
+} EntityKind;
+
+
+typedef struct Entity
+{
+ bool exists;
+ EntityKind kind;
+
+ // fields for all entities
+ Vec2 pos;
+ bool facing_left;
+
+ // character
+ CharacterState state;
+ bool is_rolling; // can only roll in idle or walk states
+ float speed; // for lerping to the speed, so that roll gives speed boost which fades
+ double roll_progress;
+ double swing_progress;
+} Entity;
+
 
 #define LEVEL_TILES 60
 #define TILE_SIZE 32 // in pixels
+#define MAX_ENTITIES 128
+#define PLAYER_SPEED 3.0f // in meters per second
+#define PLAYER_ROLL_SPEED 7.0f
 typedef struct Level
 {
  TileInstance tiles[LEVEL_TILES][LEVEL_TILES];
- Vec2 spawnpoint;
+ Entity initial_entities[MAX_ENTITIES]; // shouldn't be directly modified, only used to initialize entities on loading of level
 } Level;
 
 typedef struct TileCoord
@@ -134,6 +170,7 @@ char *tprint(const char *format, ...)
   return to_return;
 }
 
+// tilecoord is integer tile position, not like tile coord
 Vec2 tilecoord_to_world(TileCoord t)
 {
  return V2( (float)t.x * (float)TILE_SIZE * 1.0f, -(float)t.y * (float)TILE_SIZE * 1.0f );
@@ -232,11 +269,9 @@ AnimatedSprite knight_idle =
  .img = &image_knight_idle,
  .time_per_frame = 0.3,
  .num_frames = 10,
- .start =
- {16.0f, 0.0f},
+ .start = {16.0f, 0.0f},
  .horizontal_diff_btwn_frames = 120.0,
- .region_size =
- {80.0f, 80.0f},
+ .region_size = {80.0f, 80.0f},
 };
 
 AnimatedSprite knight_running =
@@ -248,6 +283,18 @@ AnimatedSprite knight_running =
  .horizontal_diff_btwn_frames = 120.0,
  .region_size = {80.0f, 80.0f},
 };
+
+AnimatedSprite knight_rolling =
+{
+ .img = &image_knight_roll,
+ .time_per_frame = 0.05,
+ .num_frames = 12,
+ .start = {19.0f, 0.0f},
+ .horizontal_diff_btwn_frames = 120.0,
+ .region_size = {80.0f, 80.0f},
+ .no_wrap = true,
+};
+
 
 AnimatedSprite knight_attack = 
 {
@@ -284,34 +331,8 @@ static struct
  sg_bindings bind;
 } state;
 
-typedef enum CharacterState
-{
- CHARACTER_WALKING,
- CHARACTER_IDLE,
- CHARACTER_ATTACK,
-} CharacterState;
 
-typedef enum EntityKind
-{
- Player,
- OldMan,
-} EntityKind;
-
-typedef struct Entity
-{
- bool exists;
- EntityKind kind;
-
- Vec2 pos;
- bool facing_left;
-
- // character
- CharacterState state;
- double swing_progress;
-
-} Entity;
-
-Entity entities[128] = {0};
+Entity entities[MAX_ENTITIES] = {0};
 Entity *player = NULL;
 
 Entity *new_entity()
@@ -340,8 +361,23 @@ void init(void)
 
  load_assets();
 
- player = new_entity();
- player->pos = tilepoint_to_world(spawn_tilepoint);
+ // load level
+ Level *to_load = &level_level0;
+ {
+  assert(ARRLEN(to_load->initial_entities) == ARRLEN(entities));
+  memcpy(entities, to_load->initial_entities, sizeof(Entity) * MAX_ENTITIES);
+
+  player = NULL;
+  for(int i = 0; i < MAX_ENTITIES; i++)
+  {
+   if(entities[i].exists && entities[i].kind == ENTITY_PLAYER)
+   {
+    assert(player == NULL);
+    player = &entities[i];
+   }
+  }
+  assert(player != NULL); // level initial config must have player entity
+ }
 
  // load font
  {
@@ -459,8 +495,7 @@ typedef struct Camera
 // everything is in pixels in world space, 43 pixels is approx 1 meter measured from 
 // merchant sprite being 5'6"
 const float pixels_per_meter = 43.0f;
-Camera cam =
-{.scale = 2.0f };
+Camera cam = {.scale = 2.0f };
 
 Vec2 cam_offset()
 {
@@ -859,7 +894,7 @@ Vec2 move_and_slide(Vec2 position, Vec2 movement_this_frame, Vec2 collision_aabb
   TileCoord to_check = world_to_tilecoord(*it);
 
   uint16_t tile_id = get_tile(&level_level0, to_check).kind;
-  if(tile_id == 53 || tile_id == 0 || tile_id == 367 || tile_id == 317 || tile_id == 313 || tile_id == 366 )
+  if(tile_id == 53 || tile_id == 0 || tile_id == 367 || tile_id == 317 || tile_id == 313 || tile_id == 366 || tile_id == 368)
   {
    dbgsquare(tilecoord_to_world(to_check));
    AABB to_depenetrate_from = tile_aabb(to_check);
@@ -929,6 +964,7 @@ void frame(void)
   (float)keydown[SAPP_KEYCODE_W] - (float)keydown[SAPP_KEYCODE_S]
  );
  bool attack = keydown[SAPP_KEYCODE_J];
+ bool roll = keydown[SAPP_KEYCODE_K];
  if(LenV2(movement) > 1.0)
  {
   movement = NormV2(movement);
@@ -1033,7 +1069,14 @@ void frame(void)
 
 #endif // devtools
 
-  draw_animated_sprite(&old_man_idle, time, false, V2(884.788635f, -928.000000f), WHITE);
+  for(int i = 0; i < ARRLEN(entities); i++) if(entities[i].exists)
+  {
+   if(entities[i].kind == ENTITY_OLD_MAN)
+   {
+    draw_animated_sprite(&old_man_idle, time, false, entities[i].pos, WHITE);
+   }
+  }
+
   // player character
   {
 
@@ -1045,11 +1088,41 @@ void frame(void)
     player->swing_progress = 0.0;
    }
 
+   // rolling
+   if(roll && !player->is_rolling && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
+   {
+    player->is_rolling = true;
+    player->roll_progress = 0.0;
+    player->speed = PLAYER_ROLL_SPEED;
+   }
+   if(player->state != CHARACTER_IDLE && player->state != CHARACTER_WALKING)
+   {
+    player->roll_progress = 0.0;
+    player->is_rolling = false;
+   }
+   if(player->is_rolling)
+   {
+    player->roll_progress += dt;
+    if(player->roll_progress > anim_sprite_duration(&knight_rolling))
+    {
+     player->is_rolling = false;
+    }
+   }
+
    cam.pos = LerpV2(cam.pos, dt*8.0f, MulV2F(player->pos, -1.0f * cam.scale));
    if(player->state == CHARACTER_WALKING)
    {
-    player->pos = move_and_slide(player->pos, MulV2F(movement, dt * pixels_per_meter * 4.0f), V2(TILE_SIZE, TILE_SIZE));
-    draw_animated_sprite(&knight_running, time, player->facing_left, character_sprite_pos, WHITE);
+    if(player->speed <= 0.01f) player->speed = PLAYER_SPEED;
+    player->speed = Lerp(player->speed, dt * 3.0f, PLAYER_SPEED);
+    player->pos = move_and_slide(player->pos, MulV2F(movement, dt * pixels_per_meter * player->speed), V2(TILE_SIZE, TILE_SIZE));
+    if(player->is_rolling)
+    {
+     draw_animated_sprite(&knight_rolling, player->roll_progress, player->facing_left, character_sprite_pos, WHITE);
+    }
+    else
+    {
+     draw_animated_sprite(&knight_running, time, player->facing_left, character_sprite_pos, WHITE);
+    }
     if(LenV2(movement) == 0.0)
     {
      player->state = CHARACTER_IDLE;
@@ -1061,7 +1134,14 @@ void frame(void)
    }
    else if(player->state == CHARACTER_IDLE)
    {
-    draw_animated_sprite(&knight_idle, time, player->facing_left, character_sprite_pos, WHITE);
+    if(player->is_rolling)
+    {
+     draw_animated_sprite(&knight_rolling, player->roll_progress, player->facing_left, character_sprite_pos, WHITE);
+    }
+    else
+    {
+     draw_animated_sprite(&knight_idle, time, player->facing_left, character_sprite_pos, WHITE);
+    }
     if(LenV2(movement) > 0.01) player->state = CHARACTER_WALKING;
    }
    else if(player->state == CHARACTER_ATTACK)

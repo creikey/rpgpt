@@ -14,6 +14,10 @@
 {
  filepath: "_Attack.png",
 }
+@image knight_roll:
+{
+ filepath: "_Roll.png",
+}
 @image old_man:
 {
  filepath: "small_old_man.png",
