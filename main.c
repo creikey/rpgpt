@@ -101,6 +101,7 @@ typedef struct Entity
  // fields for all entities
  Vec2 pos;
  Vec2 vel; // only used sometimes, like in old man and bullet
+ float damage; // at 1.0, he's dead
  bool facing_left;
 
  // old man
@@ -410,16 +411,8 @@ Entity *new_entity()
  return NULL;
 }
 
-void init(void)
+void reset_level()
 {
- scratch = make(1024 * 10);
- stm_setup();
- sg_setup(& (sg_desc){
-  .context = sapp_sgcontext()
- });
-
- load_assets();
-
  // load level
  Level *to_load = &level_level0;
  {
@@ -437,6 +430,19 @@ void init(void)
   }
   assert(player != NULL); // level initial config must have player entity
  }
+}
+
+
+void init(void)
+{
+ scratch = make(1024 * 10);
+ stm_setup();
+ sg_setup( &(sg_desc){
+  .context = sapp_sgcontext()
+ });
+
+ load_assets();
+ reset_level();
 
  // load font
  {
@@ -1068,7 +1074,6 @@ Vec2 move_and_slide(Entity *from, Vec2 position, Vec2 movement_this_frame)
  return aabb_center(at_new);
 }
 
-
 double time = 0.0;
 double last_frame_processing_time = 0.0;
 uint64_t last_frame_time;
@@ -1149,6 +1154,8 @@ void frame(void)
  }
 #endif
 
+ assert(player != NULL);
+
  //if(LengthV2(movement) > 0.01 && player->state == CHARACTER_)
 #ifdef DEVTOOLS
   dbgsquare(screen_to_world(mouse_pos));
@@ -1160,11 +1167,6 @@ void frame(void)
    AABB q = tile_aabb(hovering);
    dbgrect(q);
    draw_text(false, false, tprint("%d", get_tile(&level_level0, hovering).kind), world_to_screen(tilecoord_to_world(hovering)), BLACK);
-  }
-
-  // line test
-  {
-   dbgline(player->pos, screen_to_world(mouse_pos));
   }
 
   // debug draw font image
@@ -1250,6 +1252,7 @@ void frame(void)
       Entity *hit = over.results[i].e;
       if(hit->kind == ENTITY_OLD_MAN) hit->aggressive = true;
       hit->vel = MulV2F(NormV2(SubV2(hit->pos, it->pos)), 5.0f);
+      hit->damage += 0.2f;
       *it = (Entity){0};
      }
     }
@@ -1266,7 +1269,6 @@ void frame(void)
 
   // player character
   {
-
    Vec2 character_sprite_pos = AddV2(player->pos, V2(0.0, 20.0f));
 
    if(attack && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
@@ -1369,6 +1371,16 @@ void frame(void)
     {
      player->state = CHARACTER_IDLE;
     }
+   }
+
+   // health
+   if(player->damage >= 1.0)
+   {
+    reset_level();
+   }
+   else
+   {
+    draw_quad(false, (Quad){.ul=V2(0.0f, screen_size().Y), .ur = screen_size(), .lr = V2(screen_size().X, 0.0f)}, image_hurt_vignette, full_region(image_hurt_vignette), (Color){1.0f, 1.0f, 1.0f, player->damage});
    }
   }
 

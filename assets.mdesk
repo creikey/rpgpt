@@ -26,6 +26,10 @@
 {
  filepath: "copyrighted/animated_terrain.png",
 }
+@image hurt_vignette:
+{
+ filepath: "hurt_vignette.png",
+}
 @image white_square:
 {
  filepath: "white square.png",
