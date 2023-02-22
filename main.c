@@ -17,6 +17,14 @@
 #include <math.h>
 
 #define ARRLEN(x) ((sizeof(x)/sizeof(0[x])) / ((size_t)(!(sizeof(x) % sizeof(0[x])))))
+#define ENTITIES_ITER(ents) for(Entity *it = ents; it < ents + ARRLEN(ents); it++) if(it->exists)
+Vec2 RotateV2(Vec2 v, float theta)
+{
+  return V2( 
+      v.X * cosf(theta) - v.Y * sinf(theta),
+      v.X * sinf(theta) + v.Y * cosf(theta)
+    );
+}
 
 typedef struct AABB
 {
@@ -81,6 +89,7 @@ typedef enum EntityKind
 
  ENTITY_PLAYER,
  ENTITY_OLD_MAN,
+ ENTITY_BULLET,
 } EntityKind;
 
 
@@ -91,7 +100,12 @@ typedef struct Entity
 
  // fields for all entities
  Vec2 pos;
+ Vec2 vel; // only used sometimes, like in old man and bullet
  bool facing_left;
+
+ // old man
+ bool aggressive;
+ double shotgun_timer;
 
  // character
  CharacterState state;
@@ -100,6 +114,20 @@ typedef struct Entity
  double roll_progress;
  double swing_progress;
 } Entity;
+
+typedef struct Overlap
+{
+ bool is_tile; // in which case e will be null, naturally
+ TileInstance t;
+ Entity *e;
+} Overlap;
+
+#define MAX_COLLISIONS_RESULTS 16
+typedef struct Overlapping
+{
+ Overlap results[MAX_COLLISIONS_RESULTS];
+ int num_results;
+} Overlapping;
 
 
 #define LEVEL_TILES 60
@@ -180,6 +208,10 @@ Vec2 entity_aabb_size(Entity *e)
  {
   return V2(TILE_SIZE*0.5f, TILE_SIZE*0.5f);
  }
+ else if(e->kind == ENTITY_BULLET)
+ {
+  return V2(TILE_SIZE*0.25f, TILE_SIZE*0.25f);
+ }
  else
  {
   assert(false);
@@ -187,6 +219,11 @@ Vec2 entity_aabb_size(Entity *e)
  }
 }
 
+bool is_tile_solid(TileInstance t)
+{
+ uint16_t tile_id = t.kind;
+ return tile_id == 53 || tile_id == 0 || tile_id == 367 || tile_id == 317 || tile_id == 313 || tile_id == 366 || tile_id == 368;
+}
 // tilecoord is integer tile position, not like tile coord
 Vec2 tilecoord_to_world(TileCoord t)
 {
@@ -236,6 +273,11 @@ AABB centered_aabb(Vec2 at, Vec2 size)
   .upper_left  = AddV2(at, V2(-size.X/2.0f, size.Y/2.0f)),
    .lower_right = AddV2(at, V2( size.X/2.0f, -size.Y/2.0f)),
  };
+}
+
+AABB entity_aabb(Entity *e)
+{
+ return centered_aabb(e->pos, entity_aabb_size(e));
 }
 
 TileInstance get_tile(Level *l, TileCoord t)
@@ -348,7 +390,7 @@ static struct
  sg_bindings bind;
 } state;
 
-
+AABB level_aabb = { .upper_left = {0.0f, 0.0f}, .lower_right = {2000.0f, -2000.0f} };
 Entity entities[MAX_ENTITIES] = {0};
 Entity *player = NULL;
 
@@ -385,12 +427,12 @@ void init(void)
   memcpy(entities, to_load->initial_entities, sizeof(Entity) * MAX_ENTITIES);
 
   player = NULL;
-  for(int i = 0; i < MAX_ENTITIES; i++)
+  ENTITIES_ITER(entities)
   {
-   if(entities[i].exists && entities[i].kind == ENTITY_PLAYER)
+   if(it->kind == ENTITY_PLAYER)
    {
     assert(player == NULL);
-    player = &entities[i];
+    player = it;
    }
   }
   assert(player != NULL); // level initial config must have player entity
@@ -652,6 +694,13 @@ bool overlapping(AABB a, AABB b)
  return true; // both segments overlapping
 }
 
+bool has_point(AABB aabb, Vec2 point)
+{
+ return
+  (aabb.upper_left.X < point.X && point.X < aabb.lower_right.X) &&
+  (aabb.upper_left.Y > point.Y && point.Y > aabb.lower_right.Y);
+}
+
 // The image region is in pixel space of the image
 void draw_quad(bool world_space, Quad quad, sg_image image, AABB image_region, Color tint)
 {
@@ -864,10 +913,10 @@ void line(Vec2 from, Vec2 to, float line_width, Color color)
  Vec2 normal = rotate_counter_clockwise(NormV2(SubV2(to, from)));
  Quad line_quad = {
   .points = {
-  AddV2(from, MulV2F(normal, line_width)),  // upper left
-  AddV2(to, MulV2F(normal, line_width)),    // upper right
-  AddV2(to, MulV2F(normal, -line_width)),   // lower right
-  AddV2(from, MulV2F(normal, -line_width)), // lower left
+   AddV2(from, MulV2F(normal, line_width)),  // upper left
+   AddV2(to, MulV2F(normal, line_width)),    // upper right
+   AddV2(to, MulV2F(normal, -line_width)),   // lower right
+   AddV2(from, MulV2F(normal, -line_width)), // lower left
   }
  };
  colorquad(true, line_quad, color);
@@ -899,6 +948,43 @@ void dbgrect(AABB rect)
 #endif
 }
 
+// gets aabbs overlapping the input aabb, including entities and tiles
+Overlapping get_overlapping(Level *l, AABB aabb)
+{
+ Overlapping to_return = {0};
+ 
+ Quad q = quad_aabb(aabb);
+ // the corners, jessie
+ for(int i = 0; i < 4; i++)
+ {
+  TileInstance t = get_tile(l, world_to_tilecoord(q.points[i]));
+  if(is_tile_solid(t))
+  {
+   to_return.results[to_return.num_results++] = (Overlap)
+    {
+     .is_tile = true,
+     .t = t
+    };
+   assert(to_return.num_results < ARRLEN(to_return.results));
+  }
+ }
+
+ // the entities jessie
+ ENTITIES_ITER(entities)
+ {
+  if(overlapping(aabb, entity_aabb(it)))
+  {
+   to_return.results[to_return.num_results++] = (Overlap)
+   {
+    .e = it,
+   };
+   assert(to_return.num_results < ARRLEN(to_return.results));
+  }
+ }
+
+ return to_return;
+}
+
 // returns new pos after moving and sliding against collidable things
 Vec2 move_and_slide(Entity *from, Vec2 position, Vec2 movement_this_frame)
 {
@@ -906,7 +992,7 @@ Vec2 move_and_slide(Entity *from, Vec2 position, Vec2 movement_this_frame)
  Vec2 new_pos = AddV2(position, movement_this_frame);
  AABB at_new = centered_aabb(new_pos, collision_aabb_size);
  dbgrect(at_new);
- AABB to_check[64] = {0};
+ AABB to_check[256] = {0};
  int to_check_index = 0;
 
  // add tilemap boxes
@@ -923,8 +1009,7 @@ Vec2 move_and_slide(Entity *from, Vec2 position, Vec2 movement_this_frame)
    Vec2 *it = &points_to_check[i];
    TileCoord tilecoord_to_check = world_to_tilecoord(*it);
 
-   uint16_t tile_id = get_tile(&level_level0, tilecoord_to_check).kind;
-   if(tile_id == 53 || tile_id == 0 || tile_id == 367 || tile_id == 317 || tile_id == 313 || tile_id == 366 || tile_id == 368)
+   if(is_tile_solid(get_tile(&level_level0, tilecoord_to_check)))
    {
     to_check[to_check_index++] = tile_aabb(tilecoord_to_check);
     assert(to_check_index < ARRLEN(to_check));
@@ -935,15 +1020,15 @@ Vec2 move_and_slide(Entity *from, Vec2 position, Vec2 movement_this_frame)
  // add entity boxes
  if(!(from->kind == ENTITY_PLAYER && from->is_rolling))
  {
-  for(int i = 0; i < ARRLEN(entities); i++) if(entities[i].exists)
+  ENTITIES_ITER(entities)
   {
-   if(&entities[i] != from)
+   if(it != from)
    {
-    to_check[to_check_index++] = centered_aabb(entities[i].pos, entity_aabb_size(&entities[i]));
+    to_check[to_check_index++] = centered_aabb(it->pos, entity_aabb_size(it));
+    assert(to_check_index < ARRLEN(to_check));
    }
   }
  }
-
  for(int i = 0; i < to_check_index; i++)
  {
   AABB to_depenetrate_from = to_check[i];
@@ -972,6 +1057,7 @@ Vec2 move_and_slide(Entity *from, Vec2 position, Vec2 movement_this_frame)
      closest_dot = dot;
     }
    }
+   assert(closest_index != -1);
    Vec2 move_dir = compass_dirs[closest_index];
    Vec2 move = MulV2F(move_dir, move_dist);
    at_new.upper_left = AddV2(at_new.upper_left,move);
@@ -1021,6 +1107,7 @@ void frame(void)
  // tilemap
 #if 1
  Level * cur_level = &level_level0;
+
  for(int row = 0; row < LEVEL_TILES; row++)
  {
   for(int col = 0; col < LEVEL_TILES; col++)
@@ -1115,11 +1202,65 @@ void frame(void)
 
 #endif // devtools
 
-  for(int i = 0; i < ARRLEN(entities); i++) if(entities[i].exists)
+  // entities
+  ENTITIES_ITER(entities)
   {
-   if(entities[i].kind == ENTITY_OLD_MAN)
+   if(it->kind == ENTITY_OLD_MAN)
    {
-    draw_animated_sprite(&old_man_idle, time, false, entities[i].pos, WHITE);
+    if(it->aggressive)
+    {
+     Entity *targeting = player;
+     it->shotgun_timer += dt;
+     Vec2 to_player = NormV2(SubV2(targeting->pos, it->pos));
+     if(it->shotgun_timer >= 1.0f)
+     {
+      it->shotgun_timer = 0.0f;
+      const float spread = (float)PI/4.0f;
+      // shoot shotgun
+      for(int i = 0; i < 3; i++)
+      {
+       Vec2 dir = to_player;
+       float theta = Lerp(-spread/2.0f, ((float)i / 2.0f), spread/2.0f);
+       dir = RotateV2(dir, theta);
+       Entity *new_bullet = new_entity();
+       new_bullet->kind = ENTITY_BULLET;
+       new_bullet->pos = AddV2(it->pos, MulV2F(dir, 20.0f));
+       new_bullet->vel = MulV2F(dir, 10.0f);
+       it->vel = AddV2(it->vel, MulV2F(dir, -3.0f));
+      }
+     }
+
+     Vec2 target_vel = NormV2(AddV2(rotate_counter_clockwise(to_player), MulV2F(to_player, 0.5f)));
+     target_vel = MulV2F(target_vel, 3.0f);
+     it->vel = LerpV2(it->vel, 15.0f * dt, target_vel);
+     it->pos = move_and_slide(it, it->pos, MulV2F(it->vel, pixels_per_meter * dt));
+    }
+    draw_animated_sprite(&old_man_idle, time, false, it->pos, WHITE);
+   }
+   else if (it->kind == ENTITY_BULLET)
+   {
+    it->pos = AddV2(it->pos, MulV2F(it->vel, pixels_per_meter * dt));
+    draw_quad(true, quad_aabb(entity_aabb(it)), image_white_square, full_region(image_white_square), WHITE);
+    Overlapping over = get_overlapping(cur_level, entity_aabb(it));
+    for(int i = 0; i < over.num_results; i++) if(over.results[i].e != it)
+    {
+     if(!over.results[i].is_tile)
+     {
+      // knockback and damage
+      Entity *hit = over.results[i].e;
+      if(hit->kind == ENTITY_OLD_MAN) hit->aggressive = true;
+      hit->vel = MulV2F(NormV2(SubV2(hit->pos, it->pos)), 5.0f);
+      *it = (Entity){0};
+     }
+    }
+    if(!has_point(level_aabb, it->pos)) *it = (Entity){0};
+   }
+   else if(it->kind == ENTITY_PLAYER)
+   {
+   }
+   else
+   {
+    assert(false);
    }
   }
 
@@ -1169,6 +1310,7 @@ void frame(void)
     {
      draw_animated_sprite(&knight_running, time, player->facing_left, character_sprite_pos, WHITE);
     }
+
     if(LenV2(movement) == 0.0)
     {
      player->state = CHARACTER_IDLE;
@@ -1192,6 +1334,35 @@ void frame(void)
    }
    else if(player->state == CHARACTER_ATTACK)
    {
+    AABB weapon_aabb = {0};
+    if(player->facing_left)
+    {
+     weapon_aabb = (AABB){
+      .upper_left = AddV2(player->pos, V2(-40.0, 25.0)),
+      .lower_right = AddV2(player->pos, V2(0.0, -25.0)),
+     };
+    }
+    else
+    {
+     weapon_aabb = (AABB){
+      .upper_left = AddV2(player->pos, V2(0.0, 25.0)),
+      .lower_right = AddV2(player->pos, V2(40.0, -25.0)),
+     };
+    }
+    dbgrect(weapon_aabb);
+    Overlapping overlapping_weapon = get_overlapping(cur_level, weapon_aabb);
+    for(int i = 0; i < overlapping_weapon.num_results; i++)
+    {
+     if(!overlapping_weapon.results[i].is_tile)
+     {
+      Entity *e = overlapping_weapon.results[i].e;
+      if(e->kind == ENTITY_OLD_MAN)
+      {
+       e->aggressive = true;
+      }
+     }
+    }
+
     player->swing_progress += dt;
     draw_animated_sprite(&knight_attack, player->swing_progress, player->facing_left, character_sprite_pos, WHITE);
     if(player->swing_progress > anim_sprite_duration(&knight_attack))
