@@ -139,13 +139,11 @@ typedef struct Overlap
  Entity *e;
 } Overlap;
 
-#define MAX_COLLISIONS_RESULTS 16
-typedef struct Overlapping
-{
- Overlap results[MAX_COLLISIONS_RESULTS];
- int num_results;
-} Overlapping;
+#define BUFF(type, max_size) struct { type data[max_size]; int cur_index; }
+#define BUFF_APPEND(buff_ptr, element)  { (buff_ptr)->data[(buff_ptr)->cur_index++] = element; assert((buff_ptr)->cur_index < ARRLEN((buff_ptr)->data)); }
+#define BUFF_ITER(type, buff_ptr) for(type *it = &((buff_ptr)->data[0]); it < (buff_ptr)->data + (buff_ptr)->cur_index; it++)
 
+typedef BUFF(Overlap, 16) Overlapping;
 
 #define LEVEL_TILES 60
 #define TILE_SIZE 32 // in pixels
@@ -722,6 +720,7 @@ bool has_point(AABB aabb, Vec2 point)
 
 int num_draw_calls = 0;
 
+
 float cur_batch_data[1024*10] = {0};
 int cur_batch_data_index = 0;
 // @TODO check last tint as well, do this when factor into drawing parameters
@@ -1024,12 +1023,9 @@ Overlapping get_overlapping(Level *l, AABB aabb)
   TileInstance t = get_tile(l, world_to_tilecoord(q.points[i]));
   if(is_tile_solid(t))
   {
-   to_return.results[to_return.num_results++] = (Overlap)
-    {
-     .is_tile = true,
-     .t = t
-    };
-   assert(to_return.num_results < ARRLEN(to_return.results));
+   Overlap element = ((Overlap){.is_tile = true, .t = t});
+   //{ (&to_return)[(&to_return)->cur_index++] = element; assert((&to_return)->cur_index < ARRLEN((&to_return)->data)); }
+   BUFF_APPEND(&to_return, element);
   }
  }
 
@@ -1038,11 +1034,7 @@ Overlapping get_overlapping(Level *l, AABB aabb)
  {
   if(!(it->kind == ENTITY_PLAYER && it->is_rolling) && overlapping(aabb, entity_aabb(it)))
   {
-   to_return.results[to_return.num_results++] = (Overlap)
-   {
-    .e = it,
-   };
-   assert(to_return.num_results < ARRLEN(to_return.results));
+   BUFF_APPEND(&to_return, (Overlap){.e = it});
   }
  }
 
@@ -1350,16 +1342,17 @@ void frame(void)
     it->pos = AddV2(it->pos, MulV2F(it->vel, pixels_per_meter * dt));
     draw_quad(true, quad_aabb(entity_aabb(it)), image_white_square, full_region(image_white_square), WHITE);
     Overlapping over = get_overlapping(cur_level, entity_aabb(it));
-    for(int i = 0; i < over.num_results; i++) if(over.results[i].e != it)
+    Entity *from_bullet = it;
+    BUFF_ITER(Overlap, &over) if(it->e != from_bullet)
     {
-     if(!over.results[i].is_tile)
+     if(!it->is_tile)
      {
       // knockback and damage
-      Entity *hit = over.results[i].e;
+      Entity *hit = it->e;
       if(hit->kind == ENTITY_OLD_MAN) hit->aggressive = true;
-      hit->vel = MulV2F(NormV2(SubV2(hit->pos, it->pos)), 5.0f);
+      hit->vel = MulV2F(NormV2(SubV2(hit->pos, from_bullet->pos)), 5.0f);
       hit->damage += 0.2f;
-      *it = (Entity){0};
+      *from_bullet = (Entity){0};
      }
     }
     if(!has_point(level_aabb, it->pos)) *it = (Entity){0};
@@ -1461,11 +1454,11 @@ void frame(void)
     }
     dbgrect(weapon_aabb);
     Overlapping overlapping_weapon = get_overlapping(cur_level, weapon_aabb);
-    for(int i = 0; i < overlapping_weapon.num_results; i++)
+    BUFF_ITER(Overlap, &overlapping_weapon)
     {
-     if(!overlapping_weapon.results[i].is_tile)
+     if(!it->is_tile)
      {
-      Entity *e = overlapping_weapon.results[i].e;
+      Entity *e = it->e;
       if(e->kind == ENTITY_OLD_MAN)
       {
        e->aggressive = true;
@@ -1498,9 +1491,8 @@ void frame(void)
   Overlapping possible_dialogs = get_overlapping(cur_level, dialog_rect);
   Entity *closest_talkto = NULL;
   float closest_talkto_dist = INFINITY;
-  for(int i = 0; i < possible_dialogs.num_results; i++)
+  BUFF_ITER(Overlap, &possible_dialogs)
   {
-   Overlap *it = &possible_dialogs.results[i];
    if(!it->is_tile && it->e->kind == ENTITY_OLD_MAN && !it->e->aggressive)
    {
     float dist = LenV2(SubV2(it->e->pos, player->pos));
