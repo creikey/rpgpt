@@ -92,6 +92,13 @@ typedef enum EntityKind
  ENTITY_BULLET,
 } EntityKind;
 
+#define MAX_SENTENCE_LENGTH 400
+typedef struct { char text[MAX_SENTENCE_LENGTH]; } Sentence;
+
+typedef struct Dialog
+{
+ Sentence sentences[8];
+} Dialog;
 
 typedef struct Entity
 {
@@ -544,6 +551,7 @@ typedef Vec4 Color;
 #define WHITE (Color){1.0f, 1.0f, 1.0f, 1.0f}
 #define BLACK (Color){0.0f, 0.0f, 0.0f, 1.0f}
 #define RED   (Color){1.0f, 0.0f, 0.0f, 1.0f}
+#define GREEN (Color){0.0f, 1.0f, 0.0f, 1.0f}
 
 
 Vec2 screen_size()
@@ -833,11 +841,10 @@ Vec2 tile_id_to_coord(sg_image tileset_image, Vec2 tile_size, uint16_t tile_id)
 }
 
 // returns bounds. To measure text you can set dry run to true and get the bounds
-AABB draw_text(bool world_space, bool dry_run, const char *text, Vec2 pos, Color color)
+AABB draw_text(bool world_space, bool dry_run, const char *text, Vec2 pos, Color color, float scale)
 {
  size_t text_len = strlen(text);
- AABB bounds =
- {0};
+ AABB bounds = {0};
  float y = 0.0;
  float x = 0.0;
  for(int i = 0; i < text_len; i++)
@@ -868,6 +875,11 @@ AABB draw_text(bool world_space, bool dry_run, const char *text, Vec2 pos, Color
      AddV2(V2(q.x0, -q.y0), V2(0.0f, -size.Y)),
     },
    };
+
+   for(int i = 0; i < 4; i++)
+   {
+    to_draw.points[i] = MulV2F(to_draw.points[i], scale);
+   }
 
    AABB font_atlas_region = (AABB)
    {
@@ -1040,7 +1052,8 @@ Vec2 move_and_slide(Entity *from, Vec2 position, Vec2 movement_this_frame)
  {
   AABB to_depenetrate_from = to_check[i];
   dbgrect(to_depenetrate_from);
-  while(overlapping(to_depenetrate_from, at_new))
+  int iters_tried_to_push_apart = 0;
+  while(overlapping(to_depenetrate_from, at_new) && iters_tried_to_push_apart < 500)
   { 
    //dbgsquare(to_depenetrate_from.upper_left);
    //dbgsquare(to_depenetrate_from.lower_right);
@@ -1069,10 +1082,54 @@ Vec2 move_and_slide(Entity *from, Vec2 position, Vec2 movement_this_frame)
    Vec2 move = MulV2F(move_dir, move_dist);
    at_new.upper_left = AddV2(at_new.upper_left,move);
    at_new.lower_right = AddV2(at_new.lower_right,move);
+   iters_tried_to_push_apart++;
   }
  }
 
  return aabb_center(at_new);
+}
+
+// returns next vertical cursor position
+float draw_wrapped_text(Vec2 at_point, float max_width, char *text, float text_scale, Color color)
+{
+ char *sentence_to_draw = text;
+ size_t sentence_len = strlen(sentence_to_draw);
+
+ Vec2 cursor = at_point;
+ while(sentence_len > 0)
+ {
+  char line_to_draw[MAX_SENTENCE_LENGTH] = {0};
+  size_t chars_from_sentence = 0;
+  AABB line_bounds = {0};
+  while(chars_from_sentence <= sentence_len)
+  {
+   memset(line_to_draw, 0, MAX_SENTENCE_LENGTH);
+   memcpy(line_to_draw, sentence_to_draw, chars_from_sentence);
+
+   line_bounds = draw_text(true, true, line_to_draw, cursor, color, text_scale);
+   if(line_bounds.lower_right.X > at_point.X + max_width)
+   {
+    // too big
+    assert(chars_from_sentence > 0);
+    chars_from_sentence -= 1;
+    break;
+   }
+
+   chars_from_sentence += 1;
+  }
+  if(chars_from_sentence > sentence_len) chars_from_sentence--;
+  memset(line_to_draw, 0, MAX_SENTENCE_LENGTH);
+  memcpy(line_to_draw, sentence_to_draw, chars_from_sentence);
+  float line_height = line_bounds.upper_left.Y - line_bounds.lower_right.Y;
+  AABB drawn_bounds = draw_text(true, false, line_to_draw, AddV2(cursor, V2(0.0f, -line_height)), color, text_scale);
+  dbgrect(drawn_bounds);
+
+  sentence_len -= chars_from_sentence;
+  sentence_to_draw += chars_from_sentence;
+  cursor = V2(drawn_bounds.upper_left.X, drawn_bounds.lower_right.Y);
+ }
+
+ return cursor.Y;
 }
 
 double time = 0.0;
@@ -1166,7 +1223,7 @@ void frame(void)
    Vec2 points[4] ={0};
    AABB q = tile_aabb(hovering);
    dbgrect(q);
-   draw_text(false, false, tprint("%d", get_tile(&level_level0, hovering).kind), world_to_screen(tilecoord_to_world(hovering)), BLACK);
+   draw_text(false, false, tprint("%d", get_tile(&level_level0, hovering).kind), world_to_screen(tilecoord_to_world(hovering)), BLACK, 1.0f);
   }
 
   // debug draw font image
@@ -1180,12 +1237,12 @@ void frame(void)
    int num_entities = 0;
    ENTITIES_ITER(entities) num_entities++;
    char *stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nEntities: %d\n", dt*1000.0, last_frame_processing_time*1000.0, num_entities);
-   AABB bounds = draw_text(false, true, stats, pos, BLACK);
+   AABB bounds = draw_text(false, true, stats, pos, BLACK, 1.0f);
    pos.Y -= bounds.upper_left.Y - screen_size().Y;
-   bounds = draw_text(false, true, stats, pos, BLACK);
+   bounds = draw_text(false, true, stats, pos, BLACK, 1.0f);
    // background panel
    colorquad(false, quad_aabb(bounds), (Color){1.0, 1.0, 1.0, 0.3f});
-   draw_text(false, false, stats, pos, BLACK);
+   draw_text(false, false, stats, pos, BLACK, 1.0f);
   }
 #endif // devtools
 
@@ -1369,6 +1426,46 @@ void frame(void)
    {
     draw_quad(false, (Quad){.ul=V2(0.0f, screen_size().Y), .ur = screen_size(), .lr = V2(screen_size().X, 0.0f)}, image_hurt_vignette, full_region(image_hurt_vignette), (Color){1.0f, 1.0f, 1.0f, player->damage});
    }
+  }
+
+  // do dialog
+  AABB dialog_rect = centered_aabb(player->pos, V2(TILE_SIZE*2.0f, TILE_SIZE*2.0f));
+  dbgrect(dialog_rect);
+  Overlapping possible_dialogs = get_overlapping(cur_level, dialog_rect);
+  Entity *closest_talkto = NULL;
+  float closest_talkto_dist = INFINITY;
+  for(int i = 0; i < possible_dialogs.num_results; i++)
+  {
+   Overlap *it = &possible_dialogs.results[i];
+   if(!it->is_tile && it->e->kind == ENTITY_OLD_MAN && !it->e->aggressive)
+   {
+    float dist = LenV2(SubV2(it->e->pos, player->pos));
+    if(dist < closest_talkto_dist)
+    {
+     closest_talkto_dist = dist;
+     closest_talkto = it->e;
+    }
+   }
+  }
+  if(closest_talkto != NULL)
+  {
+   Dialog dialog = {
+    .sentences[0].text = "I'm an old man. fjdslfdasljfla dsfjdsalkf adskjfdlskfkladsjfkljdskljsadlkfjdsaklfjldsajf",
+    .sentences[1].text = "I'm the player. I have lots of things to say. Bla bla bla. All I do is say things. How cringe and terrible",
+   };
+   float panel_width = 250.0f;
+   float panel_height = 100.0f;
+   float panel_vert_offset = 30.0f;
+   AABB dialog_panel = (AABB){
+    .upper_left = AddV2(closest_talkto->pos, V2(-panel_width/2.0f, panel_vert_offset+panel_height)),
+    .lower_right = AddV2(closest_talkto->pos, V2(panel_width/2.0f, panel_vert_offset)),
+   };
+   colorquad(true, quad_aabb(dialog_panel), (Color){1.0f, 1.0f, 1.0f, 0.2f});
+
+   float new_line_height = draw_wrapped_text(dialog_panel.upper_left, dialog_panel.lower_right.X - dialog_panel.upper_left.X, dialog.sentences[0].text, 0.5f, WHITE);
+   new_line_height = draw_wrapped_text(V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, dialog.sentences[1].text, 0.5f, GREEN);
+
+   dbgrect(dialog_panel);
   }
 
   sg_end_pass();
