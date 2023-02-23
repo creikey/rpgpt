@@ -729,12 +729,13 @@ sg_image cur_batch_image = {0};
 quad_fs_params_t cur_batch_params = {0};
 void flush_quad_batch()
 {
+ if(cur_batch_image.id == 0) return; // flush called when image changes, image starts out null!
  state.bind.vertex_buffer_offsets[0] = sg_append_buffer(state.bind.vertex_buffers[0], &(sg_range){cur_batch_data, cur_batch_data_index*sizeof(*cur_batch_data)});
  state.bind.fs_images[SLOT_quad_tex] = cur_batch_image;
  sg_apply_bindings(&state.bind);
  sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_quad_fs_params, &SG_RANGE(cur_batch_params));
- //sg_draw(0, cur_batch_data_index, 1);
- sg_draw(0, 6, 1);
+ assert(cur_batch_data_index % 4 == 0);
+ sg_draw(0, cur_batch_data_index/4, 1);
  num_draw_calls += 1;
  memset(cur_batch_data, 0, cur_batch_data_index);
  cur_batch_data_index = 0;
@@ -810,6 +811,7 @@ void draw_quad(bool world_space, Quad quad, sg_image image, AABB image_region, C
  // batched a little too close to the sun
  if(cur_batch_data_index + total_size >= ARRLEN(cur_batch_data))
  {
+  flush_quad_batch();
  }
 
 #define PUSH_VERTEX(vert) { memcpy(&cur_batch_data[cur_batch_data_index], &vert, 4*sizeof(float)); cur_batch_data_index += 4; }
@@ -821,10 +823,12 @@ void draw_quad(bool world_space, Quad quad, sg_image image, AABB image_region, C
  PUSH_VERTEX(new_vertices[3*4]);
 #undef PUSH_VERTEX
 
- cur_batch_image = image;
- cur_batch_params = params;
-
- flush_quad_batch();
+ if(image.id != cur_batch_image.id)
+ {
+  flush_quad_batch();
+  cur_batch_image = image;
+  cur_batch_params = params;
+ }
 }
 
 void swap(Vec2 *p1, Vec2 *p2)
