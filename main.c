@@ -722,14 +722,14 @@ bool has_point(AABB aabb, Vec2 point)
 
 int num_draw_calls = 0;
 
-float cur_batch_data[2048] = {0};
+float cur_batch_data[1024*10] = {0};
 int cur_batch_data_index = 0;
 // @TODO check last tint as well, do this when factor into drawing parameters
 sg_image cur_batch_image = {0};
 quad_fs_params_t cur_batch_params = {0};
 void flush_quad_batch()
 {
- if(cur_batch_image.id == 0) return; // flush called when image changes, image starts out null!
+ if(cur_batch_image.id == 0 || cur_batch_data_index == 0) return; // flush called when image changes, image starts out null!
  state.bind.vertex_buffer_offsets[0] = sg_append_buffer(state.bind.vertex_buffers[0], &(sg_range){cur_batch_data, cur_batch_data_index*sizeof(*cur_batch_data)});
  state.bind.fs_images[SLOT_quad_tex] = cur_batch_image;
  sg_apply_bindings(&state.bind);
@@ -744,6 +744,19 @@ void flush_quad_batch()
 // The image region is in pixel space of the image
 void draw_quad(bool world_space, Quad quad, sg_image image, AABB image_region, Color tint)
 {
+ quad_fs_params_t params = {0};
+ params.tint[0] = tint.R;
+ params.tint[1] = tint.G;
+ params.tint[2] = tint.B;
+ params.tint[3] = tint.A;
+
+ if(image.id != cur_batch_image.id)
+ {
+  flush_quad_batch();
+  cur_batch_image = image;
+  cur_batch_params = params;
+ }
+
  Vec2 *points = quad.points;
 
  if(world_space)
@@ -800,11 +813,6 @@ void draw_quad(bool world_space, Quad quad, sg_image image, AABB image_region, C
   new_vertices[i*4 + 2] = tex_coords[i].X;
   new_vertices[i*4 + 3] = tex_coords[i].Y;
  }
- quad_fs_params_t params = {0};
- params.tint[0] = tint.R;
- params.tint[1] = tint.G;
- params.tint[2] = tint.B;
- params.tint[3] = tint.A;
 
  size_t total_size = ARRLEN(new_vertices)*sizeof(new_vertices);
 
@@ -812,6 +820,8 @@ void draw_quad(bool world_space, Quad quad, sg_image image, AABB image_region, C
  if(cur_batch_data_index + total_size >= ARRLEN(cur_batch_data))
  {
   flush_quad_batch();
+  cur_batch_image = image;
+  cur_batch_params = params;
  }
 
 #define PUSH_VERTEX(vert) { memcpy(&cur_batch_data[cur_batch_data_index], &vert, 4*sizeof(float)); cur_batch_data_index += 4; }
@@ -823,12 +833,6 @@ void draw_quad(bool world_space, Quad quad, sg_image image, AABB image_region, C
  PUSH_VERTEX(new_vertices[3*4]);
 #undef PUSH_VERTEX
 
- if(image.id != cur_batch_image.id)
- {
-  flush_quad_batch();
-  cur_batch_image = image;
-  cur_batch_params = params;
- }
 }
 
 void swap(Vec2 *p1, Vec2 *p2)
@@ -1530,6 +1534,7 @@ void frame(void)
    dbgrect(dialog_panel);
   }
 
+  flush_quad_batch();
   sg_end_pass();
   sg_commit();
 
