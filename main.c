@@ -1449,6 +1449,8 @@ void frame(void)
   }
   if(closest_talkto != NULL)
   {
+   draw_quad(true, quad_centered(closest_talkto->pos, V2(TILE_SIZE, TILE_SIZE)), image_dialog_circle, full_region(image_dialog_circle), WHITE);
+
    Dialog dialog = {
     .sentences[0].text = "I'm an old man. fjdslfdasljfla dsfjdsalkf adskjfdlskfkladsjfkljdskljsadlkfjdsaklfjldsajf",
     .sentences[1].text = "I'm the player. I have lots of things to say. Bla bla bla. All I do is say things. How cringe and terrible",

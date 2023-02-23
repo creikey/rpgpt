@@ -30,6 +30,10 @@
 {
  filepath: "hurt_vignette.png",
 }
+@image dialog_circle:
+{
+ filepath: "dialog_circle.png",
+}
 @image white_square:
 {
  filepath: "white square.png",
