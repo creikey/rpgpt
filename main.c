@@ -112,6 +112,7 @@ typedef struct Entity
  CharacterState state;
  bool is_rolling; // can only roll in idle or walk states
  float speed; // for lerping to the speed, so that roll gives speed boost which fades
+ double time_not_rolling; // for cooldown for roll, so you can't just hold it and be invincible
  double roll_progress;
  double swing_progress;
 } Entity;
@@ -978,7 +979,7 @@ Overlapping get_overlapping(Level *l, AABB aabb)
  // the entities jessie
  ENTITIES_ITER(entities)
  {
-  if(overlapping(aabb, entity_aabb(it)))
+  if(!(it->kind == ENTITY_PLAYER && it->is_rolling) && overlapping(aabb, entity_aabb(it)))
   {
    to_return.results[to_return.num_results++] = (Overlap)
    {
@@ -1156,7 +1157,6 @@ void frame(void)
 
  assert(player != NULL);
 
- //if(LengthV2(movement) > 0.01 && player->state == CHARACTER_)
 #ifdef DEVTOOLS
   dbgsquare(screen_to_world(mouse_pos));
   
@@ -1177,7 +1177,9 @@ void frame(void)
   // statistics
   {
    Vec2 pos = V2(0.0, screen_size().Y);
-   char *stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms", dt*1000.0, last_frame_processing_time*1000.0);
+   int num_entities = 0;
+   ENTITIES_ITER(entities) num_entities++;
+   char *stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nEntities: %d\n", dt*1000.0, last_frame_processing_time*1000.0, num_entities);
    AABB bounds = draw_text(false, true, stats, pos, BLACK);
    pos.Y -= bounds.upper_left.Y - screen_size().Y;
    bounds = draw_text(false, true, stats, pos, BLACK);
@@ -1185,23 +1187,6 @@ void frame(void)
    colorquad(false, quad_aabb(bounds), (Color){1.0, 1.0, 1.0, 0.3f});
    draw_text(false, false, stats, pos, BLACK);
   }
-  // text test render
-#if 0
-  const char *text = "great idea\nother idea";
-  // measure text
-  Vec2 pos = player->pos;
-
-  {
-   AABB bounds = draw_text(true, true, text, strlen(text), pos, WHITE);
-   colorbox(true, bounds.upper_left, bounds.lower_right, (Color){1.0,0.0,0.0,0.5});
-  }
-  // draw text
-
-  {
-   draw_text(true, false, text, strlen(text), pos, WHITE);
-  }
-#endif
-
 #endif // devtools
 
   // entities
@@ -1267,7 +1252,7 @@ void frame(void)
    }
   }
 
-  // player character
+  // process player character
   {
    Vec2 character_sprite_pos = AddV2(player->pos, V2(0.0, 20.0f));
 
@@ -1278,7 +1263,7 @@ void frame(void)
    }
 
    // rolling
-   if(roll && !player->is_rolling && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
+   if(roll && !player->is_rolling && player->time_not_rolling > 0.3f && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
    {
     player->is_rolling = true;
     player->roll_progress = 0.0;
@@ -1291,12 +1276,14 @@ void frame(void)
    }
    if(player->is_rolling)
    {
+    player->time_not_rolling = 0.0f;
     player->roll_progress += dt;
     if(player->roll_progress > anim_sprite_duration(&knight_rolling))
     {
      player->is_rolling = false;
     }
    }
+   if(!player->is_rolling) player->time_not_rolling += dt;
 
    cam.pos = LerpV2(cam.pos, dt*8.0f, MulV2F(player->pos, -1.0f * cam.scale));
    if(player->state == CHARACTER_WALKING)
