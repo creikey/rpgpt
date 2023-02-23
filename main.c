@@ -740,11 +740,12 @@ sg_image cur_batch_image = {0};
 quad_fs_params_t cur_batch_params = {0};
 void flush_quad_batch()
 {
- state.bind.vertex_buffer_offsets[0] = sg_append_buffer(state.bind.vertex_buffers[0], &(sg_range){cur_batch_data, cur_batch_data_index});
+ state.bind.vertex_buffer_offsets[0] = sg_append_buffer(state.bind.vertex_buffers[0], &(sg_range){cur_batch_data, cur_batch_data_index*sizeof(*cur_batch_data)});
  state.bind.fs_images[SLOT_quad_tex] = cur_batch_image;
  sg_apply_bindings(&state.bind);
  sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_quad_fs_params, &SG_RANGE(cur_batch_params));
- sg_draw(0, cur_batch_data_index, 1);
+ //sg_draw(0, cur_batch_data_index, 1);
+ sg_draw(0, 6, 1);
  num_draw_calls += 1;
  memset(cur_batch_data, 0, cur_batch_data_index);
  cur_batch_data_index = 0;
