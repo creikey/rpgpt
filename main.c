@@ -510,16 +510,6 @@ void init(void)
     .label = "quad-vertices"
    });
 
- /* an index buffer with 2 triangles */
- uint16_t indices[] =
- { 0, 1, 2,  0, 2, 3 };
- state.bind.index_buffer = sg_make_buffer(&(sg_buffer_desc){
-   .type = SG_BUFFERTYPE_INDEXBUFFER,
-   .data = SG_RANGE(indices),
-   .label = "quad-indices"
-  });
-
-
  const sg_shader_desc *desc = quad_program_shader_desc(sg_query_backend());
  assert(desc);
  sg_shader shd = sg_make_shader(desc);
@@ -527,7 +517,6 @@ void init(void)
  state.pip = sg_make_pipeline(&(sg_pipeline_desc)
    {
     .shader = shd,
-    .index_type = SG_INDEXTYPE_UINT16,
     .layout = {
      .attrs =
      {
@@ -816,11 +805,22 @@ void draw_quad(bool world_space, Quad quad, sg_image image, AABB image_region, C
  params.tint[2] = tint.B;
  params.tint[3] = tint.A;
 
- memcpy(&cur_batch_data[cur_batch_data_index], new_vertices, ARRLEN(new_vertices)*sizeof(new_vertices));
- cur_batch_data_index += ARRLEN(new_vertices);
- if(cur_batch_data_index >= ARRLEN(cur_batch_data)) // too much batching!
+ size_t total_size = ARRLEN(new_vertices)*sizeof(new_vertices);
+
+ // batched a little too close to the sun
+ if(cur_batch_data_index + total_size >= ARRLEN(cur_batch_data))
  {
  }
+
+#define PUSH_VERTEX(vert) { memcpy(&cur_batch_data[cur_batch_data_index], &vert, 4*sizeof(float)); cur_batch_data_index += 4; }
+ PUSH_VERTEX(new_vertices[0*4]);
+ PUSH_VERTEX(new_vertices[1*4]);
+ PUSH_VERTEX(new_vertices[2*4]);
+ PUSH_VERTEX(new_vertices[0*4]);
+ PUSH_VERTEX(new_vertices[2*4]);
+ PUSH_VERTEX(new_vertices[3*4]);
+#undef PUSH_VERTEX
+
  cur_batch_image = image;
  cur_batch_params = params;
 
@@ -1078,7 +1078,7 @@ Vec2 move_and_slide(Entity *from, Vec2 position, Vec2 movement_this_frame)
  {
   ENTITIES_ITER(entities)
   {
-   if(it != from)
+   if(!(it->kind == ENTITY_PLAYER && it->is_rolling) && it != from)
    {
     to_check[to_check_index++] = centered_aabb(it->pos, entity_aabb_size(it));
     assert(to_check_index < ARRLEN(to_check));
