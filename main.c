@@ -572,7 +572,10 @@ Camera cam = {.scale = 2.0f };
 
 Vec2 cam_offset()
 {
- return AddV2(cam.pos, MulV2F(screen_size(), 0.5f));
+ Vec2 to_return = AddV2(cam.pos, MulV2F(screen_size(), 0.5f));
+ to_return.X = (float)(int)to_return.X;
+ to_return.Y = (float)(int)to_return.Y;
+ return to_return;
 }
 
 // in pixels
