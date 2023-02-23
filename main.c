@@ -2,6 +2,11 @@
 #if defined(WIN32) || defined(_WIN32)
 #define SOKOL_D3D11
 #endif
+
+#if defined(__EMSCRIPTEN__)
+#define SOKOL_GLES2
+#endif
+
 #include "sokol_app.h"
 #include "sokol_gfx.h"
 #include "sokol_time.h"
@@ -10,7 +15,7 @@
 #include "stb_image.h"
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
-#include "HandMadeMath.h"
+#include "HandmadeMath.h"
 
 #pragma warning(disable : 4996) // fopen is safe. I don't care about fopen_s
 
@@ -18,6 +23,9 @@
 
 #define ARRLEN(x) ((sizeof(x)/sizeof(0[x])) / ((size_t)(!(sizeof(x) % sizeof(0[x])))))
 #define ENTITIES_ITER(ents) for(Entity *it = ents; it < ents + ARRLEN(ents); it++) if(it->exists)
+
+// so can be grep'd and removed
+#define dbgprint(...) { printf("Debug | %s:%d | ", __FILE__, __LINE__); printf(__VA_ARGS__); }
 Vec2 RotateV2(Vec2 v, float theta)
 {
   return V2( 
@@ -164,11 +172,11 @@ typedef struct Arena
  size_t cur;
 } Arena;
 
-Arena make(size_t max_size)
+Arena make_arena(size_t max_size)
 {
  return (Arena)
  {
-  .data = calloc(1, max_size),
+  .data = calloc(max_size, 1),
   .data_size = max_size,
   .cur = 0,
  };
@@ -312,12 +320,16 @@ sg_image load_image(const char *path)
    &png_width, &png_height,
    &num_channels, 0);
  assert(pixels);
+ dbgprint("Pah %s | Loading image with dimensions %d %d\n", path, png_width, png_height);
  to_return = sg_make_image(&(sg_image_desc)
    {
    .width = png_width,
    .height = png_height,
    .pixel_format = SG_PIXELFORMAT_RGBA8,
    .min_filter = SG_FILTER_NEAREST,
+   .num_mipmaps = 0,
+   .wrap_u = SG_WRAP_CLAMP_TO_EDGE,
+   .wrap_v = SG_WRAP_CLAMP_TO_EDGE,
    .mag_filter = SG_FILTER_NEAREST,
    .data.subimage[0][0] =
    {
@@ -389,8 +401,6 @@ sg_image image_font = {0};
 const float font_size = 32.0;
 stbtt_bakedchar cdata[96]; // ASCII 32..126 is 95 glyphs
 
-// so can be grep'd and removed
-#define dbgprint(...) { printf("Debug | %s:%d | ", __FILE__, __LINE__); printf(__VA_ARGS__); }
 
 static struct
 {
@@ -443,11 +453,12 @@ void reset_level()
 
 void init(void)
 {
- scratch = make(1024 * 10);
+ sg_setup(&(sg_desc){
+  .context = sapp_sgcontext(),
+  });
  stm_setup();
- sg_setup( &(sg_desc){
-  .context = sapp_sgcontext()
- });
+
+ scratch = make_arena(1024 * 10);
 
  load_assets();
  reset_level();
@@ -459,13 +470,12 @@ void init(void)
   size_t size = ftell(fontFile); /* how long is the file ? */
   fseek(fontFile, 0, SEEK_SET); /* reset */
 
-  char *fontBuffer = malloc(size);
+  unsigned char *fontBuffer = malloc(size);
 
   fread(fontBuffer, size, 1, fontFile);
   fclose(fontFile);
 
-  unsigned char font_bitmap[512*512] =
-  {0};
+  unsigned char *font_bitmap = calloc(1, 512*512);
   stbtt_BakeFontBitmap(fontBuffer, 0, font_size, font_bitmap, 512, 512, 32, 96, cdata);
 
   unsigned char *font_bitmap_rgba = malloc(4 * 512 * 512); // stack would be too big if allocated on stack (stack overflow)
@@ -510,7 +520,9 @@ void init(void)
   });
 
 
- sg_shader shd = sg_make_shader(quad_program_shader_desc(sg_query_backend()));
+ const sg_shader_desc *desc = quad_program_shader_desc(sg_query_backend());
+ assert(desc);
+ sg_shader shd = sg_make_shader(desc);
 
  state.pip = sg_make_pipeline(&(sg_pipeline_desc)
    {
@@ -629,7 +641,10 @@ Quad quad_at(Vec2 at, Vec2 size)
 
 Quad tile_quad(TileCoord coord)
 {
-  return quad_at(tilecoord_to_world(coord), V2(TILE_SIZE, TILE_SIZE));
+ Quad to_return = quad_at(tilecoord_to_world(coord), V2(TILE_SIZE, TILE_SIZE));
+
+
+ return to_return;
 }
 
 // out must be of at least length 4
@@ -663,8 +678,8 @@ bool segments_overlapping(float *a_segment, float *b_segment)
  assert(a_segment[1] >= a_segment[0]);
  assert(b_segment[1] >= b_segment[0]);
  float total_length = (a_segment[1] - a_segment[0]) + (b_segment[1] - b_segment[0]);
- float farthest_to_left = min(a_segment[0], b_segment[0]);
- float farthest_to_right = max(a_segment[1], b_segment[1]);
+ float farthest_to_left = fminf(a_segment[0], b_segment[0]);
+ float farthest_to_right = fmaxf(a_segment[1], b_segment[1]);
  if (farthest_to_right - farthest_to_left < total_length)
  {
   return true;
@@ -716,6 +731,25 @@ bool has_point(AABB aabb, Vec2 point)
   (aabb.upper_left.Y > point.Y && point.Y > aabb.lower_right.Y);
 }
 
+int num_draw_calls = 0;
+
+float cur_batch_data[2048] = {0};
+int cur_batch_data_index = 0;
+// @TODO check last tint as well, do this when factor into drawing parameters
+sg_image cur_batch_image = {0};
+quad_fs_params_t cur_batch_params = {0};
+void flush_quad_batch()
+{
+ state.bind.vertex_buffer_offsets[0] = sg_append_buffer(state.bind.vertex_buffers[0], &(sg_range){cur_batch_data, cur_batch_data_index});
+ state.bind.fs_images[SLOT_quad_tex] = cur_batch_image;
+ sg_apply_bindings(&state.bind);
+ sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_quad_fs_params, &SG_RANGE(cur_batch_params));
+ sg_draw(0, cur_batch_data_index, 1);
+ num_draw_calls += 1;
+ memset(cur_batch_data, 0, cur_batch_data_index);
+ cur_batch_data_index = 0;
+}
+
 // The image region is in pixel space of the image
 void draw_quad(bool world_space, Quad quad, sg_image image, AABB image_region, Color tint)
 {
@@ -735,14 +769,16 @@ void draw_quad(bool world_space, Quad quad, sg_image image, AABB image_region, C
 
  for(int i = 0; i < 4; i++)
  {
-  points_bounding_box.upper_left.X = min(points_bounding_box.upper_left.X, points[i].X);
-  points_bounding_box.upper_left.Y = max(points_bounding_box.upper_left.Y, points[i].Y);
+  points_bounding_box.upper_left.X = fminf(points_bounding_box.upper_left.X, points[i].X);
+  points_bounding_box.upper_left.Y = fmaxf(points_bounding_box.upper_left.Y, points[i].Y);
 
-  points_bounding_box.lower_right.X = max(points_bounding_box.lower_right.X, points[i].X);
-  points_bounding_box.lower_right.Y = min(points_bounding_box.lower_right.Y, points[i].Y);
+  points_bounding_box.lower_right.X = fmaxf(points_bounding_box.lower_right.X, points[i].X);
+  points_bounding_box.lower_right.Y = fminf(points_bounding_box.lower_right.Y, points[i].Y);
  }
  if(!overlapping(cam_aabb, points_bounding_box))
  {
+  //dbgprint("Out of screen, cam aabb %f %f %f %f\n", cam_aabb.upper_left.X, cam_aabb.upper_left.Y, cam_aabb.lower_right.X, cam_aabb.lower_right.Y);
+  //dbgprint("Points boundig box %f %f %f %f\n", points_bounding_box.upper_left.X, points_bounding_box.upper_left.Y, points_bounding_box.lower_right.X, points_bounding_box.lower_right.Y);
   return; // cull out of screen quads
  }
 
@@ -773,22 +809,21 @@ void draw_quad(bool world_space, Quad quad, sg_image image, AABB image_region, C
   new_vertices[i*4 + 2] = tex_coords[i].X;
   new_vertices[i*4 + 3] = tex_coords[i].Y;
  }
- state.bind.vertex_buffer_offsets[0] = sg_append_buffer(state.bind.vertex_buffers[0], &SG_RANGE(new_vertices));
- quad_fs_params_t params =
- {0};
+ quad_fs_params_t params = {0};
  params.tint[0] = tint.R;
  params.tint[1] = tint.G;
  params.tint[2] = tint.B;
  params.tint[3] = tint.A;
- params.upper_left[0] = image_region.upper_left.X;
- params.upper_left[1] = image_region.upper_left.Y;
- params.lower_right[0] = image_region.lower_right.X;
- params.lower_right[1] = image_region.lower_right.Y;
 
- state.bind.fs_images[SLOT_quad_tex] = image;
- sg_apply_bindings(&state.bind);
- sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_quad_fs_params, &SG_RANGE(params));
- sg_draw(0, 6, 1);
+ memcpy(&cur_batch_data[cur_batch_data_index], new_vertices, ARRLEN(new_vertices)*sizeof(new_vertices));
+ cur_batch_data_index += ARRLEN(new_vertices);
+ if(cur_batch_data_index >= ARRLEN(cur_batch_data)) // too much batching!
+ {
+ }
+ cur_batch_image = image;
+ cur_batch_params = params;
+
+ flush_quad_batch();
 }
 
 void swap(Vec2 *p1, Vec2 *p2)
@@ -803,13 +838,13 @@ double anim_sprite_duration(AnimatedSprite *s)
  return s->num_frames * s->time_per_frame;
 }
 
-void draw_animated_sprite(AnimatedSprite *s, double time, bool flipped, Vec2 pos, Color tint)
+void draw_animated_sprite(AnimatedSprite *s, double elapsed_time, bool flipped, Vec2 pos, Color tint)
 {
  sg_image spritesheet_img = *s->img;
- int index = (int)floor(time/s->time_per_frame) % s->num_frames;
+ int index = (int)floor(elapsed_time/s->time_per_frame) % s->num_frames;
  if(s->no_wrap)
  {
-  index = (int)floor(time/s->time_per_frame);
+  index = (int)floor(elapsed_time/s->time_per_frame);
   if(index >= s->num_frames) index = s->num_frames - 1;
  }
 
@@ -839,6 +874,58 @@ Vec2 tile_id_to_coord(sg_image tileset_image, Vec2 tile_size, uint16_t tile_id)
  Vec2 tile_image_coord = V2((float)tile_image_col * tile_size.X, (float)tile_image_row*tile_size.Y);
  return tile_image_coord;
 }
+
+void colorquad(bool world_space, Quad q, Color col)
+{
+ draw_quad(world_space, q, image_white_square, full_region(image_white_square), col);
+}
+
+void dbgsquare(Vec2 at)
+{
+ colorquad(true, quad_centered(at, V2(10.0, 10.0)), RED);
+}
+
+// in world coordinates
+void line(Vec2 from, Vec2 to, float line_width, Color color)
+{
+ Vec2 normal = rotate_counter_clockwise(NormV2(SubV2(to, from)));
+ Quad line_quad = {
+  .points = {
+   AddV2(from, MulV2F(normal, line_width)),  // upper left
+   AddV2(to, MulV2F(normal, line_width)),    // upper right
+   AddV2(to, MulV2F(normal, -line_width)),   // lower right
+   AddV2(from, MulV2F(normal, -line_width)), // lower left
+  }
+ };
+ colorquad(true, line_quad, color);
+}
+
+void dbgline(Vec2 from, Vec2 to)
+{
+#ifdef DEVTOOLS
+ line(from, to, 2.0f, RED);
+#else
+ (void)from;
+ (void)to;
+#endif
+}
+
+// in world space
+void dbgrect(AABB rect)
+{
+#ifdef DEVTOOLS
+ const float line_width = 0.5;
+ const Color col = RED;
+ Quad q = quad_aabb(rect);
+ line(q.ul, q.ur, line_width, col);
+ line(q.ur, q.lr, line_width, col);
+ line(q.lr, q.ll, line_width, col);
+ line(q.ll, q.ul, line_width, col);
+#else
+ (void)rect;
+#endif
+}
+
 
 // returns bounds. To measure text you can set dry run to true and get the bounds
 AABB draw_text(bool world_space, bool dry_run, const char *text, Vec2 pos, Color color, float scale)
@@ -893,10 +980,10 @@ AABB draw_text(bool world_space, bool dry_run, const char *text, Vec2 pos, Color
 
    for(int i = 0; i < 4; i++)
    {
-    bounds.upper_left.X = min(bounds.upper_left.X, to_draw.points[i].X);
-    bounds.upper_left.Y = max(bounds.upper_left.Y, to_draw.points[i].Y);
-    bounds.lower_right.X = max(bounds.lower_right.X, to_draw.points[i].X);
-    bounds.lower_right.Y = min(bounds.lower_right.Y, to_draw.points[i].Y);
+    bounds.upper_left.X = fminf(bounds.upper_left.X, to_draw.points[i].X);
+    bounds.upper_left.Y = fmaxf(bounds.upper_left.Y, to_draw.points[i].Y);
+    bounds.lower_right.X = fmaxf(bounds.lower_right.X, to_draw.points[i].X);
+    bounds.lower_right.Y = fminf(bounds.lower_right.Y, to_draw.points[i].Y);
    }
 
    for(int i = 0; i < 4; i++)
@@ -914,57 +1001,6 @@ AABB draw_text(bool world_space, bool dry_run, const char *text, Vec2 pos, Color
  bounds.upper_left = AddV2(bounds.upper_left, pos);
  bounds.lower_right = AddV2(bounds.lower_right, pos);
  return bounds;
-}
-
-void colorquad(bool world_space, Quad q, Color col)
-{
- draw_quad(world_space, q, image_white_square, full_region(image_white_square), col);
-}
-
-void dbgsquare(Vec2 at)
-{
- colorquad(true, quad_centered(at, V2(10.0, 10.0)), RED);
-}
-
-// in world coordinates
-void line(Vec2 from, Vec2 to, float line_width, Color color)
-{
- Vec2 normal = rotate_counter_clockwise(NormV2(SubV2(to, from)));
- Quad line_quad = {
-  .points = {
-   AddV2(from, MulV2F(normal, line_width)),  // upper left
-   AddV2(to, MulV2F(normal, line_width)),    // upper right
-   AddV2(to, MulV2F(normal, -line_width)),   // lower right
-   AddV2(from, MulV2F(normal, -line_width)), // lower left
-  }
- };
- colorquad(true, line_quad, color);
-}
-
-void dbgline(Vec2 from, Vec2 to)
-{
-#ifdef DEVTOOLS
- line(from, to, 2.0f, RED);
-#else
- (void)from;
- (void)to;
-#endif
-}
-
-// in world space
-void dbgrect(AABB rect)
-{
-#ifdef DEVTOOLS
- const float line_width = 0.5;
- const Color col = RED;
- Quad q = quad_aabb(rect);
- line(q.ul, q.ur, line_width, col);
- line(q.ur, q.lr, line_width, col);
- line(q.lr, q.ll, line_width, col);
- line(q.ll, q.ul, line_width, col);
-#else
- (void)rect;
-#endif
 }
 
 // gets aabbs overlapping the input aabb, including entities and tiles
@@ -1132,7 +1168,7 @@ float draw_wrapped_text(Vec2 at_point, float max_width, char *text, float text_s
  return cursor.Y;
 }
 
-double time = 0.0;
+double elapsed_time = 0.0;
 double last_frame_processing_time = 0.0;
 uint64_t last_frame_time;
 Vec2 mouse_pos = {0}; // in screen space
@@ -1142,14 +1178,31 @@ bool mouse_frozen = false;
 #endif
 void frame(void)
 {
- uint64_t time_start_frame = stm_now();
- // time
- double dt_double = 0.0;
+#if 0
+ {
+  sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
+  sg_apply_pipeline(state.pip);
 
+  //colorquad(false, quad_at(V2(0.0, 100.0), V2(100.0f, 100.0f)), RED);
+  sg_image img = image_wonky_mystery_tile;
+  AABB region = full_region(img);
+  //region.lower_right.X *= 0.5f;
+  draw_quad(false,quad_at(V2(0.0, 100.0), V2(100.0f, 100.0f)), img, region, WHITE);
+
+  sg_end_pass();
+  sg_commit();
+  reset(&scratch);
+ }
+ return;
+#endif
+
+ uint64_t time_start_frame = stm_now();
+ // elapsed_time
+ double dt_double = 0.0;
  {
   dt_double = stm_sec(stm_diff(stm_now(), last_frame_time));
-  dt_double = min(dt_double, 5.0 / 60.0); // clamp dt at maximum 5 frames, avoid super huge dt
-  time += dt_double;
+  dt_double = fmin(dt_double, 5.0 / 60.0); // clamp dt at maximum 5 frames, avoid super huge dt
+  elapsed_time += dt_double;
   last_frame_time = stm_now();
  }
  float dt = (float)dt_double;
@@ -1166,6 +1219,7 @@ void frame(void)
  }
  sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
  sg_apply_pipeline(state.pip);
+
 
  // tilemap
 #if 1
@@ -1198,7 +1252,7 @@ void frame(void)
     if(anim)
     {
      double time_per_frame = 0.1;
-     int frame_index = (int)(time/time_per_frame) % anim->num_frames;
+     int frame_index = (int)(elapsed_time/time_per_frame) % anim->num_frames;
      tile_image_coord = tile_id_to_coord(tileset_image, tile_size, anim->frames[frame_index]+1);
     }
 
@@ -1236,13 +1290,14 @@ void frame(void)
    Vec2 pos = V2(0.0, screen_size().Y);
    int num_entities = 0;
    ENTITIES_ITER(entities) num_entities++;
-   char *stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nEntities: %d\n", dt*1000.0, last_frame_processing_time*1000.0, num_entities);
+   char *stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nEntities: %d\nDraw calls: %d\n", dt*1000.0, last_frame_processing_time*1000.0, num_entities, num_draw_calls);
    AABB bounds = draw_text(false, true, stats, pos, BLACK, 1.0f);
    pos.Y -= bounds.upper_left.Y - screen_size().Y;
    bounds = draw_text(false, true, stats, pos, BLACK, 1.0f);
    // background panel
    colorquad(false, quad_aabb(bounds), (Color){1.0, 1.0, 1.0, 0.3f});
    draw_text(false, false, stats, pos, BLACK, 1.0f);
+   num_draw_calls = 0;
   }
 #endif // devtools
 
@@ -1279,7 +1334,7 @@ void frame(void)
      it->vel = LerpV2(it->vel, 15.0f * dt, target_vel);
      it->pos = move_and_slide(it, it->pos, MulV2F(it->vel, pixels_per_meter * dt));
     }
-    draw_animated_sprite(&old_man_idle, time, false, it->pos, WHITE);
+    draw_animated_sprite(&old_man_idle, elapsed_time, false, it->pos, WHITE);
    }
    else if (it->kind == ENTITY_BULLET)
    {
@@ -1354,7 +1409,7 @@ void frame(void)
     }
     else
     {
-     draw_animated_sprite(&knight_running, time, player->facing_left, character_sprite_pos, WHITE);
+     draw_animated_sprite(&knight_running, elapsed_time, player->facing_left, character_sprite_pos, WHITE);
     }
 
     if(LenV2(movement) == 0.0)
@@ -1374,7 +1429,7 @@ void frame(void)
     }
     else
     {
-     draw_animated_sprite(&knight_idle, time, player->facing_left, character_sprite_pos, WHITE);
+     draw_animated_sprite(&knight_idle, elapsed_time, player->facing_left, character_sprite_pos, WHITE);
     }
     if(LenV2(movement) > 0.01) player->state = CHARACTER_WALKING;
    }
@@ -1525,9 +1580,7 @@ sapp_desc sokol_main(int argc, char* argv[])
    .height = 600,
    //.gl_force_gles2 = true, not sure why this was here in example, look into
    .window_title = "RPGPT",
-
    .win32_console_attach = true,
-
    .icon.sokol_default = true,
  };
 }
