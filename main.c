@@ -723,7 +723,6 @@ bool has_point(AABB aabb, Vec2 point)
 
 int num_draw_calls = 0;
 
-
 float cur_batch_data[1024*10] = {0};
 int cur_batch_data_index = 0;
 // @TODO check last tint as well, do this when factor into drawing parameters
@@ -1224,7 +1223,6 @@ void frame(void)
  sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
  sg_apply_pipeline(state.pip);
 
-
  // tilemap
 #if 1
  Level * cur_level = &level_level0;
@@ -1537,6 +1535,7 @@ void frame(void)
 
   reset(&scratch);
 }
+
 void cleanup(void)
 {
  sg_shutdown();

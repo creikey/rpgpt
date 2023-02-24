@@ -1,5 +1,6 @@
-# web build
-build_web
+# web builds
+build_web_release/
+build_web/
 
 # copyrighted assets which must be bought
 assets/copyrighted/
