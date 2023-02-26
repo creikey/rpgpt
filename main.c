@@ -1,9 +1,11 @@
 #define SOKOL_IMPL
 #if defined(WIN32) || defined(_WIN32)
+#define DESKTOP
 #define SOKOL_D3D11
 #endif
 
 #if defined(__EMSCRIPTEN__)
+#define WEB
 #define SOKOL_GLES2
 #endif
 
@@ -89,6 +91,7 @@ typedef enum CharacterState
  CHARACTER_WALKING,
  CHARACTER_IDLE,
  CHARACTER_ATTACK,
+ CHARACTER_TALKING,
 } CharacterState;
 
 typedef enum EntityKind
@@ -100,18 +103,27 @@ typedef enum EntityKind
  ENTITY_BULLET,
 } EntityKind;
 
-#define MAX_SENTENCE_LENGTH 400
-typedef struct { char text[MAX_SENTENCE_LENGTH]; } Sentence;
+#define BUFF(type, max_size) struct { type data[max_size]; int cur_index; }
+#define BUFF_HAS_SPACE(buff_ptr) ( (buff_ptr)->cur_index < ARRLEN((buff_ptr)->data) )
+#define BUFF_APPEND(buff_ptr, element)  { (buff_ptr)->data[(buff_ptr)->cur_index++] = element; assert((buff_ptr)->cur_index < ARRLEN((buff_ptr)->data)); }
+#define BUFF_ITER(type, buff_ptr) for(type *it = &((buff_ptr)->data[0]); it < (buff_ptr)->data + (buff_ptr)->cur_index; it++)
+#define BUFF_CLEAR(buff_ptr) {memset((buff_ptr), 0, sizeof(*(buff_ptr)));  ((buff_ptr)->cur_index = 0);}
 
-typedef struct Dialog
-{
- Sentence sentences[8];
-} Dialog;
+#define MAX_SENTENCE_LENGTH 400
+typedef BUFF(char, MAX_SENTENCE_LENGTH) Sentence;
+#define SENTENCE_CONST(txt) (Sentence){.data=txt, .cur_index=sizeof(txt)}
+
+
+// even indexed dialogs (0,2,4) are player saying stuff, odds are the character from GPT
+typedef BUFF(Sentence, 8) Dialog;
 
 typedef struct Entity
 {
  bool exists;
  EntityKind kind;
+
+ // for all NPCS (maybe make this allocated somewhere instead of in every entity? it's kind of big...)
+ Dialog player_dialog;
 
  // fields for all entities
  Vec2 pos;
@@ -125,6 +137,7 @@ typedef struct Entity
 
  // character
  CharacterState state;
+ struct Entity *talking_to; // Maybe should be generational index, but I dunno. No death yet
  bool is_rolling; // can only roll in idle or walk states
  float speed; // for lerping to the speed, so that roll gives speed boost which fades
  double time_not_rolling; // for cooldown for roll, so you can't just hold it and be invincible
@@ -139,9 +152,6 @@ typedef struct Overlap
  Entity *e;
 } Overlap;
 
-#define BUFF(type, max_size) struct { type data[max_size]; int cur_index; }
-#define BUFF_APPEND(buff_ptr, element)  { (buff_ptr)->data[(buff_ptr)->cur_index++] = element; assert((buff_ptr)->cur_index < ARRLEN((buff_ptr)->data)); }
-#define BUFF_ITER(type, buff_ptr) for(type *it = &((buff_ptr)->data[0]); it < (buff_ptr)->data + (buff_ptr)->cur_index; it++)
 
 typedef BUFF(Overlap, 16) Overlapping;
 
@@ -170,6 +180,57 @@ typedef struct Arena
  size_t cur;
 } Arena;
 
+Entity *player = NULL; // up here, used in text backend callback
+
+Sentence text_input_buffer;
+void begin_text_input(); // called when player engages in dialog, must say something and fill text_input_buffer
+// a callback, when 'text backend' has finished making text
+void end_text_input()
+{
+ // the new elements wouldn't fit!
+ Dialog *to_append = &player->talking_to->player_dialog;
+ if(to_append->cur_index + 2 >= ARRLEN(to_append->data))
+ {
+  // do it twice
+  for(int i = 0; i < 2; i++)
+  {
+   // shift array elements backwards, once
+   assert(ARRLEN(to_append->data) >= 1);
+   for(int i = 0; i < ARRLEN(to_append->data) - 1; i++)
+   {
+    to_append->data[i] = to_append->data[i + 1];
+   }
+   to_append->cur_index--;
+  }
+ }
+ BUFF_APPEND(to_append, text_input_buffer);
+ BUFF_APPEND(to_append, SENTENCE_CONST("NPC response"));
+ player->state = CHARACTER_IDLE;
+}
+
+#ifdef DESKTOP
+bool receiving_text_input = false;
+void begin_text_input()
+{
+ receiving_text_input = true;
+ BUFF_CLEAR(&text_input_buffer);
+}
+#else
+#ifdef WEB
+void begin_text_input()
+{
+}
+#else
+#error "No platform defined for text input!
+#endif // web
+
+#endif // desktop
+
+Vec2 FloorV2(Vec2 v)
+{
+ return V2(floorf(v.x), floorf(v.y));
+}
+
 Arena make_arena(size_t max_size)
 {
  return (Arena)
@@ -179,13 +240,11 @@ Arena make_arena(size_t max_size)
   .cur = 0,
  };
 }
-
 void reset(Arena *a)
 {
  memset(a->data, 0, a->data_size);
  a->cur = 0;
 }
-
 char *get(Arena *a, size_t of_size)
 {
  assert(a->data != NULL);
@@ -409,7 +468,6 @@ static struct
 
 AABB level_aabb = { .upper_left = {0.0f, 0.0f}, .lower_right = {2000.0f, -2000.0f} };
 Entity entities[MAX_ENTITIES] = {0};
-Entity *player = NULL;
 
 Entity *new_entity()
 {
@@ -573,9 +631,8 @@ Camera cam = {.scale = 2.0f };
 Vec2 cam_offset()
 {
  Vec2 to_return = AddV2(cam.pos, MulV2F(screen_size(), 0.5f));
- to_return.X = (float)(int)to_return.X;
- to_return.Y = (float)(int)to_return.Y;
- return to_return;
+ to_return = FloorV2(to_return); // avoid pixel glitching on tilemap atlas
+ return to_return; 
 }
 
 // in pixels
@@ -751,7 +808,8 @@ void draw_quad(bool world_space, Quad quad, sg_image image, AABB image_region, C
  params.tint[2] = tint.B;
  params.tint[3] = tint.A;
 
- if(image.id != cur_batch_image.id)
+ // if the rendering call is different, and the batch must be flushed
+ if(image.id != cur_batch_image.id || memcmp(&params,&cur_batch_params,sizeof(params)) != 0 )
  {
   flush_quad_batch();
   cur_batch_image = image;
@@ -1170,17 +1228,19 @@ float draw_wrapped_text(Vec2 at_point, float max_width, char *text, float text_s
 
  return cursor.Y;
 }
-
+#define ROLL_KEY SAPP_KEYCODE_K
 double elapsed_time = 0.0;
 double last_frame_processing_time = 0.0;
 uint64_t last_frame_time;
 Vec2 mouse_pos = {0}; // in screen space
 bool keydown[SAPP_KEYCODE_MENU] = {0};
+bool roll_just_pressed = false; // to use to initiate dialog, shouldn't initiate dialog if the button is simply held down
 #ifdef DEVTOOLS
 bool mouse_frozen = false;
 #endif
 void frame(void)
 {
+ dbgprint("%f %f\n", cam_offset().x, cam.pos.x);
 #if 0
  {
   sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
@@ -1215,7 +1275,7 @@ void frame(void)
   (float)keydown[SAPP_KEYCODE_W] - (float)keydown[SAPP_KEYCODE_S]
  );
  bool attack = keydown[SAPP_KEYCODE_J];
- bool roll = keydown[SAPP_KEYCODE_K];
+ bool roll = keydown[ROLL_KEY];
  if(LenV2(movement) > 1.0)
  {
   movement = NormV2(movement);
@@ -1371,36 +1431,128 @@ void frame(void)
   {
    Vec2 character_sprite_pos = AddV2(player->pos, V2(0.0, 20.0f));
 
+
+   // do dialog
+   Entity *closest_talkto = NULL;
+   {
+    // find closest to talk to
+    {
+     AABB dialog_rect = centered_aabb(player->pos, V2(TILE_SIZE*2.0f, TILE_SIZE*2.0f));
+     dbgrect(dialog_rect);
+     Overlapping possible_dialogs = get_overlapping(cur_level, dialog_rect);
+     float closest_talkto_dist = INFINITY;
+     BUFF_ITER(Overlap, &possible_dialogs)
+     {
+      if(!it->is_tile && it->e->kind == ENTITY_OLD_MAN && !it->e->aggressive)
+      {
+       float dist = LenV2(SubV2(it->e->pos, player->pos));
+       if(dist < closest_talkto_dist)
+       {
+        closest_talkto_dist = dist;
+        closest_talkto = it->e;
+       }
+      }
+     }
+    }
+
+    Entity *talking_to = closest_talkto;
+    if(player->state == CHARACTER_TALKING)
+    {
+     talking_to = player->talking_to;
+     assert(talking_to);
+    }
+
+    // if somebody, show their dialog panel
+    if(talking_to) {
+     // talking to them feedback
+     draw_quad(true, quad_centered(talking_to->pos, V2(TILE_SIZE, TILE_SIZE)), image_dialog_circle, full_region(image_dialog_circle), WHITE);
+     float panel_width = 250.0f;
+     float panel_height = 100.0f;
+     float panel_vert_offset = 30.0f;
+     AABB dialog_panel = (AABB){
+      .upper_left = AddV2(talking_to->pos, V2(-panel_width/2.0f, panel_vert_offset+panel_height)),
+       .lower_right = AddV2(talking_to->pos, V2(panel_width/2.0f, panel_vert_offset)),
+     };
+     colorquad(true, quad_aabb(dialog_panel), (Color){1.0f, 1.0f, 1.0f, 0.2f});
+
+     float new_line_height = dialog_panel.upper_left.Y;
+     int i = 0;
+     BUFF_ITER(Sentence, &talking_to->player_dialog)
+     {
+      new_line_height = draw_wrapped_text(V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->data, 0.5f, i % 2 == 0 ? GREEN : WHITE);
+      i++;
+     }
+
+     dbgrect(dialog_panel);
+
+    }
+
+
+    // process dialog and display dialog box when talking to NPC
+    if(player->state == CHARACTER_TALKING)
+    {
+     assert(player->talking_to != NULL);
+     
+     if(player->talking_to->aggressive || !player->exists)
+     {
+      player->state = CHARACTER_IDLE;
+     }
+    }
+   }
+   // roll input management, sometimes means talk to the npc
+   if(player->state != CHARACTER_TALKING && roll_just_pressed && closest_talkto != NULL)
+   {
+    // begin dialog with closest npc
+    player->state = CHARACTER_TALKING;
+    player->talking_to = closest_talkto;
+    begin_text_input();
+   }
+   else
+   {
+    // rolling trigger from input
+    if(roll && !player->is_rolling && player->time_not_rolling > 0.3f && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
+    {
+     player->is_rolling = true;
+     player->roll_progress = 0.0;
+     player->speed = PLAYER_ROLL_SPEED;
+    }
+   }
+
    if(attack && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
    {
     player->state = CHARACTER_ATTACK;
     player->swing_progress = 0.0;
    }
 
-   // rolling
-   if(roll && !player->is_rolling && player->time_not_rolling > 0.3f && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
+
+   // roll processing
    {
-    player->is_rolling = true;
-    player->roll_progress = 0.0;
-    player->speed = PLAYER_ROLL_SPEED;
-   }
-   if(player->state != CHARACTER_IDLE && player->state != CHARACTER_WALKING)
-   {
-    player->roll_progress = 0.0;
-    player->is_rolling = false;
-   }
-   if(player->is_rolling)
-   {
-    player->time_not_rolling = 0.0f;
-    player->roll_progress += dt;
-    if(player->roll_progress > anim_sprite_duration(&knight_rolling))
+    if(player->state != CHARACTER_IDLE && player->state != CHARACTER_WALKING)
     {
+     player->roll_progress = 0.0;
      player->is_rolling = false;
     }
+    if(player->is_rolling)
+    {
+     player->time_not_rolling = 0.0f;
+     player->roll_progress += dt;
+     if(player->roll_progress > anim_sprite_duration(&knight_rolling))
+     {
+      player->is_rolling = false;
+     }
+    }
+    if(!player->is_rolling) player->time_not_rolling += dt;
    }
-   if(!player->is_rolling) player->time_not_rolling += dt;
 
-   cam.pos = LerpV2(cam.pos, dt*8.0f, MulV2F(player->pos, -1.0f * cam.scale));
+   Vec2 target = MulV2F(player->pos, -1.0f * cam.scale);
+   if(LenV2(SubV2(target, cam.pos)) <= 0.2)
+   {
+    cam.pos = target;
+   }
+   else
+   {
+    cam.pos = LerpV2(cam.pos, dt*8.0f, target);
+   }
    if(player->state == CHARACTER_WALKING)
    {
     if(player->speed <= 0.01f) player->speed = PLAYER_SPEED;
@@ -1443,14 +1595,14 @@ void frame(void)
     {
      weapon_aabb = (AABB){
       .upper_left = AddV2(player->pos, V2(-40.0, 25.0)),
-      .lower_right = AddV2(player->pos, V2(0.0, -25.0)),
+       .lower_right = AddV2(player->pos, V2(0.0, -25.0)),
      };
     }
     else
     {
      weapon_aabb = (AABB){
       .upper_left = AddV2(player->pos, V2(0.0, 25.0)),
-      .lower_right = AddV2(player->pos, V2(40.0, -25.0)),
+       .lower_right = AddV2(player->pos, V2(40.0, -25.0)),
      };
     }
     dbgrect(weapon_aabb);
@@ -1474,6 +1626,14 @@ void frame(void)
      player->state = CHARACTER_IDLE;
     }
    }
+   else if(player->state == CHARACTER_TALKING)
+   {
+    draw_animated_sprite(&knight_idle, elapsed_time, player->facing_left, character_sprite_pos, WHITE);
+   }
+   else
+   {
+    assert(false); // unknown character state? not defined how to draw
+   }
 
    // health
    if(player->damage >= 1.0)
@@ -1486,47 +1646,6 @@ void frame(void)
    }
   }
 
-  // do dialog
-  AABB dialog_rect = centered_aabb(player->pos, V2(TILE_SIZE*2.0f, TILE_SIZE*2.0f));
-  dbgrect(dialog_rect);
-  Overlapping possible_dialogs = get_overlapping(cur_level, dialog_rect);
-  Entity *closest_talkto = NULL;
-  float closest_talkto_dist = INFINITY;
-  BUFF_ITER(Overlap, &possible_dialogs)
-  {
-   if(!it->is_tile && it->e->kind == ENTITY_OLD_MAN && !it->e->aggressive)
-   {
-    float dist = LenV2(SubV2(it->e->pos, player->pos));
-    if(dist < closest_talkto_dist)
-    {
-     closest_talkto_dist = dist;
-     closest_talkto = it->e;
-    }
-   }
-  }
-  if(closest_talkto != NULL)
-  {
-   draw_quad(true, quad_centered(closest_talkto->pos, V2(TILE_SIZE, TILE_SIZE)), image_dialog_circle, full_region(image_dialog_circle), WHITE);
-
-   Dialog dialog = {
-    .sentences[0].text = "I'm an old man. fjdslfdasljfla dsfjdsalkf adskjfdlskfkladsjfkljdskljsadlkfjdsaklfjldsajf",
-    .sentences[1].text = "I'm the player. I have lots of things to say. Bla bla bla. All I do is say things. How cringe and terrible",
-   };
-   float panel_width = 250.0f;
-   float panel_height = 100.0f;
-   float panel_vert_offset = 30.0f;
-   AABB dialog_panel = (AABB){
-    .upper_left = AddV2(closest_talkto->pos, V2(-panel_width/2.0f, panel_vert_offset+panel_height)),
-    .lower_right = AddV2(closest_talkto->pos, V2(panel_width/2.0f, panel_vert_offset)),
-   };
-   colorquad(true, quad_aabb(dialog_panel), (Color){1.0f, 1.0f, 1.0f, 0.2f});
-
-   float new_line_height = draw_wrapped_text(dialog_panel.upper_left, dialog_panel.lower_right.X - dialog_panel.upper_left.X, dialog.sentences[0].text, 0.5f, WHITE);
-   new_line_height = draw_wrapped_text(V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, dialog.sentences[1].text, 0.5f, GREEN);
-
-   dbgrect(dialog_panel);
-  }
-
   flush_quad_batch();
   sg_end_pass();
   sg_commit();
@@ -1534,6 +1653,7 @@ void frame(void)
   last_frame_processing_time = stm_sec(stm_diff(stm_now(),time_start_frame));
 
   reset(&scratch);
+  roll_just_pressed = false;
 }
 
 void cleanup(void)
@@ -1543,10 +1663,34 @@ void cleanup(void)
 
 void event(const sapp_event *e)
 {
+#ifdef DESKTOP
+ // the desktop text backend, for debugging purposes
+ if(receiving_text_input)
+ {
+  if(e->type == SAPP_EVENTTYPE_CHAR)
+  {
+   if(BUFF_HAS_SPACE(&text_input_buffer))
+   {
+    BUFF_APPEND(&text_input_buffer, (char)e->char_code);
+   }
+  }
+  if(e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_code == SAPP_KEYCODE_ENTER)
+  {
+   receiving_text_input = false;
+   end_text_input();
+  }
+ }
+#endif
  if(e->type == SAPP_EVENTTYPE_KEY_DOWN)
  {
   assert(e->key_code < sizeof(keydown)/sizeof(*keydown));
   keydown[e->key_code] = true;
+  
+  if(e->key_code == ROLL_KEY)
+  {
+   roll_just_pressed = true;
+  }
+
   if(e->key_code == SAPP_KEYCODE_ESCAPE)
   {
    sapp_quit();
