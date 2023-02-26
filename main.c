@@ -1708,10 +1708,12 @@ void event(const sapp_event *e)
    roll_just_pressed = true;
   }
 
+#ifdef DESKTOP // very nice for my run from cmdline workflow, escape to quit
   if(e->key_code == SAPP_KEYCODE_ESCAPE)
   {
    sapp_quit();
   }
+#endif
 #ifdef DEVTOOLS
   if(e->key_code == SAPP_KEYCODE_T)
   {
