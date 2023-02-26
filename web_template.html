@@ -50,10 +50,66 @@ body {
     image-rendering: pixelated;
     -ms-interpolation-mode: nearest-neighbor;
 }
+.inputdiv {
+    position: absolute;
+    top: 0px;
+    left: 0px;
+    margin: 0px;
+    border: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    display: none; /* set to flex by javascript */
+    justify-content: center;
+    align-items: center;
+
+    z-index: 10;
+    background: #00000090;
+}
+#inputtext {
+    position: absolute;
+    top: 0;
+    left: 0;
+
+    background: none;
+    width: 90%;
+    height: 50%;
+    margin-left: 5%;
+    margin-right: 5%;
+    border-top-style: hidden;
+    border-right-style: hidden;
+    border-left-style: hidden;
+    border-bottom-style: hidden;
+    transform: translateY(100%);
+    text-align: center;
+    font-size: 2em;
+    font-family: Arial;
+    color: white;
+}
+
+#inputtext:focus {
+ outline: none;
+}
+
+#inputbutton {
+ bottom: 0;
+ margin-bottom: 10%;
+ position: absolute;
+ font-family: Arial;
+ font-size: 3em;
+}
+
 </style>
 <link id="sokol-app-favicon" rel="shortcut icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAZdJREFUOE9VUzFSw0AMlGihggekwhV0eQGZ8AQggQ4chlR5CjSeAUwHOHkCZPALoEuVVHkAdCnxMVpJd8YzHt/5pNXuSsdkDxNRkHfSC8REIZB88ASSXxrBdzU+tiVmBHs6UQMAiwgK6kCy4NsPACBPcfQ4VPtSSLdSfbjEmg0kVBkKMQ7lfIXKAoTnt8okPVbjwUqCJR//mtdMpaEa09ZwCZyopfk5g5Doye7UTz0JuUovfti0EIXvAbS7ebw3BaFIwaQAAwAqxzwAUTBYrE8AokG2AIpmHnZmzkG9aLHGcrE+1VoC14a3Nh90ZsKLOSTP/2OYc9pZxReq5Vce5UnqVfdJDlIXEklzOhkFpeXnJQQ7aN4tZcCsi0w0ehtrgMm/7xemAJ2n6/mNdtBseegXykCtJsrfx0ZC3RWA9hCO5uM0r4Ho8bjwgYwWIODoZYPZj8326UCpQPXFjsnAPEvtdA9k2XvegCV6ZZeq3av6fBvUvYZKsBbZiQI4tG0kQzW6kzrE1qfW/cWk+i1w14WuGxgvBOD+AP0MuCLRb/uuAAAAAElFTkSuQmCC"></head>
 <body style="background:black">
+ <div id="inputdiv" class="inputdiv">
+  <textarea id="inputtext">
+  </textarea>
+  <button id="inputbutton" onclick="end_dialog()"> Submit </button>
+ </div>
   <canvas class="game" id="canvas" oncontextmenu="event.preventDefault()" width="1504" height="864"></canvas>
+
+
   <script type="text/javascript">
     var Module = {
         preRun: [],
@@ -79,6 +135,17 @@ body {
     window.onerror = function(event) {
         console.log("onerror: " + event.message);
     };
+  </script>
+  <script type="text/javascript">
+   function start_dialog() {
+       document.getElementById("inputtext").value = "";
+       setTimeout(function(){document.getElementById("inputtext").focus();},200); // for some reason focus doesn't work immediately here
+       document.getElementById("inputdiv").style.display = "flex";
+   }
+   function end_dialog() {
+       document.getElementById("inputdiv").style.display = "none";
+       Module.ccall('end_text_input', 'void', ['string'], [document.getElementById("inputtext").value]);
+   }
   </script>
   {{{ SCRIPT }}}
 

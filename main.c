@@ -26,6 +26,8 @@
 #define ARRLEN(x) ((sizeof(x)/sizeof(0[x])) / ((size_t)(!(sizeof(x) % sizeof(0[x])))))
 #define ENTITIES_ITER(ents) for(Entity *it = ents; it < ents + ARRLEN(ents); it++) if(it->exists)
 
+#define Log(...) { printf("Log | "); printf(__VA_ARGS__); }
+
 // so can be grep'd and removed
 #define dbgprint(...) { printf("Debug | %s:%d | ", __FILE__, __LINE__); printf(__VA_ARGS__); }
 Vec2 RotateV2(Vec2 v, float theta)
@@ -182,11 +184,19 @@ typedef struct Arena
 
 Entity *player = NULL; // up here, used in text backend callback
 
-Sentence text_input_buffer;
 void begin_text_input(); // called when player engages in dialog, must say something and fill text_input_buffer
 // a callback, when 'text backend' has finished making text
-void end_text_input()
+void end_text_input(char *what_player_said)
 {
+#ifdef WEB // hacky
+ _sapp_emsc_register_eventhandlers();
+#endif
+
+ size_t player_said_len = strlen(what_player_said);
+ Sentence what_player_said_sentence = {0};
+ assert(player_said_len < ARRLEN(what_player_said_sentence.data));
+ memcpy(what_player_said_sentence.data, what_player_said, player_said_len);
+
  // the new elements wouldn't fit!
  Dialog *to_append = &player->talking_to->player_dialog;
  if(to_append->cur_index + 2 >= ARRLEN(to_append->data))
@@ -203,13 +213,18 @@ void end_text_input()
    to_append->cur_index--;
   }
  }
- BUFF_APPEND(to_append, text_input_buffer);
+ BUFF_APPEND(to_append, what_player_said_sentence);
  BUFF_APPEND(to_append, SENTENCE_CONST("NPC response"));
  player->state = CHARACTER_IDLE;
 }
 
+// keydown needs to be referenced when begin text input,
+// on web it disables event handling so the button up event isn't received
+bool keydown[SAPP_KEYCODE_MENU] = {0};
+
 #ifdef DESKTOP
 bool receiving_text_input = false;
+Sentence text_input_buffer = {0};
 void begin_text_input()
 {
  receiving_text_input = true;
@@ -219,6 +234,10 @@ void begin_text_input()
 #ifdef WEB
 void begin_text_input()
 {
+ Log("Disabling event handlers\n");
+ _sapp_emsc_unregister_eventhandlers(); // stop getting input, hand it off to text input
+ memset(keydown, 0, ARRLEN(keydown));
+ emscripten_run_script("start_dialog();");
 }
 #else
 #error "No platform defined for text input!
@@ -377,7 +396,7 @@ sg_image load_image(const char *path)
    &png_width, &png_height,
    &num_channels, 0);
  assert(pixels);
- dbgprint("Pah %s | Loading image with dimensions %d %d\n", path, png_width, png_height);
+ Log("Pah %s | Loading image with dimensions %d %d\n", path, png_width, png_height);
  to_return = sg_make_image(&(sg_image_desc)
    {
    .width = png_width,
@@ -1233,14 +1252,12 @@ double elapsed_time = 0.0;
 double last_frame_processing_time = 0.0;
 uint64_t last_frame_time;
 Vec2 mouse_pos = {0}; // in screen space
-bool keydown[SAPP_KEYCODE_MENU] = {0};
 bool roll_just_pressed = false; // to use to initiate dialog, shouldn't initiate dialog if the button is simply held down
 #ifdef DEVTOOLS
 bool mouse_frozen = false;
 #endif
 void frame(void)
 {
- dbgprint("%f %f\n", cam_offset().x, cam.pos.x);
 #if 0
  {
   sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
@@ -1677,7 +1694,7 @@ void event(const sapp_event *e)
   if(e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_code == SAPP_KEYCODE_ENTER)
   {
    receiving_text_input = false;
-   end_text_input();
+   end_text_input(text_input_buffer.data);
   }
  }
 #endif
