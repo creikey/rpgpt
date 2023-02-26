@@ -224,6 +224,12 @@ typedef union Vec2
         float X, Y;
     };
 
+    // fuck off
+    struct
+    {
+         float x, y;
+    };
+
     struct
     {
         float U, V;
