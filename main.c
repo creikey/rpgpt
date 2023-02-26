@@ -188,34 +188,41 @@ void begin_text_input(); // called when player engages in dialog, must say somet
 // a callback, when 'text backend' has finished making text
 void end_text_input(char *what_player_said)
 {
+ player->state = CHARACTER_IDLE;
 #ifdef WEB // hacky
  _sapp_emsc_register_eventhandlers();
 #endif
 
  size_t player_said_len = strlen(what_player_said);
- Sentence what_player_said_sentence = {0};
- assert(player_said_len < ARRLEN(what_player_said_sentence.data));
- memcpy(what_player_said_sentence.data, what_player_said, player_said_len);
-
- // the new elements wouldn't fit!
- Dialog *to_append = &player->talking_to->player_dialog;
- if(to_append->cur_index + 2 >= ARRLEN(to_append->data))
+ if(player_said_len == 0) 
  {
-  // do it twice
-  for(int i = 0; i < 2; i++)
-  {
-   // shift array elements backwards, once
-   assert(ARRLEN(to_append->data) >= 1);
-   for(int i = 0; i < ARRLEN(to_append->data) - 1; i++)
-   {
-    to_append->data[i] = to_append->data[i + 1];
-   }
-   to_append->cur_index--;
-  }
+  // this just means cancel the dialog
  }
- BUFF_APPEND(to_append, what_player_said_sentence);
- BUFF_APPEND(to_append, SENTENCE_CONST("NPC response"));
- player->state = CHARACTER_IDLE;
+ else
+ {
+  Sentence what_player_said_sentence = {0};
+  assert(player_said_len < ARRLEN(what_player_said_sentence.data));
+  memcpy(what_player_said_sentence.data, what_player_said, player_said_len);
+
+  // the new elements wouldn't fit!
+  Dialog *to_append = &player->talking_to->player_dialog;
+  if(to_append->cur_index + 2 >= ARRLEN(to_append->data))
+  {
+   // do it twice
+   for(int i = 0; i < 2; i++)
+   {
+    // shift array elements backwards, once
+    assert(ARRLEN(to_append->data) >= 1);
+    for(int i = 0; i < ARRLEN(to_append->data) - 1; i++)
+    {
+     to_append->data[i] = to_append->data[i + 1];
+    }
+    to_append->cur_index--;
+   }
+  }
+  BUFF_APPEND(to_append, what_player_said_sentence);
+  BUFF_APPEND(to_append, SENTENCE_CONST("NPC response"));
+ }
 }
 
 // keydown needs to be referenced when begin text input,
