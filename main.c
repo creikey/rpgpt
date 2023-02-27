@@ -1569,7 +1569,12 @@ void frame(void)
      it->vel = LerpV2(it->vel, 15.0f * dt, target_vel);
      it->pos = move_and_slide(it, it->pos, MulV2F(it->vel, pixels_per_meter * dt));
     }
-    draw_animated_sprite(&old_man_idle, elapsed_time, false, it->pos, WHITE);
+    Color col = LerpV4(WHITE, it->damage, RED);
+    draw_animated_sprite(&old_man_idle, elapsed_time, false, it->pos, col);
+    if(it->damage >= 1.0)
+    {
+     *it = (Entity){0};
+    }
    }
    else if (it->kind == ENTITY_BULLET)
    {
@@ -1695,6 +1700,36 @@ void frame(void)
    {
     player->state = CHARACTER_ATTACK;
     player->swing_progress = 0.0;
+    AABB weapon_aabb = {0};
+    if(player->facing_left)
+    {
+     weapon_aabb = (AABB){
+      .upper_left = AddV2(player->pos, V2(-40.0, 25.0)),
+       .lower_right = AddV2(player->pos, V2(0.0, -25.0)),
+     };
+    }
+    else
+    {
+     weapon_aabb = (AABB){
+      .upper_left = AddV2(player->pos, V2(0.0, 25.0)),
+       .lower_right = AddV2(player->pos, V2(40.0, -25.0)),
+     };
+    }
+    dbgrect(weapon_aabb);
+    Overlapping overlapping_weapon = get_overlapping(cur_level, weapon_aabb);
+    BUFF_ITER(Overlap, &overlapping_weapon)
+    {
+     if(!it->is_tile)
+     {
+      Entity *e = it->e;
+      if(e->kind == ENTITY_OLD_MAN)
+      {
+       e->aggressive = true;
+       e->damage += 0.2f;
+      }
+     }
+    }
+
    }
 
 
@@ -1763,34 +1798,6 @@ void frame(void)
    }
    else if(player->state == CHARACTER_ATTACK)
    {
-    AABB weapon_aabb = {0};
-    if(player->facing_left)
-    {
-     weapon_aabb = (AABB){
-      .upper_left = AddV2(player->pos, V2(-40.0, 25.0)),
-       .lower_right = AddV2(player->pos, V2(0.0, -25.0)),
-     };
-    }
-    else
-    {
-     weapon_aabb = (AABB){
-      .upper_left = AddV2(player->pos, V2(0.0, 25.0)),
-       .lower_right = AddV2(player->pos, V2(40.0, -25.0)),
-     };
-    }
-    dbgrect(weapon_aabb);
-    Overlapping overlapping_weapon = get_overlapping(cur_level, weapon_aabb);
-    BUFF_ITER(Overlap, &overlapping_weapon)
-    {
-     if(!it->is_tile)
-     {
-      Entity *e = it->e;
-      if(e->kind == ENTITY_OLD_MAN)
-      {
-       e->aggressive = true;
-      }
-     }
-    }
 
     player->swing_progress += dt;
     draw_animated_sprite(&knight_attack, player->swing_progress, player->facing_left, character_sprite_pos, WHITE);
