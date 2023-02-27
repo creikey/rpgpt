@@ -105,7 +105,14 @@ typedef enum EntityKind
  ENTITY_BULLET,
 } EntityKind;
 
-#define BUFF(type, max_size) struct { type data[max_size]; int cur_index; }
+#ifdef DEVTOOLS
+#define SERVER_URL "http://localhost:8090"
+#else
+#error "No release server url defined"
+#endif
+
+// null terminator always built into buffers so can read properly from data
+#define BUFF(type, max_size) struct { int cur_index; type data[max_size]; char null_terminator; }
 #define BUFF_HAS_SPACE(buff_ptr) ( (buff_ptr)->cur_index < ARRLEN((buff_ptr)->data) )
 #define BUFF_APPEND(buff_ptr, element)  { (buff_ptr)->data[(buff_ptr)->cur_index++] = element; assert((buff_ptr)->cur_index < ARRLEN((buff_ptr)->data)); }
 #define BUFF_ITER(type, buff_ptr) for(type *it = &((buff_ptr)->data[0]); it < (buff_ptr)->data + (buff_ptr)->cur_index; it++)
@@ -126,6 +133,9 @@ typedef struct Entity
 
  // for all NPCS (maybe make this allocated somewhere instead of in every entity? it's kind of big...)
  Dialog player_dialog;
+#ifdef WEB
+ int gen_request_id;
+#endif
 
  // fields for all entities
  Vec2 pos;
@@ -184,6 +194,65 @@ typedef struct Arena
 
 Entity *player = NULL; // up here, used in text backend callback
 
+void make_space_and_append(Dialog *d, Sentence *s)
+{
+ if(d->cur_index + 1 >= ARRLEN(d->data))
+ {
+  assert(ARRLEN(d->data) >= 1);
+  for(int i = 0; i < ARRLEN(d->data) - 1; i++)
+  {
+   d->data[i] = d->data[i + 1];
+  }
+  d->cur_index--;
+ }
+
+ BUFF_APPEND(d, *s);
+}
+
+void add_new_npc_sentence(Entity *npc, char *sentence)
+{
+ size_t sentence_len = strlen(sentence);
+ assert(sentence_len < MAX_SENTENCE_LENGTH);
+ Sentence new_sentence = {0};
+ BUFF(char, MAX_SENTENCE_LENGTH) match_buffer = {0};
+ bool inside_star = false;
+ for(int i = 0; i < sentence_len; i++)
+ {
+  if(sentence[i] == '"') break;
+  if(sentence[i] == '\n') continue;
+
+  if(inside_star)
+  {
+   if(sentence[i] == '*')
+   {
+    if(strcmp(match_buffer.data, "becomes aggressive") == 0)
+    {
+     npc->aggressive = true;
+     break;
+    }
+    BUFF_CLEAR(&match_buffer);
+    inside_star = false;
+   }
+   else
+   {
+    BUFF_APPEND(&match_buffer, sentence[i]);
+   }
+  }
+  else
+  {
+   if(sentence[i] == '*') inside_star = true;
+  }
+
+
+  BUFF_APPEND(&new_sentence, sentence[i]);
+ }
+ make_space_and_append(&npc->player_dialog, &new_sentence);
+
+}
+
+
+// just straight up gpt generation function, calls to golang backend
+char *get_ai_response(char* prompt);
 void begin_text_input(); // called when player engages in dialog, must say something and fill text_input_buffer
 // a callback, when 'text backend' has finished making text
 void end_text_input(char *what_player_said)
@@ -194,7 +263,9 @@ void end_text_input(char *what_player_said)
 #endif
 
  size_t player_said_len = strlen(what_player_said);
- if(player_said_len == 0) 
+ int actual_len = 0;
+ for(int i = 0; i < player_said_len; i++) if(what_player_said[i] != '\n') actual_len++;
+ if(actual_len == 0) 
  {
   // this just means cancel the dialog
  }
@@ -202,26 +273,59 @@ void end_text_input(char *what_player_said)
  {
   Sentence what_player_said_sentence = {0};
   assert(player_said_len < ARRLEN(what_player_said_sentence.data));
-  memcpy(what_player_said_sentence.data, what_player_said, player_said_len);
-
-  // the new elements wouldn't fit!
-  Dialog *to_append = &player->talking_to->player_dialog;
-  if(to_append->cur_index + 2 >= ARRLEN(to_append->data))
+  for(int i = 0; i < player_said_len; i++)
   {
-   // do it twice
-   for(int i = 0; i < 2; i++)
+   char c = what_player_said[i];
+   if(c == '\n') break;
+   BUFF_APPEND(&what_player_said_sentence, c);
+  }
+
+  Dialog *to_append = &player->talking_to->player_dialog;
+  make_space_and_append(to_append, &what_player_said_sentence);
+
+  // the npc response will be appended here, or at least be async queued to be appended here
+  BUFF(char, 4000) prompt_buff = {0};
+  BUFF(char *, 100) to_join = {0};
+
+  BUFF_APPEND(&to_join, "This is dialog which takes place in a simple action RPG, where the player can only talk to NPCs, or fight. The characters influence the game world by saying specific actions from these possibilities: [*becomes aggressive*]. They don't say anything else that has '*' between them. Example dialog with an Old Man NPC:\nPlayer: \"Hello old man. Do you know that you're in a video game?\"\nOld Man: \"What are you talking about, young boy? What is a 'video game'?\"\nPlayer: \"You have no idea. You look ugly and stupid.\"\nOld Man: \"How juvenile! That's it, *becomes aggressive*\"\n\nThe NPCs exist on a small lush island, on a remote village, in a fantasy setting where monsters roam freely, posing a danger to the NPCs, and the player. They don't know about modern technology. They are very slow to say *becomes aggressive*, because doing so means killing the player, their friends, and potentially themselves. But if the situation demands it, they will not hesitate to open fire.\n");
+  
+  // characters prompt
+  assert(player->talking_to->kind == ENTITY_OLD_MAN);
+  BUFF_APPEND(&to_join, "The player is talking to an old man who is standing around on the island. He's eager to bestow his wisdom upon the young player, but the player must act polite, not rude. If the player acts rude, the old man will say exactly the text '*becomes aggressive*' as shown in the above example, turning the interaction into a skirmish, where the old man takes out his well concealed shotgun. The old man is also a bit of a joker.\n\n");
+
+  // all the dialog
+  int i = 0;
+  BUFF_ITER(Sentence, &player->talking_to->player_dialog)
+  {
+   BUFF_APPEND(&to_join, i % 2 == 0 ? "Player: \"" : "Old Man: \"");
+   BUFF_APPEND(&to_join, it->data);
+   BUFF_APPEND(&to_join, "\"\n");
+   i++;
+  }
+
+  BUFF_APPEND(&to_join, "Old Man: \"");
+
+  // concatenate into prompt_buff
+  BUFF_ITER(char *, &to_join)
+  {
+   size_t cur_len = strlen(*it);
+   for(int i = 0; i < cur_len; i++)
    {
-    // shift array elements backwards, once
-    assert(ARRLEN(to_append->data) >= 1);
-    for(int i = 0; i < ARRLEN(to_append->data) - 1; i++)
-    {
-     to_append->data[i] = to_append->data[i + 1];
-    }
-    to_append->cur_index--;
+    BUFF_APPEND(&prompt_buff, (*it)[i]);
    }
   }
-  BUFF_APPEND(to_append, what_player_said_sentence);
-  BUFF_APPEND(to_append, SENTENCE_CONST("NPC response"));
+
+  const char * prompt = prompt_buff.data;
+#ifdef WEB
+  // fire off generation request, save id
+  int req_id = EM_ASM_INT({
+    return make_generation_request(UTF8ToString($1), UTF8ToString($0));
+  }, SERVER_URL, prompt);
+  player->talking_to->gen_request_id = req_id;
+#endif
+#ifdef DESKTOP
+  add_new_npc_sentence(player->talking_to, "response *becomes aggressive*");
+#endif
  }
 }
 
@@ -251,6 +355,8 @@ void begin_text_input()
 #endif // web
 
 #endif // desktop
+
+
 
 Vec2 FloorV2(Vec2 v)
 {
@@ -667,6 +773,8 @@ Vec2 img_size(sg_image img)
  sg_image_info info = sg_query_image_info(img);
  return V2((float)info.width, (float)info.height);
 }
+
+#define IMG(img) img, full_region(img)
 
 // full region in pixels
 AABB full_region(sg_image img)
@@ -1254,6 +1362,7 @@ float draw_wrapped_text(Vec2 at_point, float max_width, char *text, float text_s
 
  return cursor.Y;
 }
+
 #define ROLL_KEY SAPP_KEYCODE_K
 double elapsed_time = 0.0;
 double last_frame_processing_time = 0.0;
@@ -1387,9 +1496,49 @@ void frame(void)
   }
 #endif // devtools
 
-  // entities
+  // process entities
   ENTITIES_ITER(entities)
   {
+#ifdef WEB
+   if(it->gen_request_id != 0)
+   {
+    assert(it->gen_request_id > 0);
+    draw_quad(true, quad_centered(AddV2(it->pos, V2(0.0, 50.0)), V2(100.0,100.0)), IMG(image_thinking), WHITE);
+    int status = EM_ASM_INT({
+      return get_generation_request_status($0);
+    }, it->gen_request_id);
+    if(status == 0)
+    {
+     // simply not done yet
+    }
+    else
+    {
+     if(status == 1)
+     {
+      // done! we can get the string
+      char sentence_str[400] = {0};
+      EM_ASM({
+        let generation = get_generation_request_content($0);
+        stringToUTF8(generation, $1, $2);
+      }, it->gen_request_id, sentence_str, ARRLEN(sentence_str));
+
+      add_new_npc_sentence(it, sentence_str);
+
+      EM_ASM({
+        done_with_generation_request($0);
+        }, it->gen_request_id);
+     }
+     else if(status == 2)
+     {
+      Log("Failed to generate dialog! Fuck!");
+      // need somethin better here. Maybe each sentence has to know if it's player or NPC, that way I can remove the player's dialog
+      make_space_and_append(&it->player_dialog, &SENTENCE_CONST("I'm not sure..."));
+     }
+     it->gen_request_id = 0;
+    }
+   }
+#endif
+
    if(it->kind == ENTITY_OLD_MAN)
    {
     if(it->aggressive)
@@ -1491,7 +1640,7 @@ void frame(void)
      // talking to them feedback
      draw_quad(true, quad_centered(talking_to->pos, V2(TILE_SIZE, TILE_SIZE)), image_dialog_circle, full_region(image_dialog_circle), WHITE);
      float panel_width = 250.0f;
-     float panel_height = 100.0f;
+     float panel_height = 150.0f;
      float panel_vert_offset = 30.0f;
      AABB dialog_panel = (AABB){
       .upper_left = AddV2(talking_to->pos, V2(-panel_width/2.0f, panel_vert_offset+panel_height)),

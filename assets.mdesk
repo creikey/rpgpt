@@ -18,6 +18,10 @@
 {
  filepath: "_Roll.png",
 }
+@image thinking:
+{
+ filepath: "thinking.png",
+}
 @image old_man:
 {
  filepath: "small_old_man.png",
