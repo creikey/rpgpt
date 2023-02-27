@@ -108,7 +108,7 @@ typedef enum EntityKind
 #ifdef DEVTOOLS
 #define SERVER_URL "http://localhost:8090"
 #else
-#error "No release server url defined"
+#define SERVER_URL "http://149.28.99.84:8090"
 #endif
 
 // null terminator always built into buffers so can read properly from data
