@@ -126,7 +126,7 @@ typedef BUFF(char, MAX_SENTENCE_LENGTH) Sentence;
 
 
 // even indexed dialogs (0,2,4) are player saying stuff, odds are the character from GPT
-typedef BUFF(Sentence, 8) Dialog;
+typedef BUFF(Sentence, 6*2) Dialog; // six back and forths. must be even number or bad things happen (I think)
 
 typedef struct Entity
 {
@@ -230,7 +230,6 @@ void add_new_npc_sentence(Entity *npc, char *sentence)
     if(strcmp(match_buffer.data, "becomes aggressive") == 0)
     {
      npc->aggressive = true;
-     break;
     }
     BUFF_CLEAR(&match_buffer);
     inside_star = false;
@@ -327,7 +326,7 @@ void end_text_input(char *what_player_said)
   player->talking_to->gen_request_id = req_id;
 #endif
 #ifdef DESKTOP
-  add_new_npc_sentence(player->talking_to, "response to the player. Response responseResponse responseResponse responseResponse responseResponse responseResponse responseResponse responseResponse response");
+  add_new_npc_sentence(player->talking_to, "response to the player. Response responseResponse *becomes aggressive* responseResponse responseResponse responseResponse responseResponse responseResponse responseResponse response");
 #endif
  }
 }
@@ -856,6 +855,15 @@ bool aabb_is_valid(AABB aabb)
  return size_vec.Y <= 0.0f && size_vec.X >= 0.0f;
 }
 
+// positive in both directions
+Vec2 aabb_size(AABB aabb)
+{
+ assert(aabb_is_valid(aabb));
+ Vec2 size_vec = SubV2(aabb.lower_right, aabb.upper_left); // negative in vertical direction
+ size_vec.y *= -1.0;
+ return size_vec;
+}
+
 Quad quad_aabb(AABB aabb)
 {
  Vec2 size_vec = SubV2(aabb.lower_right, aabb.upper_left); // negative in vertical direction
@@ -970,8 +978,17 @@ typedef struct DrawParams
  sg_image image;
  AABB image_region;
  Color tint;
+
+ AABB clip_to; // if world space is in world space, if screen space is in screen space - Lao Tzu
 } DrawParams;
 
+
+Vec2 into_clip_space(Vec2 screen_space_point)
+{
+  Vec2 zero_to_one = DivV2(screen_space_point, screen_size());
+  Vec2 in_clip_space = SubV2(MulV2F(zero_to_one, 2.0), V2(1.0, 1.0));
+  return in_clip_space;
+}
 
 // The image region is in pixel space of the image
 void draw_quad(DrawParams d)
@@ -981,6 +998,29 @@ void draw_quad(DrawParams d)
  params.tint[1] = d.tint.G;
  params.tint[2] = d.tint.B;
  params.tint[3] = d.tint.A;
+
+ if(aabb_is_valid(d.clip_to) && LenV2(aabb_size(d.clip_to)) > 0.1)
+ {
+  if(d.world_space)
+  {
+   d.clip_to.upper_left = world_to_screen(d.clip_to.upper_left);
+   d.clip_to.lower_right = world_to_screen(d.clip_to.lower_right);
+  }
+  Vec2 aabb_clip_ul = into_clip_space(d.clip_to.upper_left);
+  Vec2 aabb_clip_lr = into_clip_space(d.clip_to.lower_right);
+  params.clip_ul[0] = aabb_clip_ul.x;
+  params.clip_ul[1] = aabb_clip_ul.y;
+  params.clip_lr[0] = aabb_clip_lr.x;
+  params.clip_lr[1] = aabb_clip_lr.y;
+ }
+ else
+ {
+  params.clip_ul[0] = -1.0;
+  params.clip_ul[1] = 1.0;
+  params.clip_lr[0] = 1.0;
+  params.clip_lr[1] = -1.0;
+ }
+
 
  // if the rendering call is different, and the batch must be flushed
  if(d.image.id != cur_batch_image.id || memcmp(&params,&cur_batch_params,sizeof(params)) != 0 )
@@ -1000,8 +1040,7 @@ void draw_quad(DrawParams d)
   }
  }
  AABB cam_aabb = screen_cam_aabb();
- AABB points_bounding_box =
- { .upper_left = V2(INFINITY, -INFINITY), .lower_right = V2(-INFINITY, INFINITY) };
+ AABB points_bounding_box = { .upper_left = V2(INFINITY, -INFINITY), .lower_right = V2(-INFINITY, INFINITY) };
 
  for(int i = 0; i < 4; i++)
  {
@@ -1018,13 +1057,13 @@ void draw_quad(DrawParams d)
   return; // cull out of screen quads
  }
 
- float new_vertices[ (2 + 2)*4 ];
+ float new_vertices[ (2 + 2)*4 ] = {0};
  Vec2 region_size = SubV2(d.image_region.lower_right, d.image_region.upper_left);
  assert(region_size.X > 0.0);
  assert(region_size.Y > 0.0);
  Vec2 tex_coords[4] =
  {
-  AddV2(d.image_region.upper_left, V2(0.0,                    0.0)),
+  AddV2(d.image_region.upper_left, V2(0.0,                     0.0)),
   AddV2(d.image_region.upper_left, V2(region_size.X,           0.0)),
   AddV2(d.image_region.upper_left, V2(region_size.X, region_size.Y)),
   AddV2(d.image_region.upper_left, V2(0.0,           region_size.Y)),
@@ -1038,8 +1077,7 @@ void draw_quad(DrawParams d)
  }
  for(int i = 0; i < 4; i++)
  {
-  Vec2 zero_to_one = DivV2(points[i], screen_size());
-  Vec2 in_clip_space = SubV2(MulV2F(zero_to_one, 2.0), V2(1.0, 1.0));
+  Vec2 in_clip_space = into_clip_space(points[i]);
   new_vertices[i*4] = in_clip_space.X;
   new_vertices[i*4 + 1] = in_clip_space.Y;
   new_vertices[i*4 + 2] = tex_coords[i].X;
@@ -1121,10 +1159,6 @@ void colorquad(bool world_space, Quad q, Color col)
  draw_quad((DrawParams){world_space, q, image_white_square, full_region(image_white_square), col});
 }
 
-void dbgsquare(Vec2 at)
-{
- colorquad(true, quad_centered(at, V2(10.0, 10.0)), RED);
-}
 
 // in world coordinates
 void line(Vec2 from, Vec2 to, float line_width, Color color)
@@ -1141,8 +1175,23 @@ void line(Vec2 from, Vec2 to, float line_width, Color color)
  colorquad(true, line_quad, color);
 }
 
+#ifdef DEVTOOLS
+bool show_devtools = true;
+#endif
+
+void dbgsquare(Vec2 at)
+{
+ if(!show_devtools) return;
+#ifdef DEVTOOLS
+ colorquad(true, quad_centered(at, V2(10.0, 10.0)), RED);
+#else
+ (void)at;
+#endif
+}
+
 void dbgline(Vec2 from, Vec2 to)
 {
+ if(!show_devtools) return;
 #ifdef DEVTOOLS
  line(from, to, 2.0f, RED);
 #else
@@ -1155,6 +1204,7 @@ void dbgline(Vec2 from, Vec2 to)
 void dbgrect(AABB rect)
 {
 #ifdef DEVTOOLS
+ if(!show_devtools) return;
  const float line_width = 0.5;
  const Color col = RED;
  Quad q = quad_aabb(rect);
@@ -1168,10 +1218,22 @@ void dbgrect(AABB rect)
 }
 
 
-// returns bounds. To measure text you can set dry run to true and get the bounds
-AABB draw_text(bool world_space, bool dry_run, const char *text, Vec2 pos, Color color, float scale)
+typedef struct TextParams
 {
- size_t text_len = strlen(text);
+ bool world_space;
+ bool dry_run;
+ const char *text;
+ Vec2 pos;
+ Color color;
+ float scale;
+ AABB clip_to; // if in world space, in world space. In space of pos given
+ Color *colors; // color per character, if not null must be array of same length as text
+} TextParams;
+
+// returns bounds. To measure text you can set dry run to true and get the bounds
+AABB draw_text(TextParams t)
+{
+ size_t text_len = strlen(t.text);
  AABB bounds = {0};
  float y = 0.0;
  float x = 0.0;
@@ -1179,15 +1241,15 @@ AABB draw_text(bool world_space, bool dry_run, const char *text, Vec2 pos, Color
  {
   stbtt_aligned_quad q;
   float old_y = y;
-  stbtt_GetBakedQuad(cdata, 512, 512, text[i]-32, &x, &y, &q, 1);
+  stbtt_GetBakedQuad(cdata, 512, 512, t.text[i]-32, &x, &y, &q, 1);
   float difference = y - old_y;
   y = old_y + difference;
 
   Vec2 size = V2(q.x1 - q.x0, q.y1 - q.y0);
-  if(text[i] == '\n')
+  if(t.text[i] == '\n')
   {
 #ifdef DEVTOOLS
-   y += font_size*0.75f; // arbitrary, only debug text has newlines
+   y += font_size*0.75f; // arbitrary, only debug t.text has newlines
    x = 0.0;
 #else
    assert(false);
@@ -1196,17 +1258,17 @@ AABB draw_text(bool world_space, bool dry_run, const char *text, Vec2 pos, Color
   if(size.Y > 0.0 && size.X > 0.0)
   { // spaces (and maybe other characters) produce quads of size 0
    Quad to_draw = {
-   .points = {
-     AddV2(V2(q.x0, -q.y0), V2(0.0f, 0.0f)),
-     AddV2(V2(q.x0, -q.y0), V2(size.X, 0.0f)),
-     AddV2(V2(q.x0, -q.y0), V2(size.X, -size.Y)),
-     AddV2(V2(q.x0, -q.y0), V2(0.0f, -size.Y)),
+    .points = {
+      AddV2(V2(q.x0, -q.y0), V2(0.0f, 0.0f)),
+      AddV2(V2(q.x0, -q.y0), V2(size.X, 0.0f)),
+      AddV2(V2(q.x0, -q.y0), V2(size.X, -size.Y)),
+      AddV2(V2(q.x0, -q.y0), V2(0.0f, -size.Y)),
     },
    };
 
    for(int i = 0; i < 4; i++)
    {
-    to_draw.points[i] = MulV2F(to_draw.points[i], scale);
+    to_draw.points[i] = MulV2F(to_draw.points[i], t.scale);
    }
 
    AABB font_atlas_region = (AABB)
@@ -1229,18 +1291,23 @@ AABB draw_text(bool world_space, bool dry_run, const char *text, Vec2 pos, Color
 
    for(int i = 0; i < 4; i++)
    {
-    to_draw.points[i] = AddV2(to_draw.points[i], pos);
+    to_draw.points[i] = AddV2(to_draw.points[i], t.pos);
    }
 
-   if(!dry_run)
+   if(!t.dry_run)
    {
-    draw_quad((DrawParams){world_space, to_draw, image_font, font_atlas_region, color});
+    Color col = t.color;
+    if(t.colors)
+    {
+     col = t.colors[i];
+    }
+    draw_quad((DrawParams){t.world_space, to_draw, image_font, font_atlas_region, col, t.clip_to});
    }
   }
  }
 
- bounds.upper_left = AddV2(bounds.upper_left, pos);
- bounds.lower_right = AddV2(bounds.lower_right, pos);
+ bounds.upper_left = AddV2(bounds.upper_left, t.pos);
+ bounds.lower_right = AddV2(bounds.lower_right, t.pos);
  return bounds;
 }
 
@@ -1360,7 +1427,7 @@ Vec2 move_and_slide(Entity *from, Vec2 position, Vec2 movement_this_frame)
 }
 
 // returns next vertical cursor position
-float draw_wrapped_text(bool dry_run, Vec2 at_point, float max_width, char *text, float text_scale, Color color, bool going_up)
+float draw_wrapped_text(bool dry_run, Vec2 at_point, float max_width, char *text, Color *colors, float text_scale, bool going_up, AABB clip_to)
 {
  char *sentence_to_draw = text;
  size_t sentence_len = strlen(sentence_to_draw);
@@ -1369,6 +1436,7 @@ float draw_wrapped_text(bool dry_run, Vec2 at_point, float max_width, char *text
  while(sentence_len > 0)
  {
   char line_to_draw[MAX_SENTENCE_LENGTH] = {0};
+  Color colors_to_draw[MAX_SENTENCE_LENGTH] = {0};
   size_t chars_from_sentence = 0;
   AABB line_bounds = {0};
   while(chars_from_sentence <= sentence_len)
@@ -1376,7 +1444,7 @@ float draw_wrapped_text(bool dry_run, Vec2 at_point, float max_width, char *text
    memset(line_to_draw, 0, MAX_SENTENCE_LENGTH);
    memcpy(line_to_draw, sentence_to_draw, chars_from_sentence);
 
-   line_bounds = draw_text(true, true, line_to_draw, cursor, color, text_scale);
+   line_bounds = draw_text((TextParams){true, true, line_to_draw, cursor, BLACK, text_scale, clip_to});
    if(line_bounds.lower_right.X > at_point.X + max_width)
    {
     // too big
@@ -1390,17 +1458,105 @@ float draw_wrapped_text(bool dry_run, Vec2 at_point, float max_width, char *text
   if(chars_from_sentence > sentence_len) chars_from_sentence--;
   memset(line_to_draw, 0, MAX_SENTENCE_LENGTH);
   memcpy(line_to_draw, sentence_to_draw, chars_from_sentence);
+  memcpy(colors_to_draw, colors, chars_from_sentence*sizeof(Color));
+
   float line_height = line_bounds.upper_left.Y - line_bounds.lower_right.Y;
-  AABB drawn_bounds = draw_text(true, dry_run, line_to_draw, AddV2(cursor, V2(0.0f, -line_height)), color, text_scale);
+  AABB drawn_bounds = draw_text((TextParams){true, dry_run, line_to_draw, AddV2(cursor, V2(0.0f, -line_height)), BLACK, text_scale, clip_to, colors_to_draw});
   if(!dry_run) dbgrect(drawn_bounds);
 
   sentence_len -= chars_from_sentence;
   sentence_to_draw += chars_from_sentence;
+  colors += chars_from_sentence;
   cursor = V2(drawn_bounds.upper_left.X, drawn_bounds.lower_right.Y);
  }
 
  return cursor.Y;
 }
+
+void draw_dialog_panel(Entity *talking_to)
+{
+ // talking to them feedback
+ draw_quad((DrawParams){true, quad_centered(talking_to->pos, V2(TILE_SIZE, TILE_SIZE)), image_dialog_circle, full_region(image_dialog_circle), WHITE});
+ float panel_width = 250.0f;
+ float panel_height = 150.0f;
+ float panel_vert_offset = 30.0f;
+ AABB dialog_panel = (AABB){
+  .upper_left = AddV2(talking_to->pos, V2(-panel_width/2.0f, panel_vert_offset+panel_height)),
+   .lower_right = AddV2(talking_to->pos, V2(panel_width/2.0f, panel_vert_offset)),
+ };
+ AABB constrict_to = world_cam_aabb();
+ dialog_panel.upper_left.x = fmaxf(constrict_to.upper_left.x, dialog_panel.upper_left.x);
+ dialog_panel.lower_right.y = fmaxf(constrict_to.lower_right.y, dialog_panel.lower_right.y);
+ dialog_panel.upper_left.y = fminf(constrict_to.upper_left.y, dialog_panel.upper_left.y);
+ dialog_panel.lower_right.x = fminf(constrict_to.lower_right.x, dialog_panel.lower_right.x);
+
+ if(aabb_is_valid(dialog_panel))
+ {
+  Quad dialog_quad = quad_aabb(dialog_panel);
+  colorquad(true, dialog_quad, (Color){1.0f, 1.0f, 1.0f, 0.4f});
+  float width = 2.0f;
+  line(AddV2(dialog_quad.ul, V2(-width,0.0)), AddV2(dialog_quad.ur, V2(width,0.0)), width, BLACK);
+  line(dialog_quad.ur, dialog_quad.lr, width, BLACK);
+  line(AddV2(dialog_quad.lr, V2(width,0.0)), AddV2(dialog_quad.ll, V2(-width,0.0)), width, BLACK);
+  line(dialog_quad.ll, dialog_quad.ul, width, BLACK);
+
+  float padding = 5.0f;
+  dialog_panel.upper_left = AddV2(dialog_panel.upper_left, V2(padding, -padding));
+  dialog_panel.lower_right = AddV2(dialog_panel.lower_right, V2(-padding, padding));
+
+  float new_line_height = dialog_panel.lower_right.Y;
+  int i = 0;
+  //BUFF_ITER(Sentence, &talking_to->player_dialog)
+  BUFF_ITER_EX(Sentence, &talking_to->player_dialog, talking_to->player_dialog.cur_index-1, it >= &talking_to->player_dialog.data[0], it--)
+  {
+   bool player_talking = i % 2 != 0;
+   Color *colors = calloc(sizeof(*colors), it->cur_index);
+   bool in_astrix = false;
+   for(int char_i = 0; char_i < it->cur_index; char_i++)
+   {
+    bool set_in_astrix_false = false;
+    if(it->data[char_i] == '*')
+    {
+     if(in_astrix)
+     {
+      set_in_astrix_false = true;
+     }
+     else
+     {
+      in_astrix = true;
+     }
+    }
+    if(player_talking)
+    {
+     colors[char_i] = BLACK;
+    }
+    else
+    {
+     if(in_astrix)
+     {
+      colors[char_i] = colhex(0xffdf24);
+     }
+     else
+     {
+      colors[char_i] = colhex(0x345e22);
+     }
+    }
+    if(set_in_astrix_false) in_astrix = false;
+   }
+   float measured_line_height = draw_wrapped_text(true, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->data, colors, 0.5f, true, dialog_panel);
+   new_line_height += (new_line_height - measured_line_height);
+   draw_wrapped_text(false, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->data, colors, 0.5f, true, dialog_panel);
+
+   free(colors);
+   i++;
+  }
+
+  dbgrect(dialog_panel);
+ }
+
+}
+
+
 
 #define ROLL_KEY SAPP_KEYCODE_K
 double elapsed_time = 0.0;
@@ -1511,7 +1667,7 @@ void frame(void)
    Vec2 points[4] ={0};
    AABB q = tile_aabb(hovering);
    dbgrect(q);
-   draw_text(false, false, tprint("%d", get_tile(&level_level0, hovering).kind), world_to_screen(tilecoord_to_world(hovering)), BLACK, 1.0f);
+   draw_text((TextParams){false, false, tprint("%d", get_tile(&level_level0, hovering).kind), world_to_screen(tilecoord_to_world(hovering)), BLACK, 1.0f});
   }
 
   // debug draw font image
@@ -1525,12 +1681,12 @@ void frame(void)
    int num_entities = 0;
    ENTITIES_ITER(entities) num_entities++;
    char *stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nEntities: %d\nDraw calls: %d\n", dt*1000.0, last_frame_processing_time*1000.0, num_entities, num_draw_calls);
-   AABB bounds = draw_text(false, true, stats, pos, BLACK, 1.0f);
+   AABB bounds = draw_text((TextParams){false, true, stats, pos, BLACK, 1.0f});
    pos.Y -= bounds.upper_left.Y - screen_size().Y;
-   bounds = draw_text(false, true, stats, pos, BLACK, 1.0f);
+   bounds = draw_text((TextParams){false, true, stats, pos, BLACK, 1.0f});
    // background panel
    colorquad(false, quad_aabb(bounds), (Color){1.0, 1.0, 1.0, 0.3f});
-   draw_text(false, false, stats, pos, BLACK, 1.0f);
+   draw_text((TextParams){false, false, stats, pos, BLACK, 1.0f});
    num_draw_calls = 0;
   }
 #endif // devtools
@@ -1582,6 +1738,7 @@ void frame(void)
    {
     if(it->aggressive)
     {
+     draw_dialog_panel(it);
      Entity *targeting = player;
      it->shotgun_timer += dt;
      Vec2 to_player = NormV2(SubV2(targeting->pos, it->pos));
@@ -1680,42 +1837,10 @@ void frame(void)
     }
 
     // if somebody, show their dialog panel
-    if(talking_to) {
-     // talking to them feedback
-     draw_quad((DrawParams){true, quad_centered(talking_to->pos, V2(TILE_SIZE, TILE_SIZE)), image_dialog_circle, full_region(image_dialog_circle), WHITE});
-     float panel_width = 250.0f;
-     float panel_height = 150.0f;
-     float panel_vert_offset = 30.0f;
-     AABB dialog_panel = (AABB){
-       .upper_left = AddV2(talking_to->pos, V2(-panel_width/2.0f, panel_vert_offset+panel_height)),
-       .lower_right = AddV2(talking_to->pos, V2(panel_width/2.0f, panel_vert_offset)),
-     };
-     AABB constrict_to = world_cam_aabb();
-     dialog_panel.upper_left.x = fmaxf(constrict_to.upper_left.x, dialog_panel.upper_left.x);
-     dialog_panel.lower_right.y = fmaxf(constrict_to.lower_right.y, dialog_panel.lower_right.y);
-     dialog_panel.upper_left.y = fminf(constrict_to.upper_left.y, dialog_panel.upper_left.y);
-     dialog_panel.lower_right.x = fminf(constrict_to.lower_right.x, dialog_panel.lower_right.x);
-
-     if(aabb_is_valid(dialog_panel))
-     {
-      colorquad(true, quad_aabb(dialog_panel), (Color){1.0f, 1.0f, 1.0f, 0.2f});
-
-      float new_line_height = dialog_panel.lower_right.Y;
-      int i = 0;
-      //BUFF_ITER(Sentence, &talking_to->player_dialog)
-      BUFF_ITER_EX(Sentence, &talking_to->player_dialog, talking_to->player_dialog.cur_index-1, it >= &talking_to->player_dialog.data[0], it--)
-      {
-       float measured_line_height= draw_wrapped_text(true, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->data, 0.5f, i % 2 == 0 ? colhex(0x345e22) : BLACK, true);
-       new_line_height += (new_line_height - measured_line_height);
-       draw_wrapped_text(false, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->data, 0.5f, i % 2 == 0 ? colhex(0x345e22) : BLACK, true);
-       i++;
-      }
-
-      dbgrect(dialog_panel);
-     }
-
+    if(talking_to) 
+    {
+     draw_dialog_panel(talking_to);
     }
-
 
     // process dialog and display dialog box when talking to NPC
     if(player->state == CHARACTER_TALKING)
@@ -1932,6 +2057,10 @@ void event(const sapp_event *e)
   if(e->key_code == SAPP_KEYCODE_T)
   {
    mouse_frozen = !mouse_frozen;
+  }
+  if(e->key_code == SAPP_KEYCODE_7)
+  {
+   show_devtools = !show_devtools;
   }
 #endif
  }
