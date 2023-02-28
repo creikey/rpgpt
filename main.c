@@ -196,7 +196,7 @@ Entity *player = NULL; // up here, used in text backend callback
 
 void make_space_and_append(Dialog *d, Sentence *s)
 {
- if(d->cur_index + 1 >= ARRLEN(d->data))
+ if(d->cur_index >= ARRLEN(d->data))
  {
   assert(ARRLEN(d->data) >= 1);
   for(int i = 0; i < ARRLEN(d->data) - 1; i++)
@@ -324,7 +324,7 @@ void end_text_input(char *what_player_said)
   player->talking_to->gen_request_id = req_id;
 #endif
 #ifdef DESKTOP
-  add_new_npc_sentence(player->talking_to, "response *becomes aggressive*");
+  add_new_npc_sentence(player->talking_to, "response to the player");
 #endif
  }
 }
@@ -742,6 +742,14 @@ typedef Vec4 Color;
 #define RED   (Color){1.0f, 0.0f, 0.0f, 1.0f}
 #define GREEN (Color){0.0f, 1.0f, 0.0f, 1.0f}
 
+Color colhex(uint32_t hex)
+{
+ int r = (hex & 0xff0000) >> 16;
+ int g = (hex & 0x00ff00) >> 8;
+ int b = (hex & 0x0000ff) >> 0;
+
+ return (Color){ (float)r / 255.0f, (float)g / 255.0f, (float)b / 255.0f, 1.0f };
+}
 
 Vec2 screen_size()
 {
@@ -1516,7 +1524,7 @@ void frame(void)
      if(status == 1)
      {
       // done! we can get the string
-      char sentence_str[400] = {0};
+      char sentence_str[MAX_SENTENCE_LENGTH] = {0};
       EM_ASM({
         let generation = get_generation_request_content($0);
         stringToUTF8(generation, $1, $2);
@@ -1657,7 +1665,7 @@ void frame(void)
      int i = 0;
      BUFF_ITER(Sentence, &talking_to->player_dialog)
      {
-      new_line_height = draw_wrapped_text(V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->data, 0.5f, i % 2 == 0 ? GREEN : WHITE);
+      new_line_height = draw_wrapped_text(V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->data, 0.5f, i % 2 == 0 ? colhex(0x345e22) : BLACK);
       i++;
      }
 
