@@ -941,26 +941,35 @@ void flush_quad_batch()
  cur_batch_data_index = 0;
 }
 
+typedef struct DrawParams
+{
+ bool world_space;
+ Quad quad;
+ sg_image image;
+ AABB image_region;
+ Color tint;
+} DrawParams;
+
 // The image region is in pixel space of the image
-void draw_quad(bool world_space, Quad quad, sg_image image, AABB image_region, Color tint)
+void draw_quad(DrawParams d)
 {
  quad_fs_params_t params = {0};
- params.tint[0] = tint.R;
- params.tint[1] = tint.G;
- params.tint[2] = tint.B;
- params.tint[3] = tint.A;
+ params.tint[0] = d.tint.R;
+ params.tint[1] = d.tint.G;
+ params.tint[2] = d.tint.B;
+ params.tint[3] = d.tint.A;
 
  // if the rendering call is different, and the batch must be flushed
- if(image.id != cur_batch_image.id || memcmp(&params,&cur_batch_params,sizeof(params)) != 0 )
+ if(d.image.id != cur_batch_image.id || memcmp(&params,&cur_batch_params,sizeof(params)) != 0 )
  {
   flush_quad_batch();
-  cur_batch_image = image;
+  cur_batch_image = d.image;
   cur_batch_params = params;
  }
 
- Vec2 *points = quad.points;
+ Vec2 *points = d.quad.points;
 
- if(world_space)
+ if(d.world_space)
  {
   for(int i = 0; i < 4; i++)
   {
@@ -988,19 +997,19 @@ void draw_quad(bool world_space, Quad quad, sg_image image, AABB image_region, C
  }
 
  float new_vertices[ (2 + 2)*4 ];
- Vec2 region_size = SubV2(image_region.lower_right, image_region.upper_left);
+ Vec2 region_size = SubV2(d.image_region.lower_right, d.image_region.upper_left);
  assert(region_size.X > 0.0);
  assert(region_size.Y > 0.0);
  Vec2 tex_coords[4] =
  {
-  AddV2(image_region.upper_left, V2(0.0,                    0.0)),
-  AddV2(image_region.upper_left, V2(region_size.X,           0.0)),
-  AddV2(image_region.upper_left, V2(region_size.X, region_size.Y)),
-  AddV2(image_region.upper_left, V2(0.0,           region_size.Y)),
+  AddV2(d.image_region.upper_left, V2(0.0,                    0.0)),
+  AddV2(d.image_region.upper_left, V2(region_size.X,           0.0)),
+  AddV2(d.image_region.upper_left, V2(region_size.X, region_size.Y)),
+  AddV2(d.image_region.upper_left, V2(0.0,           region_size.Y)),
  };
 
  // convert to uv space
- sg_image_info info = sg_query_image_info(image);
+ sg_image_info info = sg_query_image_info(d.image);
  for(int i = 0; i < 4; i++)
  {
   tex_coords[i] = DivV2(tex_coords[i], V2((float)info.width, (float)info.height));
@@ -1021,7 +1030,7 @@ void draw_quad(bool world_space, Quad quad, sg_image image, AABB image_region, C
  if(cur_batch_data_index + total_size >= ARRLEN(cur_batch_data))
  {
   flush_quad_batch();
-  cur_batch_image = image;
+  cur_batch_image = d.image;
   cur_batch_params = params;
  }
 
@@ -1070,7 +1079,7 @@ void draw_animated_sprite(AnimatedSprite *s, double elapsed_time, bool flipped, 
  region.upper_left = AddV2(s->start, V2(index * s->horizontal_diff_btwn_frames, 0.0f));
  region.lower_right = V2(region.upper_left.X + (float)s->region_size.X, (float)s->region_size.Y);
 
- draw_quad(true, q, spritesheet_img, region, tint);
+ draw_quad((DrawParams){true, q, spritesheet_img, region, tint});
 }
 
 
@@ -1087,7 +1096,7 @@ Vec2 tile_id_to_coord(sg_image tileset_image, Vec2 tile_size, uint16_t tile_id)
 
 void colorquad(bool world_space, Quad q, Color col)
 {
- draw_quad(world_space, q, image_white_square, full_region(image_white_square), col);
+ draw_quad((DrawParams){world_space, q, image_white_square, full_region(image_white_square), col});
 }
 
 void dbgsquare(Vec2 at)
@@ -1203,7 +1212,7 @@ AABB draw_text(bool world_space, bool dry_run, const char *text, Vec2 pos, Color
 
    if(!dry_run)
    {
-    draw_quad(world_space, to_draw, image_font, font_atlas_region, color);
+    draw_quad((DrawParams){world_space, to_draw, image_font, font_atlas_region, color});
    }
   }
  }
@@ -1391,7 +1400,7 @@ void frame(void)
   sg_image img = image_wonky_mystery_tile;
   AABB region = full_region(img);
   //region.lower_right.X *= 0.5f;
-  draw_quad(false,quad_at(V2(0.0, 100.0), V2(100.0f, 100.0f)), img, region, WHITE);
+  draw_quad((DrawParams){false,quad_at(V2(0.0, 100.0), V2(100.0f, 100.0f)), img, region, WHITE});
 
   sg_end_pass();
   sg_commit();
@@ -1463,7 +1472,7 @@ void frame(void)
     region.upper_left = tile_image_coord;
     region.lower_right = AddV2(region.upper_left, tile_size);
 
-    draw_quad(true, tile_quad(cur_coord), tileset_image, region, WHITE);
+    draw_quad((DrawParams){true, tile_quad(cur_coord), tileset_image, region, WHITE});
    }
   }
  }
@@ -1485,7 +1494,7 @@ void frame(void)
 
   // debug draw font image
   {
-   draw_quad(true, quad_centered(V2(0.0, 0.0), V2(250.0, 250.0)), image_font,full_region(image_font), WHITE);
+   draw_quad((DrawParams){true, quad_centered(V2(0.0, 0.0), V2(250.0, 250.0)), image_font,full_region(image_font), WHITE});
   }
 
   // statistics
@@ -1511,7 +1520,7 @@ void frame(void)
    if(it->gen_request_id != 0)
    {
     assert(it->gen_request_id > 0);
-    draw_quad(true, quad_centered(AddV2(it->pos, V2(0.0, 50.0)), V2(100.0,100.0)), IMG(image_thinking), WHITE);
+    draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, V2(0.0, 50.0)), V2(100.0,100.0)), IMG(image_thinking), WHITE});
     int status = EM_ASM_INT({
       return get_generation_request_status($0);
     }, it->gen_request_id);
@@ -1587,7 +1596,7 @@ void frame(void)
    else if (it->kind == ENTITY_BULLET)
    {
     it->pos = AddV2(it->pos, MulV2F(it->vel, pixels_per_meter * dt));
-    draw_quad(true, quad_aabb(entity_aabb(it)), image_white_square, full_region(image_white_square), WHITE);
+    draw_quad((DrawParams){true, quad_aabb(entity_aabb(it)), image_white_square, full_region(image_white_square), WHITE});
     Overlapping over = get_overlapping(cur_level, entity_aabb(it));
     Entity *from_bullet = it;
     BUFF_ITER(Overlap, &over) if(it->e != from_bullet)
@@ -1651,7 +1660,7 @@ void frame(void)
     // if somebody, show their dialog panel
     if(talking_to) {
      // talking to them feedback
-     draw_quad(true, quad_centered(talking_to->pos, V2(TILE_SIZE, TILE_SIZE)), image_dialog_circle, full_region(image_dialog_circle), WHITE);
+     draw_quad((DrawParams){true, quad_centered(talking_to->pos, V2(TILE_SIZE, TILE_SIZE)), image_dialog_circle, full_region(image_dialog_circle), WHITE});
      float panel_width = 250.0f;
      float panel_height = 150.0f;
      float panel_vert_offset = 30.0f;
@@ -1830,7 +1839,7 @@ void frame(void)
    }
    else
    {
-    draw_quad(false, (Quad){.ul=V2(0.0f, screen_size().Y), .ur = screen_size(), .lr = V2(screen_size().X, 0.0f)}, image_hurt_vignette, full_region(image_hurt_vignette), (Color){1.0f, 1.0f, 1.0f, player->damage});
+    draw_quad((DrawParams){false, (Quad){.ul=V2(0.0f, screen_size().Y), .ur = screen_size(), .lr = V2(screen_size().X, 0.0f)}, image_hurt_vignette, full_region(image_hurt_vignette), (Color){1.0f, 1.0f, 1.0f, player->damage}});
    }
   }
 
