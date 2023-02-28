@@ -114,8 +114,10 @@ typedef enum EntityKind
 // null terminator always built into buffers so can read properly from data
 #define BUFF(type, max_size) struct { int cur_index; type data[max_size]; char null_terminator; }
 #define BUFF_HAS_SPACE(buff_ptr) ( (buff_ptr)->cur_index < ARRLEN((buff_ptr)->data) )
-#define BUFF_APPEND(buff_ptr, element)  { (buff_ptr)->data[(buff_ptr)->cur_index++] = element; assert((buff_ptr)->cur_index < ARRLEN((buff_ptr)->data)); }
-#define BUFF_ITER(type, buff_ptr) for(type *it = &((buff_ptr)->data[0]); it < (buff_ptr)->data + (buff_ptr)->cur_index; it++)
+#define BUFF_APPEND(buff_ptr, element)  { (buff_ptr)->data[(buff_ptr)->cur_index++] = element; assert((buff_ptr)->cur_index <= ARRLEN((buff_ptr)->data)); }
+//#define BUFF_ITER(type, buff_ptr) for(type *it = &((buff_ptr)->data[0]); it < (buff_ptr)->data + (buff_ptr)->cur_index; it++)
+#define BUFF_ITER_EX(type, buff_ptr, begin_ind, cond, movement) for(type *it = &((buff_ptr)->data[begin_ind]); cond; movement)
+#define BUFF_ITER(type, buff_ptr) BUFF_ITER_EX(type, (buff_ptr), 0, it < (buff_ptr)->data + (buff_ptr)->cur_index, it++)
 #define BUFF_CLEAR(buff_ptr) {memset((buff_ptr), 0, sizeof(*(buff_ptr)));  ((buff_ptr)->cur_index = 0);}
 
 #define MAX_SENTENCE_LENGTH 400
@@ -847,11 +849,17 @@ Quad quad_centered(Vec2 at, Vec2 size)
  return to_return;
 }
 
+bool aabb_is_valid(AABB aabb)
+{
+ Vec2 size_vec = SubV2(aabb.lower_right, aabb.upper_left); // negative in vertical direction
+ return size_vec.Y <= 0.0f && size_vec.X >= 0.0f;
+}
+
 Quad quad_aabb(AABB aabb)
 {
  Vec2 size_vec = SubV2(aabb.lower_right, aabb.upper_left); // negative in vertical direction
- assert(size_vec.Y <= 0.0f);
- assert(size_vec.X >= 0.0f);
+
+ assert(aabb_is_valid(aabb));
  return (Quad) {
   .ul = aabb.upper_left,
   .ur = AddV2(aabb.upper_left, V2(size_vec.X, 0.0f)),
@@ -1351,7 +1359,7 @@ Vec2 move_and_slide(Entity *from, Vec2 position, Vec2 movement_this_frame)
 }
 
 // returns next vertical cursor position
-float draw_wrapped_text(Vec2 at_point, float max_width, char *text, float text_scale, Color color)
+float draw_wrapped_text(Vec2 at_point, float max_width, char *text, float text_scale, Color color, bool going_up)
 {
  char *sentence_to_draw = text;
  size_t sentence_len = strlen(sentence_to_draw);
@@ -1382,12 +1390,19 @@ float draw_wrapped_text(Vec2 at_point, float max_width, char *text, float text_s
   memset(line_to_draw, 0, MAX_SENTENCE_LENGTH);
   memcpy(line_to_draw, sentence_to_draw, chars_from_sentence);
   float line_height = line_bounds.upper_left.Y - line_bounds.lower_right.Y;
-  AABB drawn_bounds = draw_text(true, false, line_to_draw, AddV2(cursor, V2(0.0f, -line_height)), color, text_scale);
+  AABB drawn_bounds = draw_text(true, false, line_to_draw, AddV2(cursor, V2(0.0f, going_up ? line_height/2.0f : -line_height)), color, text_scale);
   dbgrect(drawn_bounds);
 
   sentence_len -= chars_from_sentence;
   sentence_to_draw += chars_from_sentence;
-  cursor = V2(drawn_bounds.upper_left.X, drawn_bounds.lower_right.Y);
+  if(going_up)
+  {
+   cursor = V2(drawn_bounds.upper_left.X, drawn_bounds.upper_left.Y);
+  }
+  else
+  {
+   cursor = V2(drawn_bounds.upper_left.X, drawn_bounds.lower_right.Y);
+  }
  }
 
  return cursor.Y;
@@ -1687,17 +1702,21 @@ void frame(void)
      dialog_panel.upper_left.y = min(constrict_to.upper_left.y, dialog_panel.upper_left.y);
      dialog_panel.lower_right.x = min(constrict_to.lower_right.x, dialog_panel.lower_right.x);
 
-     colorquad(true, quad_aabb(dialog_panel), (Color){1.0f, 1.0f, 1.0f, 0.2f});
-
-     float new_line_height = dialog_panel.upper_left.Y;
-     int i = 0;
-     BUFF_ITER(Sentence, &talking_to->player_dialog)
+     if(aabb_is_valid(dialog_panel))
      {
-      new_line_height = draw_wrapped_text(V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->data, 0.5f, i % 2 == 0 ? colhex(0x345e22) : BLACK);
-      i++;
-     }
+      colorquad(true, quad_aabb(dialog_panel), (Color){1.0f, 1.0f, 1.0f, 0.2f});
 
-     dbgrect(dialog_panel);
+      float new_line_height = dialog_panel.lower_right.Y;
+      int i = 0;
+      //BUFF_ITER(Sentence, &talking_to->player_dialog)
+      BUFF_ITER_EX(Sentence, &talking_to->player_dialog, talking_to->player_dialog.cur_index-1, it >= &talking_to->player_dialog.data[0], it--)
+      {
+       new_line_height = draw_wrapped_text(V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->data, 0.5f, i % 2 == 0 ? colhex(0x345e22) : BLACK, true);
+       i++;
+      }
+
+      dbgrect(dialog_panel);
+     }
 
     }
 
