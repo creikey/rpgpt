@@ -920,6 +920,19 @@ bool has_point(AABB aabb, Vec2 point)
   (aabb.upper_left.Y > point.Y && point.Y > aabb.lower_right.Y);
 }
 
+AABB screen_cam_aabb()
+{
+ return (AABB){ .upper_left = V2(0.0, screen_size().Y), .lower_right = V2(screen_size().X, 0.0) };
+}
+
+AABB world_cam_aabb()
+{
+ AABB to_return = screen_cam_aabb();
+ to_return.upper_left = screen_to_world(to_return.upper_left);
+ to_return.lower_right = screen_to_world(to_return.lower_right);
+ return to_return;
+}
+
 int num_draw_calls = 0;
 
 float cur_batch_data[1024*10] = {0};
@@ -950,6 +963,7 @@ typedef struct DrawParams
  Color tint;
 } DrawParams;
 
+
 // The image region is in pixel space of the image
 void draw_quad(DrawParams d)
 {
@@ -976,8 +990,7 @@ void draw_quad(DrawParams d)
    points[i] = world_to_screen(points[i]);
   }
  }
- AABB cam_aabb =
- { .upper_left = V2(0.0, screen_size().Y), .lower_right = V2(screen_size().X, 0.0) };
+ AABB cam_aabb = screen_cam_aabb();
  AABB points_bounding_box =
  { .upper_left = V2(INFINITY, -INFINITY), .lower_right = V2(-INFINITY, INFINITY) };
 
@@ -1665,9 +1678,15 @@ void frame(void)
      float panel_height = 150.0f;
      float panel_vert_offset = 30.0f;
      AABB dialog_panel = (AABB){
-      .upper_left = AddV2(talking_to->pos, V2(-panel_width/2.0f, panel_vert_offset+panel_height)),
+       .upper_left = AddV2(talking_to->pos, V2(-panel_width/2.0f, panel_vert_offset+panel_height)),
        .lower_right = AddV2(talking_to->pos, V2(panel_width/2.0f, panel_vert_offset)),
      };
+     AABB constrict_to = world_cam_aabb();
+     dialog_panel.upper_left.x = max(constrict_to.upper_left.x, dialog_panel.upper_left.x);
+     dialog_panel.lower_right.y = max(constrict_to.lower_right.y, dialog_panel.lower_right.y);
+     dialog_panel.upper_left.y = min(constrict_to.upper_left.y, dialog_panel.upper_left.y);
+     dialog_panel.lower_right.x = min(constrict_to.lower_right.x, dialog_panel.lower_right.x);
+
      colorquad(true, quad_aabb(dialog_panel), (Color){1.0f, 1.0f, 1.0f, 0.2f});
 
      float new_line_height = dialog_panel.upper_left.Y;
