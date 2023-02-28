@@ -289,11 +289,12 @@ void end_text_input(char *what_player_said)
   BUFF(char, 4000) prompt_buff = {0};
   BUFF(char *, 100) to_join = {0};
 
-  BUFF_APPEND(&to_join, "This is dialog which takes place in a simple action RPG, where the player can only talk to NPCs, or fight. The characters influence the game world by saying specific actions from these possibilities: [*becomes aggressive*]. They don't say anything else that has '*' between them. Example dialog with an Old Man NPC:\nPlayer: \"Hello old man. Do you know that you're in a video game?\"\nOld Man: \"What are you talking about, young boy? What is a 'video game'?\"\nPlayer: \"You have no idea. You look ugly and stupid.\"\nOld Man: \"How juvenile! That's it, *becomes aggressive*\"\n\nThe NPCs exist on a small lush island, on a remote village, in a fantasy setting where monsters roam freely, posing a danger to the NPCs, and the player. They don't know about modern technology. They are very slow to say *becomes aggressive*, because doing so means killing the player, their friends, and potentially themselves. But if the situation demands it, they will not hesitate to open fire.\n");
+  //BUFF_APPEND(&to_join, "This is dialog which takes place in a simple action RPG, where the player can only talk to NPCs, or fight. The characters influence the game world by saying specific actions from these possibilities: [*becomes aggressive*]. They don't say anything else that has '*' between them. Example dialog with an Old Man NPC:\nPlayer: \"Hello old man. Do you know that you're in a video game?\"\nOld Man: \"What are you talking about, young boy? What is a 'video game'?\"\nPlayer: \"You have no idea. You look ugly and stupid.\"\nOld Man: \"How juvenile! That's it, *becomes aggressive*\"\n\nThe NPCs exist on a small lush island, on a remote village, in a fantasy setting where monsters roam freely, posing a danger to the NPCs, and the player. They don't know about modern technology. They are very slow to say *becomes aggressive*, because doing so means killing the player, their friends, and potentially themselves. But if the situation demands it, they will not hesitate to open fire.\n");
   
   // characters prompt
   assert(player->talking_to->kind == ENTITY_OLD_MAN);
-  BUFF_APPEND(&to_join, "The player is talking to an old man who is standing around on the island. He's eager to bestow his wisdom upon the young player, but the player must act polite, not rude. If the player acts rude, the old man will say exactly the text '*becomes aggressive*' as shown in the above example, turning the interaction into a skirmish, where the old man takes out his well concealed shotgun. The old man is also a bit of a joker.\n\n");
+  //BUFF_APPEND(&to_join, "The player is talking to an old man who is standing around on the island. He's eager to bestow his wisdom upon the young player, but the player must act polite, not rude. If the player acts rude, the old man will say exactly the text '*becomes aggressive*' as shown in the above example, turning the interaction into a skirmish, where the old man takes out his well concealed shotgun. The old man is also a bit of a joker.\n\n");
+  BUFF_APPEND(&to_join, "Dialog between an old man and a player in a video game. The player can only attack or talk in the game. The old man can perform these actions by saying them: [*becomes aggressive*]\n\nPlayer: \"Who are you?\"\nOld Man: \"Why I'm just a simple old man, minding my business. What brings you here?\"\nPlayer: \"I'm not sure. What needs doing?\"\nOld Man: \"Nothing much. It's pretty boring around here. Monsters are threatening our village though.\"\nPlayer: \"Holy shit! I better get to it\"\nOld Man: \"He he, certainly! Good luck!\"\n\nPlayer: \"Man fuck you old man\"\nOld Man: \"You better watch your tongue young man. Unless you're polite I'll be forced to attack you, peace is important around here!\"\nPlayer: \"Man fuck your peace\"\nOld Man: \"That's it! *becomes aggressive*\"\n\n");
 
   // all the dialog
   int i = 0;
@@ -326,7 +327,7 @@ void end_text_input(char *what_player_said)
   player->talking_to->gen_request_id = req_id;
 #endif
 #ifdef DESKTOP
-  add_new_npc_sentence(player->talking_to, "response to the player");
+  add_new_npc_sentence(player->talking_to, "response to the player. Response responseResponse responseResponse responseResponse responseResponse responseResponse responseResponse responseResponse response");
 #endif
  }
 }
@@ -1359,7 +1360,7 @@ Vec2 move_and_slide(Entity *from, Vec2 position, Vec2 movement_this_frame)
 }
 
 // returns next vertical cursor position
-float draw_wrapped_text(Vec2 at_point, float max_width, char *text, float text_scale, Color color, bool going_up)
+float draw_wrapped_text(bool dry_run, Vec2 at_point, float max_width, char *text, float text_scale, Color color, bool going_up)
 {
  char *sentence_to_draw = text;
  size_t sentence_len = strlen(sentence_to_draw);
@@ -1390,19 +1391,12 @@ float draw_wrapped_text(Vec2 at_point, float max_width, char *text, float text_s
   memset(line_to_draw, 0, MAX_SENTENCE_LENGTH);
   memcpy(line_to_draw, sentence_to_draw, chars_from_sentence);
   float line_height = line_bounds.upper_left.Y - line_bounds.lower_right.Y;
-  AABB drawn_bounds = draw_text(true, false, line_to_draw, AddV2(cursor, V2(0.0f, going_up ? line_height/2.0f : -line_height)), color, text_scale);
-  dbgrect(drawn_bounds);
+  AABB drawn_bounds = draw_text(true, dry_run, line_to_draw, AddV2(cursor, V2(0.0f, -line_height)), color, text_scale);
+  if(!dry_run) dbgrect(drawn_bounds);
 
   sentence_len -= chars_from_sentence;
   sentence_to_draw += chars_from_sentence;
-  if(going_up)
-  {
-   cursor = V2(drawn_bounds.upper_left.X, drawn_bounds.upper_left.Y);
-  }
-  else
-  {
-   cursor = V2(drawn_bounds.upper_left.X, drawn_bounds.lower_right.Y);
-  }
+  cursor = V2(drawn_bounds.upper_left.X, drawn_bounds.lower_right.Y);
  }
 
  return cursor.Y;
@@ -1697,10 +1691,10 @@ void frame(void)
        .lower_right = AddV2(talking_to->pos, V2(panel_width/2.0f, panel_vert_offset)),
      };
      AABB constrict_to = world_cam_aabb();
-     dialog_panel.upper_left.x = max(constrict_to.upper_left.x, dialog_panel.upper_left.x);
-     dialog_panel.lower_right.y = max(constrict_to.lower_right.y, dialog_panel.lower_right.y);
-     dialog_panel.upper_left.y = min(constrict_to.upper_left.y, dialog_panel.upper_left.y);
-     dialog_panel.lower_right.x = min(constrict_to.lower_right.x, dialog_panel.lower_right.x);
+     dialog_panel.upper_left.x = fmaxf(constrict_to.upper_left.x, dialog_panel.upper_left.x);
+     dialog_panel.lower_right.y = fmaxf(constrict_to.lower_right.y, dialog_panel.lower_right.y);
+     dialog_panel.upper_left.y = fminf(constrict_to.upper_left.y, dialog_panel.upper_left.y);
+     dialog_panel.lower_right.x = fminf(constrict_to.lower_right.x, dialog_panel.lower_right.x);
 
      if(aabb_is_valid(dialog_panel))
      {
@@ -1711,7 +1705,9 @@ void frame(void)
       //BUFF_ITER(Sentence, &talking_to->player_dialog)
       BUFF_ITER_EX(Sentence, &talking_to->player_dialog, talking_to->player_dialog.cur_index-1, it >= &talking_to->player_dialog.data[0], it--)
       {
-       new_line_height = draw_wrapped_text(V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->data, 0.5f, i % 2 == 0 ? colhex(0x345e22) : BLACK, true);
+       float measured_line_height= draw_wrapped_text(true, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->data, 0.5f, i % 2 == 0 ? colhex(0x345e22) : BLACK, true);
+       new_line_height += (new_line_height - measured_line_height);
+       draw_wrapped_text(false, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->data, 0.5f, i % 2 == 0 ? colhex(0x345e22) : BLACK, true);
        i++;
       }
 
