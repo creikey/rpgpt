@@ -129,28 +129,36 @@ typedef BUFF(char, MAX_SENTENCE_LENGTH) Sentence;
 // even indexed dialogs (0,2,4) are player saying stuff, odds are the character from GPT
 typedef BUFF(Sentence, 2*6) Dialog; // six back and forths. must be even number or bad things happen (I think)
 
+typedef enum NpcKind
+{
+ OLD_MAN,
+ DEATH,
+} NpcKind;
+
 typedef struct Entity
 {
  bool exists;
- EntityKind kind;
-
- // for all NPCS (maybe make this allocated somewhere instead of in every entity? it's kind of big...)
- Dialog player_dialog;
-#ifdef WEB
- int gen_request_id;
-#endif
 
  // fields for all entities
  Vec2 pos;
  Vec2 vel; // only used sometimes, like in old man and bullet
- float damage; // at 1.0, he's dead
+ float damage; // at 1.0, dead! zero initialized
  bool facing_left;
 
- // old man
+ bool is_bullet;
+
+ // npcs
+ bool is_npc;
+ NpcKind npc_kind;
+ Dialog player_dialog;
+#ifdef WEB
+ int gen_request_id;
+#endif
  bool aggressive;
  double shotgun_timer;
 
  // character
+ bool is_character;
  CharacterState state;
  struct Entity *talking_to; // Maybe should be generational index, but I dunno. No death yet
  bool is_rolling; // can only roll in idle or walk states
@@ -293,7 +301,20 @@ void end_text_input(char *what_player_said)
   //BUFF_APPEND(&to_join, "This is dialog which takes place in a simple action RPG, where the player can only talk to NPCs, or fight. The characters influence the game world by saying specific actions from these possibilities: [*fights player*]. They don't say anything else that has '*' between them. Example dialog with an Old Man NPC:\nPlayer: \"Hello old man. Do you know that you're in a video game?\"\nOld Man: \"What are you talking about, young boy? What is a 'video game'?\"\nPlayer: \"You have no idea. You look ugly and stupid.\"\nOld Man: \"How juvenile! That's it, *fights player*\"\n\nThe NPCs exist on a small lush island, on a remote village, in a fantasy setting where monsters roam freely, posing a danger to the NPCs, and the player. They don't know about modern technology. They are very slow to say *fights player*, because doing so means killing the player, their friends, and potentially themselves. But if the situation demands it, they will not hesitate to open fire.\n");
   
   // characters prompt
-  assert(player->talking_to->kind == ENTITY_OLD_MAN);
+  Entity *talking = player->talking_to;
+  char *character_prompt = NULL;
+  if(talking->npc_kind == OLD_MAN)
+  {
+   character_prompt = "Old Man: \"";
+  }
+  else if(talking->npc_kind == DEATH)
+  {
+   character_prompt = "Death: \"";
+  }
+  else
+  {
+   assert(false);
+  }
   //BUFF_APPEND(&to_join, "The player is talking to an old man who is standing around on the island. He's eager to bestow his wisdom upon the young player, but the player must act polite, not rude. If the player acts rude, the old man will say exactly the text '*fights player*' as shown in the above example, turning the interaction into a skirmish, where the old man takes out his well concealed shotgun. The old man is also a bit of a joker.\n\n");
   //BUFF_APPEND(&to_join, "Dialog between an old man and a player in a video game. The player can only attack or talk in the game. The old man can perform these actions by saying them: [*fights player*]\n--\nPlayer: \"Who are you?\"\nOld Man: \"Why I'm just a simple old man, minding my business. What brings you here?\"\nPlayer: \"I'm not sure. What needs doing?\"\nOld Man: \"Nothing much. It's pretty boring around here. Monsters are threatening our village though.\"\nPlayer: \"Holy shit! I better get to it\"\nOld Man: \"He he, certainly! Good luck!\"\n--\nPlayer: \"Man fuck you old man\"\nOld Man: \"You better watch your tongue young man. Unless you're polite I'll be forced to attack you, peace is important around here!\"\nPlayer: \"Man fuck your peace\"\nOld Man: \"That's it! *fights player*\"\n--\n");
 
@@ -301,13 +322,21 @@ void end_text_input(char *what_player_said)
   int i = 0;
   BUFF_ITER(Sentence, &player->talking_to->player_dialog)
   {
-   BUFF_APPEND(&to_join, i % 2 == 0 ? "Player: \"" : "Old Man: \"");
+   bool is_player = i % 2 == 0;
+   if(is_player)
+   {
+    BUFF_APPEND(&to_join, "Player: \"");
+   }
+   else
+   {
+    BUFF_APPEND(&to_join, character_prompt);
+   }
    BUFF_APPEND(&to_join, it->data);
    BUFF_APPEND(&to_join, "\"\n");
    i++;
   }
 
-  BUFF_APPEND(&to_join, "Old Man: \"");
+  BUFF_APPEND(&to_join, character_prompt);
 
   // concatenate into prompt_buff
   BUFF_ITER(char *, &to_join)
@@ -331,7 +360,7 @@ void end_text_input(char *what_player_said)
   player->talking_to->gen_request_id = req_id;
 #endif
 #ifdef DESKTOP
-  add_new_npc_sentence(player->talking_to, "response to the player. Response responseResponse fights player responseResponse responseResponse ");
+  add_new_npc_sentence(player->talking_to, "ALright. *moves*");
 #endif
  }
 }
@@ -413,15 +442,27 @@ char *tprint(const char *format, ...)
 
 Vec2 entity_aabb_size(Entity *e)
 {
- if(e->kind == ENTITY_PLAYER)
+ if(e->is_character == ENTITY_PLAYER)
  {
   return V2(TILE_SIZE, TILE_SIZE);
  }
- else if(e->kind == ENTITY_OLD_MAN)
+ else if(e->is_npc)
  {
-  return V2(TILE_SIZE*0.5f, TILE_SIZE*0.5f);
+  if(e->npc_kind == OLD_MAN)
+  {
+   return V2(TILE_SIZE*0.5f, TILE_SIZE*0.5f);
+  }
+  else if(e->npc_kind == DEATH)
+  {
+   return V2(TILE_SIZE*1.10f, TILE_SIZE*1.10f);
+  }
+  else
+  {
+   assert(false);
+   return (Vec2){0};
+  }
  }
- else if(e->kind == ENTITY_BULLET)
+ else if(e->is_bullet)
  {
   return V2(TILE_SIZE*0.25f, TILE_SIZE*0.25f);
  }
@@ -597,6 +638,15 @@ AnimatedSprite old_man_idle =
  .horizontal_diff_btwn_frames = 16.0f,
  .region_size = {16.0f, 16.0f},
 };
+AnimatedSprite death_idle = 
+{
+ .img = &image_death,
+ .time_per_frame = 0.15,
+ .num_frames = 10,
+ .start = {0.0, 0.0},
+ .horizontal_diff_btwn_frames = 100.0f,
+ .region_size = {100.0f, 100.0f},
+};
 
 sg_image image_font = {0};
 const float font_size = 32.0;
@@ -640,7 +690,7 @@ void reset_level()
   player = NULL;
   ENTITIES_ITER(entities)
   {
-   if(it->kind == ENTITY_PLAYER)
+   if(it->is_character)
    {
     assert(player == NULL);
     player = it;
@@ -1147,7 +1197,13 @@ void draw_animated_sprite(AnimatedSprite *s, double elapsed_time, bool flipped, 
 
  AABB region;
  region.upper_left = AddV2(s->start, V2(index * s->horizontal_diff_btwn_frames, 0.0f));
- region.lower_right = V2(region.upper_left.X + (float)s->region_size.X, (float)s->region_size.Y);
+ float width = img_size(spritesheet_img).X;
+ while(region.upper_left.X >= width)
+ {
+  region.upper_left.X -= width;
+  region.upper_left.Y += s->region_size.Y;
+ }
+ region.lower_right = AddV2(region.upper_left, s->region_size);
 
  draw_quad((DrawParams){true, q, spritesheet_img, region, tint});
 }
@@ -1342,7 +1398,7 @@ Overlapping get_overlapping(Level *l, AABB aabb)
  // the entities jessie
  ENTITIES_ITER(entities)
  {
-  if(!(it->kind == ENTITY_PLAYER && it->is_rolling) && overlapping(aabb, entity_aabb(it)))
+  if(!(it->is_character && it->is_rolling) && overlapping(aabb, entity_aabb(it)))
   {
    BUFF_APPEND(&to_return, (Overlap){.e = it});
   }
@@ -1384,11 +1440,11 @@ Vec2 move_and_slide(Entity *from, Vec2 position, Vec2 movement_this_frame)
  }
 
  // add entity boxes
- if(!(from->kind == ENTITY_PLAYER && from->is_rolling))
+ if(!(from->is_character && from->is_rolling))
  {
   ENTITIES_ITER(entities)
   {
-   if(!(it->kind == ENTITY_PLAYER && it->is_rolling) && it != from)
+   if(!(it->is_character && it->is_rolling) && it != from)
    {
     to_check[to_check_index++] = centered_aabb(it->pos, entity_aabb_size(it));
     assert(to_check_index < ARRLEN(to_check));
@@ -1761,7 +1817,7 @@ void frame(void)
    }
 #endif
 
-   if(it->kind == ENTITY_OLD_MAN)
+   if(it->is_npc)
    {
     if(it->aggressive)
     {
@@ -1780,7 +1836,7 @@ void frame(void)
        float theta = Lerp(-spread/2.0f, ((float)i / 2.0f), spread/2.0f);
        dir = RotateV2(dir, theta);
        Entity *new_bullet = new_entity();
-       new_bullet->kind = ENTITY_BULLET;
+       new_bullet->is_bullet = true;
        new_bullet->pos = AddV2(it->pos, MulV2F(dir, 20.0f));
        new_bullet->vel = MulV2F(dir, 10.0f);
        it->vel = AddV2(it->vel, MulV2F(dir, -3.0f));
@@ -1792,14 +1848,26 @@ void frame(void)
      it->vel = LerpV2(it->vel, 15.0f * dt, target_vel);
      it->pos = move_and_slide(it, it->pos, MulV2F(it->vel, pixels_per_meter * dt));
     }
+
     Color col = LerpV4(WHITE, it->damage, RED);
-    draw_animated_sprite(&old_man_idle, elapsed_time, false, it->pos, col);
+    if(it->npc_kind == OLD_MAN)
+    {
+     draw_animated_sprite(&old_man_idle, elapsed_time, false, it->pos, col);
+    }
+    else if(it->npc_kind == DEATH)
+    {
+     draw_animated_sprite(&death_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
+    }
+    else
+    {
+     assert(false);
+    }
     if(it->damage >= 1.0)
     {
      *it = (Entity){0};
     }
    }
-   else if (it->kind == ENTITY_BULLET)
+   else if (it->is_bullet)
    {
     it->pos = AddV2(it->pos, MulV2F(it->vel, pixels_per_meter * dt));
     draw_quad((DrawParams){true, quad_aabb(entity_aabb(it)), image_white_square, full_region(image_white_square), WHITE});
@@ -1811,7 +1879,7 @@ void frame(void)
      {
       // knockback and damage
       Entity *hit = it->e;
-      if(hit->kind == ENTITY_OLD_MAN) hit->aggressive = true;
+      if(hit->is_npc) hit->aggressive = true;
       hit->vel = MulV2F(NormV2(SubV2(hit->pos, from_bullet->pos)), 5.0f);
       hit->damage += 0.2f;
       *from_bullet = (Entity){0};
@@ -1819,7 +1887,7 @@ void frame(void)
     }
     if(!has_point(level_aabb, it->pos)) *it = (Entity){0};
    }
-   else if(it->kind == ENTITY_PLAYER)
+   else if(it->is_character)
    {
    }
    else
@@ -1846,7 +1914,7 @@ void frame(void)
      {
       bool entity_talkable = true;
       if(entity_talkable) entity_talkable = entity_talkable && !it->is_tile;
-      if(entity_talkable) entity_talkable = entity_talkable && it->e->kind == ENTITY_OLD_MAN;
+      if(entity_talkable) entity_talkable = entity_talkable && it->e->is_npc;
       if(entity_talkable) entity_talkable = entity_talkable && !it->e->aggressive;
 #ifdef WEB
       if(entity_talkable) entity_talkable = entity_talkable && it->e->gen_request_id == 0;
@@ -1932,7 +2000,7 @@ void frame(void)
      if(!it->is_tile)
      {
       Entity *e = it->e;
-      if(e->kind == ENTITY_OLD_MAN)
+      if(e->is_character)
       {
        e->aggressive = true;
        e->damage += 0.2f;

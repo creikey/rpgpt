@@ -205,7 +205,14 @@ int main(int argc, char **argv) {
       if(has_decimal(x_string)) x_string = MD_S8Fmt(cg_arena, "%.*sf", MD_S8VArg(x_string));
       if(has_decimal(y_string)) y_string = MD_S8Fmt(cg_arena, "%.*sf", MD_S8VArg(y_string));
 
-      fprintf(output, "{ .exists = true, .kind = ENTITY_%.*s, .pos = { .X=%.*s, .Y=%.*s }, }, ", MD_S8VArg(name), MD_S8VArg(x_string), MD_S8VArg(y_string));
+      if(MD_S8Match(name, MD_S8Lit("PLAYER"), 0))
+      {
+       fprintf(output, "{ .exists = true, .is_character = true, .pos = { .X=%.*s, .Y=%.*s }, }, ", MD_S8VArg(x_string), MD_S8VArg(y_string));
+      }
+      else
+      {
+       fprintf(output, "{ .exists = true, .is_npc = true, .npc_kind = %.*s, .pos = { .X=%.*s, .Y=%.*s }, }, ", MD_S8VArg(name), MD_S8VArg(x_string), MD_S8VArg(y_string));
+      }
      }
      fprintf(output, "\n}, // entities\n");
     }

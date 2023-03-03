@@ -18,6 +18,10 @@
 {
  filepath: "_Roll.png",
 }
+@image death:
+{
+ filepath: "copyrighted/wraith.png",
+}
 @image thinking:
 {
  filepath: "thinking.png",

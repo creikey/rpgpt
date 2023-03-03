@@ -2,6 +2,7 @@
 
 echo Asset packs which must be bought and unzipped into root directory before running this script:
 echo https://rafaelmatos.itch.io/epic-rpg-world-pack-ancient-ruins
+echo https://sventhole.itch.io/undead-pixel-art-characters
 
 rmdir /S /q assets\copyrighted
 mkdir assets\copyrighted
@@ -11,6 +12,7 @@ copy "EPIC RPG World Pack - Ancient Ruins V 1.7\EPIC RPG World Pack - Ancient Ru
 copy "EPIC RPG World Pack - Ancient Ruins V 1.7\EPIC RPG World Pack - Ancient Ruins V 1.7\TiledMap Editor\Ancient Ruins-Animated Terrains-16 frames.tsx" "assets\copyrighted\ruins_animated.tsx" || goto :error
 copy "EPIC RPG World Pack - Ancient Ruins V 1.7\EPIC RPG World Pack - Ancient Ruins V 1.7\TiledMap Editor\Terrain - Ancient Ruins.tsx" "assets\copyrighted\ruins_ancient.tsx" || goto :error
 copy "EPIC RPG World Pack - Ancient Ruins V 1.7\EPIC RPG World Pack - Ancient Ruins V 1.7\Tilesets\Tileset-Terrain.png" "assets\copyrighted\ruins_ancient.png" || goto :error
+copy "Undead - Pixel Art Characters\Undead - Pixel Art Characters\Sprites\Wraith_Red.png" "assets\copyrighted\wraith.png" || goto :error
 
 rmdir /S /q gen
 mkdir gen
