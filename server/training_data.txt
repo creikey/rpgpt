@@ -142,7 +142,7 @@ Player: "Where did you come from?"
 Death: "....YOUR MOTHER'S HOUSE"
 
 Player: "Move out of the fucking way!"
-Death: "*moves"
+Death: "*moves*"
 
 Player: "What am I supposed to do"
 Death: "...MOVE...FORWARD"
