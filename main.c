@@ -127,7 +127,7 @@ typedef BUFF(char, MAX_SENTENCE_LENGTH) Sentence;
 
 
 // even indexed dialogs (0,2,4) are player saying stuff, odds are the character from GPT
-typedef BUFF(Sentence, 2*6) Dialog; // six back and forths. must be even number or bad things happen (I think)
+typedef BUFF(Sentence, 2*12) Dialog; // six back and forths. must be even number or bad things happen (I think)
 
 typedef enum NpcKind
 {
@@ -151,11 +151,15 @@ typedef struct Entity
  bool is_npc;
  NpcKind npc_kind;
  Dialog player_dialog;
+ Sentence to_say;
 #ifdef WEB
  int gen_request_id;
 #endif
  bool aggressive;
  double shotgun_timer;
+ // only for death npc
+ bool going_to_target;
+ Vec2 target_goto;
 
  // character
  bool is_character;
@@ -206,6 +210,8 @@ typedef struct Arena
 
 Entity *player = NULL; // up here, used in text backend callback
 
+
+
 void make_space_and_append(Dialog *d, Sentence *s)
 {
  if(d->cur_index >= ARRLEN(d->data))
@@ -237,9 +243,14 @@ void add_new_npc_sentence(Entity *npc, char *sentence)
   {
    if(sentence[i] == '*')
    {
-    if(strcmp(match_buffer.data, "fights player") == 0)
+    if(strcmp(match_buffer.data, "fights player") == 0 && npc->npc_kind == OLD_MAN)
     {
      npc->aggressive = true;
+    }
+    if(strcmp(match_buffer.data, "moves") == 0 && npc->npc_kind == DEATH)
+    {
+     npc->going_to_target = true;
+     npc->target_goto = AddV2(npc->pos, V2(0.0, -TILE_SIZE*1.5f));
     }
     BUFF_CLEAR(&match_buffer);
     inside_star = false;
@@ -259,6 +270,18 @@ void add_new_npc_sentence(Entity *npc, char *sentence)
  }
  make_space_and_append(&npc->player_dialog, &new_sentence);
 
+}
+
+// from_point is for knockback
+void request_do_damage(Entity *to, Vec2 from_point, float damage)
+{
+ if(to == NULL) return;
+ if(to->npc_kind != DEATH)
+ {
+  to->damage += damage;
+  to->aggressive = true;
+  to->vel = MulV2F(NormV2(SubV2(to->pos, from_point)), 5.0f);
+ }
 }
 
 
@@ -1569,55 +1592,58 @@ void draw_dialog_panel(Entity *talking_to)
   float padding = 5.0f;
   dialog_panel.upper_left = AddV2(dialog_panel.upper_left, V2(padding, -padding));
   dialog_panel.lower_right = AddV2(dialog_panel.lower_right, V2(-padding, padding));
-
-  float new_line_height = dialog_panel.lower_right.Y;
-  int i = 0;
-  //BUFF_ITER(Sentence, &talking_to->player_dialog)
-  BUFF_ITER_EX(Sentence, &talking_to->player_dialog, talking_to->player_dialog.cur_index-1, it >= &talking_to->player_dialog.data[0], it--)
+  
+  if(aabb_is_valid(dialog_panel))
   {
-   bool player_talking = i % 2 != 0; // iterating backwards
-   Color *colors = calloc(sizeof(*colors), it->cur_index);
-   bool in_astrix = false;
-   for(int char_i = 0; char_i < it->cur_index; char_i++)
+   float new_line_height = dialog_panel.lower_right.Y;
+   int i = 0;
+   //BUFF_ITER(Sentence, &talking_to->player_dialog)
+   BUFF_ITER_EX(Sentence, &talking_to->player_dialog, talking_to->player_dialog.cur_index-1, it >= &talking_to->player_dialog.data[0], it--)
    {
-    bool set_in_astrix_false = false;
-    if(it->data[char_i] == '*')
+    bool player_talking = i % 2 != 0; // iterating backwards
+    Color *colors = calloc(sizeof(*colors), it->cur_index);
+    bool in_astrix = false;
+    for(int char_i = 0; char_i < it->cur_index; char_i++)
     {
-     if(in_astrix)
+     bool set_in_astrix_false = false;
+     if(it->data[char_i] == '*')
      {
-      set_in_astrix_false = true;
+      if(in_astrix)
+      {
+       set_in_astrix_false = true;
+      }
+      else
+      {
+       in_astrix = true;
+      }
+     }
+     if(player_talking)
+     {
+      colors[char_i] = BLACK;
      }
      else
      {
-      in_astrix = true;
+      if(in_astrix)
+      {
+       colors[char_i] = colhex(0xffdf24);
+      }
+      else
+      {
+       colors[char_i] = colhex(0x345e22);
+      }
      }
+     if(set_in_astrix_false) in_astrix = false;
     }
-    if(player_talking)
-    {
-     colors[char_i] = BLACK;
-    }
-    else
-    {
-     if(in_astrix)
-     {
-      colors[char_i] = colhex(0xffdf24);
-     }
-     else
-     {
-      colors[char_i] = colhex(0x345e22);
-     }
-    }
-    if(set_in_astrix_false) in_astrix = false;
+    float measured_line_height = draw_wrapped_text(true, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->data, colors, 0.5f, true, dialog_panel);
+    new_line_height += (new_line_height - measured_line_height);
+    draw_wrapped_text(false, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->data, colors, 0.5f, true, dialog_panel);
+
+    free(colors);
+    i++;
    }
-   float measured_line_height = draw_wrapped_text(true, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->data, colors, 0.5f, true, dialog_panel);
-   new_line_height += (new_line_height - measured_line_height);
-   draw_wrapped_text(false, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->data, colors, 0.5f, true, dialog_panel);
 
-   free(colors);
-   i++;
+   dbgrect(dialog_panel);
   }
-
-  dbgrect(dialog_panel);
  }
 
 }
@@ -1819,6 +1845,10 @@ void frame(void)
 
    if(it->is_npc)
    {
+    if(it->npc_kind == DEATH && it->going_to_target)
+    {
+     it->pos = LerpV2(it->pos, dt*5.0f, it->target_goto);
+    }
     if(it->aggressive)
     {
      draw_dialog_panel(it);
@@ -1875,13 +1905,10 @@ void frame(void)
     Entity *from_bullet = it;
     BUFF_ITER(Overlap, &over) if(it->e != from_bullet)
     {
-     if(!it->is_tile)
+     if(!it->is_tile && !(it->e->npc_kind == DEATH))
      {
       // knockback and damage
-      Entity *hit = it->e;
-      if(hit->is_npc) hit->aggressive = true;
-      hit->vel = MulV2F(NormV2(SubV2(hit->pos, from_bullet->pos)), 5.0f);
-      hit->damage += 0.2f;
+      request_do_damage(it->e, from_bullet->pos, 0.2f);
       *from_bullet = (Entity){0};
      }
     }
@@ -1997,14 +2024,9 @@ void frame(void)
     Overlapping overlapping_weapon = get_overlapping(cur_level, weapon_aabb);
     BUFF_ITER(Overlap, &overlapping_weapon)
     {
-     if(!it->is_tile)
+     if(!it->is_tile && it->e != player)
      {
-      Entity *e = it->e;
-      if(e->is_character)
-      {
-       e->aggressive = true;
-       e->damage += 0.2f;
-      }
+      request_do_damage(it->e, player->pos, 0.2f);
      }
     }
 
