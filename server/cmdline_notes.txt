@@ -1,0 +1,5 @@
+set key to OPENAI_API_KEY environment variable
+openai api fine_tunes.create -t [training data jsonl file] // create fine tune
+openai api fine_tunes.list  // list fine tuning
+openai api fine_tunes.get -i [fine tune job id] // get status
+openai api fine_tunes.cancel -i [fine tune job id] // cancel

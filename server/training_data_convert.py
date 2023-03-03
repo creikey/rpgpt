@@ -21,9 +21,10 @@ with open("converted_training.jsonl", "w") as w:
 
                 for s_i in range(len(sentences)):
                     s = sentences[s_i]
-                    if s.startswith("Old Man:"):
+                    if not s.startswith("Player:"):
+                        npc_prompt = s.split(" ")[0]
                         prompt = "\\n".join(sentences[:s_i]).replace('"', '\\"')
-                        prompt += "\\nOld Man: \\\""
+                        prompt += f"\\n{npc_prompt} \\\""
                         completion = s.split(":")[1].split("\"")[1].replace('"', '\\"')
                         completion += '\\"'
                         #print(f"Prompt: {prompt} | \n\nCompletion: {completion}\n\n")
