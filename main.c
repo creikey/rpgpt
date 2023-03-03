@@ -74,6 +74,7 @@ typedef struct AnimatedTile
 typedef struct TileSet
 {
  sg_image *img;
+ uint16_t first_gid;
  AnimatedTile animated[128];
 } TileSet;
 
@@ -126,7 +127,7 @@ typedef BUFF(char, MAX_SENTENCE_LENGTH) Sentence;
 
 
 // even indexed dialogs (0,2,4) are player saying stuff, odds are the character from GPT
-typedef BUFF(Sentence, 6*2) Dialog; // six back and forths. must be even number or bad things happen (I think)
+typedef BUFF(Sentence, 2*6) Dialog; // six back and forths. must be even number or bad things happen (I think)
 
 typedef struct Entity
 {
@@ -170,13 +171,14 @@ typedef struct Overlap
 typedef BUFF(Overlap, 16) Overlapping;
 
 #define LEVEL_TILES 60
+#define LAYERS 2
 #define TILE_SIZE 32 // in pixels
 #define MAX_ENTITIES 128
 #define PLAYER_SPEED 3.5f // in meters per second
 #define PLAYER_ROLL_SPEED 7.0f
 typedef struct Level
 {
- TileInstance tiles[LEVEL_TILES][LEVEL_TILES];
+ TileInstance tiles[LAYERS][LEVEL_TILES][LEVEL_TILES];
  Entity initial_entities[MAX_ENTITIES]; // shouldn't be directly modified, only used to initialize entities on loading of level
 } Level;
 
@@ -227,7 +229,7 @@ void add_new_npc_sentence(Entity *npc, char *sentence)
   {
    if(sentence[i] == '*')
    {
-    if(strcmp(match_buffer.data, "becomes aggressive") == 0)
+    if(strcmp(match_buffer.data, "fights player") == 0)
     {
      npc->aggressive = true;
     }
@@ -288,12 +290,12 @@ void end_text_input(char *what_player_said)
   BUFF(char, 4000) prompt_buff = {0};
   BUFF(char *, 100) to_join = {0};
 
-  //BUFF_APPEND(&to_join, "This is dialog which takes place in a simple action RPG, where the player can only talk to NPCs, or fight. The characters influence the game world by saying specific actions from these possibilities: [*becomes aggressive*]. They don't say anything else that has '*' between them. Example dialog with an Old Man NPC:\nPlayer: \"Hello old man. Do you know that you're in a video game?\"\nOld Man: \"What are you talking about, young boy? What is a 'video game'?\"\nPlayer: \"You have no idea. You look ugly and stupid.\"\nOld Man: \"How juvenile! That's it, *becomes aggressive*\"\n\nThe NPCs exist on a small lush island, on a remote village, in a fantasy setting where monsters roam freely, posing a danger to the NPCs, and the player. They don't know about modern technology. They are very slow to say *becomes aggressive*, because doing so means killing the player, their friends, and potentially themselves. But if the situation demands it, they will not hesitate to open fire.\n");
+  //BUFF_APPEND(&to_join, "This is dialog which takes place in a simple action RPG, where the player can only talk to NPCs, or fight. The characters influence the game world by saying specific actions from these possibilities: [*fights player*]. They don't say anything else that has '*' between them. Example dialog with an Old Man NPC:\nPlayer: \"Hello old man. Do you know that you're in a video game?\"\nOld Man: \"What are you talking about, young boy? What is a 'video game'?\"\nPlayer: \"You have no idea. You look ugly and stupid.\"\nOld Man: \"How juvenile! That's it, *fights player*\"\n\nThe NPCs exist on a small lush island, on a remote village, in a fantasy setting where monsters roam freely, posing a danger to the NPCs, and the player. They don't know about modern technology. They are very slow to say *fights player*, because doing so means killing the player, their friends, and potentially themselves. But if the situation demands it, they will not hesitate to open fire.\n");
   
   // characters prompt
   assert(player->talking_to->kind == ENTITY_OLD_MAN);
-  //BUFF_APPEND(&to_join, "The player is talking to an old man who is standing around on the island. He's eager to bestow his wisdom upon the young player, but the player must act polite, not rude. If the player acts rude, the old man will say exactly the text '*becomes aggressive*' as shown in the above example, turning the interaction into a skirmish, where the old man takes out his well concealed shotgun. The old man is also a bit of a joker.\n\n");
-  BUFF_APPEND(&to_join, "Dialog between an old man and a player in a video game. The player can only attack or talk in the game. The old man can perform these actions by saying them: [*becomes aggressive*]\n--\nPlayer: \"Who are you?\"\nOld Man: \"Why I'm just a simple old man, minding my business. What brings you here?\"\nPlayer: \"I'm not sure. What needs doing?\"\nOld Man: \"Nothing much. It's pretty boring around here. Monsters are threatening our village though.\"\nPlayer: \"Holy shit! I better get to it\"\nOld Man: \"He he, certainly! Good luck!\"\n--\nPlayer: \"Man fuck you old man\"\nOld Man: \"You better watch your tongue young man. Unless you're polite I'll be forced to attack you, peace is important around here!\"\nPlayer: \"Man fuck your peace\"\nOld Man: \"That's it! *becomes aggressive*\"\n--\n");
+  //BUFF_APPEND(&to_join, "The player is talking to an old man who is standing around on the island. He's eager to bestow his wisdom upon the young player, but the player must act polite, not rude. If the player acts rude, the old man will say exactly the text '*fights player*' as shown in the above example, turning the interaction into a skirmish, where the old man takes out his well concealed shotgun. The old man is also a bit of a joker.\n\n");
+  //BUFF_APPEND(&to_join, "Dialog between an old man and a player in a video game. The player can only attack or talk in the game. The old man can perform these actions by saying them: [*fights player*]\n--\nPlayer: \"Who are you?\"\nOld Man: \"Why I'm just a simple old man, minding my business. What brings you here?\"\nPlayer: \"I'm not sure. What needs doing?\"\nOld Man: \"Nothing much. It's pretty boring around here. Monsters are threatening our village though.\"\nPlayer: \"Holy shit! I better get to it\"\nOld Man: \"He he, certainly! Good luck!\"\n--\nPlayer: \"Man fuck you old man\"\nOld Man: \"You better watch your tongue young man. Unless you're polite I'll be forced to attack you, peace is important around here!\"\nPlayer: \"Man fuck your peace\"\nOld Man: \"That's it! *fights player*\"\n--\n");
 
   // all the dialog
   int i = 0;
@@ -318,6 +320,9 @@ void end_text_input(char *what_player_said)
   }
 
   const char * prompt = prompt_buff.data;
+#ifdef DEVTOOLS
+  Log("Prompt is: %s\n", prompt);
+#endif
 #ifdef WEB
   // fire off generation request, save id
   int req_id = EM_ASM_INT({
@@ -326,7 +331,7 @@ void end_text_input(char *what_player_said)
   player->talking_to->gen_request_id = req_id;
 #endif
 #ifdef DESKTOP
-  add_new_npc_sentence(player->talking_to, "response to the player. Response responseResponse *becomes aggressive* responseResponse responseResponse responseResponse responseResponse responseResponse responseResponse response");
+  add_new_npc_sentence(player->talking_to, "response to the player. Response responseResponse fights player responseResponse responseResponse ");
 #endif
  }
 }
@@ -488,7 +493,7 @@ AABB entity_aabb(Entity *e)
  return centered_aabb(e->pos, entity_aabb_size(e));
 }
 
-TileInstance get_tile(Level *l, TileCoord t)
+TileInstance get_tile_layer(Level *l, int layer, TileCoord t)
 {
  bool out_of_bounds = false;
  out_of_bounds |= t.x < 0;
@@ -497,7 +502,12 @@ TileInstance get_tile(Level *l, TileCoord t)
  out_of_bounds |= t.y >= LEVEL_TILES;
  //assert(!out_of_bounds);
  if(out_of_bounds) return (TileInstance){0};
- return l->tiles[t.y][t.x];
+ return l->tiles[layer][t.y][t.x];
+}
+
+TileInstance get_tile(Level *l, TileCoord t)
+{
+ return get_tile_layer(l, 0, t);
 }
 
 sg_image load_image(const char *path)
@@ -1509,7 +1519,7 @@ void draw_dialog_panel(Entity *talking_to)
   //BUFF_ITER(Sentence, &talking_to->player_dialog)
   BUFF_ITER_EX(Sentence, &talking_to->player_dialog, talking_to->player_dialog.cur_index-1, it >= &talking_to->player_dialog.data[0], it--)
   {
-   bool player_talking = i % 2 != 0;
+   bool player_talking = i % 2 != 0; // iterating backwards
    Color *colors = calloc(sizeof(*colors), it->cur_index);
    bool in_astrix = false;
    for(int char_i = 0; char_i < it->cur_index; char_i++)
@@ -1615,42 +1625,59 @@ void frame(void)
 #if 1
  Level * cur_level = &level_level0;
 
- for(int row = 0; row < LEVEL_TILES; row++)
+ for(int layer = 0; layer < LAYERS; layer++)
  {
-  for(int col = 0; col < LEVEL_TILES; col++)
-
+  for(int row = 0; row < LEVEL_TILES; row++)
   {
-   TileCoord cur_coord = { col, row };
-   TileInstance cur = get_tile(cur_level, cur_coord);
-   TileSet tileset = tileset_ruins_animated;
-   if(cur.kind != 0)
+   for(int col = 0; col < LEVEL_TILES; col++)
    {
-    Vec2 tile_size = V2(TILE_SIZE, TILE_SIZE);
-
-    sg_image tileset_image = *tileset.img;
-
-    Vec2 tile_image_coord = tile_id_to_coord(tileset_image, tile_size, cur.kind);
-
-    AnimatedTile *anim = NULL;
-    for(int i = 0; i < sizeof(tileset.animated)/sizeof(*tileset.animated); i++)
+    TileCoord cur_coord = { col, row };
+    TileInstance cur = get_tile_layer(cur_level, layer, cur_coord);
+    
+    int tileset_i = 0;
+    uint16_t max_gid = 0;
+    for(int i = 0; i < ARRLEN(tilesets); i++)
     {
-     if(tileset.animated[i].id_from == cur.kind-1)
+     TileSet tileset = tilesets[i];
+     if(cur.kind > tileset.first_gid && tileset.first_gid > max_gid)
      {
-      anim = &tileset.animated[i];
+      tileset_i = i;
+      max_gid = tileset.first_gid;
      }
     }
-    if(anim)
+
+    TileSet tileset = tilesets[tileset_i];
+    cur.kind -= tileset.first_gid - 1;
+
+    if(cur.kind != 0)
     {
-     double time_per_frame = 0.1;
-     int frame_index = (int)(elapsed_time/time_per_frame) % anim->num_frames;
-     tile_image_coord = tile_id_to_coord(tileset_image, tile_size, anim->frames[frame_index]+1);
+     Vec2 tile_size = V2(TILE_SIZE, TILE_SIZE);
+
+     sg_image tileset_image = *tileset.img;
+
+     Vec2 tile_image_coord = tile_id_to_coord(tileset_image, tile_size, cur.kind);
+
+     AnimatedTile *anim = NULL;
+     for(int i = 0; i < sizeof(tileset.animated)/sizeof(*tileset.animated); i++)
+     {
+      if(tileset.animated[i].id_from == cur.kind-1)
+      {
+       anim = &tileset.animated[i];
+      }
+     }
+     if(anim)
+     {
+      double time_per_frame = 0.1;
+      int frame_index = (int)(elapsed_time/time_per_frame) % anim->num_frames;
+      tile_image_coord = tile_id_to_coord(tileset_image, tile_size, anim->frames[frame_index]+1);
+     }
+
+     AABB region;
+     region.upper_left = tile_image_coord;
+     region.lower_right = AddV2(region.upper_left, tile_size);
+
+     draw_quad((DrawParams){true, tile_quad(cur_coord), tileset_image, region, WHITE});
     }
-
-    AABB region;
-    region.upper_left = tile_image_coord;
-    region.lower_right = AddV2(region.upper_left, tile_size);
-
-    draw_quad((DrawParams){true, tile_quad(cur_coord), tileset_image, region, WHITE});
    }
   }
  }
@@ -1817,7 +1844,14 @@ void frame(void)
      float closest_talkto_dist = INFINITY;
      BUFF_ITER(Overlap, &possible_dialogs)
      {
-      if(!it->is_tile && it->e->kind == ENTITY_OLD_MAN && !it->e->aggressive)
+      bool entity_talkable = true;
+      if(entity_talkable) entity_talkable = entity_talkable && !it->is_tile;
+      if(entity_talkable) entity_talkable = entity_talkable && it->e->kind == ENTITY_OLD_MAN;
+      if(entity_talkable) entity_talkable = entity_talkable && !it->e->aggressive;
+#ifdef WEB
+      if(entity_talkable) entity_talkable = entity_talkable && it->e->gen_request_id == 0;
+#endif
+      if(entity_talkable)
       {
        float dist = LenV2(SubV2(it->e->pos, player->pos));
        if(dist < closest_talkto_dist)

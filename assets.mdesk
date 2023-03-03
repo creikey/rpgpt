@@ -30,6 +30,10 @@
 {
  filepath: "copyrighted/animated_terrain.png",
 }
+@image ruins_ancient:
+{
+ filepath: "copyrighted/ruins_ancient.png",
+}
 @image hurt_vignette:
 {
  filepath: "hurt_vignette.png",
@@ -50,6 +54,13 @@
 {
  image: image_animated_terrain,
  filepath: "copyrighted/ruins_animated.tsx",
+ firstgid: 1,
+}
+@tileset ruins_ancient:
+{
+ image: image_ruins_ancient,
+ filepath: "copyrighted/ruins_ancient.tsx",
+ firstgid: 2597,
 }
 @level level0:
 {
