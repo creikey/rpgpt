@@ -1270,8 +1270,8 @@ bool show_devtools = true;
 
 void dbgsquare(Vec2 at)
 {
- if(!show_devtools) return;
 #ifdef DEVTOOLS
+ if(!show_devtools) return;
  colorquad(true, quad_centered(at, V2(10.0, 10.0)), RED);
 #else
  (void)at;
@@ -1280,8 +1280,8 @@ void dbgsquare(Vec2 at)
 
 void dbgline(Vec2 from, Vec2 to)
 {
- if(!show_devtools) return;
 #ifdef DEVTOOLS
+ if(!show_devtools) return;
  line(from, to, 2.0f, RED);
 #else
  (void)from;
