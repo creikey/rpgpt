@@ -17,6 +17,10 @@ copy "Undead - Pixel Art Characters\Undead - Pixel Art Characters\Sprites\Wraith
 rmdir /S /q gen
 mkdir gen
 
+pushd server
+python training_data_convert.py
+popd
+
 @REM shaders
 thirdparty\sokol-shdc.exe --input quad.glsl --output gen\quad-sapp.glsl.h --slang glsl100:hlsl5:metal_macos || goto :error
 

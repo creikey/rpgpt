@@ -1,0 +1,9 @@
+ - make npcs resiliant to player asking for stuff, all cases of player demanding things
+ - ask death to come help you fight, new action
+ - Space and e for attack and roll, tooltip
+ - Get rid of enters in javascript input box
+
+ - Escape exits typing
+ - Asking to jerk you old man can jerk off player to give him health
+ - Save every request and response
+ - Dont' flip player direction when youw alk vertically

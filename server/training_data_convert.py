@@ -1,3 +1,16 @@
+
+def general_prompt(actions):
+    return f"This is a conversation between a player and an NPC in a game, where the npc performs actions by saying one of {actions}. The NPC doesn't say anything in stars that isn't in that list between [ and ]. The player is wearing a full suit of knight armor."
+
+prompts = {
+    "Death" : general_prompt("[*moves*]") + " The NPC, death, is a standoffish character who responds in all capitals and short terse sentences. He is blocking the player and will let them pass if the player asks.",
+    "Old Man": general_prompt("[*fights player*]") + " The NPC, the old man, is a quirky slightly sexual old man who just wants the player to chill out. If the player aggravates him he will fight them with his shotgun.",
+}
+
+with open("../gen/prompts.gen.h", "w") as w:
+    for p in prompts:
+        w.write(f"#define PROMPT_{p.upper().replace(' ', '_')} \"{prompts[p]}\\n\"\n")
+
 with open("converted_training.jsonl", "w") as w:
     with open("training_data.txt", "r") as f:
         text = f.read()
@@ -22,9 +35,10 @@ with open("converted_training.jsonl", "w") as w:
                 for s_i in range(len(sentences)):
                     s = sentences[s_i]
                     if not s.startswith("Player:"):
-                        npc_prompt = s.split(" ")[0]
-                        prompt = "\\n".join(sentences[:s_i]).replace('"', '\\"')
-                        prompt += f"\\n{npc_prompt} \\\""
+                        npc_name_prompt = s.split(":")[0]
+                        prompt = prompts[npc_name_prompt] + "\\n"
+                        prompt += "\\n".join(sentences[:s_i]).replace('"', '\\"')
+                        prompt += f"\\n{npc_name_prompt} \\\""
                         completion = s.split(":")[1].split("\"")[1].replace('"', '\\"')
                         completion += '\\"'
                         #print(f"Prompt: {prompt} | \n\nCompletion: {completion}\n\n")

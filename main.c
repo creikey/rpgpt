@@ -23,10 +23,16 @@
 
 #include <math.h>
 
+#define PROFILING_IMPL
+#ifdef DEVTOOLS
+#define PROFILING
+#endif
+#include "profiling.h"
+
 #define ARRLEN(x) ((sizeof(x)/sizeof(0[x])) / ((size_t)(!(sizeof(x) % sizeof(0[x])))))
 #define ENTITIES_ITER(ents) for(Entity *it = ents; it < ents + ARRLEN(ents); it++) if(it->exists)
 
-#define Log(...) { printf("Log | "); printf(__VA_ARGS__); }
+#define Log(...) { printf("Log %d | ", __LINE__); printf(__VA_ARGS__); }
 
 // so can be grep'd and removed
 #define dbgprint(...) { printf("Debug | %s:%d | ", __FILE__, __LINE__); printf(__VA_ARGS__); }
@@ -182,7 +188,7 @@ typedef struct Overlap
 
 typedef BUFF(Overlap, 16) Overlapping;
 
-#define LEVEL_TILES 60
+#define LEVEL_TILES 150
 #define LAYERS 2
 #define TILE_SIZE 32 // in pixels
 #define MAX_ENTITIES 128
@@ -196,8 +202,8 @@ typedef struct Level
 
 typedef struct TileCoord
 {
- int x;
- int y;
+ int x; // column
+ int y; // row
 } TileCoord;
 
 // no alignment etc because lazy
@@ -284,6 +290,7 @@ void request_do_damage(Entity *to, Vec2 from_point, float damage)
  }
 }
 
+#include "prompts.gen.h"
 
 // just straight up gpt generation function, calls to golang backend
 char *get_ai_response(char* prompt);
@@ -322,16 +329,22 @@ void end_text_input(char *what_player_said)
   BUFF(char *, 100) to_join = {0};
 
   //BUFF_APPEND(&to_join, "This is dialog which takes place in a simple action RPG, where the player can only talk to NPCs, or fight. The characters influence the game world by saying specific actions from these possibilities: [*fights player*]. They don't say anything else that has '*' between them. Example dialog with an Old Man NPC:\nPlayer: \"Hello old man. Do you know that you're in a video game?\"\nOld Man: \"What are you talking about, young boy? What is a 'video game'?\"\nPlayer: \"You have no idea. You look ugly and stupid.\"\nOld Man: \"How juvenile! That's it, *fights player*\"\n\nThe NPCs exist on a small lush island, on a remote village, in a fantasy setting where monsters roam freely, posing a danger to the NPCs, and the player. They don't know about modern technology. They are very slow to say *fights player*, because doing so means killing the player, their friends, and potentially themselves. But if the situation demands it, they will not hesitate to open fire.\n");
-  
+
+
   // characters prompt
   Entity *talking = player->talking_to;
   char *character_prompt = NULL;
+  Log("doing prompt\n");
   if(talking->npc_kind == OLD_MAN)
   {
+   BUFF_APPEND(&to_join, PROMPT_OLD_MAN);
+   Log("doing prompt old man\n");
    character_prompt = "Old Man: \"";
   }
   else if(talking->npc_kind == DEATH)
   {
+   BUFF_APPEND(&to_join, PROMPT_DEATH);
+   Log("Doing prompt death\n");
    character_prompt = "Death: \"";
   }
   else
@@ -373,7 +386,7 @@ void end_text_input(char *what_player_said)
 
   const char * prompt = prompt_buff.data;
 #ifdef DEVTOOLS
-  Log("Prompt is: %s\n", prompt);
+  Log("Prompt: \"%s\"\n", prompt);
 #endif
 #ifdef WEB
   // fire off generation request, save id
@@ -727,7 +740,7 @@ void reset_level()
 void init(void)
 {
  sg_setup(&(sg_desc){
-  .context = sapp_sgcontext(),
+   .context = sapp_sgcontext(),
   });
  stm_setup();
 
@@ -896,6 +909,13 @@ Vec2 screen_to_world(Vec2 screen)
  return to_return;
 }
 
+AABB aabb_at(Vec2 at, Vec2 size)
+{
+ return (AABB){
+  .upper_left = at,
+  .lower_right = AddV2(at, V2(size.x, -size.y)),
+ };
+}
 
 Quad quad_at(Vec2 at, Vec2 size)
 {
@@ -916,7 +936,6 @@ Quad quad_at(Vec2 at, Vec2 size)
 Quad tile_quad(TileCoord coord)
 {
  Quad to_return = quad_at(tilecoord_to_world(coord), V2(TILE_SIZE, TILE_SIZE));
-
 
  return to_return;
 }
@@ -1076,6 +1095,8 @@ Vec2 into_clip_space(Vec2 screen_space_point)
 // The image region is in pixel space of the image
 void draw_quad(DrawParams d)
 {
+ PROFILE_SCOPE("quad")
+ {
  quad_fs_params_t params = {0};
  params.tint[0] = d.tint.R;
  params.tint[1] = d.tint.G;
@@ -1137,7 +1158,7 @@ void draw_quad(DrawParams d)
  {
   //dbgprint("Out of screen, cam aabb %f %f %f %f\n", cam_aabb.upper_left.X, cam_aabb.upper_left.Y, cam_aabb.lower_right.X, cam_aabb.lower_right.Y);
   //dbgprint("Points boundig box %f %f %f %f\n", points_bounding_box.upper_left.X, points_bounding_box.upper_left.Y, points_bounding_box.lower_right.X, points_bounding_box.lower_right.Y);
-  return; // cull out of screen quads
+  continue; // cull out of screen quads
  }
 
  float new_vertices[ (2 + 2)*4 ] = {0};
@@ -1186,6 +1207,7 @@ void draw_quad(DrawParams d)
  PUSH_VERTEX(new_vertices[3*4]);
 #undef PUSH_VERTEX
 
+}
 }
 
 void swap(Vec2 *p1, Vec2 *p2)
@@ -1266,6 +1288,7 @@ void line(Vec2 from, Vec2 to, float line_width, Color color)
 
 #ifdef DEVTOOLS
 bool show_devtools = true;
+extern bool profiling;
 #endif
 
 void dbgsquare(Vec2 at)
@@ -1661,115 +1684,136 @@ bool mouse_frozen = false;
 #endif
 void frame(void)
 {
-#if 0
+ PROFILE_SCOPE("frame")
  {
+#if 0
+  {
+   sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
+   sg_apply_pipeline(state.pip);
+
+   //colorquad(false, quad_at(V2(0.0, 100.0), V2(100.0f, 100.0f)), RED);
+   sg_image img = image_wonky_mystery_tile;
+   AABB region = full_region(img);
+   //region.lower_right.X *= 0.5f;
+   draw_quad((DrawParams){false,quad_at(V2(0.0, 100.0), V2(100.0f, 100.0f)), img, region, WHITE});
+
+   sg_end_pass();
+   sg_commit();
+   reset(&scratch);
+  }
+  return;
+#endif
+
+  uint64_t time_start_frame = stm_now();
+  // elapsed_time
+  double dt_double = 0.0;
+  {
+   dt_double = stm_sec(stm_diff(stm_now(), last_frame_time));
+   dt_double = fmin(dt_double, 5.0 / 60.0); // clamp dt at maximum 5 frames, avoid super huge dt
+   elapsed_time += dt_double;
+   last_frame_time = stm_now();
+  }
+  float dt = (float)dt_double;
+
+  Vec2 movement = V2(
+    (float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A],
+    (float)keydown[SAPP_KEYCODE_W] - (float)keydown[SAPP_KEYCODE_S]
+    );
+  bool attack = keydown[SAPP_KEYCODE_J];
+  bool roll = keydown[ROLL_KEY];
+  if(LenV2(movement) > 1.0)
+  {
+   movement = NormV2(movement);
+  }
   sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
   sg_apply_pipeline(state.pip);
 
-  //colorquad(false, quad_at(V2(0.0, 100.0), V2(100.0f, 100.0f)), RED);
-  sg_image img = image_wonky_mystery_tile;
-  AABB region = full_region(img);
-  //region.lower_right.X *= 0.5f;
-  draw_quad((DrawParams){false,quad_at(V2(0.0, 100.0), V2(100.0f, 100.0f)), img, region, WHITE});
+  Level * cur_level = &level_level0;
 
-  sg_end_pass();
-  sg_commit();
-  reset(&scratch);
- }
- return;
-#endif
-
- uint64_t time_start_frame = stm_now();
- // elapsed_time
- double dt_double = 0.0;
- {
-  dt_double = stm_sec(stm_diff(stm_now(), last_frame_time));
-  dt_double = fmin(dt_double, 5.0 / 60.0); // clamp dt at maximum 5 frames, avoid super huge dt
-  elapsed_time += dt_double;
-  last_frame_time = stm_now();
- }
- float dt = (float)dt_double;
-
- Vec2 movement = V2(
-  (float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A],
-  (float)keydown[SAPP_KEYCODE_W] - (float)keydown[SAPP_KEYCODE_S]
- );
- bool attack = keydown[SAPP_KEYCODE_J];
- bool roll = keydown[ROLL_KEY];
- if(LenV2(movement) > 1.0)
- {
-  movement = NormV2(movement);
- }
- sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
- sg_apply_pipeline(state.pip);
-
- // tilemap
+  // tilemap
 #if 1
- Level * cur_level = &level_level0;
-
- for(int layer = 0; layer < LAYERS; layer++)
- {
-  for(int row = 0; row < LEVEL_TILES; row++)
+  PROFILE_SCOPE("tilemap")
   {
-   for(int col = 0; col < LEVEL_TILES; col++)
+   Vec2 starting_world = AddV2(world_cam_aabb().upper_left, V2(-TILE_SIZE, TILE_SIZE));
+   Vec2 ending_world = AddV2(world_cam_aabb().lower_right, V2(TILE_SIZE, -TILE_SIZE));
+
+   dbgsquare(starting_world);
+   dbgsquare(starting_world);
+
+   TileCoord starting_point = world_to_tilecoord(starting_world);
+   TileCoord ending_point = world_to_tilecoord(ending_world);
+
+   int starting_row = starting_point.y;
+   int ending_row = ending_point.y;
+
+   int starting_col = starting_point.x;
+   int ending_col = ending_point.x;
+
+   for(int layer = 0; layer < LAYERS; layer++)
    {
-    TileCoord cur_coord = { col, row };
-    TileInstance cur = get_tile_layer(cur_level, layer, cur_coord);
-    
-    int tileset_i = 0;
-    uint16_t max_gid = 0;
-    for(int i = 0; i < ARRLEN(tilesets); i++)
+    for(int row = starting_row; row < ending_row; row++)
     {
-     TileSet tileset = tilesets[i];
-     if(cur.kind > tileset.first_gid && tileset.first_gid > max_gid)
+     for(int col = starting_col; col < ending_col; col++)
      {
-      tileset_i = i;
-      max_gid = tileset.first_gid;
-     }
-    }
+      TileCoord cur_coord = { col, row };
+      dbgrect(aabb_at(tilecoord_to_world(cur_coord), V2(TILE_SIZE, TILE_SIZE)));
+      TileInstance cur = get_tile_layer(cur_level, layer, cur_coord);
 
-    TileSet tileset = tilesets[tileset_i];
-    cur.kind -= tileset.first_gid - 1;
-
-    if(cur.kind != 0)
-    {
-     Vec2 tile_size = V2(TILE_SIZE, TILE_SIZE);
-
-     sg_image tileset_image = *tileset.img;
-
-     Vec2 tile_image_coord = tile_id_to_coord(tileset_image, tile_size, cur.kind);
-
-     AnimatedTile *anim = NULL;
-     for(int i = 0; i < sizeof(tileset.animated)/sizeof(*tileset.animated); i++)
-     {
-      if(tileset.animated[i].id_from == cur.kind-1)
+      int tileset_i = 0;
+      uint16_t max_gid = 0;
+      for(int i = 0; i < ARRLEN(tilesets); i++)
       {
-       anim = &tileset.animated[i];
+       TileSet tileset = tilesets[i];
+       if(cur.kind > tileset.first_gid && tileset.first_gid > max_gid)
+       {
+        tileset_i = i;
+        max_gid = tileset.first_gid;
+       }
+      }
+
+      TileSet tileset = tilesets[tileset_i];
+      cur.kind -= tileset.first_gid - 1;
+
+      if(cur.kind != 0)
+      {
+       Vec2 tile_size = V2(TILE_SIZE, TILE_SIZE);
+
+       sg_image tileset_image = *tileset.img;
+
+       Vec2 tile_image_coord = tile_id_to_coord(tileset_image, tile_size, cur.kind);
+
+       AnimatedTile *anim = NULL;
+       for(int i = 0; i < sizeof(tileset.animated)/sizeof(*tileset.animated); i++)
+       {
+        if(tileset.animated[i].id_from == cur.kind-1)
+        {
+         anim = &tileset.animated[i];
+        }
+       }
+       if(anim)
+       {
+        double time_per_frame = 0.1;
+        int frame_index = (int)(elapsed_time/time_per_frame) % anim->num_frames;
+        tile_image_coord = tile_id_to_coord(tileset_image, tile_size, anim->frames[frame_index]+1);
+       }
+
+       AABB region;
+       region.upper_left = tile_image_coord;
+       region.lower_right = AddV2(region.upper_left, tile_size);
+
+       draw_quad((DrawParams){true, tile_quad(cur_coord), tileset_image, region, WHITE});
       }
      }
-     if(anim)
-     {
-      double time_per_frame = 0.1;
-      int frame_index = (int)(elapsed_time/time_per_frame) % anim->num_frames;
-      tile_image_coord = tile_id_to_coord(tileset_image, tile_size, anim->frames[frame_index]+1);
-     }
-
-     AABB region;
-     region.upper_left = tile_image_coord;
-     region.lower_right = AddV2(region.upper_left, tile_size);
-
-     draw_quad((DrawParams){true, tile_quad(cur_coord), tileset_image, region, WHITE});
     }
    }
   }
- }
 #endif
 
- assert(player != NULL);
+  assert(player != NULL);
 
 #ifdef DEVTOOLS
   dbgsquare(screen_to_world(mouse_pos));
-  
+
   // tile coord
   {
    TileCoord hovering = world_to_tilecoord(screen_to_world(mouse_pos));
@@ -1785,11 +1829,12 @@ void frame(void)
   }
 
   // statistics
+  PROFILE_SCOPE("statistics")
   {
    Vec2 pos = V2(0.0, screen_size().Y);
    int num_entities = 0;
    ENTITIES_ITER(entities) num_entities++;
-   char *stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nEntities: %d\nDraw calls: %d\n", dt*1000.0, last_frame_processing_time*1000.0, num_entities, num_draw_calls);
+   char *stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nEntities: %d\nDraw calls: %d\nProfiling: %s\n", dt*1000.0, last_frame_processing_time*1000.0, num_entities, num_draw_calls, profiling ? "yes" : "no");
    AABB bounds = draw_text((TextParams){false, true, stats, pos, BLACK, 1.0f});
    pos.Y -= bounds.upper_left.Y - screen_size().Y;
    bounds = draw_text((TextParams){false, true, stats, pos, BLACK, 1.0f});
@@ -1801,6 +1846,8 @@ void frame(void)
 #endif // devtools
 
   // process entities
+  
+  PROFILE_SCOPE("entity processing")
   ENTITIES_ITER(entities)
   {
 #ifdef WEB
@@ -1810,7 +1857,7 @@ void frame(void)
     draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, V2(0.0, 50.0)), V2(100.0,100.0)), IMG(image_thinking), WHITE});
     int status = EM_ASM_INT({
       return get_generation_request_status($0);
-    }, it->gen_request_id);
+      }, it->gen_request_id);
     if(status == 0)
     {
      // simply not done yet
@@ -1824,7 +1871,7 @@ void frame(void)
       EM_ASM({
         let generation = get_generation_request_content($0);
         stringToUTF8(generation, $1, $2);
-      }, it->gen_request_id, sentence_str, ARRLEN(sentence_str));
+        }, it->gen_request_id, sentence_str, ARRLEN(sentence_str));
 
       add_new_npc_sentence(it, sentence_str);
 
@@ -1924,6 +1971,7 @@ void frame(void)
   }
 
   // process player character
+  PROFILE_SCOPE("process player character")
   {
    Vec2 character_sprite_pos = AddV2(player->pos, V2(0.0, 20.0f));
 
@@ -1975,7 +2023,7 @@ void frame(void)
     if(player->state == CHARACTER_TALKING)
     {
      assert(player->talking_to != NULL);
-     
+
      if(player->talking_to->aggressive || !player->exists)
      {
       player->state = CHARACTER_IDLE;
@@ -2126,19 +2174,24 @@ void frame(void)
    }
   }
 
-  flush_quad_batch();
-  sg_end_pass();
-  sg_commit();
+  PROFILE_SCOPE("flush rendering")
+  {
+   flush_quad_batch();
+   sg_end_pass();
+   sg_commit();
+  }
 
   last_frame_processing_time = stm_sec(stm_diff(stm_now(),time_start_frame));
 
   reset(&scratch);
   roll_just_pressed = false;
+ }
 }
 
 void cleanup(void)
 {
  sg_shutdown();
+ Log("Cleaning up\n");
 }
 
 void event(const sapp_event *e)
@@ -2181,6 +2234,20 @@ void event(const sapp_event *e)
   if(e->key_code == SAPP_KEYCODE_T)
   {
    mouse_frozen = !mouse_frozen;
+  }
+  if(e->key_code == SAPP_KEYCODE_P)
+  {
+   profiling = !profiling;
+   if(profiling)
+   {
+    init_profiling("rpgpt.spall");
+    init_profiling_mythread(0);
+   }
+   else
+   {
+    end_profiling_mythread();
+    end_profiling();
+   }
   }
   if(e->key_code == SAPP_KEYCODE_7)
   {
