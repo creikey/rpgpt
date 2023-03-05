@@ -25,7 +25,9 @@
 
 #define PROFILING_IMPL
 #ifdef DEVTOOLS
+#ifdef DESKTOP
 #define PROFILING
+#endif
 #endif
 #include "profiling.h"
 
@@ -1288,7 +1290,11 @@ void line(Vec2 from, Vec2 to, float line_width, Color color)
 
 #ifdef DEVTOOLS
 bool show_devtools = true;
+#ifdef PROFILING
 extern bool profiling;
+#else
+bool profiling;
+#endif
 #endif
 
 void dbgsquare(Vec2 at)
@@ -1730,15 +1736,12 @@ void frame(void)
 
   Level * cur_level = &level_level0;
 
-  // tilemap
+  // tilemap drawing
 #if 1
   PROFILE_SCOPE("tilemap")
   {
    Vec2 starting_world = AddV2(world_cam_aabb().upper_left, V2(-TILE_SIZE, TILE_SIZE));
    Vec2 ending_world = AddV2(world_cam_aabb().lower_right, V2(TILE_SIZE, -TILE_SIZE));
-
-   dbgsquare(starting_world);
-   dbgsquare(starting_world);
 
    TileCoord starting_point = world_to_tilecoord(starting_world);
    TileCoord ending_point = world_to_tilecoord(ending_world);
@@ -1756,7 +1759,6 @@ void frame(void)
      for(int col = starting_col; col < ending_col; col++)
      {
       TileCoord cur_coord = { col, row };
-      dbgrect(aabb_at(tilecoord_to_world(cur_coord), V2(TILE_SIZE, TILE_SIZE)));
       TileInstance cur = get_tile_layer(cur_level, layer, cur_coord);
 
       int tileset_i = 0;

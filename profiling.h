@@ -5,6 +5,8 @@
 
 #include <stdlib.h> // malloc the profiling buffer
 
+#define DeferLoop(start, end) for (int _i_ = ((start), 0); _i_ == 0; _i_ += 1, (end))
+
 #ifdef PROFILING
 #define THREADLOCAL __declspec(thread)
 #define PROFILING_BUFFER_SIZE (1 * 1024 * 1024)
@@ -89,17 +91,15 @@ void end_profiling_mythread();
 
 #define STRINGIZE(x) STRINGIZE2(x)
 #define STRINGIZE2(x) #x
-#define DeferLoop(start, end) \
-  for (int _i_ = ((start), 0); _i_ == 0; _i_ += 1, (end))
 #define PROFILE_SCOPE(name) DeferLoop(profiling ? spall_buffer_begin(&spall_ctx, &spall_buffer, "L" STRINGIZE(__LINE__) " " name , sizeof("L" STRINGIZE(__LINE__) " " name) - 1, get_time_in_micros()) : (void)0, profiling ? spall_buffer_end(&spall_ctx, &spall_buffer, get_time_in_micros()) : (void)0)
 
 #else // PROFILING
 
-void inline init_profiling(const char *filename) { (void)filename; }
+void init_profiling(const char *filename) { (void)filename; }
 // you can pass anything to id as long as it's different from other threads
-void inline init_profiling_mythread(uint32_t id) { (void)id; }
-void inline end_profiling() {}
-void inline end_profiling_mythread() {}
+void init_profiling_mythread(uint32_t id) { (void)id; }
+void end_profiling() {}
+void end_profiling_mythread() {}
 
-#define PROFILE_SCOPE(name)
+#define PROFILE_SCOPE(name) DeferLoop((void)0, (void)0) // so loop stuff in it doesn't break
 #endif
