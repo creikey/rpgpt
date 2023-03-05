@@ -1,10 +1,13 @@
 DONE - make npcs resiliant to player asking for stuff
  - ask death to come help you fight, new action
+ - Animate text characters coming in
  - Space and e for attack and roll, tooltip
- - Get rid of enters in javascript input box
-
+ - Get rid of enters and stars in javascript input box
+DONE - Constant height for lines of text in dialog
+ - Sword improvements, deflect bullets, player knockback
  - Escape exits typing
  - Save every request and response
+ - Sound
  - Don't flip player direction when you walk vertically
  - Perfect dodge roll just after you roll, sound effect
  and particles. Lets you keep momentum. Each dodge roll

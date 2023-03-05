@@ -224,12 +224,15 @@ void make_space_and_append(Dialog *d, Sentence *s)
 {
  if(d->cur_index >= ARRLEN(d->data))
  {
-  assert(ARRLEN(d->data) >= 1);
-  for(int i = 0; i < ARRLEN(d->data) - 1; i++)
+  for(int remove_i = 0; remove_i < 2; remove_i++)
   {
-   d->data[i] = d->data[i + 1];
+   assert(ARRLEN(d->data) >= 1);
+   for(int i = 0; i < ARRLEN(d->data) - 1; i++)
+   {
+    d->data[i] = d->data[i + 1];
+   }
+   d->cur_index--;
   }
-  d->cur_index--;
  }
 
  BUFF_APPEND(d, *s);
@@ -294,8 +297,6 @@ void request_do_damage(Entity *to, Vec2 from_point, float damage)
 
 #include "prompts.gen.h"
 
-// just straight up gpt generation function, calls to golang backend
-char *get_ai_response(char* prompt);
 void begin_text_input(); // called when player engages in dialog, must say something and fill text_input_buffer
 // a callback, when 'text backend' has finished making text
 void end_text_input(char *what_player_said)
@@ -398,7 +399,7 @@ void end_text_input(char *what_player_said)
   player->talking_to->gen_request_id = req_id;
 #endif
 #ifdef DESKTOP
-  add_new_npc_sentence(player->talking_to, "ALright. *moves*");
+  add_new_npc_sentence(player->talking_to, "......");
 #endif
  }
 }
@@ -687,6 +688,7 @@ AnimatedSprite death_idle =
 };
 
 sg_image image_font = {0};
+float font_line_advance = 0.0f;
 const float font_size = 32.0;
 stbtt_bakedchar cdata[96]; // ASCII 32..126 is 95 glyphs
 
@@ -787,7 +789,18 @@ void init(void)
     .size = (size_t)(512 * 512 * 4),
     }
   } );
+
+  stbtt_fontinfo font;
+  stbtt_InitFont(&font, fontBuffer, 0);
+  int ascent = 0;
+  int descent = 0;
+  int lineGap = 0;
+  float scale = stbtt_ScaleForPixelHeight(&font, font_size);
+  stbtt_GetFontVMetrics(&font, &ascent, &descent, &lineGap);
+  font_line_advance = (float)(ascent - descent + lineGap) * scale * 0.75f;
+
   free(font_bitmap_rgba);
+  free(fontBuffer);
  }
 
  state.bind.vertex_buffers[0] = sg_make_buffer(&(sg_buffer_desc)
@@ -1578,7 +1591,8 @@ float draw_wrapped_text(bool dry_run, Vec2 at_point, float max_width, char *text
   memcpy(line_to_draw, sentence_to_draw, chars_from_sentence);
   memcpy(colors_to_draw, colors, chars_from_sentence*sizeof(Color));
 
-  float line_height = line_bounds.upper_left.Y - line_bounds.lower_right.Y;
+  //float line_height = line_bounds.upper_left.Y - line_bounds.lower_right.Y;
+  float line_height = font_line_advance * text_scale;
   AABB drawn_bounds = draw_text((TextParams){true, dry_run, line_to_draw, AddV2(cursor, V2(0.0f, -line_height)), BLACK, text_scale, clip_to, colors_to_draw});
   if(!dry_run) dbgrect(drawn_bounds);
 

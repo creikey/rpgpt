@@ -30,12 +30,23 @@
                  "class":"",
                  "height":31.604938271605,
                  "id":1,
-                 "name":"PLAYER",
+                 "name":"MERCHANT",
                  "rotation":0,
                  "visible":true,
                  "width":29.9415204678363,
-                 "x":97,
-                 "y":96
+                 "x":167,
+                 "y":81.5
+                }, 
+                {
+                 "class":"",
+                 "height":31.6049,
+                 "id":2,
+                 "name":"PLAYER",
+                 "rotation":0,
+                 "visible":true,
+                 "width":29.9415,
+                 "x":68.02925,
+                 "y":88.19755
                 }],
          "opacity":1,
          "type":"objectgroup",
@@ -63,7 +74,7 @@
          "y":0
         }],
  "nextlayerid":4,
- "nextobjectid":2,
+ "nextobjectid":3,
  "orientation":"orthogonal",
  "renderorder":"right-down",
  "tiledversion":"1.9.2",
