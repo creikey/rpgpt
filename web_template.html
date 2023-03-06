@@ -103,7 +103,7 @@ body {
 <link id="sokol-app-favicon" rel="shortcut icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAZdJREFUOE9VUzFSw0AMlGihggekwhV0eQGZ8AQggQ4chlR5CjSeAUwHOHkCZPALoEuVVHkAdCnxMVpJd8YzHt/5pNXuSsdkDxNRkHfSC8REIZB88ASSXxrBdzU+tiVmBHs6UQMAiwgK6kCy4NsPACBPcfQ4VPtSSLdSfbjEmg0kVBkKMQ7lfIXKAoTnt8okPVbjwUqCJR//mtdMpaEa09ZwCZyopfk5g5Doye7UTz0JuUovfti0EIXvAbS7ebw3BaFIwaQAAwAqxzwAUTBYrE8AokG2AIpmHnZmzkG9aLHGcrE+1VoC14a3Nh90ZsKLOSTP/2OYc9pZxReq5Vce5UnqVfdJDlIXEklzOhkFpeXnJQQ7aN4tZcCsi0w0ehtrgMm/7xemAJ2n6/mNdtBseegXykCtJsrfx0ZC3RWA9hCO5uM0r4Ho8bjwgYwWIODoZYPZj8326UCpQPXFjsnAPEvtdA9k2XvegCV6ZZeq3av6fBvUvYZKsBbZiQI4tG0kQzW6kzrE1qfW/cWk+i1w14WuGxgvBOD+AP0MuCLRb/uuAAAAAElFTkSuQmCC"></head>
 <body style="background:black">
  <div id="inputdiv" class="inputdiv">
-  <textarea onkeyup='if(event.key === "Enter") end_dialog();' id="inputtext">
+  <textarea onkeyup='on_textarea_key(event);' id="inputtext">
   </textarea>
   <button id="inputbutton" onclick="end_dialog()"> Submit </button>
  </div>
@@ -148,8 +148,23 @@ function end_dialog() {
     Module.ccall('end_text_input', 'void', ['string'], [document.getElementById("inputtext").value]);
 }
 
-function textarea_key_up() {
-    end_dialog();
+function on_textarea_key(event) {
+    let final_textarea_string = "";
+    let cur_textarea_string = document.getElementById("inputtext").value;
+    for(let i = 0; i < Math.min(cur_textarea_string.length, 250); i++)
+    {
+        let cur = cur_textarea_string[i];
+        if(cur === "\n") continue;
+        if(cur.charCodeAt(0) >= 255) continue; // non ascii gtfo
+        final_textarea_string += cur_textarea_string[i];
+    }
+    document.getElementById("inputtext").value = final_textarea_string;
+    if(event.key === "Enter") end_dialog();
+    if(event.key === "Escape")
+    {
+        document.getElementById("inputtext").value = "";
+        end_dialog();
+    }
 }
 
 const max_retries = 5;

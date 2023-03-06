@@ -1,18 +1,22 @@
-Marketing:
- - Mailing list
-
-Making the game:
- - Skeleton enemy
- - Animate text characters coming in
- - Escape exits typing
+Happening:
+DONE - Animate text characters coming in
+DONE - Escape exits typing
+DONE - Get rid of enters and stars in javascript input box
  - Space and e for attack and roll, tooltip
+ - Skeleton enemy
+ - Shopkeep character
  - Don't flip player direction when you walk vertically
- - Get rid of enters and stars in javascript input box
  - Sword improvements, deflect bullets, player knockback
  - Save every request and response (server logs)
  - Portal at end, exit level
  - Drop shadow on text, or outline. Something
  - Sound
+
+Later
+
+Marketing:
+ - Mailing list
+
  - Ask death to come help you fight, new action
  - Perfect dodge roll just after you roll, sound effect
  and particles. Lets you keep momentum. Each dodge roll

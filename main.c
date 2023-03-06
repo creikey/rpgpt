@@ -121,15 +121,20 @@ typedef enum EntityKind
 #endif
 
 // null terminator always built into buffers so can read properly from data
+#define BUFF_VALID(buff_ptr) assert((buff_ptr)->cur_index <= ARRLEN((buff_ptr)->data))
 #define BUFF(type, max_size) struct { int cur_index; type data[max_size]; char null_terminator; }
 #define BUFF_HAS_SPACE(buff_ptr) ( (buff_ptr)->cur_index < ARRLEN((buff_ptr)->data) )
-#define BUFF_APPEND(buff_ptr, element)  { (buff_ptr)->data[(buff_ptr)->cur_index++] = element; assert((buff_ptr)->cur_index <= ARRLEN((buff_ptr)->data)); }
+#define BUFF_EMPTY(buff_ptr) ((buff_ptr)->cur_index == 0)
+#define BUFF_APPEND(buff_ptr, element)  { (buff_ptr)->data[(buff_ptr)->cur_index++] = element; BUFF_VALID(buff_ptr); }
 //#define BUFF_ITER(type, buff_ptr) for(type *it = &((buff_ptr)->data[0]); it < (buff_ptr)->data + (buff_ptr)->cur_index; it++)
 #define BUFF_ITER_EX(type, buff_ptr, begin_ind, cond, movement) for(type *it = &((buff_ptr)->data[begin_ind]); cond; movement)
 #define BUFF_ITER(type, buff_ptr) BUFF_ITER_EX(type, (buff_ptr), 0, it < (buff_ptr)->data + (buff_ptr)->cur_index, it++)
+#define BUFF_PUSH_FRONT(buff_ptr, value) { (buff_ptr)->cur_index++; BUFF_VALID(buff_ptr); for(int i = (buff_ptr)->cur_index - 1; i > 0; i--) { (buff_ptr)->data[i] = (buff_ptr)->data[i - 1]; }; (buff_ptr)->data[0] = value; }
+#define BUFF_REMOVE_FRONT(buff_ptr) {if((buff_ptr)->cur_index > 0) {for(int i = 0; i < (buff_ptr)->cur_index - 1; i++) { (buff_ptr)->data[i] = (buff_ptr)->data[i+1]; }; (buff_ptr)->cur_index--;}}
 #define BUFF_CLEAR(buff_ptr) {memset((buff_ptr), 0, sizeof(*(buff_ptr)));  ((buff_ptr)->cur_index = 0);}
 
-#define MAX_SENTENCE_LENGTH 400
+// REFACTORING:: also have to update in javascript!!!!!!!!
+#define MAX_SENTENCE_LENGTH 400 // LOOOK AT AGBOVE COMMENT GBEFORE CHANGING
 typedef BUFF(char, MAX_SENTENCE_LENGTH) Sentence;
 #define SENTENCE_CONST(txt) (Sentence){.data=txt, .cur_index=sizeof(txt)}
 
@@ -157,9 +162,10 @@ typedef struct Entity
 
  // npcs
  bool is_npc;
+ double character_say_timer;
  NpcKind npc_kind;
+ Sentence sentence_to_say;
  Dialog player_dialog;
- Sentence to_say;
 #ifdef WEB
  int gen_request_id;
 #endif
@@ -236,21 +242,29 @@ void make_space_and_append(Dialog *d, Sentence *s)
  BUFF_APPEND(d, *s);
 }
 
-void add_new_npc_sentence(Entity *npc, char *sentence)
+void say_characters(Entity *npc, int num_characters)
 {
- size_t sentence_len = strlen(sentence);
- assert(sentence_len < MAX_SENTENCE_LENGTH);
- Sentence new_sentence = {0};
- BUFF(char, MAX_SENTENCE_LENGTH) match_buffer = {0};
- bool inside_star = false;
- for(int i = 0; i < sentence_len; i++)
+ Sentence *sentence_to_append_to = &npc->player_dialog.data[npc->player_dialog.cur_index-1];
+ for(int i = 0; i < num_characters; i++)
  {
-  if(sentence[i] == '"') break;
-  if(sentence[i] == '\n') continue;
-
-  if(inside_star)
+  if(!BUFF_EMPTY(&npc->player_dialog) && !BUFF_EMPTY(&npc->sentence_to_say))
   {
-   if(sentence[i] == '*')
+   char new_character = npc->sentence_to_say.data[0];
+   bool found_matching_star = false;
+   BUFF(char, MAX_SENTENCE_LENGTH) match_buffer = {0};
+   if(new_character == '*')
+   {
+    for(int ii = sentence_to_append_to->cur_index-1; ii >= 0; ii--)
+    {
+     if(sentence_to_append_to->data[ii] == '*')
+     {
+      found_matching_star = true;
+      break;
+     }
+     BUFF_PUSH_FRONT(&match_buffer, sentence_to_append_to->data[ii]);
+    }
+   }
+   if(found_matching_star)
    {
     if(strcmp(match_buffer.data, "fights player") == 0 && npc->npc_kind == OLD_MAN)
     {
@@ -261,24 +275,29 @@ void add_new_npc_sentence(Entity *npc, char *sentence)
      npc->going_to_target = true;
      npc->target_goto = AddV2(npc->pos, V2(0.0, -TILE_SIZE*1.5f));
     }
-    BUFF_CLEAR(&match_buffer);
-    inside_star = false;
    }
-   else
-   {
-    BUFF_APPEND(&match_buffer, sentence[i]);
-   }
+   BUFF_APPEND(sentence_to_append_to, new_character);
+   BUFF_REMOVE_FRONT(&npc->sentence_to_say);
   }
-  else
-  {
-   if(sentence[i] == '*') inside_star = true;
-  }
+ }
+}
 
-
+void add_new_npc_sentence(Entity *npc, char *sentence)
+{
+ size_t sentence_len = strlen(sentence);
+ assert(sentence_len < MAX_SENTENCE_LENGTH);
+ Sentence new_sentence = {0};
+ bool inside_star = false;
+ for(int i = 0; i < sentence_len; i++)
+ {
+  if(sentence[i] == '"') break;
+  if(sentence[i] == '\n') continue;
   BUFF_APPEND(&new_sentence, sentence[i]);
  }
- make_space_and_append(&npc->player_dialog, &new_sentence);
-
+ Sentence empty_sentence = {0};
+ say_characters(npc, npc->sentence_to_say.cur_index);
+ make_space_and_append(&npc->player_dialog, &empty_sentence);
+ npc->sentence_to_say = new_sentence;
 }
 
 // from_point is for knockback
@@ -397,7 +416,15 @@ void end_text_input(char *what_player_said)
   player->talking_to->gen_request_id = req_id;
 #endif
 #ifdef DESKTOP
-  add_new_npc_sentence(player->talking_to, "......");
+  if(player->talking_to->npc_kind == DEATH)
+  {
+      add_new_npc_sentence(player->talking_to, "test *moves* I am death, destroyer of games. Come join me in the afterlife, or continue onwards *moves*");
+      //add_new_npc_sentence(player->talking_to, "test");
+  }
+  if(player->talking_to->npc_kind == OLD_MAN)
+  {
+      add_new_npc_sentence(player->talking_to, "If it's a fight you're looking for! *fights player*");
+  }
 #endif
  }
 }
@@ -1906,6 +1933,16 @@ void frame(void)
 
    if(it->is_npc)
    {
+    if(!BUFF_EMPTY(&it->sentence_to_say))
+    {
+     it->character_say_timer += dt;
+     const float character_say_time = 0.05f;
+     while(it->character_say_timer > character_say_time)
+     {
+      say_characters(it, 1);
+      it->character_say_timer -= character_say_time;
+     }
+    }
     if(it->npc_kind == DEATH && it->going_to_target)
     {
      it->pos = LerpV2(it->pos, dt*5.0f, it->target_goto);
