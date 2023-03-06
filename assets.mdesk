@@ -50,6 +50,14 @@
 {
  filepath: "white square.png",
 }
+@image shift_icon:
+{
+ filepath: "shift_icon.png",
+}
+@image space_icon:
+{
+ filepath: "space_icon.png",
+}
 @image mystery_tile:
 {
  filepath: "mystery_tile.png",

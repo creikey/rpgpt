@@ -1718,13 +1718,15 @@ void draw_dialog_panel(Entity *talking_to)
 
 
 
-#define ROLL_KEY SAPP_KEYCODE_K
+#define ROLL_KEY SAPP_KEYCODE_LEFT_SHIFT
 double elapsed_time = 0.0;
 double last_frame_processing_time = 0.0;
 uint64_t last_frame_time;
 Vec2 mouse_pos = {0}; // in screen space
 bool roll_just_pressed = false; // to use to initiate dialog, shouldn't initiate dialog if the button is simply held down
 #ifdef DEVTOOLS
+float learned_shift = 0.0;
+float learned_space = 0.0;
 bool mouse_frozen = false;
 #endif
 void frame(void)
@@ -1764,7 +1766,7 @@ void frame(void)
     (float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A],
     (float)keydown[SAPP_KEYCODE_W] - (float)keydown[SAPP_KEYCODE_S]
     );
-  bool attack = keydown[SAPP_KEYCODE_J];
+  bool attack = keydown[SAPP_KEYCODE_SPACE] || keydown[SAPP_KEYCODE_LEFT_CONTROL];
   bool roll = keydown[ROLL_KEY];
   if(LenV2(movement) > 1.0)
   {
@@ -2225,6 +2227,18 @@ void frame(void)
    }
   }
 
+  // ui
+
+#define HELPER_SIZE 250.0f
+  float total_height = HELPER_SIZE * 2.0f;
+  float vertical_spacing = HELPER_SIZE/2.0f;
+  total_height -= (total_height - (vertical_spacing + HELPER_SIZE));
+  const float padding = 50.0f;
+  float y = screen_size().y/2.0f + total_height/2.0f;
+  draw_quad((DrawParams){false, quad_at(V2(padding, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_shift_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_shift)}});
+  y -= vertical_spacing;
+  draw_quad((DrawParams){false, quad_at(V2(padding, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_space_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_space)}});
+
   PROFILE_SCOPE("flush rendering")
   {
    flush_quad_batch();
@@ -2275,6 +2289,14 @@ void event(const sapp_event *e)
    roll_just_pressed = true;
   }
 
+  if(e->key_code == SAPP_KEYCODE_LEFT_SHIFT)
+  {
+   learned_shift += 0.15f;
+  }
+  if(e->key_code == SAPP_KEYCODE_SPACE)
+  {
+   learned_space += 0.15f;
+  }
 #ifdef DESKTOP // very nice for my run from cmdline workflow, escape to quit
   if(e->key_code == SAPP_KEYCODE_ESCAPE)
   {

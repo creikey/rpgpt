@@ -2,7 +2,7 @@ Happening:
 DONE - Animate text characters coming in
 DONE - Escape exits typing
 DONE - Get rid of enters and stars in javascript input box
- - Space and e for attack and roll, tooltip
+DONE - Space and e for attack and roll, tooltip
  - Skeleton enemy
  - Shopkeep character
  - Don't flip player direction when you walk vertically
