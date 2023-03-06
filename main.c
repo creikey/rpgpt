@@ -218,8 +218,6 @@ typedef struct Arena
 
 Entity *player = NULL; // up here, used in text backend callback
 
-
-
 void make_space_and_append(Dialog *d, Sentence *s)
 {
  if(d->cur_index >= ARRLEN(d->data))
