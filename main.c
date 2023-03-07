@@ -46,6 +46,12 @@ Vec2 RotateV2(Vec2 v, float theta)
     );
 }
 
+Vec2 ReflectV2(Vec2 v, Vec2 normal)
+{
+ assert(fabsf(LenV2(normal) - 1.0f) < 0.01f); // must be normalized
+ return SubV2(v, MulV2F(normal, 2.0f * DotV2(v, normal)));
+}
+
 typedef struct AABB
 {
  Vec2 upper_left;
@@ -179,6 +185,7 @@ typedef struct Entity
  bool is_character;
  CharacterState state;
  struct Entity *talking_to; // Maybe should be generational index, but I dunno. No death yet
+ BUFF(struct Entity*, 8) done_damage_to_this_swing; // only do damage once, but hitbox stays around
  bool is_rolling; // can only roll in idle or walk states
  float speed; // for lerping to the speed, so that roll gives speed boost which fades
  double time_not_rolling; // for cooldown for roll, so you can't just hold it and be invincible
@@ -298,18 +305,6 @@ void add_new_npc_sentence(Entity *npc, char *sentence)
  say_characters(npc, npc->sentence_to_say.cur_index);
  make_space_and_append(&npc->player_dialog, &empty_sentence);
  npc->sentence_to_say = new_sentence;
-}
-
-// from_point is for knockback
-void request_do_damage(Entity *to, Vec2 from_point, float damage)
-{
- if(to == NULL) return;
- if(to->npc_kind != DEATH)
- {
-  to->damage += damage;
-  to->aggressive = true;
-  to->vel = MulV2F(NormV2(SubV2(to->pos, from_point)), 5.0f);
- }
 }
 
 #include "prompts.gen.h"
@@ -1349,11 +1344,17 @@ void dbgline(Vec2 from, Vec2 to)
 {
 #ifdef DEVTOOLS
  if(!show_devtools) return;
- line(from, to, 2.0f, RED);
+ line(from, to, 0.5f, RED);
 #else
  (void)from;
  (void)to;
 #endif
+}
+
+void dbgvec(Vec2 from, Vec2 vec)
+{
+ Vec2 to = AddV2(from, vec);
+ dbgline(from, to);
 }
 
 // in world space
@@ -1371,6 +1372,29 @@ void dbgrect(AABB rect)
 #else
  (void)rect;
 #endif
+}
+
+// from_point is for knockback
+void request_do_damage(Entity *to, Vec2 from_point, float damage)
+{
+ if(to == NULL) return;
+ if(to->is_bullet)
+ {
+  Vec2 norm = NormV2(SubV2(to->pos, from_point));
+  dbgvec(from_point, norm);
+  to->vel = ReflectV2(to->vel, norm);
+  dbgprint("deflecitng\n");
+ }
+ else if(to->npc_kind != DEATH)
+ {
+  to->damage += damage;
+  to->aggressive = true;
+  to->vel = MulV2F(NormV2(SubV2(to->pos, from_point)), 15.0f);
+ }
+ else
+ {
+  Log("Can't do damage to npc...\n");
+ }
 }
 
 
@@ -1632,8 +1656,6 @@ float draw_wrapped_text(bool dry_run, Vec2 at_point, float max_width, char *text
 
 void draw_dialog_panel(Entity *talking_to)
 {
- // talking to them feedback
- draw_quad((DrawParams){true, quad_centered(talking_to->pos, V2(TILE_SIZE, TILE_SIZE)), image_dialog_circle, full_region(image_dialog_circle), WHITE});
  float panel_width = 250.0f;
  float panel_height = 150.0f;
  float panel_vert_offset = 30.0f;
@@ -1960,15 +1982,16 @@ void frame(void)
       it->shotgun_timer = 0.0f;
       const float spread = (float)PI/4.0f;
       // shoot shotgun
-      for(int i = 0; i < 3; i++)
+      int num_bullets = 5;
+      for(int i = 0; i < num_bullets; i++)
       {
        Vec2 dir = to_player;
-       float theta = Lerp(-spread/2.0f, ((float)i / 2.0f), spread/2.0f);
+       float theta = Lerp(-spread/2.0f, ((float)i / (float)(num_bullets - 1)), spread/2.0f);
        dir = RotateV2(dir, theta);
        Entity *new_bullet = new_entity();
        new_bullet->is_bullet = true;
        new_bullet->pos = AddV2(it->pos, MulV2F(dir, 20.0f));
-       new_bullet->vel = MulV2F(dir, 10.0f);
+       new_bullet->vel = MulV2F(dir, 15.0f);
        it->vel = AddV2(it->vel, MulV2F(dir, -3.0f));
       }
      }
@@ -2000,12 +2023,15 @@ void frame(void)
    else if (it->is_bullet)
    {
     it->pos = AddV2(it->pos, MulV2F(it->vel, pixels_per_meter * dt));
-    draw_quad((DrawParams){true, quad_aabb(entity_aabb(it)), image_white_square, full_region(image_white_square), WHITE});
+    dbgvec(it->pos, it->vel);
+    AABB normal_aabb = entity_aabb(it);
+    Quad drawn = quad_centered(aabb_center(normal_aabb), MulV2F(aabb_size(normal_aabb), 1.5f));
+    draw_quad((DrawParams){true, drawn, IMG(image_bullet), WHITE});
     Overlapping over = get_overlapping(cur_level, entity_aabb(it));
     Entity *from_bullet = it;
     BUFF_ITER(Overlap, &over) if(it->e != from_bullet)
     {
-     if(!it->is_tile && !(it->e->npc_kind == DEATH))
+     if(!it->is_tile && !(it->e->npc_kind == DEATH) && !(it->e->is_bullet))
      {
       // knockback and damage
       request_do_damage(it->e, from_bullet->pos, 0.2f);
@@ -2069,7 +2095,9 @@ void frame(void)
     // if somebody, show their dialog panel
     if(talking_to) 
     {
-     draw_dialog_panel(talking_to);
+      // talking to them feedback
+     draw_quad((DrawParams){true, quad_centered(talking_to->pos, V2(TILE_SIZE, TILE_SIZE)), image_dialog_circle, full_region(image_dialog_circle), WHITE});
+draw_dialog_panel(talking_to);
     }
 
     // process dialog and display dialog box when talking to NPC
@@ -2105,32 +2133,8 @@ void frame(void)
    if(attack && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
    {
     player->state = CHARACTER_ATTACK;
+    BUFF_CLEAR(&player->done_damage_to_this_swing); 
     player->swing_progress = 0.0;
-    AABB weapon_aabb = {0};
-    if(player->facing_left)
-    {
-     weapon_aabb = (AABB){
-      .upper_left = AddV2(player->pos, V2(-40.0, 25.0)),
-       .lower_right = AddV2(player->pos, V2(0.0, -25.0)),
-     };
-    }
-    else
-    {
-     weapon_aabb = (AABB){
-      .upper_left = AddV2(player->pos, V2(0.0, 25.0)),
-       .lower_right = AddV2(player->pos, V2(40.0, -25.0)),
-     };
-    }
-    dbgrect(weapon_aabb);
-    Overlapping overlapping_weapon = get_overlapping(cur_level, weapon_aabb);
-    BUFF_ITER(Overlap, &overlapping_weapon)
-    {
-     if(!it->is_tile && it->e != player)
-     {
-      request_do_damage(it->e, player->pos, 0.2f);
-     }
-    }
-
    }
 
 
@@ -2199,6 +2203,45 @@ void frame(void)
    }
    else if(player->state == CHARACTER_ATTACK)
    {
+    AABB weapon_aabb = {0};
+    if(player->facing_left)
+    {
+     weapon_aabb = (AABB){
+      .upper_left = AddV2(player->pos, V2(-40.0, 25.0)),
+       .lower_right = AddV2(player->pos, V2(0.0, -25.0)),
+     };
+    }
+    else
+    {
+     weapon_aabb = (AABB){
+      .upper_left = AddV2(player->pos, V2(0.0, 25.0)),
+       .lower_right = AddV2(player->pos, V2(40.0, -25.0)),
+     };
+    }
+    dbgrect(weapon_aabb);
+    Overlapping overlapping_weapon = get_overlapping(cur_level, weapon_aabb);
+    BUFF_ITER(Overlap, &overlapping_weapon)
+    {
+     if(!it->is_tile && it->e != player)
+     {
+      bool done_damage = false;
+      Entity *looking_for = it->e;
+      BUFF_ITER(Entity*, &player->done_damage_to_this_swing)
+      {
+       if(*it == looking_for) done_damage = true;
+      }
+      if(!done_damage)
+      {
+       if(!BUFF_HAS_SPACE(&player->done_damage_to_this_swing))
+       {
+        BUFF_REMOVE_FRONT(&player->done_damage_to_this_swing);
+        Log("Too many things to do damage to...\n");
+       }
+       BUFF_APPEND(&player->done_damage_to_this_swing, looking_for);
+       request_do_damage(it->e, player->pos, 0.2f);
+      }
+     }
+    }
 
     player->swing_progress += dt;
     draw_animated_sprite(&knight_attack, player->swing_progress, player->facing_left, character_sprite_pos, WHITE);

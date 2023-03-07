@@ -50,6 +50,10 @@
 {
  filepath: "white square.png",
 }
+@image bullet:
+{
+ filepath: "bullet.png",
+}
 @image shift_icon:
 {
  filepath: "shift_icon.png",
