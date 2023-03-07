@@ -4,7 +4,7 @@ DONE - Escape exits typing
 DONE - Get rid of enters and stars in javascript input box
 DONE - Space and e for attack and roll, tooltip
 DONE - Sword improvements, deflect bullets
- - Player knockback and drop shadow
+DONE - Player knockback and drop shadow
  - Skeleton enemy
  - Shopkeep character
  - Don't flip player direction when you walk vertically

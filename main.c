@@ -187,7 +187,6 @@ typedef struct Entity
  struct Entity *talking_to; // Maybe should be generational index, but I dunno. No death yet
  BUFF(struct Entity*, 8) done_damage_to_this_swing; // only do damage once, but hitbox stays around
  bool is_rolling; // can only roll in idle or walk states
- float speed; // for lerping to the speed, so that roll gives speed boost which fades
  double time_not_rolling; // for cooldown for roll, so you can't just hold it and be invincible
  double roll_progress;
  double swing_progress;
@@ -668,7 +667,7 @@ AnimatedSprite knight_running =
 AnimatedSprite knight_rolling =
 {
  .img = &image_knight_roll,
- .time_per_frame = 0.05,
+ .time_per_frame = 0.04,
  .num_frames = 12,
  .start = {19.0f, 0.0f},
  .horizontal_diff_btwn_frames = 120.0,
@@ -2126,7 +2125,6 @@ draw_dialog_panel(talking_to);
     {
      player->is_rolling = true;
      player->roll_progress = 0.0;
-     player->speed = PLAYER_ROLL_SPEED;
     }
    }
 
@@ -2166,11 +2164,16 @@ draw_dialog_panel(talking_to);
    {
     cam.pos = LerpV2(cam.pos, dt*8.0f, target);
    }
+
+   Vec2 target_vel = {0};
+   float speed = 0.0f;
+
+   float shadow_size = knight_rolling.region_size.x * 0.5f;
+   draw_quad((DrawParams){true, quad_centered(AddV2(player->pos, V2(0.0f, -20.0f)), V2(shadow_size, shadow_size)),IMG(image_drop_shadow), WHITE});
    if(player->state == CHARACTER_WALKING)
    {
-    if(player->speed <= 0.01f) player->speed = PLAYER_SPEED;
-    player->speed = Lerp(player->speed, dt * 3.0f, PLAYER_SPEED);
-    player->pos = move_and_slide(player, player->pos, MulV2F(movement, dt * pixels_per_meter * player->speed));
+    speed = PLAYER_SPEED;
+    if(player->is_rolling) speed = PLAYER_ROLL_SPEED;
     if(player->is_rolling)
     {
      draw_animated_sprite(&knight_rolling, player->roll_progress, player->facing_left, character_sprite_pos, WHITE);
@@ -2186,7 +2189,8 @@ draw_dialog_panel(talking_to);
     }
     else
     {
-     player->facing_left = movement.X < 0.0f;
+     if(fabsf(player->vel.x) > 0.01f)
+      player->facing_left = player->vel.x < 0.0f;
     }
    }
    else if(player->state == CHARACTER_IDLE)
@@ -2258,6 +2262,14 @@ draw_dialog_panel(talking_to);
    {
     assert(false); // unknown character state? not defined how to draw
    }
+
+   // velocity processing
+   {
+    Vec2 target_vel = MulV2F(movement, dt * pixels_per_meter * speed);
+    player->vel = LerpV2(player->vel, dt * 15.0f, target_vel);
+    player->pos = move_and_slide(player, player->pos, player->vel);
+   }
+
 
    // health
    if(player->damage >= 1.0)
