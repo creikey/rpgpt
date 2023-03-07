@@ -720,7 +720,7 @@ static struct
  sg_bindings bind;
 } state;
 
-AABB level_aabb = { .upper_left = {0.0f, 0.0f}, .lower_right = {2000.0f, -2000.0f} };
+AABB level_aabb = { .upper_left = {0.0f, 0.0f}, .lower_right = {TILE_SIZE * LEVEL_TILES, -(TILE_SIZE * LEVEL_TILES)} };
 Entity entities[MAX_ENTITIES] = {0};
 
 Entity *new_entity()

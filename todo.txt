@@ -3,11 +3,13 @@ DONE - Animate text characters coming in
 DONE - Escape exits typing
 DONE - Get rid of enters and stars in javascript input box
 DONE - Space and e for attack and roll, tooltip
+DONE - Sword improvements, deflect bullets
+ - Player knockback and drop shadow
  - Skeleton enemy
  - Shopkeep character
  - Don't flip player direction when you walk vertically
- - Sword improvements, deflect bullets, player knockback
  - Save every request and response (server logs)
+ - Moose boss
  - Portal at end, exit level
  - Drop shadow on text, or outline. Something
  - Sound
