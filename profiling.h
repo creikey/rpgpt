@@ -101,5 +101,5 @@ void init_profiling_mythread(uint32_t id) { (void)id; }
 void end_profiling() {}
 void end_profiling_mythread() {}
 
-#define PROFILE_SCOPE(name) DeferLoop((void)0, (void)0) // so loop stuff in it doesn't break
+#define PROFILE_SCOPE(name) for(int _i_ = 0; _i_ == 0; _i_ += 1)
 #endif

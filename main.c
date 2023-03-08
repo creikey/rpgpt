@@ -23,10 +23,10 @@
 
 #include <math.h>
 
-#define PROFILING_IMPL
 #ifdef DEVTOOLS
 #ifdef DESKTOP
 #define PROFILING
+#define PROFILING_IMPL
 #endif
 #endif
 #include "profiling.h"
@@ -98,6 +98,7 @@ typedef struct AnimatedSprite
  double time_per_frame;
  int num_frames;
  Vec2 start;
+ Vec2 offset;
  float horizontal_diff_btwn_frames;
  Vec2 region_size;
  bool no_wrap; // does not wrap when playing
@@ -152,6 +153,7 @@ typedef enum NpcKind
 {
  OLD_MAN,
  DEATH,
+ SKELETON,
 } NpcKind;
 
 typedef struct Entity
@@ -163,6 +165,8 @@ typedef struct Entity
  Vec2 vel; // only used sometimes, like in old man and bullet
  float damage; // at 1.0, dead! zero initialized
  bool facing_left;
+ // multiple entities have a sword swing
+ BUFF(struct Entity*, 8) done_damage_to_this_swing; // only do damage once, but hitbox stays around
 
  bool is_bullet;
 
@@ -180,12 +184,13 @@ typedef struct Entity
  // only for death npc
  bool going_to_target;
  Vec2 target_goto;
+ // only for skeleton npc
+ double swing_timer;
 
  // character
  bool is_character;
  CharacterState state;
  struct Entity *talking_to; // Maybe should be generational index, but I dunno. No death yet
- BUFF(struct Entity*, 8) done_damage_to_this_swing; // only do damage once, but hitbox stays around
  bool is_rolling; // can only roll in idle or walk states
  double time_not_rolling; // for cooldown for roll, so you can't just hold it and be invincible
  double roll_progress;
@@ -498,6 +503,54 @@ char *tprint(const char *format, ...)
   return to_return;
 }
 
+AABB entity_sword_aabb(Entity *e, float width, float height)
+{
+ if(e->facing_left)
+ {
+  return (AABB){
+    .upper_left = AddV2(e->pos, V2(-width, height)),
+    .lower_right = AddV2(e->pos, V2(0.0, -height)),
+  };
+ }
+ else
+ {
+  return (AABB){
+    .upper_left = AddV2(e->pos, V2(0.0, height)),
+    .lower_right = AddV2(e->pos, V2(width, -height)),
+  };
+ }
+}
+
+typedef BUFF(Entity*, 16) SwordToDamage;
+SwordToDamage entity_sword_to_do_damage(Entity *from, Overlapping o)
+{
+ SwordToDamage to_return = {0};
+ BUFF_ITER(Overlap, &o)
+ {
+  if(!it->is_tile && it->e != from)
+  {
+   bool done_damage = false;
+   Entity *looking_for = it->e;
+   BUFF_ITER(Entity*, &from->done_damage_to_this_swing)
+   {
+    if(*it == looking_for) done_damage = true;
+   }
+   if(!done_damage)
+   {
+    if(!BUFF_HAS_SPACE(&from->done_damage_to_this_swing))
+    {
+     BUFF_REMOVE_FRONT(&from->done_damage_to_this_swing);
+     Log("Too many things to do damage to...\n");
+     assert(false);
+    }
+    BUFF_APPEND(&to_return, looking_for);
+    BUFF_APPEND(&from->done_damage_to_this_swing, looking_for);
+   }
+  }
+ }
+ return to_return;
+}
+
 Vec2 entity_aabb_size(Entity *e)
 {
  if(e->is_character == ENTITY_PLAYER)
@@ -513,6 +566,10 @@ Vec2 entity_aabb_size(Entity *e)
   else if(e->npc_kind == DEATH)
   {
    return V2(TILE_SIZE*1.10f, TILE_SIZE*1.10f);
+  }
+  else if(e->npc_kind == SKELETON)
+  {
+   return V2(TILE_SIZE*1.0f, TILE_SIZE*1.0f);
   }
   else
   {
@@ -705,6 +762,37 @@ AnimatedSprite death_idle =
  .horizontal_diff_btwn_frames = 100.0f,
  .region_size = {100.0f, 100.0f},
 };
+AnimatedSprite skeleton_idle =
+{
+ .img = &image_skeleton,
+ .time_per_frame = 0.15,
+ .num_frames = 6,
+ .start = {0.0f, 0.0f},
+ .horizontal_diff_btwn_frames = 80.0,
+ .offset = {0.0f, 20.0f},
+ .region_size = {80.0f, 80.0f},
+};
+AnimatedSprite skeleton_swing_sword =
+{
+ .img = &image_skeleton,
+ .time_per_frame = 0.10,
+ .num_frames = 6,
+ .start = {0.0f, 240.0f},
+ .horizontal_diff_btwn_frames = 80.0,
+ .offset = {0.0f, 20.0f},
+ .region_size = {80.0f, 80.0f},
+};
+AnimatedSprite skeleton_run =
+{
+ .img = &image_skeleton,
+ .time_per_frame = 0.07,
+ .num_frames = 8,
+ .start = {0.0f, 160.0f},
+ .horizontal_diff_btwn_frames = 80.0,
+ .offset = {0.0f, 20.0f},
+ .region_size = {80.0f, 80.0f},
+};
+
 
 sg_image image_font = {0};
 float font_line_advance = 0.0f;
@@ -1129,7 +1217,7 @@ Vec2 into_clip_space(Vec2 screen_space_point)
 // The image region is in pixel space of the image
 void draw_quad(DrawParams d)
 {
- PROFILE_SCOPE("quad")
+ PROFILE_SCOPE("Draw quad")
  {
  quad_fs_params_t params = {0};
  params.tint[0] = d.tint.R;
@@ -1258,6 +1346,7 @@ double anim_sprite_duration(AnimatedSprite *s)
 
 void draw_animated_sprite(AnimatedSprite *s, double elapsed_time, bool flipped, Vec2 pos, Color tint)
 {
+ pos = AddV2(pos, s->offset);
  sg_image spritesheet_img = *s->img;
  int index = (int)floor(elapsed_time/s->time_per_frame) % s->num_frames;
  if(s->no_wrap)
@@ -1687,48 +1776,51 @@ void draw_dialog_panel(Entity *talking_to)
    float new_line_height = dialog_panel.lower_right.Y;
    int i = 0;
    //BUFF_ITER(Sentence, &talking_to->player_dialog)
-   BUFF_ITER_EX(Sentence, &talking_to->player_dialog, talking_to->player_dialog.cur_index-1, it >= &talking_to->player_dialog.data[0], it--)
+   if(talking_to->player_dialog.cur_index > 0)
    {
-    bool player_talking = i % 2 != 0; // iterating backwards
-    Color *colors = calloc(sizeof(*colors), it->cur_index);
-    bool in_astrix = false;
-    for(int char_i = 0; char_i < it->cur_index; char_i++)
+    BUFF_ITER_EX(Sentence, &talking_to->player_dialog, talking_to->player_dialog.cur_index-1, it >= &talking_to->player_dialog.data[0], it--)
     {
-     bool set_in_astrix_false = false;
-     if(it->data[char_i] == '*')
+     bool player_talking = i % 2 != 0; // iterating backwards
+     Color *colors = calloc(sizeof(*colors), it->cur_index);
+     bool in_astrix = false;
+     for(int char_i = 0; char_i < it->cur_index; char_i++)
      {
-      if(in_astrix)
+      bool set_in_astrix_false = false;
+      if(it->data[char_i] == '*')
       {
-       set_in_astrix_false = true;
+       if(in_astrix)
+       {
+        set_in_astrix_false = true;
+       }
+       else
+       {
+        in_astrix = true;
+       }
+      }
+      if(player_talking)
+      {
+       colors[char_i] = BLACK;
       }
       else
       {
-       in_astrix = true;
+       if(in_astrix)
+       {
+        colors[char_i] = colhex(0xffdf24);
+       }
+       else
+       {
+        colors[char_i] = colhex(0x345e22);
+       }
       }
+      if(set_in_astrix_false) in_astrix = false;
      }
-     if(player_talking)
-     {
-      colors[char_i] = BLACK;
-     }
-     else
-     {
-      if(in_astrix)
-      {
-       colors[char_i] = colhex(0xffdf24);
-      }
-      else
-      {
-       colors[char_i] = colhex(0x345e22);
-      }
-     }
-     if(set_in_astrix_false) in_astrix = false;
-    }
-    float measured_line_height = draw_wrapped_text(true, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->data, colors, 0.5f, true, dialog_panel);
-    new_line_height += (new_line_height - measured_line_height);
-    draw_wrapped_text(false, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->data, colors, 0.5f, true, dialog_panel);
+     float measured_line_height = draw_wrapped_text(true, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->data, colors, 0.5f, true, dialog_panel);
+     new_line_height += (new_line_height - measured_line_height);
+     draw_wrapped_text(false, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->data, colors, 0.5f, true, dialog_panel);
 
-    free(colors);
-    i++;
+     free(colors);
+     i++;
+    }
    }
 
    dbgrect(dialog_panel);
@@ -1953,6 +2045,8 @@ void frame(void)
     }
    }
 #endif
+   if(fabsf(it->vel.x) > 0.01f)
+    it->facing_left = it->vel.x < 0.0f;
 
    if(it->is_npc)
    {
@@ -1970,7 +2064,7 @@ void frame(void)
     {
      it->pos = LerpV2(it->pos, dt*5.0f, it->target_goto);
     }
-    if(it->aggressive)
+    if(it->npc_kind == OLD_MAN && it->aggressive)
     {
      draw_dialog_panel(it);
      Entity *targeting = player;
@@ -2004,7 +2098,67 @@ void frame(void)
     Color col = LerpV4(WHITE, it->damage, RED);
     if(it->npc_kind == OLD_MAN)
     {
-     draw_animated_sprite(&old_man_idle, elapsed_time, false, it->pos, col);
+     bool face_left = false;
+     if(it->aggressive)
+     {
+      face_left = SubV2(player->pos, it->pos).x < 0.0f;
+     }
+     draw_animated_sprite(&old_man_idle, elapsed_time, face_left, it->pos, col);
+    }
+    else if(it->npc_kind == SKELETON)
+    {
+     if(fabsf(it->vel.x) > 0.01f)
+      it->facing_left = it->vel.x < 0.0f;
+
+     Color col = WHITE;
+     it->pos = move_and_slide(it, it->pos, MulV2F(it->vel, pixels_per_meter * dt));
+     AABB weapon_aabb = entity_sword_aabb(it, 30.0f, 18.0f);
+     dbgrect(weapon_aabb);
+     Vec2 target_vel = {0};
+     it->pos = AddV2(it->pos, MulV2F(it->vel, dt));
+     Overlapping overlapping_weapon = get_overlapping(cur_level, weapon_aabb);
+     if(it->swing_timer > 0.0)
+     {
+      // swinging sword
+      draw_animated_sprite(&skeleton_swing_sword, it->swing_timer, it->facing_left, it->pos, col);
+      it->swing_timer += dt;
+      if(it->swing_timer >= anim_sprite_duration(&skeleton_swing_sword))
+      {
+       it->swing_timer = 0.0;
+      }
+      if(it->swing_timer >= 0.4f)
+      {
+       SwordToDamage to_damage = entity_sword_to_do_damage(it, overlapping_weapon);
+       Entity *from = it;
+       BUFF_ITER(Entity *, &to_damage)
+       {
+        request_do_damage(*it, from->pos, 0.2f);
+       }
+      }
+     }
+     else
+     {
+      // in huntin' range
+      if(LenV2(SubV2(player->pos, it->pos)) < 250.0f)
+      {
+       Entity *skele = it;
+       BUFF_ITER(Overlap, &overlapping_weapon)
+       {
+        if(it->e && it->e->is_character)
+        {
+         skele->swing_timer += dt;
+         BUFF_CLEAR(&skele->done_damage_to_this_swing);
+        }
+       }
+       draw_animated_sprite(&skeleton_run, elapsed_time, it->facing_left, it->pos, col);
+       target_vel = MulV2F(NormV2(SubV2(player->pos, it->pos)), 4.0f);
+      }
+      else
+      {
+       draw_animated_sprite(&skeleton_idle, elapsed_time, it->facing_left, it->pos, col);
+      }
+     }
+     it->vel = LerpV2(it->vel, dt*8.0f, target_vel);
     }
     else if(it->npc_kind == DEATH)
     {
@@ -2069,6 +2223,7 @@ void frame(void)
       if(entity_talkable) entity_talkable = entity_talkable && !it->is_tile;
       if(entity_talkable) entity_talkable = entity_talkable && it->e->is_npc;
       if(entity_talkable) entity_talkable = entity_talkable && !it->e->aggressive;
+      if(entity_talkable) entity_talkable = entity_talkable && !(it->e->npc_kind == SKELETON);
 #ifdef WEB
       if(entity_talkable) entity_talkable = entity_talkable && it->e->gen_request_id == 0;
 #endif
@@ -2189,8 +2344,6 @@ draw_dialog_panel(talking_to);
     }
     else
     {
-     if(fabsf(player->vel.x) > 0.01f)
-      player->facing_left = player->vel.x < 0.0f;
     }
    }
    else if(player->state == CHARACTER_IDLE)
@@ -2207,44 +2360,12 @@ draw_dialog_panel(talking_to);
    }
    else if(player->state == CHARACTER_ATTACK)
    {
-    AABB weapon_aabb = {0};
-    if(player->facing_left)
-    {
-     weapon_aabb = (AABB){
-      .upper_left = AddV2(player->pos, V2(-40.0, 25.0)),
-       .lower_right = AddV2(player->pos, V2(0.0, -25.0)),
-     };
-    }
-    else
-    {
-     weapon_aabb = (AABB){
-      .upper_left = AddV2(player->pos, V2(0.0, 25.0)),
-       .lower_right = AddV2(player->pos, V2(40.0, -25.0)),
-     };
-    }
+    AABB weapon_aabb = entity_sword_aabb(player, 40.0f, 25.0f);
     dbgrect(weapon_aabb);
-    Overlapping overlapping_weapon = get_overlapping(cur_level, weapon_aabb);
-    BUFF_ITER(Overlap, &overlapping_weapon)
+    SwordToDamage to_damage = entity_sword_to_do_damage(player, get_overlapping(cur_level, weapon_aabb));
+    BUFF_ITER(Entity*, &to_damage)
     {
-     if(!it->is_tile && it->e != player)
-     {
-      bool done_damage = false;
-      Entity *looking_for = it->e;
-      BUFF_ITER(Entity*, &player->done_damage_to_this_swing)
-      {
-       if(*it == looking_for) done_damage = true;
-      }
-      if(!done_damage)
-      {
-       if(!BUFF_HAS_SPACE(&player->done_damage_to_this_swing))
-       {
-        BUFF_REMOVE_FRONT(&player->done_damage_to_this_swing);
-        Log("Too many things to do damage to...\n");
-       }
-       BUFF_APPEND(&player->done_damage_to_this_swing, looking_for);
-       request_do_damage(it->e, player->pos, 0.2f);
-      }
-     }
+     request_do_damage(*it, player->pos, 0.2f);
     }
 
     player->swing_progress += dt;

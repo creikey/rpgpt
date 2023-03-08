@@ -58,6 +58,10 @@
 {
  filepath: "drop_shadow.png",
 }
+@image skeleton:
+{
+ filepath: "copyrighted/skeleton.png",
+}
 @image shift_icon:
 {
  filepath: "shift_icon.png",
