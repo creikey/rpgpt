@@ -151,9 +151,11 @@ typedef BUFF(Sentence, 2*12) Dialog; // six back and forths. must be even number
 
 typedef enum NpcKind
 {
+ INVALID,
  OLD_MAN,
  DEATH,
  SKELETON,
+ MERCHANT,
 } NpcKind;
 
 typedef struct Entity
@@ -366,6 +368,11 @@ void end_text_input(char *what_player_said)
    Log("Doing prompt death\n");
    character_prompt = "Death: \"";
   }
+  else if(talking->npc_kind == MERCHANT)
+  {
+   BUFF_APPEND(&to_join, PROMPT_MERCHANT);
+   character_prompt = "Merchant: \"";
+  }
   else
   {
    assert(false);
@@ -422,8 +429,13 @@ void end_text_input(char *what_player_said)
   }
   if(player->talking_to->npc_kind == OLD_MAN)
   {
-      add_new_npc_sentence(player->talking_to, "If it's a fight you're looking for! *fights player*");
+   add_new_npc_sentence(player->talking_to, "If it's a fight you're looking for! *fights player*");
   }
+  if(player->talking_to->npc_kind == MERCHANT)
+  {
+   add_new_npc_sentence(player->talking_to, "*fights player*");
+  }
+
 #endif
  }
 }
@@ -568,6 +580,10 @@ Vec2 entity_aabb_size(Entity *e)
    return V2(TILE_SIZE*1.10f, TILE_SIZE*1.10f);
   }
   else if(e->npc_kind == SKELETON)
+  {
+   return V2(TILE_SIZE*1.0f, TILE_SIZE*1.0f);
+  }
+  else if(e->npc_kind == MERCHANT)
   {
    return V2(TILE_SIZE*1.0f, TILE_SIZE*1.0f);
   }
@@ -781,6 +797,7 @@ AnimatedSprite skeleton_swing_sword =
  .horizontal_diff_btwn_frames = 80.0,
  .offset = {0.0f, 20.0f},
  .region_size = {80.0f, 80.0f},
+ .no_wrap = true,
 };
 AnimatedSprite skeleton_run =
 {
@@ -791,6 +808,16 @@ AnimatedSprite skeleton_run =
  .horizontal_diff_btwn_frames = 80.0,
  .offset = {0.0f, 20.0f},
  .region_size = {80.0f, 80.0f},
+};
+AnimatedSprite merchant_idle = 
+{
+ .img = &image_merchant,
+ .time_per_frame = 0.15,
+ .num_frames = 8,
+ .start = {0.0, 0.0},
+ .horizontal_diff_btwn_frames = 110.0f,
+ .region_size = {110.0f, 110.0f},
+ .offset = {0.0f, -20.0f},
 };
 
 
@@ -2048,12 +2075,33 @@ void frame(void)
    if(fabsf(it->vel.x) > 0.01f)
     it->facing_left = it->vel.x < 0.0f;
 
+
+   // draw drop shadow
+   if(it->is_character || it->is_npc)
+   {
+    if(it->npc_kind != DEATH)
+    {
+     float shadow_size = knight_rolling.region_size.x * 0.5f;
+     Vec2 shadow_offset = V2(0.0f, -20.0f);
+     if(it->npc_kind == MERCHANT)
+     {
+      shadow_offset = V2(-4.5f, -15.0f);
+     }
+     else if(it->npc_kind == OLD_MAN)
+     {
+      shadow_offset = V2(-1.5f, -8.0f);
+      shadow_size *= 0.5f;
+     }
+     draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, shadow_offset), V2(shadow_size, shadow_size)),IMG(image_drop_shadow), WHITE});
+    }
+   }
+
    if(it->is_npc)
    {
     if(!BUFF_EMPTY(&it->sentence_to_say))
     {
      it->character_say_timer += dt;
-     const float character_say_time = 0.05f;
+     const float character_say_time = 0.02f;
      while(it->character_say_timer > character_say_time)
      {
       say_characters(it, 1);
@@ -2163,6 +2211,10 @@ void frame(void)
     else if(it->npc_kind == DEATH)
     {
      draw_animated_sprite(&death_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
+    }
+    else if(it->npc_kind == MERCHANT)
+    {
+     draw_animated_sprite(&merchant_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
     }
     else
     {
@@ -2323,8 +2375,6 @@ draw_dialog_panel(talking_to);
    Vec2 target_vel = {0};
    float speed = 0.0f;
 
-   float shadow_size = knight_rolling.region_size.x * 0.5f;
-   draw_quad((DrawParams){true, quad_centered(AddV2(player->pos, V2(0.0f, -20.0f)), V2(shadow_size, shadow_size)),IMG(image_drop_shadow), WHITE});
    if(player->state == CHARACTER_WALKING)
    {
     speed = PLAYER_SPEED;

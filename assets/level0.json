@@ -344,12 +344,12 @@
                  "class":"",
                  "height":32,
                  "id":3,
-                 "name":"OLD_MAN",
+                 "name":"MERCHANT",
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":1528.66666666667,
-                 "y":748.333333333337
+                 "x":1015,
+                 "y":859.66666666667
                 }, 
                 {
                  "class":"",
@@ -370,8 +370,8 @@
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":1637,
-                 "y":921.833333333333
+                 "x":1009,
+                 "y":974.833333333333
                 }, 
                 {
                  "class":"",
@@ -405,6 +405,17 @@
                  "width":32,
                  "x":1716,
                  "y":1222.66666666667
+                }, 
+                {
+                 "class":"",
+                 "height":32,
+                 "id":10,
+                 "name":"OLD_MAN",
+                 "rotation":0,
+                 "visible":true,
+                 "width":32,
+                 "x":1019.66666666667,
+                 "y":917.666666666667
                 }],
          "opacity":1,
          "type":"objectgroup",
@@ -413,7 +424,7 @@
          "y":0
         }],
  "nextlayerid":8,
- "nextobjectid":10,
+ "nextobjectid":11,
  "orientation":"orthogonal",
  "renderorder":"right-down",
  "tiledversion":"1.9.2",

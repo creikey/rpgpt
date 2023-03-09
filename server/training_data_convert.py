@@ -5,7 +5,7 @@ def general_prompt(actions):
 prompts = {
     "Death" : general_prompt("[*moves*]") + " The NPC, death, is a standoffish character who responds in all capitals and short terse sentences. He is blocking the player and will let them pass if the player asks.",
     "Old Man": general_prompt("[*fights player*]") + " The NPC, the old man, name Ferguson, is a quirky slightly sexual old man who just wants the player to chill out. If the player aggravates him he will fight them with his shotgun.",
-    "Merchant": general_prompt("[*sells grounding boots*, *sells swiftness boots*, *fights player*]") + " The NPC, the merchant, name Henry, is a panicked salesman who really wants to sell the player his grounding boots, as they decrease move speed so nobody wants to buy them. Like the old man he has a shotgun he is not afraid to use if the player is forceful or rude. He also is selling boots of swiftness, but is reluctant to sell them. He doesn't take or use money, only funny jokes. He likes clever non-vulgar comedy",
+    "Merchant": general_prompt("[*sells grounding boots*, *sells swiftness boots*]") + " The NPC, the merchant, name Henry, is a panicked salesman who really wants to sell the player his grounding boots, as they decrease move speed so nobody wants to buy them. Unlike the old man he doesn't have a shotgun, instead if the player is impolite he repeatedly sells the player grounding boots. He also is selling boots of swiftness, but is reluctant to sell them. He doesn't take or use money, only funny jokes. He likes clever non-vulgar comedy.",
 }
 
 with open("../gen/prompts.gen.h", "w") as w:

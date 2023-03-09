@@ -1,13 +1,5 @@
 Happening:
-DONE - Animate text characters coming in
-DONE - Escape exits typing
-DONE - Get rid of enters and stars in javascript input box
-DONE - Space and e for attack and roll, tooltip
-DONE - Sword improvements, deflect bullets
-DONE - Player knockback and drop shadow
- - Skeleton enemy
  - Shopkeep character
- - Don't flip player direction when you walk vertically
  - Save every request and response (server logs)
  - Moose boss
  - Portal at end, exit level
@@ -24,6 +16,5 @@ Marketing:
  and particles. Lets you keep momentum. Each dodge roll
  takes slightly different amount of time so you have to
  judge it
- - Max text length
+ - Max text length on text input
  - Mobile controls
- - Boss
