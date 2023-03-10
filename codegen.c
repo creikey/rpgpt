@@ -195,7 +195,7 @@ int main(int argc, char **argv) {
     if(MD_S8Match(type, MD_S8Lit("objectgroup"), 0)) {
      fprintf(output, ".initial_entities = {\n");
      for(MD_EachNode(object, MD_ChildFromString(lay, MD_S8Lit("objects"), 0)->first_child)) {
-      dump(object);
+      //dump(object);
       // negative numbers for object position aren't supported here
       MD_String8 name = MD_ChildFromString(object, MD_S8Lit("name"), 0)->first_child->string;
       MD_String8 x_string = MD_ChildFromString(object, MD_S8Lit("x"), 0)->first_child->string;

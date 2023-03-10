@@ -167,6 +167,8 @@ typedef struct Entity
  Vec2 vel; // only used sometimes, like in old man and bullet
  float damage; // at 1.0, dead! zero initialized
  bool facing_left;
+ double dead_time;
+ bool dead;
  // multiple entities have a sword swing
  BUFF(struct Entity*, 8) done_damage_to_this_swing; // only do damage once, but hitbox stays around
 
@@ -818,6 +820,17 @@ AnimatedSprite skeleton_run =
  .offset = {0.0f, 20.0f},
  .region_size = {80.0f, 80.0f},
 };
+AnimatedSprite skeleton_die =
+{
+ .img = &image_skeleton,
+ .time_per_frame = 0.10,
+ .num_frames = 13,
+ .start = {0.0f, 400.0f},
+ .horizontal_diff_btwn_frames = 80.0,
+ .offset = {0.0f, 20.0f},
+ .region_size = {80.0f, 80.0f},
+ .no_wrap = true,
+};
 AnimatedSprite merchant_idle = 
 {
  .img = &image_merchant,
@@ -886,6 +899,8 @@ void reset_level()
 
 void init(void)
 {
+ Log("Size of entity struct: %zu\n", sizeof(Entity));
+ Log("Size of %lld entities: %zu kb\n", ARRLEN(entities), sizeof(entities)/1024);
  sg_setup(&(sg_desc){
    .context = sapp_sgcontext(),
   });
@@ -1682,7 +1697,7 @@ Vec2 move_and_slide(Entity *from, Vec2 position, Vec2 movement_this_frame)
  {
   ENTITIES_ITER(entities)
   {
-   if(!(it->is_character && it->is_rolling) && it != from)
+   if(!(it->is_character && it->is_rolling) && it != from && !(it->is_npc && it->dead))
    {
     to_check[to_check_index++] = centered_aabb(it->pos, entity_aabb_size(it));
     assert(to_check_index < ARRLEN(to_check));
@@ -2085,6 +2100,11 @@ void frame(void)
     it->facing_left = it->vel.x < 0.0f;
 
 
+   if(it->dead)
+   {
+    it->dead_time += dt;
+   }
+
    // draw drop shadow
    if(it->is_character || it->is_npc)
    {
@@ -2164,58 +2184,65 @@ void frame(void)
     }
     else if(it->npc_kind == SKELETON)
     {
-     if(fabsf(it->vel.x) > 0.01f)
-      it->facing_left = it->vel.x < 0.0f;
-
      Color col = WHITE;
-     it->pos = move_and_slide(it, it->pos, MulV2F(it->vel, pixels_per_meter * dt));
-     AABB weapon_aabb = entity_sword_aabb(it, 30.0f, 18.0f);
-     dbgrect(weapon_aabb);
-     Vec2 target_vel = {0};
-     it->pos = AddV2(it->pos, MulV2F(it->vel, dt));
-     Overlapping overlapping_weapon = get_overlapping(cur_level, weapon_aabb);
-     if(it->swing_timer > 0.0)
+     if(it->dead)
      {
-      // swinging sword
-      draw_animated_sprite(&skeleton_swing_sword, it->swing_timer, it->facing_left, it->pos, col);
-      it->swing_timer += dt;
-      if(it->swing_timer >= anim_sprite_duration(&skeleton_swing_sword))
-      {
-       it->swing_timer = 0.0;
-      }
-      if(it->swing_timer >= 0.4f)
-      {
-       SwordToDamage to_damage = entity_sword_to_do_damage(it, overlapping_weapon);
-       Entity *from = it;
-       BUFF_ITER(Entity *, &to_damage)
-       {
-        request_do_damage(*it, from->pos, 0.2f);
-       }
-      }
+      draw_animated_sprite(&skeleton_die, it->dead_time, it->facing_left, it->pos, col);
      }
      else
      {
-      // in huntin' range
-      if(LenV2(SubV2(player->pos, it->pos)) < 250.0f)
+      if(fabsf(it->vel.x) > 0.01f)
+       it->facing_left = it->vel.x < 0.0f;
+
+      it->pos = move_and_slide(it, it->pos, MulV2F(it->vel, pixels_per_meter * dt));
+      AABB weapon_aabb = entity_sword_aabb(it, 30.0f, 18.0f);
+      dbgrect(weapon_aabb);
+      Vec2 target_vel = {0};
+      it->pos = AddV2(it->pos, MulV2F(it->vel, dt));
+      Overlapping overlapping_weapon = get_overlapping(cur_level, weapon_aabb);
+      if(it->swing_timer > 0.0)
       {
-       Entity *skele = it;
-       BUFF_ITER(Overlap, &overlapping_weapon)
+       // swinging sword
+       draw_animated_sprite(&skeleton_swing_sword, it->swing_timer, it->facing_left, it->pos, col);
+       it->swing_timer += dt;
+       if(it->swing_timer >= anim_sprite_duration(&skeleton_swing_sword))
        {
-        if(it->e && it->e->is_character)
+        it->swing_timer = 0.0;
+       }
+       if(it->swing_timer >= 0.4f)
+       {
+        SwordToDamage to_damage = entity_sword_to_do_damage(it, overlapping_weapon);
+        Entity *from = it;
+        BUFF_ITER(Entity *, &to_damage)
         {
-         skele->swing_timer += dt;
-         BUFF_CLEAR(&skele->done_damage_to_this_swing);
+         request_do_damage(*it, from->pos, 0.2f);
         }
        }
-       draw_animated_sprite(&skeleton_run, elapsed_time, it->facing_left, it->pos, col);
-       target_vel = MulV2F(NormV2(SubV2(player->pos, it->pos)), 4.0f);
       }
       else
       {
-       draw_animated_sprite(&skeleton_idle, elapsed_time, it->facing_left, it->pos, col);
+       // in huntin' range
+       if(LenV2(SubV2(player->pos, it->pos)) < 250.0f)
+       {
+        Entity *skele = it;
+        BUFF_ITER(Overlap, &overlapping_weapon)
+        {
+         if(it->e && it->e->is_character)
+         {
+          skele->swing_timer += dt;
+          BUFF_CLEAR(&skele->done_damage_to_this_swing);
+         }
+        }
+        draw_animated_sprite(&skeleton_run, elapsed_time, it->facing_left, it->pos, col);
+        target_vel = MulV2F(NormV2(SubV2(player->pos, it->pos)), 4.0f);
+       }
+       else
+       {
+        draw_animated_sprite(&skeleton_idle, elapsed_time, it->facing_left, it->pos, col);
+       }
       }
+      it->vel = LerpV2(it->vel, dt*8.0f, target_vel);
      }
-     it->vel = LerpV2(it->vel, dt*8.0f, target_vel);
     }
     else if(it->npc_kind == DEATH)
     {
@@ -2231,7 +2258,14 @@ void frame(void)
     }
     if(it->damage >= 1.0)
     {
-     *it = (Entity){0};
+     if(it->npc_kind == SKELETON)
+     {
+      it->dead = true;
+     }
+     else
+     {
+      *it = (Entity){0};
+     }
     }
    }
    else if (it->is_bullet)
