@@ -13,6 +13,7 @@ copy "EPIC RPG World Pack - Ancient Ruins V 1.7\EPIC RPG World Pack - Ancient Ru
 copy "EPIC RPG World Pack - Ancient Ruins V 1.7\EPIC RPG World Pack - Ancient Ruins V 1.7\TiledMap Editor\Terrain - Ancient Ruins.tsx" "assets\copyrighted\ruins_ancient.tsx" || goto :error
 copy "EPIC RPG World Pack - Ancient Ruins V 1.7\EPIC RPG World Pack - Ancient Ruins V 1.7\Tilesets\Tileset-Terrain.png" "assets\copyrighted\ruins_ancient.png" || goto :error
 copy "EPIC RPG World Pack - Ancient Ruins V 1.7\EPIC RPG World Pack - Ancient Ruins V 1.7\Props\Atlas-Props.png" "assets\copyrighted\props.png" || goto :error
+copy "EPIC RPG World Pack - Ancient Ruins V 1.7\EPIC RPG World Pack - Ancient Ruins V 1.7\Characters\Moose\moose1-all animations-347x192.png" "assets\copyrighted\moose.png" || goto :error
 copy "Undead - Pixel Art Characters\Undead - Pixel Art Characters\Sprites\Wraith_Red.png" "assets\copyrighted\wraith.png" || goto :error
 copy "Undead - Pixel Art Characters\Undead - Pixel Art Characters\Sprites\Skeleton_Blue.png" "assets\copyrighted\skeleton.png" || goto :error
 

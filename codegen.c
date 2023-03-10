@@ -208,7 +208,7 @@ int main(int argc, char **argv) {
       MD_String8 class = MD_ChildFromString(object, MD_S8Lit("class"), 0)->first_child->string;
       if(MD_S8Match(class, MD_S8Lit("PROP"), 0))
       {
-       fprintf(output, "{ .exists = true, .is_prop = true, .pos = { .X=%.*s, .Y=%.*s }, }, ", MD_S8VArg(x_string), MD_S8VArg(y_string));
+       fprintf(output, "{ .exists = true, .is_prop = true, .prop_kind = %.*s, .pos = { .X=%.*s, .Y=%.*s }, }, ", MD_S8VArg(name), MD_S8VArg(x_string), MD_S8VArg(y_string));
       }
       else if(MD_S8Match(name, MD_S8Lit("PLAYER"), 0))
       {

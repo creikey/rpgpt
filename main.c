@@ -156,7 +156,15 @@ typedef enum NpcKind
  DEATH,
  SKELETON,
  MERCHANT,
+ MOOSE,
 } NpcKind;
+
+typedef enum PropKind
+{
+ TREE0,
+ TREE1,
+ TREE2,
+} PropKind;
 
 typedef struct Entity
 {
@@ -176,6 +184,7 @@ typedef struct Entity
 
  // props
  bool is_prop;
+ PropKind prop_kind;
 
  // npcs
  bool is_npc;
@@ -602,6 +611,10 @@ Vec2 entity_aabb_size(Entity *e)
   {
    return V2(TILE_SIZE*1.0f, TILE_SIZE*1.0f);
   }
+  else if(e->npc_kind == MOOSE)
+  {
+   return V2(TILE_SIZE*1.0f, TILE_SIZE*1.0f);
+  }
   else
   {
    assert(false);
@@ -848,6 +861,16 @@ AnimatedSprite merchant_idle =
  .horizontal_diff_btwn_frames = 110.0f,
  .region_size = {110.0f, 110.0f},
  .offset = {0.0f, -20.0f},
+};
+AnimatedSprite moose_idle = 
+{
+ .img = &image_moose,
+ .time_per_frame = 0.15,
+ .num_frames = 8,
+ .start = {0.0, 0.0},
+ .horizontal_diff_btwn_frames = 347.0f,
+ .region_size = {347.0f, 160.0f},
+ .offset = {-1.5f, -10.0f},
 };
 
 
@@ -1294,20 +1317,12 @@ Vec2 into_clip_space(Vec2 screen_space_point)
 // The image region is in pixel space of the image
 void draw_quad(DrawParams d)
 {
- PROFILE_SCOPE("Draw quad")
- {
-  if(d.queue_for_translucent)
-  {
-   BUFF_APPEND(&translucent_queue, d);
-   return;
-  }
  quad_fs_params_t params = {0};
  params.tint[0] = d.tint.R;
  params.tint[1] = d.tint.G;
  params.tint[2] = d.tint.B;
  params.tint[3] = d.tint.A;
  params.alpha_clip_threshold = d.alpha_clip_threshold;
-
  if(aabb_is_valid(d.clip_to) && LenV2(aabb_size(d.clip_to)) > 0.1)
  {
   if(d.world_space)
@@ -1330,6 +1345,27 @@ void draw_quad(DrawParams d)
   params.clip_lr[1] = -1.0;
  }
 
+ Vec2 *points = d.quad.points;
+ if(d.world_space)
+ {
+  for(int i = 0; i < 4; i++)
+  {
+   points[i] = world_to_screen(points[i]);
+  }
+ }
+ // we've aplied the world space transform
+ d.world_space = false;
+
+ if(d.queue_for_translucent)
+ {
+  BUFF_APPEND(&translucent_queue, d);
+  return;
+ }
+
+ PROFILE_SCOPE("Draw quad")
+ {
+
+
 
  // if the rendering call is different, and the batch must be flushed
  if(d.image.id != cur_batch_image.id || memcmp(&params,&cur_batch_params,sizeof(params)) != 0 )
@@ -1339,15 +1375,7 @@ void draw_quad(DrawParams d)
   cur_batch_params = params;
  }
 
- Vec2 *points = d.quad.points;
 
- if(d.world_space)
- {
-  for(int i = 0; i < 4; i++)
-  {
-   points[i] = world_to_screen(points[i]);
-  }
- }
  AABB cam_aabb = screen_cam_aabb();
  AABB points_bounding_box = { .upper_left = V2(INFINITY, -INFINITY), .lower_right = V2(-INFINITY, INFINITY) };
 
@@ -1884,7 +1912,7 @@ void draw_dialog_panel(Entity *talking_to)
    panel_quad.lr = AddV2(panel_quad.lr, V2(-inset,  inset));
    panel_quad.ur = AddV2(panel_quad.ur, V2(-inset, -inset));
   }
-  colorquad(true, panel_quad, (Color){1.0f, 1.0f, 1.0f, 0.4f});
+  colorquad(true, panel_quad, (Color){1.0f, 1.0f, 1.0f, 0.7f});
   line(AddV2(dialog_quad.ul, V2(-line_width,0.0)), AddV2(dialog_quad.ur, V2(line_width,0.0)), line_width, BLACK);
   line(dialog_quad.ur, dialog_quad.lr, line_width, BLACK);
   line(AddV2(dialog_quad.lr, V2(line_width,0.0)), AddV2(dialog_quad.ll, V2(-line_width,0.0)), line_width, BLACK);
@@ -2197,7 +2225,7 @@ void frame(void)
      }
      else if(it->is_prop)
      {
-      shadow_size *= 3.0f;
+      shadow_size *= 2.5f;
       shadow_offset = V2(3.0f, -8.0f);
      }
      draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, shadow_offset), V2(shadow_size, shadow_size)),IMG(image_drop_shadow), (Color){1.0f,1.0f,1.0f,0.5f}});
@@ -2331,6 +2359,10 @@ void frame(void)
     {
      draw_animated_sprite(&merchant_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
     }
+    else if(it->npc_kind == MOOSE)
+    {
+     draw_animated_sprite(&moose_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
+    }
     else
     {
      assert(false);
@@ -2372,8 +2404,23 @@ void frame(void)
    }
    else if(it->is_prop)
    {
-    Vec2 prop_size = V2(126.0f, 180.0f);
-    draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, V2(0.0f, 70.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(3.0f, 295.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f});
+    if(it->prop_kind == TREE0)
+    {
+     Vec2 prop_size = V2(126.0f, 180.0f);
+     draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, V2(0.0f, 70.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(3.0f, 295.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f});
+    }
+    if(it->prop_kind == TREE1)
+    {
+     Vec2 prop_size = V2(102.0f, 145.0f);
+     draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, V2(-4.0f, 55.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(5.0f, 684.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f});
+    }
+    if(it->prop_kind == TREE2)
+    {
+     Vec2 prop_size = V2(128.0f, 192.0f);
+     draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, V2(-2.5f, 70.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(385.0f, 479.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f});
+    }
+
+
    }
    else
    {
@@ -2428,9 +2475,9 @@ void frame(void)
     // if somebody, show their dialog panel
     if(talking_to) 
     {
-      // talking to them feedback
+     // talking to them feedback
      draw_quad((DrawParams){true, quad_centered(talking_to->pos, V2(TILE_SIZE, TILE_SIZE)), image_dialog_circle, full_region(image_dialog_circle), WHITE});
-draw_dialog_panel(talking_to);
+     draw_dialog_panel(talking_to);
     }
 
     // process dialog and display dialog box when talking to NPC
@@ -2580,20 +2627,19 @@ draw_dialog_panel(talking_to);
    }
 
 
-    // health
-    if(player->damage >= 1.0)
-    {
-     reset_level();
-    }
-    else
-    {
-     draw_quad((DrawParams){false, (Quad){.ul=V2(0.0f, screen_size().Y), .ur = screen_size(), .lr = V2(screen_size().X, 0.0f)}, image_hurt_vignette, full_region(image_hurt_vignette), (Color){1.0f, 1.0f, 1.0f, player->damage}});
-    }
+   // health
+   if(player->damage >= 1.0)
+   {
+    reset_level();
    }
+   else
+   {
+    draw_quad((DrawParams){false, (Quad){.ul=V2(0.0f, screen_size().Y), .ur = screen_size(), .lr = V2(screen_size().X, 0.0f)}, image_hurt_vignette, full_region(image_hurt_vignette), (Color){1.0f, 1.0f, 1.0f, player->damage}});
+   }
+  }
    
    // translucent
   draw_all_translucent();
-
 
   // ui
 

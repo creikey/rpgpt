@@ -66,6 +66,10 @@
 {
  filepath: "copyrighted/skeleton.png",
 }
+@image moose:
+{
+ filepath: "copyrighted/moose.png",
+}
 @image shift_icon:
 {
  filepath: "shift_icon.png",
