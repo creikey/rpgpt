@@ -191,6 +191,7 @@ typedef struct Entity
 
  // character
  bool is_character;
+ int boots_modifier;
  CharacterState state;
  struct Entity *talking_to; // Maybe should be generational index, but I dunno. No death yet
  bool is_rolling; // can only roll in idle or walk states
@@ -282,6 +283,14 @@ void say_characters(Entity *npc, int num_characters)
     if(strcmp(match_buffer.data, "fights player") == 0 && npc->npc_kind == OLD_MAN)
     {
      npc->aggressive = true;
+    }
+    if(strcmp(match_buffer.data, "sells grounding boots") == 0 && npc->npc_kind == MERCHANT)
+    {
+     player->boots_modifier -= 1;
+    }
+    if(strcmp(match_buffer.data, "sells swiftness boots") == 0 && npc->npc_kind == MERCHANT)
+    {
+     player->boots_modifier += 1;
     }
     if(strcmp(match_buffer.data, "moves") == 0 && npc->npc_kind == DEATH)
     {
@@ -433,7 +442,7 @@ void end_text_input(char *what_player_said)
   }
   if(player->talking_to->npc_kind == MERCHANT)
   {
-   add_new_npc_sentence(player->talking_to, "*fights player*");
+   add_new_npc_sentence(player->talking_to, "*sells swiftness boots* bla bla");
   }
 
 #endif
@@ -2379,6 +2388,17 @@ draw_dialog_panel(talking_to);
    {
     speed = PLAYER_SPEED;
     if(player->is_rolling) speed = PLAYER_ROLL_SPEED;
+
+    if(player->boots_modifier < 0)
+    {
+     speed *= 1.0f / (1.0f + -(float)player->boots_modifier * 0.1f);
+    }
+    if(player->boots_modifier > 0)
+    {
+     speed *= 1.0f + ((float)player->boots_modifier * 0.1f);
+    }
+
+
     if(player->is_rolling)
     {
      draw_animated_sprite(&knight_rolling, player->roll_progress, player->facing_left, character_sprite_pos, WHITE);
