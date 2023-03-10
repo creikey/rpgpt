@@ -1,16 +1,15 @@
 Happening:
- - Shopkeep character
- - Save every request and response (server logs)
- - Moose boss
+DONE - Shopkeep character
  - Portal at end, exit level
+ - Moose boss
  - Drop shadow on text, or outline. Something
+ - Trees and other props, z sorting
  - Sound
-
-Later
-
-Marketing:
+ - Save every request and response (server logs)
+SEND NEW BETA, WATCH PEOPLE
  - Mailing list
 
+Later
  - Ask death to come help you fight, new action
  - Perfect dodge roll just after you roll, sound effect
  and particles. Lets you keep momentum. Each dodge roll
