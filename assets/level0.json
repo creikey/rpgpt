@@ -370,8 +370,8 @@
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":1009,
-                 "y":974.833333333333
+                 "x":1478.33333333333,
+                 "y":736.166666666666
                 }, 
                 {
                  "class":"",
@@ -416,6 +416,17 @@
                  "width":32,
                  "x":1019.66666666667,
                  "y":917.666666666667
+                }, 
+                {
+                 "class":"PROP",
+                 "height":32,
+                 "id":11,
+                 "name":"TREE0",
+                 "rotation":0,
+                 "visible":true,
+                 "width":32,
+                 "x":780,
+                 "y":917.333333333333
                 }],
          "opacity":1,
          "type":"objectgroup",
@@ -424,7 +435,7 @@
          "y":0
         }],
  "nextlayerid":8,
- "nextobjectid":11,
+ "nextobjectid":12,
  "orientation":"orthogonal",
  "renderorder":"right-down",
  "tiledversion":"1.9.2",

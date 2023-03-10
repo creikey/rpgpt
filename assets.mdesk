@@ -54,6 +54,10 @@
 {
  filepath: "bullet.png",
 }
+@image props_atlas:
+{
+ filepath: "copyrighted/props.png"
+}
 @image drop_shadow:
 {
  filepath: "drop_shadow.png",

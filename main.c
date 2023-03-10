@@ -36,6 +36,15 @@
 
 #define Log(...) { printf("Log %d | ", __LINE__); printf(__VA_ARGS__); }
 
+double clamp(double d, double min, double max) {
+  const double t = d < min ? min : d;
+  return t > max ? max : t;
+}
+float clampf(float d, float min, float max) {
+  const float t = d < min ? min : d;
+  return t > max ? max : t;
+}
+
 // so can be grep'd and removed
 #define dbgprint(...) { printf("Debug | %s:%d | ", __FILE__, __LINE__); printf(__VA_ARGS__); }
 Vec2 RotateV2(Vec2 v, float theta)
@@ -112,15 +121,6 @@ typedef enum CharacterState
  CHARACTER_TALKING,
 } CharacterState;
 
-typedef enum EntityKind
-{
- ENTITY_INVALID, // zero initialized is invalid entity
-
- ENTITY_PLAYER,
- ENTITY_OLD_MAN,
- ENTITY_BULLET,
-} EntityKind;
-
 #ifdef DEVTOOLS
 #define SERVER_URL "http://localhost:8090"
 #else
@@ -173,6 +173,9 @@ typedef struct Entity
  BUFF(struct Entity*, 8) done_damage_to_this_swing; // only do damage once, but hitbox stays around
 
  bool is_bullet;
+
+ // props
+ bool is_prop;
 
  // npcs
  bool is_npc;
@@ -574,11 +577,12 @@ SwordToDamage entity_sword_to_do_damage(Entity *from, Overlapping o)
  return to_return;
 }
 
+// aabb advice by iRadEntertainment
 Vec2 entity_aabb_size(Entity *e)
 {
- if(e->is_character == ENTITY_PLAYER)
+ if(e->is_character)
  {
-  return V2(TILE_SIZE, TILE_SIZE);
+  return V2(TILE_SIZE, TILE_SIZE*0.5f);
  }
  else if(e->is_npc)
  {
@@ -607,6 +611,10 @@ Vec2 entity_aabb_size(Entity *e)
  else if(e->is_bullet)
  {
   return V2(TILE_SIZE*0.25f, TILE_SIZE*0.25f);
+ }
+ else if(e->is_prop)
+ {
+  return V2(TILE_SIZE*0.5f, TILE_SIZE*0.5f);
  }
  else
  {
@@ -900,7 +908,7 @@ void reset_level()
 void init(void)
 {
  Log("Size of entity struct: %zu\n", sizeof(Entity));
- Log("Size of %lld entities: %zu kb\n", ARRLEN(entities), sizeof(entities)/1024);
+ Log("Size of %d entities: %zu kb\n", (int)ARRLEN(entities), sizeof(entities)/1024);
  sg_setup(&(sg_desc){
    .context = sapp_sgcontext(),
   });
@@ -976,10 +984,14 @@ void init(void)
  state.pip = sg_make_pipeline(&(sg_pipeline_desc)
    {
     .shader = shd,
+    .depth = {
+     .compare = SG_COMPAREFUNC_LESS_EQUAL,
+     .write_enabled = true
+    },
     .layout = {
      .attrs =
      {
-      [ATTR_quad_vs_position].format = SG_VERTEXFORMAT_FLOAT2,
+      [ATTR_quad_vs_position].format = SG_VERTEXFORMAT_FLOAT3,
       [ATTR_quad_vs_texcoord0].format   = SG_VERTEXFORMAT_FLOAT2,
      }
     },
@@ -1087,6 +1099,14 @@ AABB aabb_at(Vec2 at, Vec2 size)
  return (AABB){
   .upper_left = at,
   .lower_right = AddV2(at, V2(size.x, -size.y)),
+ };
+}
+
+AABB aabb_at_yplusdown(Vec2 at, Vec2 size)
+{
+ return (AABB){
+  .upper_left = at,
+  .lower_right = AddV2(at, V2(size.x, size.y)),
  };
 }
 
@@ -1227,6 +1247,7 @@ AABB world_cam_aabb()
 
 int num_draw_calls = 0;
 
+#define FLOATS_PER_VERTEX (3 + 2)
 float cur_batch_data[1024*10] = {0};
 int cur_batch_data_index = 0;
 // @TODO check last tint as well, do this when factor into drawing parameters
@@ -1239,10 +1260,10 @@ void flush_quad_batch()
  state.bind.fs_images[SLOT_quad_tex] = cur_batch_image;
  sg_apply_bindings(&state.bind);
  sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_quad_fs_params, &SG_RANGE(cur_batch_params));
- assert(cur_batch_data_index % 4 == 0);
- sg_draw(0, cur_batch_data_index/4, 1);
+ assert(cur_batch_data_index % FLOATS_PER_VERTEX == 0);
+ sg_draw(0, cur_batch_data_index/FLOATS_PER_VERTEX, 1);
  num_draw_calls += 1;
- memset(cur_batch_data, 0, cur_batch_data_index);
+ memset(cur_batch_data, 0, cur_batch_data_index*sizeof(*cur_batch_data));
  cur_batch_data_index = 0;
 }
 
@@ -1255,6 +1276,8 @@ typedef struct DrawParams
  Color tint;
 
  AABB clip_to; // if world space is in world space, if screen space is in screen space - Lao Tzu
+ float y_coord_sorting;
+ float alpha_clip_threshold;
 } DrawParams;
 
 
@@ -1275,6 +1298,7 @@ void draw_quad(DrawParams d)
  params.tint[1] = d.tint.G;
  params.tint[2] = d.tint.B;
  params.tint[3] = d.tint.A;
+ params.alpha_clip_threshold = d.alpha_clip_threshold;
 
  if(aabb_is_valid(d.clip_to) && LenV2(aabb_size(d.clip_to)) > 0.1)
  {
@@ -1334,7 +1358,7 @@ void draw_quad(DrawParams d)
   continue; // cull out of screen quads
  }
 
- float new_vertices[ (2 + 2)*4 ] = {0};
+ float new_vertices[ FLOATS_PER_VERTEX*4 ] = {0};
  Vec2 region_size = SubV2(d.image_region.lower_right, d.image_region.upper_left);
  assert(region_size.X > 0.0);
  assert(region_size.Y > 0.0);
@@ -1355,13 +1379,28 @@ void draw_quad(DrawParams d)
  for(int i = 0; i < 4; i++)
  {
   Vec2 in_clip_space = into_clip_space(points[i]);
-  new_vertices[i*4] = in_clip_space.X;
-  new_vertices[i*4 + 1] = in_clip_space.Y;
-  new_vertices[i*4 + 2] = tex_coords[i].X;
-  new_vertices[i*4 + 3] = tex_coords[i].Y;
+  new_vertices[i*FLOATS_PER_VERTEX + 0] = in_clip_space.X;
+  new_vertices[i*FLOATS_PER_VERTEX + 1] = in_clip_space.Y;
+  if(d.y_coord_sorting == 0.0f)
+  {
+   new_vertices[i*FLOATS_PER_VERTEX + 2] = 1.0f;
+   //new_vertices[i*FLOATS_PER_VERTEX + 2] = 0.5f;
+  }
+  else
+  {
+   //new_vertices[i*FLOATS_PER_VERTEX + 2] = (float)clamp(world_to_screen(V2(0.0f, d.y_coord_sorting)).y/screen_size().y, 0.0f, 1.0f);
+   new_vertices[i*FLOATS_PER_VERTEX + 2] = clampf(d.y_coord_sorting, 0.0f, 0.98f); // y sorted things always in front of non y sorted things
+   
+   //new_vertices[i*FLOATS_PER_VERTEX + 2] = -0.5f;
+   //new_vertices[i*FLOATS_PER_VERTEX + 2] = 0.1f;
+  }
+  //new_vertices[i*FLOATS_PER_VERTEX + 2] = 0.0f;
+  new_vertices[i*FLOATS_PER_VERTEX + 3] = tex_coords[i].X;
+  new_vertices[i*FLOATS_PER_VERTEX + 4] = tex_coords[i].Y;
  }
 
- size_t total_size = ARRLEN(new_vertices)*sizeof(new_vertices);
+ // two triangles drawn, six vertices
+ size_t total_size = 6*FLOATS_PER_VERTEX;
 
  // batched a little too close to the sun
  if(cur_batch_data_index + total_size >= ARRLEN(cur_batch_data))
@@ -1371,13 +1410,13 @@ void draw_quad(DrawParams d)
   cur_batch_params = params;
  }
 
-#define PUSH_VERTEX(vert) { memcpy(&cur_batch_data[cur_batch_data_index], &vert, 4*sizeof(float)); cur_batch_data_index += 4; }
- PUSH_VERTEX(new_vertices[0*4]);
- PUSH_VERTEX(new_vertices[1*4]);
- PUSH_VERTEX(new_vertices[2*4]);
- PUSH_VERTEX(new_vertices[0*4]);
- PUSH_VERTEX(new_vertices[2*4]);
- PUSH_VERTEX(new_vertices[3*4]);
+#define PUSH_VERTEX(vert) { memcpy(&cur_batch_data[cur_batch_data_index], &vert, FLOATS_PER_VERTEX*sizeof(float)); cur_batch_data_index += FLOATS_PER_VERTEX; }
+ PUSH_VERTEX(new_vertices[0*FLOATS_PER_VERTEX]);
+ PUSH_VERTEX(new_vertices[1*FLOATS_PER_VERTEX]);
+ PUSH_VERTEX(new_vertices[2*FLOATS_PER_VERTEX]);
+ PUSH_VERTEX(new_vertices[0*FLOATS_PER_VERTEX]);
+ PUSH_VERTEX(new_vertices[2*FLOATS_PER_VERTEX]);
+ PUSH_VERTEX(new_vertices[3*FLOATS_PER_VERTEX]);
 #undef PUSH_VERTEX
 
 }
@@ -1395,37 +1434,6 @@ double anim_sprite_duration(AnimatedSprite *s)
  return s->num_frames * s->time_per_frame;
 }
 
-void draw_animated_sprite(AnimatedSprite *s, double elapsed_time, bool flipped, Vec2 pos, Color tint)
-{
- pos = AddV2(pos, s->offset);
- sg_image spritesheet_img = *s->img;
- int index = (int)floor(elapsed_time/s->time_per_frame) % s->num_frames;
- if(s->no_wrap)
- {
-  index = (int)floor(elapsed_time/s->time_per_frame);
-  if(index >= s->num_frames) index = s->num_frames - 1;
- }
-
- Quad q = quad_centered(pos, s->region_size);
-
- if(flipped)
- {
-  swap(&q.points[0], &q.points[1]);
-  swap(&q.points[3], &q.points[2]);
- }
-
- AABB region;
- region.upper_left = AddV2(s->start, V2(index * s->horizontal_diff_btwn_frames, 0.0f));
- float width = img_size(spritesheet_img).X;
- while(region.upper_left.X >= width)
- {
-  region.upper_left.X -= width;
-  region.upper_left.Y += s->region_size.Y;
- }
- region.lower_right = AddV2(region.upper_left, s->region_size);
-
- draw_quad((DrawParams){true, q, spritesheet_img, region, tint});
-}
 
 
 
@@ -1620,7 +1628,7 @@ AABB draw_text(TextParams t)
     {
      col = t.colors[i];
     }
-    draw_quad((DrawParams){t.world_space, to_draw, image_font, font_atlas_region, col, t.clip_to});
+    draw_quad((DrawParams){t.world_space, to_draw, image_font, font_atlas_region, col, t.clip_to, .y_coord_sorting = 1.0f});
    }
   }
  }
@@ -1628,6 +1636,52 @@ AABB draw_text(TextParams t)
  bounds.upper_left = AddV2(bounds.upper_left, t.pos);
  bounds.lower_right = AddV2(bounds.lower_right, t.pos);
  return bounds;
+}
+
+float y_coord_sorting_at(Vec2 pos)
+{
+ float y_coord_sorting = world_to_screen(pos).y / screen_size().y;
+
+ // debug draw the y cord sorting value
+#if 0
+ char *to_draw = tprint("%f", y_coord_sorting);
+ draw_text((TextParams){true, false, to_draw, pos, BLACK, 1.0f});
+#endif
+ 
+ return y_coord_sorting;
+}
+
+void draw_animated_sprite(AnimatedSprite *s, double elapsed_time, bool flipped, Vec2 pos, Color tint)
+{
+ float y_sort_pos = y_coord_sorting_at(pos);
+ pos = AddV2(pos, s->offset);
+ sg_image spritesheet_img = *s->img;
+ int index = (int)floor(elapsed_time/s->time_per_frame) % s->num_frames;
+ if(s->no_wrap)
+ {
+  index = (int)floor(elapsed_time/s->time_per_frame);
+  if(index >= s->num_frames) index = s->num_frames - 1;
+ }
+
+ Quad q = quad_centered(pos, s->region_size);
+
+ if(flipped)
+ {
+  swap(&q.points[0], &q.points[1]);
+  swap(&q.points[3], &q.points[2]);
+ }
+
+ AABB region;
+ region.upper_left = AddV2(s->start, V2(index * s->horizontal_diff_btwn_frames, 0.0f));
+ float width = img_size(spritesheet_img).X;
+ while(region.upper_left.X >= width)
+ {
+  region.upper_left.X -= width;
+  region.upper_left.Y += s->region_size.Y;
+ }
+ region.lower_right = AddV2(region.upper_left, s->region_size);
+
+ draw_quad((DrawParams){true, q, spritesheet_img, region, tint, .y_coord_sorting = y_sort_pos, .alpha_clip_threshold = 0.2f});
 }
 
 // gets aabbs overlapping the input aabb, including entities and tiles
@@ -1903,11 +1957,13 @@ void frame(void)
    sg_apply_pipeline(state.pip);
 
    //colorquad(false, quad_at(V2(0.0, 100.0), V2(100.0f, 100.0f)), RED);
-   sg_image img = image_wonky_mystery_tile;
+   sg_image img = image_white_square;
    AABB region = full_region(img);
    //region.lower_right.X *= 0.5f;
    draw_quad((DrawParams){false,quad_at(V2(0.0, 100.0), V2(100.0f, 100.0f)), img, region, WHITE});
 
+
+   flush_quad_batch();
    sg_end_pass();
    sg_commit();
    reset(&scratch);
@@ -2291,6 +2347,11 @@ void frame(void)
    else if(it->is_character)
    {
    }
+   else if(it->is_prop)
+   {
+    Vec2 prop_size = V2(126.0f, 180.0f);
+    draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, V2(0.0f, 70.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(3.0f, 295.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f});
+   }
    else
    {
     assert(false);
@@ -2515,9 +2576,9 @@ draw_dialog_panel(talking_to);
   total_height -= (total_height - (vertical_spacing + HELPER_SIZE));
   const float padding = 50.0f;
   float y = screen_size().y/2.0f + total_height/2.0f;
-  draw_quad((DrawParams){false, quad_at(V2(padding, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_shift_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_shift)}});
+  draw_quad((DrawParams){false, quad_at(V2(padding, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_shift_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_shift)}, .y_coord_sorting = 0.0f});
   y -= vertical_spacing;
-  draw_quad((DrawParams){false, quad_at(V2(padding, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_space_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_space)}});
+  draw_quad((DrawParams){false, quad_at(V2(padding, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_space_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_space)}, .y_coord_sorting = 0.0f});
 
   PROFILE_SCOPE("flush rendering")
   {
