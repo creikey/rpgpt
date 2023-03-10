@@ -1267,6 +1267,7 @@ void flush_quad_batch()
  cur_batch_data_index = 0;
 }
 
+
 typedef struct DrawParams
 {
  bool world_space;
@@ -1276,10 +1277,12 @@ typedef struct DrawParams
  Color tint;
 
  AABB clip_to; // if world space is in world space, if screen space is in screen space - Lao Tzu
- float y_coord_sorting;
+ float y_coord_sorting; // 0.0 is all the way in the back, 1.0 is in the front
  float alpha_clip_threshold;
+ bool queue_for_translucent;
 } DrawParams;
 
+BUFF(DrawParams, 1024) translucent_queue = {0};
 
 Vec2 into_clip_space(Vec2 screen_space_point)
 {
@@ -1293,6 +1296,11 @@ void draw_quad(DrawParams d)
 {
  PROFILE_SCOPE("Draw quad")
  {
+  if(d.queue_for_translucent)
+  {
+   BUFF_APPEND(&translucent_queue, d);
+   return;
+  }
  quad_fs_params_t params = {0};
  params.tint[0] = d.tint.R;
  params.tint[1] = d.tint.G;
@@ -1381,20 +1389,7 @@ void draw_quad(DrawParams d)
   Vec2 in_clip_space = into_clip_space(points[i]);
   new_vertices[i*FLOATS_PER_VERTEX + 0] = in_clip_space.X;
   new_vertices[i*FLOATS_PER_VERTEX + 1] = in_clip_space.Y;
-  if(d.y_coord_sorting == 0.0f)
-  {
-   new_vertices[i*FLOATS_PER_VERTEX + 2] = 1.0f;
-   //new_vertices[i*FLOATS_PER_VERTEX + 2] = 0.5f;
-  }
-  else
-  {
-   //new_vertices[i*FLOATS_PER_VERTEX + 2] = (float)clamp(world_to_screen(V2(0.0f, d.y_coord_sorting)).y/screen_size().y, 0.0f, 1.0f);
-   new_vertices[i*FLOATS_PER_VERTEX + 2] = clampf(d.y_coord_sorting, 0.0f, 0.98f); // y sorted things always in front of non y sorted things
-   
-   //new_vertices[i*FLOATS_PER_VERTEX + 2] = -0.5f;
-   //new_vertices[i*FLOATS_PER_VERTEX + 2] = 0.1f;
-  }
-  //new_vertices[i*FLOATS_PER_VERTEX + 2] = 0.0f;
+  new_vertices[i*FLOATS_PER_VERTEX + 2] = 1.0f - clampf(d.y_coord_sorting, 0.0f, 1.0f);
   new_vertices[i*FLOATS_PER_VERTEX + 3] = tex_coords[i].X;
   new_vertices[i*FLOATS_PER_VERTEX + 4] = tex_coords[i].Y;
  }
@@ -1420,6 +1415,16 @@ void draw_quad(DrawParams d)
 #undef PUSH_VERTEX
 
 }
+}
+
+void draw_all_translucent()
+{
+ BUFF_ITER(DrawParams, &translucent_queue)
+ {
+  it->queue_for_translucent = false;
+  draw_quad(*it);
+ }
+ BUFF_CLEAR(&translucent_queue);
 }
 
 void swap(Vec2 *p1, Vec2 *p2)
@@ -1449,7 +1454,12 @@ Vec2 tile_id_to_coord(sg_image tileset_image, Vec2 tile_size, uint16_t tile_id)
 
 void colorquad(bool world_space, Quad q, Color col)
 {
- draw_quad((DrawParams){world_space, q, image_white_square, full_region(image_white_square), col});
+ bool queue = false;
+ if(col.A < 1.0f)
+ {
+  queue = true;
+ }
+ draw_quad((DrawParams){world_space, q, image_white_square, full_region(image_white_square), col, .y_coord_sorting = 1.0f, .queue_for_translucent = queue});
 }
 
 
@@ -1628,7 +1638,7 @@ AABB draw_text(TextParams t)
     {
      col = t.colors[i];
     }
-    draw_quad((DrawParams){t.world_space, to_draw, image_font, font_atlas_region, col, t.clip_to, .y_coord_sorting = 1.0f});
+    draw_quad((DrawParams){t.world_space, to_draw, image_font, font_atlas_region, col, t.clip_to, .y_coord_sorting = 1.0f, .queue_for_translucent = true});
    }
   }
  }
@@ -1648,7 +1658,7 @@ float y_coord_sorting_at(Vec2 pos)
  draw_text((TextParams){true, false, to_draw, pos, BLACK, 1.0f});
 #endif
  
- return y_coord_sorting;
+ return 1.0f - y_coord_sorting;
 }
 
 void draw_animated_sprite(AnimatedSprite *s, double elapsed_time, bool flipped, Vec2 pos, Color tint)
@@ -1865,12 +1875,20 @@ void draw_dialog_panel(Entity *talking_to)
  if(aabb_is_valid(dialog_panel))
  {
   Quad dialog_quad = quad_aabb(dialog_panel);
-  colorquad(true, dialog_quad, (Color){1.0f, 1.0f, 1.0f, 0.4f});
-  float width = 2.0f;
-  line(AddV2(dialog_quad.ul, V2(-width,0.0)), AddV2(dialog_quad.ur, V2(width,0.0)), width, BLACK);
-  line(dialog_quad.ur, dialog_quad.lr, width, BLACK);
-  line(AddV2(dialog_quad.lr, V2(width,0.0)), AddV2(dialog_quad.ll, V2(-width,0.0)), width, BLACK);
-  line(dialog_quad.ll, dialog_quad.ul, width, BLACK);
+  float line_width = 2.0f;
+  Quad panel_quad = dialog_quad;
+  {
+   float inset = line_width;
+   panel_quad.ul = AddV2(panel_quad.ul, V2(inset,  -inset));
+   panel_quad.ll = AddV2(panel_quad.ll, V2(inset,   inset));
+   panel_quad.lr = AddV2(panel_quad.lr, V2(-inset,  inset));
+   panel_quad.ur = AddV2(panel_quad.ur, V2(-inset, -inset));
+  }
+  colorquad(true, panel_quad, (Color){1.0f, 1.0f, 1.0f, 0.4f});
+  line(AddV2(dialog_quad.ul, V2(-line_width,0.0)), AddV2(dialog_quad.ur, V2(line_width,0.0)), line_width, BLACK);
+  line(dialog_quad.ur, dialog_quad.lr, line_width, BLACK);
+  line(AddV2(dialog_quad.lr, V2(line_width,0.0)), AddV2(dialog_quad.ll, V2(-line_width,0.0)), line_width, BLACK);
+  line(dialog_quad.ll, dialog_quad.ul, line_width, BLACK);
 
   float padding = 5.0f;
   dialog_panel.upper_left = AddV2(dialog_panel.upper_left, V2(padding, -padding));
@@ -2162,7 +2180,7 @@ void frame(void)
    }
 
    // draw drop shadow
-   if(it->is_character || it->is_npc)
+   if(it->is_character || it->is_npc || it->is_prop)
    {
     if(it->npc_kind != DEATH)
     {
@@ -2177,7 +2195,12 @@ void frame(void)
       shadow_offset = V2(-1.5f, -8.0f);
       shadow_size *= 0.5f;
      }
-     draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, shadow_offset), V2(shadow_size, shadow_size)),IMG(image_drop_shadow), WHITE});
+     else if(it->is_prop)
+     {
+      shadow_size *= 3.0f;
+      shadow_offset = V2(3.0f, -8.0f);
+     }
+     draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, shadow_offset), V2(shadow_size, shadow_size)),IMG(image_drop_shadow), (Color){1.0f,1.0f,1.0f,0.5f}});
     }
    }
 
@@ -2557,16 +2580,20 @@ draw_dialog_panel(talking_to);
    }
 
 
-   // health
-   if(player->damage >= 1.0)
-   {
-    reset_level();
+    // health
+    if(player->damage >= 1.0)
+    {
+     reset_level();
+    }
+    else
+    {
+     draw_quad((DrawParams){false, (Quad){.ul=V2(0.0f, screen_size().Y), .ur = screen_size(), .lr = V2(screen_size().X, 0.0f)}, image_hurt_vignette, full_region(image_hurt_vignette), (Color){1.0f, 1.0f, 1.0f, player->damage}});
+    }
    }
-   else
-   {
-    draw_quad((DrawParams){false, (Quad){.ul=V2(0.0f, screen_size().Y), .ur = screen_size(), .lr = V2(screen_size().X, 0.0f)}, image_hurt_vignette, full_region(image_hurt_vignette), (Color){1.0f, 1.0f, 1.0f, player->damage}});
-   }
-  }
+   
+   // translucent
+  draw_all_translucent();
+
 
   // ui
 
@@ -2576,9 +2603,10 @@ draw_dialog_panel(talking_to);
   total_height -= (total_height - (vertical_spacing + HELPER_SIZE));
   const float padding = 50.0f;
   float y = screen_size().y/2.0f + total_height/2.0f;
-  draw_quad((DrawParams){false, quad_at(V2(padding, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_shift_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_shift)}, .y_coord_sorting = 0.0f});
+  draw_quad((DrawParams){false, quad_at(V2(padding, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_shift_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_shift)}, .y_coord_sorting = 1.0f});
   y -= vertical_spacing;
-  draw_quad((DrawParams){false, quad_at(V2(padding, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_space_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_space)}, .y_coord_sorting = 0.0f});
+  draw_quad((DrawParams){false, quad_at(V2(padding, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_space_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_space)}, .y_coord_sorting = 1.0f});
+
 
   PROFILE_SCOPE("flush rendering")
   {
