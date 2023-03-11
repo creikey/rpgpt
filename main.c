@@ -1956,7 +1956,7 @@ void draw_dialog_panel(Entity *talking_to)
       {
        if(in_astrix)
        {
-        colors[char_i] = colhex(0xffdf24);
+        colors[char_i] = colhex(0xab9100);
        }
        else
        {
@@ -2124,6 +2124,7 @@ void frame(void)
   dbgsquare(screen_to_world(mouse_pos));
 
   // tile coord
+  if(show_devtools)
   {
    TileCoord hovering = world_to_tilecoord(screen_to_world(mouse_pos));
    Vec2 points[4] ={0};
@@ -2138,6 +2139,7 @@ void frame(void)
   }
 
   // statistics
+  if(show_devtools)
   PROFILE_SCOPE("statistics")
   {
    Vec2 pos = V2(0.0, screen_size().Y);

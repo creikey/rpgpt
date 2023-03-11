@@ -32,7 +32,9 @@ func index(w http.ResponseWriter, req *http.Request) {
    MaxTokens: 80,
    Prompt:    promptString,
    Temperature: 0.9,
-   FrequencyPenalty: 0.75,
+   FrequencyPenalty: 0.0,
+   PresencePenalty: 0.6,
+   TopP: 1.0,
    Stop: []string{"\""},
    N: 1,
   }
