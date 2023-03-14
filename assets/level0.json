@@ -344,18 +344,18 @@
                  "class":"",
                  "height":32,
                  "id":3,
-                 "name":"MERCHANT",
+                 "name":"Max",
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":1645.5,
-                 "y":1631.5
+                 "x":1077.5,
+                 "y":849.5
                 }, 
                 {
                  "class":"",
                  "height":32,
                  "id":5,
-                 "name":"DEATH",
+                 "name":"Death",
                  "rotation":0,
                  "visible":true,
                  "width":32,
@@ -410,12 +410,12 @@
                  "class":"",
                  "height":32,
                  "id":10,
-                 "name":"OLD_MAN",
+                 "name":"Hunter",
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":1724,
-                 "y":886.666666666667
+                 "x":838.666666666667,
+                 "y":860
                 }, 
                 {
                  "class":"PROP",
@@ -476,12 +476,12 @@
                  "class":"",
                  "height":32,
                  "id":16,
-                 "name":"MOOSE",
+                 "name":"John",
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":1358.66666666667,
-                 "y":2276
+                 "x":955.636363636367,
+                 "y":863.878787878788
                 }],
          "opacity":1,
          "type":"objectgroup",

@@ -9,6 +9,7 @@
 #define SOKOL_GLES2
 #endif
 
+#include "buff.h"
 #include "sokol_app.h"
 #include "sokol_gfx.h"
 #include "sokol_time.h"
@@ -31,7 +32,6 @@
 #endif
 #include "profiling.h"
 
-#define ARRLEN(x) ((sizeof(x)/sizeof(0[x])) / ((size_t)(!(sizeof(x) % sizeof(0[x])))))
 #define ENTITIES_ITER(ents) for(Entity *it = ents; it < ents + ARRLEN(ents); it++) if(it->exists)
 
 #define Log(...) { printf("Log %d | ", __LINE__); printf(__VA_ARGS__); }
@@ -60,6 +60,7 @@ Vec2 ReflectV2(Vec2 v, Vec2 normal)
  assert(fabsf(LenV2(normal) - 1.0f) < 0.01f); // must be normalized
  return SubV2(v, MulV2F(normal, 2.0f * DotV2(v, normal)));
 }
+
 
 typedef struct AABB
 {
@@ -127,36 +128,18 @@ typedef enum CharacterState
 #define SERVER_URL "https://rpgpt.duckdns.org/"
 #endif
 
-// null terminator always built into buffers so can read properly from data
-#define BUFF_VALID(buff_ptr) assert((buff_ptr)->cur_index <= ARRLEN((buff_ptr)->data))
-#define BUFF(type, max_size) struct { int cur_index; type data[max_size]; char null_terminator; }
-#define BUFF_HAS_SPACE(buff_ptr) ( (buff_ptr)->cur_index < ARRLEN((buff_ptr)->data) )
-#define BUFF_EMPTY(buff_ptr) ((buff_ptr)->cur_index == 0)
-#define BUFF_APPEND(buff_ptr, element)  { (buff_ptr)->data[(buff_ptr)->cur_index++] = element; BUFF_VALID(buff_ptr); }
-//#define BUFF_ITER(type, buff_ptr) for(type *it = &((buff_ptr)->data[0]); it < (buff_ptr)->data + (buff_ptr)->cur_index; it++)
-#define BUFF_ITER_EX(type, buff_ptr, begin_ind, cond, movement) for(type *it = &((buff_ptr)->data[begin_ind]); cond; movement)
-#define BUFF_ITER(type, buff_ptr) BUFF_ITER_EX(type, (buff_ptr), 0, it < (buff_ptr)->data + (buff_ptr)->cur_index, it++)
-#define BUFF_PUSH_FRONT(buff_ptr, value) { (buff_ptr)->cur_index++; BUFF_VALID(buff_ptr); for(int i = (buff_ptr)->cur_index - 1; i > 0; i--) { (buff_ptr)->data[i] = (buff_ptr)->data[i - 1]; }; (buff_ptr)->data[0] = value; }
-#define BUFF_REMOVE_FRONT(buff_ptr) {if((buff_ptr)->cur_index > 0) {for(int i = 0; i < (buff_ptr)->cur_index - 1; i++) { (buff_ptr)->data[i] = (buff_ptr)->data[i+1]; }; (buff_ptr)->cur_index--;}}
-#define BUFF_CLEAR(buff_ptr) {memset((buff_ptr), 0, sizeof(*(buff_ptr)));  ((buff_ptr)->cur_index = 0);}
 
 // REFACTORING:: also have to update in javascript!!!!!!!!
 #define MAX_SENTENCE_LENGTH 400 // LOOOK AT AGBOVE COMMENT GBEFORE CHANGING
 typedef BUFF(char, MAX_SENTENCE_LENGTH) Sentence;
 #define SENTENCE_CONST(txt) (Sentence){.data=txt, .cur_index=sizeof(txt)}
 
-
 // even indexed dialogs (0,2,4) are player saying stuff, odds are the character from GPT
 typedef BUFF(Sentence, 2*12) Dialog; // six back and forths. must be even number or bad things happen (I think)
 
-typedef enum NpcKind
-{
- INVALID,
- OLD_MAN,
- DEATH,
- SKELETON,
- MERCHANT,
- MOOSE,
+#include "characters.gen.h"
+ NPC_SKELETON,
+ NPC_MOOSE,
 } NpcKind;
 
 typedef enum PropKind
@@ -294,6 +277,7 @@ void say_characters(Entity *npc, int num_characters)
    }
    if(found_matching_star)
    {
+#if 0 // actions
     if(strcmp(match_buffer.data, "fights player") == 0 && npc->npc_kind == OLD_MAN)
     {
      npc->aggressive = true;
@@ -311,6 +295,7 @@ void say_characters(Entity *npc, int num_characters)
      npc->going_to_target = true;
      npc->target_goto = AddV2(npc->pos, V2(0.0, -TILE_SIZE*1.5f));
     }
+#endif
    }
    BUFF_APPEND(sentence_to_append_to, new_character);
    BUFF_REMOVE_FRONT(&npc->sentence_to_say);
@@ -335,8 +320,6 @@ void add_new_npc_sentence(Entity *npc, char *sentence)
  make_space_and_append(&npc->player_dialog, &empty_sentence);
  npc->sentence_to_say = new_sentence;
 }
-
-#include "prompts.gen.h"
 
 void begin_text_input(); // called when player engages in dialog, must say something and fill text_input_buffer
 // a callback, when 'text backend' has finished making text
@@ -375,31 +358,14 @@ void end_text_input(char *what_player_said)
   //BUFF_APPEND(&to_join, "This is dialog which takes place in a simple action RPG, where the player can only talk to NPCs, or fight. The characters influence the game world by saying specific actions from these possibilities: [*fights player*]. They don't say anything else that has '*' between them. Example dialog with an Old Man NPC:\nPlayer: \"Hello old man. Do you know that you're in a video game?\"\nOld Man: \"What are you talking about, young boy? What is a 'video game'?\"\nPlayer: \"You have no idea. You look ugly and stupid.\"\nOld Man: \"How juvenile! That's it, *fights player*\"\n\nThe NPCs exist on a small lush island, on a remote village, in a fantasy setting where monsters roam freely, posing a danger to the NPCs, and the player. They don't know about modern technology. They are very slow to say *fights player*, because doing so means killing the player, their friends, and potentially themselves. But if the situation demands it, they will not hesitate to open fire.\n");
 
 
+
   // characters prompt
   Entity *talking = player->talking_to;
-  char *character_prompt = NULL;
-  Log("doing prompt\n");
-  if(talking->npc_kind == OLD_MAN)
-  {
-   BUFF_APPEND(&to_join, PROMPT_OLD_MAN);
-   Log("doing prompt old man\n");
-   character_prompt = "Old Man: \"";
-  }
-  else if(talking->npc_kind == DEATH)
-  {
-   BUFF_APPEND(&to_join, PROMPT_DEATH);
-   Log("Doing prompt death\n");
-   character_prompt = "Death: \"";
-  }
-  else if(talking->npc_kind == MERCHANT)
-  {
-   BUFF_APPEND(&to_join, PROMPT_MERCHANT);
-   character_prompt = "Merchant: \"";
-  }
-  else
-  {
-   assert(false);
-  }
+  assert(talking->npc_kind < ARRLEN(prompt_table));
+  assert(talking->npc_kind < ARRLEN(name_table));
+  BUFF_APPEND(&to_join, prompt_table[talking->npc_kind]);
+  BUFF_APPEND(&to_join, "\n");
+  char *character_prompt = name_table[talking->npc_kind];
   //BUFF_APPEND(&to_join, "The player is talking to an old man who is standing around on the island. He's eager to bestow his wisdom upon the young player, but the player must act polite, not rude. If the player acts rude, the old man will say exactly the text '*fights player*' as shown in the above example, turning the interaction into a skirmish, where the old man takes out his well concealed shotgun. The old man is also a bit of a joker.\n\n");
   //BUFF_APPEND(&to_join, "Dialog between an old man and a player in a video game. The player can only attack or talk in the game. The old man can perform these actions by saying them: [*fights player*]\n--\nPlayer: \"Who are you?\"\nOld Man: \"Why I'm just a simple old man, minding my business. What brings you here?\"\nPlayer: \"I'm not sure. What needs doing?\"\nOld Man: \"Nothing much. It's pretty boring around here. Monsters are threatening our village though.\"\nPlayer: \"Holy shit! I better get to it\"\nOld Man: \"He he, certainly! Good luck!\"\n--\nPlayer: \"Man fuck you old man\"\nOld Man: \"You better watch your tongue young man. Unless you're polite I'll be forced to attack you, peace is important around here!\"\nPlayer: \"Man fuck your peace\"\nOld Man: \"That's it! *fights player*\"\n--\n");
 
@@ -415,6 +381,7 @@ void end_text_input(char *what_player_said)
    else
    {
     BUFF_APPEND(&to_join, character_prompt);
+    BUFF_APPEND(&to_join, ": \"");
    }
    BUFF_APPEND(&to_join, it->data);
    BUFF_APPEND(&to_join, "\"\n");
@@ -422,6 +389,7 @@ void end_text_input(char *what_player_said)
   }
 
   BUFF_APPEND(&to_join, character_prompt);
+  BUFF_APPEND(&to_join, ": \"");
 
   // concatenate into prompt_buff
   BUFF_ITER(char *, &to_join)
@@ -445,18 +413,22 @@ void end_text_input(char *what_player_said)
   player->talking_to->gen_request_id = req_id;
 #endif
 #ifdef DESKTOP
-  if(player->talking_to->npc_kind == DEATH)
+  if(player->talking_to->npc_kind == NPC_Death)
   {
       add_new_npc_sentence(player->talking_to, "test *moves* I am death, destroyer of games. Come join me in the afterlife, or continue onwards *moves*");
       //add_new_npc_sentence(player->talking_to, "test");
   }
-  if(player->talking_to->npc_kind == OLD_MAN)
+  if(player->talking_to->npc_kind == NPC_Hunter)
   {
-   add_new_npc_sentence(player->talking_to, "If it's a fight you're looking for! *fights player*");
+   add_new_npc_sentence(player->talking_to, "I am hunter");
   }
-  if(player->talking_to->npc_kind == MERCHANT)
+  if(player->talking_to->npc_kind == NPC_Max)
   {
-   add_new_npc_sentence(player->talking_to, "*sells swiftness boots* bla bla");
+   add_new_npc_sentence(player->talking_to, "I am max");
+  }
+  if(player->talking_to->npc_kind == NPC_John)
+  {
+   add_new_npc_sentence(player->talking_to, "I am john");
   }
 
 #endif
@@ -595,23 +567,19 @@ Vec2 entity_aabb_size(Entity *e)
  }
  else if(e->is_npc)
  {
-  if(e->npc_kind == OLD_MAN)
+  if(e->npc_kind == NPC_Hunter || e->npc_kind == NPC_Max || e->npc_kind == NPC_John)
   {
    return V2(TILE_SIZE*0.5f, TILE_SIZE*0.5f);
   }
-  else if(e->npc_kind == DEATH)
+  else if(e->npc_kind == NPC_Death)
   {
    return V2(TILE_SIZE*1.10f, TILE_SIZE*1.10f);
   }
-  else if(e->npc_kind == SKELETON)
+  else if(e->npc_kind == NPC_SKELETON)
   {
    return V2(TILE_SIZE*1.0f, TILE_SIZE*1.0f);
   }
-  else if(e->npc_kind == MERCHANT)
-  {
-   return V2(TILE_SIZE*1.0f, TILE_SIZE*1.0f);
-  }
-  else if(e->npc_kind == MOOSE)
+  else if(e->npc_kind == NPC_MOOSE)
   {
    return V2(TILE_SIZE*1.0f, TILE_SIZE*1.0f);
   }
@@ -1570,7 +1538,7 @@ void request_do_damage(Entity *to, Vec2 from_point, float damage)
   to->vel = ReflectV2(to->vel, norm);
   dbgprint("deflecitng\n");
  }
- else if(to->npc_kind != DEATH)
+ else if(true)
  {
   to->damage += damage;
   to->aggressive = true;
@@ -2212,10 +2180,11 @@ void frame(void)
    // draw drop shadow
    if(it->is_character || it->is_npc || it->is_prop)
    {
-    if(it->npc_kind != DEATH)
+    //if(it->npc_kind != DEATH)
     {
      float shadow_size = knight_rolling.region_size.x * 0.5f;
      Vec2 shadow_offset = V2(0.0f, -20.0f);
+#if 0
      if(it->npc_kind == MERCHANT)
      {
       shadow_offset = V2(-4.5f, -15.0f);
@@ -2225,7 +2194,8 @@ void frame(void)
       shadow_offset = V2(-1.5f, -8.0f);
       shadow_size *= 0.5f;
      }
-     else if(it->is_prop)
+#endif
+     if(it->is_prop)
      {
       shadow_size *= 2.5f;
       shadow_offset = V2(3.0f, -8.0f);
@@ -2246,11 +2216,8 @@ void frame(void)
       it->character_say_timer -= character_say_time;
      }
     }
-    if(it->npc_kind == DEATH && it->going_to_target)
-    {
-     it->pos = LerpV2(it->pos, dt*5.0f, it->target_goto);
-    }
-    if(it->npc_kind == OLD_MAN && it->aggressive)
+    //if(it->npc_kind == OLD_MAN && it->aggressive)
+    if(false)
     {
      draw_dialog_panel(it);
      Entity *targeting = player;
@@ -2282,7 +2249,8 @@ void frame(void)
     }
 
     Color col = LerpV4(WHITE, it->damage, RED);
-    if(it->npc_kind == OLD_MAN)
+    //if(it->npc_kind == OLD_MAN)
+    if(false)
     {
      bool face_left = false;
      if(it->aggressive)
@@ -2291,7 +2259,7 @@ void frame(void)
      }
      draw_animated_sprite(&old_man_idle, elapsed_time, face_left, it->pos, col);
     }
-    else if(it->npc_kind == SKELETON)
+    else if(it->npc_kind == NPC_SKELETON)
     {
      Color col = WHITE;
      if(it->dead)
@@ -2353,6 +2321,11 @@ void frame(void)
       it->vel = LerpV2(it->vel, dt*8.0f, target_vel);
      }
     }
+    else if(it->npc_kind == NPC_Death)
+    {
+     draw_animated_sprite(&death_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
+    }
+#if 0
     else if(it->npc_kind == DEATH)
     {
      draw_animated_sprite(&death_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
@@ -2361,7 +2334,29 @@ void frame(void)
     {
      draw_animated_sprite(&merchant_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
     }
-    else if(it->npc_kind == MOOSE)
+#endif
+    else if(it->npc_kind == NPC_Max || it->npc_kind == NPC_Hunter || it->npc_kind == NPC_John)
+    {
+     Color tint = WHITE;
+     if(it->npc_kind == NPC_Max)
+     {
+      tint = colhex(0xfc8803);
+     }
+     else if(it->npc_kind == NPC_Hunter)
+     {
+      tint = colhex(0x4ac918);
+     }
+     else if(it->npc_kind == NPC_John)
+     {
+      tint = colhex(0x16c7a1);
+     }
+     else
+     {
+      assert(false);
+     }
+     draw_animated_sprite(&knight_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), tint);
+    }
+    else if(it->npc_kind == NPC_MOOSE)
     {
      draw_animated_sprite(&moose_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
     }
@@ -2371,7 +2366,7 @@ void frame(void)
     }
     if(it->damage >= 1.0)
     {
-     if(it->npc_kind == SKELETON)
+     if(it->npc_kind == NPC_SKELETON)
      {
       it->dead = true;
      }
@@ -2392,7 +2387,7 @@ void frame(void)
     Entity *from_bullet = it;
     BUFF_ITER(Overlap, &over) if(it->e != from_bullet)
     {
-     if(!it->is_tile && !(it->e->npc_kind == DEATH) && !(it->e->is_bullet))
+     if(!it->is_tile && !(it->e->is_bullet))
      {
       // knockback and damage
       request_do_damage(it->e, from_bullet->pos, 0.2f);
@@ -2451,7 +2446,7 @@ void frame(void)
       if(entity_talkable) entity_talkable = entity_talkable && !it->is_tile;
       if(entity_talkable) entity_talkable = entity_talkable && it->e->is_npc;
       if(entity_talkable) entity_talkable = entity_talkable && !it->e->aggressive;
-      if(entity_talkable) entity_talkable = entity_talkable && !(it->e->npc_kind == SKELETON);
+      if(entity_talkable) entity_talkable = entity_talkable && !(it->e->npc_kind == NPC_SKELETON);
 #ifdef WEB
       if(entity_talkable) entity_talkable = entity_talkable && it->e->gen_request_id == 0;
 #endif

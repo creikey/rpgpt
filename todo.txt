@@ -1,15 +1,17 @@
-Happening:
-DONE - Shopkeep character
+Happening by END OF STREAM:
+DONE - Metadesk AI training
+ - A few characters
+ - Item hold/let go, collision
+ - Item affects dialog
+SEND NEW BETA, WATCH PEOPLE
+ - Make tiktok
+
+Later:
+ - Drop shadow on text, or outline. Something
  - Portal at end, exit level
  - Moose boss
- - Drop shadow on text, or outline. Something
- - Trees and other props, z sorting
  - Sound
- - Save every request and response (server logs)
-SEND NEW BETA, WATCH PEOPLE
- - Mailing list
-
-Later
+ - Save every request and response (server logs, use systemd)
  - Ask death to come help you fight, new action
  - Perfect dodge roll just after you roll, sound effect
  and particles. Lets you keep momentum. Each dodge roll
