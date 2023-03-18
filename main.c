@@ -58,7 +58,11 @@ Vec2 RotateV2(Vec2 v, float theta)
 Vec2 ReflectV2(Vec2 v, Vec2 normal)
 {
  assert(fabsf(LenV2(normal) - 1.0f) < 0.01f); // must be normalized
- return SubV2(v, MulV2F(normal, 2.0f * DotV2(v, normal)));
+ Vec2 to_return = SubV2(v, MulV2F(normal, 2.0f * DotV2(v, normal)));
+
+ assert(!isnan(to_return.x));
+ assert(!isnan(to_return.y));
+ return to_return;
 }
 
 
@@ -134,8 +138,27 @@ typedef enum CharacterState
 typedef BUFF(char, MAX_SENTENCE_LENGTH) Sentence;
 #define SENTENCE_CONST(txt) (Sentence){.data=txt, .cur_index=sizeof(txt)}
 
+Sentence from_str(char *s)
+{
+ Sentence to_return = {0};
+ while(*s != '\0')
+ {
+  BUFF_APPEND(&to_return, *s);
+  s++;
+ }
+ return to_return;
+}
+
 // even indexed dialogs (0,2,4) are player saying stuff, odds are the character from GPT
-typedef BUFF(Sentence, 2*12) Dialog; // six back and forths. must be even number or bad things happen (I think)
+typedef enum AuthorType { NPC, PLAYER, SYSTEM } AuthorType;
+typedef struct DialogElement
+{
+ AuthorType author;
+ Sentence s;
+} DialogElement;
+
+// must always have player dialog element first
+typedef BUFF(DialogElement, 2*12) Dialog;
 
 #include "characters.gen.h"
  NPC_SKELETON,
@@ -169,10 +192,16 @@ typedef struct Entity
  bool is_prop;
  PropKind prop_kind;
 
+ // items
+ bool is_item;
+ bool held_by_player;
+ ItemKind item_kind;
+
  // npcs
  bool is_npc;
  double character_say_timer;
  NpcKind npc_kind;
+ struct Entity *last_seen_holding;
  Sentence sentence_to_say;
  Dialog player_dialog;
 #ifdef WEB
@@ -188,6 +217,8 @@ typedef struct Entity
 
  // character
  bool is_character;
+ struct Entity *holding_item;
+ Vec2 to_throw_direction;
  int boots_modifier;
  CharacterState state;
  struct Entity *talking_to; // Maybe should be generational index, but I dunno. No death yet
@@ -235,27 +266,23 @@ typedef struct Arena
 
 Entity *player = NULL; // up here, used in text backend callback
 
-void make_space_and_append(Dialog *d, Sentence *s)
+void make_space_and_append(Dialog *d, DialogElement elem)
 {
- if(d->cur_index >= ARRLEN(d->data))
+ while((d->cur_index >= ARRLEN(d->data) || d->data[0].author != PLAYER) && d->cur_index > 0)
  {
-  for(int remove_i = 0; remove_i < 2; remove_i++)
+  assert(ARRLEN(d->data) >= 1);
+  for(int i = 0; i < ARRLEN(d->data) - 1; i++)
   {
-   assert(ARRLEN(d->data) >= 1);
-   for(int i = 0; i < ARRLEN(d->data) - 1; i++)
-   {
-    d->data[i] = d->data[i + 1];
-   }
-   d->cur_index--;
+   d->data[i] = d->data[i + 1];
   }
+  d->cur_index--;
  }
-
- BUFF_APPEND(d, *s);
+ BUFF_APPEND(d, elem);
 }
 
 void say_characters(Entity *npc, int num_characters)
 {
- Sentence *sentence_to_append_to = &npc->player_dialog.data[npc->player_dialog.cur_index-1];
+ Sentence *sentence_to_append_to = &npc->player_dialog.data[npc->player_dialog.cur_index-1].s;
  for(int i = 0; i < num_characters; i++)
  {
   if(!BUFF_EMPTY(&npc->player_dialog) && !BUFF_EMPTY(&npc->sentence_to_say))
@@ -285,6 +312,7 @@ void say_characters(Entity *npc, int num_characters)
     if(strcmp(match_buffer.data, "sells grounding boots") == 0 && npc->npc_kind == MERCHANT)
     {
      player->boots_modifier -= 1;
+
     }
     if(strcmp(match_buffer.data, "sells swiftness boots") == 0 && npc->npc_kind == MERCHANT)
     {
@@ -303,6 +331,11 @@ void say_characters(Entity *npc, int num_characters)
  }
 }
 
+bool npc_is_knight_sprite(Entity *it)
+{
+ return it->is_npc && ( it->npc_kind == NPC_Max || it->npc_kind == NPC_Hunter || it->npc_kind == NPC_John);
+}
+
 void add_new_npc_sentence(Entity *npc, char *sentence)
 {
  size_t sentence_len = strlen(sentence);
@@ -315,14 +348,14 @@ void add_new_npc_sentence(Entity *npc, char *sentence)
   if(sentence[i] == '\n') continue;
   BUFF_APPEND(&new_sentence, sentence[i]);
  }
- Sentence empty_sentence = {0};
+ DialogElement empty_elem = { .author = NPC };
  say_characters(npc, npc->sentence_to_say.cur_index);
- make_space_and_append(&npc->player_dialog, &empty_sentence);
+ make_space_and_append(&npc->player_dialog, empty_elem);
  npc->sentence_to_say = new_sentence;
 }
 
 void begin_text_input(); // called when player engages in dialog, must say something and fill text_input_buffer
-// a callback, when 'text backend' has finished making text
+// a callback, when 'text backend' has finished making text. End dialog
 void end_text_input(char *what_player_said)
 {
  player->state = CHARACTER_IDLE;
@@ -348,43 +381,80 @@ void end_text_input(char *what_player_said)
    BUFF_APPEND(&what_player_said_sentence, c);
   }
 
+  // order is player message, item status message in training data. So has to be same here
   Dialog *to_append = &player->talking_to->player_dialog;
-  make_space_and_append(to_append, &what_player_said_sentence);
+  Entity *talking = player->talking_to;
+  make_space_and_append(to_append, (DialogElement){.s = what_player_said_sentence, .author = PLAYER});
+  if(talking->last_seen_holding != player->holding_item)
+  {
+   if(talking->last_seen_holding)
+   {
+    Sentence discard = from_str(item_discard_message_table[talking->last_seen_holding->item_kind]);
+    BUFF_APPEND(&discard, '\n');
+    make_space_and_append(to_append, (DialogElement){.author = SYSTEM, .s = discard});
+    assert(talking->last_seen_holding->is_item);
+    talking->last_seen_holding = 0;
+   }
+   if(player->holding_item)
+   {
+    assert(player->holding_item->is_item);
+    Sentence possess = from_str(item_possess_message_table[player->holding_item->item_kind]);
+    BUFF_APPEND(&possess, '\n');
+    make_space_and_append(to_append, (DialogElement){.author = SYSTEM, .s = possess});
+   }
+   talking->last_seen_holding = player->holding_item;
+  }
 
   // the npc response will be appended here, or at least be async queued to be appended here
   BUFF(char, 4000) prompt_buff = {0};
   BUFF(char *, 100) to_join = {0};
 
-  //BUFF_APPEND(&to_join, "This is dialog which takes place in a simple action RPG, where the player can only talk to NPCs, or fight. The characters influence the game world by saying specific actions from these possibilities: [*fights player*]. They don't say anything else that has '*' between them. Example dialog with an Old Man NPC:\nPlayer: \"Hello old man. Do you know that you're in a video game?\"\nOld Man: \"What are you talking about, young boy? What is a 'video game'?\"\nPlayer: \"You have no idea. You look ugly and stupid.\"\nOld Man: \"How juvenile! That's it, *fights player*\"\n\nThe NPCs exist on a small lush island, on a remote village, in a fantasy setting where monsters roam freely, posing a danger to the NPCs, and the player. They don't know about modern technology. They are very slow to say *fights player*, because doing so means killing the player, their friends, and potentially themselves. But if the situation demands it, they will not hesitate to open fire.\n");
 
+  assert(talking->npc_kind >= 0);
+  assert(talking->npc_kind < ARRLEN(prompt_table));
+  assert(talking->npc_kind < ARRLEN(general_prompt_table));
+  assert(talking->npc_kind < ARRLEN(name_table));
 
+  // general prompt
+  BUFF_APPEND(&to_join, general_prompt_table[talking->npc_kind]);
+  BUFF_APPEND(&to_join, "\n");
+ 
+  // item prompt
+  if(player->holding_item)
+  {
+   BUFF_APPEND(&to_join, item_prompt_table[player->holding_item->item_kind]);
+   BUFF_APPEND(&to_join, "\n");
+  }
 
   // characters prompt
-  Entity *talking = player->talking_to;
-  assert(talking->npc_kind < ARRLEN(prompt_table));
-  assert(talking->npc_kind < ARRLEN(name_table));
   BUFF_APPEND(&to_join, prompt_table[talking->npc_kind]);
   BUFF_APPEND(&to_join, "\n");
   char *character_prompt = name_table[talking->npc_kind];
-  //BUFF_APPEND(&to_join, "The player is talking to an old man who is standing around on the island. He's eager to bestow his wisdom upon the young player, but the player must act polite, not rude. If the player acts rude, the old man will say exactly the text '*fights player*' as shown in the above example, turning the interaction into a skirmish, where the old man takes out his well concealed shotgun. The old man is also a bit of a joker.\n\n");
-  //BUFF_APPEND(&to_join, "Dialog between an old man and a player in a video game. The player can only attack or talk in the game. The old man can perform these actions by saying them: [*fights player*]\n--\nPlayer: \"Who are you?\"\nOld Man: \"Why I'm just a simple old man, minding my business. What brings you here?\"\nPlayer: \"I'm not sure. What needs doing?\"\nOld Man: \"Nothing much. It's pretty boring around here. Monsters are threatening our village though.\"\nPlayer: \"Holy shit! I better get to it\"\nOld Man: \"He he, certainly! Good luck!\"\n--\nPlayer: \"Man fuck you old man\"\nOld Man: \"You better watch your tongue young man. Unless you're polite I'll be forced to attack you, peace is important around here!\"\nPlayer: \"Man fuck your peace\"\nOld Man: \"That's it! *fights player*\"\n--\n");
 
   // all the dialog
   int i = 0;
-  BUFF_ITER(Sentence, &player->talking_to->player_dialog)
+  BUFF_ITER(DialogElement, &player->talking_to->player_dialog)
   {
-   bool is_player = i % 2 == 0;
-   if(is_player)
+   //bool is_player = 
+   if(it->author == PLAYER)
    {
     BUFF_APPEND(&to_join, "Player: \"");
    }
-   else
+   else if(it->author == NPC)
    {
     BUFF_APPEND(&to_join, character_prompt);
     BUFF_APPEND(&to_join, ": \"");
    }
-   BUFF_APPEND(&to_join, it->data);
-   BUFF_APPEND(&to_join, "\"\n");
+   else if(it->author == SYSTEM)
+   {
+   }
+   else
+   {
+    assert(false);
+   }
+   BUFF_APPEND(&to_join, it->s.data);
+   if(it->author == PLAYER || it->author == NPC)
+    BUFF_APPEND(&to_join, "\"\n");
    i++;
   }
 
@@ -403,7 +473,7 @@ void end_text_input(char *what_player_said)
 
   const char * prompt = prompt_buff.data;
 #ifdef DEVTOOLS
-  Log("Prompt: \"%s\"\n", prompt);
+  Log("Prompt: `%s`\n", prompt);
 #endif
 #ifdef WEB
   // fire off generation request, save id
@@ -428,7 +498,7 @@ void end_text_input(char *what_player_said)
   }
   if(player->talking_to->npc_kind == NPC_John)
   {
-   add_new_npc_sentence(player->talking_to, "I am john");
+   add_new_npc_sentence(player->talking_to, "I am john *gives WhiteSquare*");
   }
 
 #endif
@@ -594,6 +664,10 @@ Vec2 entity_aabb_size(Entity *e)
   return V2(TILE_SIZE*0.25f, TILE_SIZE*0.25f);
  }
  else if(e->is_prop)
+ {
+  return V2(TILE_SIZE*0.5f, TILE_SIZE*0.5f);
+ }
+ else if(e->is_item)
  {
   return V2(TILE_SIZE*0.5f, TILE_SIZE*0.5f);
  }
@@ -893,6 +967,11 @@ void reset_level()
   }
   assert(player != NULL); // level initial config must have player entity
  }
+
+ Entity *item = new_entity();
+ item->is_item = true;
+ item->item_kind = ITEM_WhiteSquare;
+ item->pos = AddV2(player->pos, V2(0.0, 30.0));
 }
 
 
@@ -1720,11 +1799,29 @@ Overlapping get_overlapping(Level *l, AABB aabb)
  return to_return;
 }
 
-// returns new pos after moving and sliding against collidable things
-Vec2 move_and_slide(Entity *from, Vec2 position, Vec2 movement_this_frame)
+typedef struct CollisionInfo
 {
- Vec2 collision_aabb_size = entity_aabb_size(from);
- Vec2 new_pos = AddV2(position, movement_this_frame);
+ bool happened;
+ Vec2 normal;
+}CollisionInfo;
+
+typedef struct MoveSlideParams
+{
+ Entity *from;
+ Vec2 position;
+ Vec2 movement_this_frame;
+
+ // optional
+ bool dont_collide_with_entities;
+ CollisionInfo *col_info_out;
+} MoveSlideParams;
+
+
+// returns new pos after moving and sliding against collidable things
+Vec2 move_and_slide(MoveSlideParams p)
+{
+ Vec2 collision_aabb_size = entity_aabb_size(p.from);
+ Vec2 new_pos = AddV2(p.position, p.movement_this_frame);
  AABB at_new = centered_aabb(new_pos, collision_aabb_size);
  dbgrect(at_new);
  AABB to_check[256] = {0};
@@ -1745,25 +1842,26 @@ Vec2 move_and_slide(Entity *from, Vec2 position, Vec2 movement_this_frame)
    TileCoord tilecoord_to_check = world_to_tilecoord(*it);
 
    if(is_tile_solid(get_tile(&level_level0, tilecoord_to_check)))
-   {
+   
     to_check[to_check_index++] = tile_aabb(tilecoord_to_check);
     assert(to_check_index < ARRLEN(to_check));
-   }
   }
  }
 
  // add entity boxes
- if(!(from->is_character && from->is_rolling))
+ if(!p.dont_collide_with_entities && !(p.from->is_character && p.from->is_rolling))
  {
   ENTITIES_ITER(entities)
   {
-   if(!(it->is_character && it->is_rolling) && it != from && !(it->is_npc && it->dead))
+   if(!(it->is_character && it->is_rolling) && it != p.from && !(it->is_npc && it->dead) && !it->is_item)
    {
     to_check[to_check_index++] = centered_aabb(it->pos, entity_aabb_size(it));
     assert(to_check_index < ARRLEN(to_check));
    }
   }
  }
+
+ CollisionInfo info = {0};
  for(int i = 0; i < to_check_index; i++)
  {
   AABB to_depenetrate_from = to_check[i];
@@ -1775,6 +1873,7 @@ Vec2 move_and_slide(Entity *from, Vec2 position, Vec2 movement_this_frame)
    //dbgsquare(to_depenetrate_from.lower_right);
    const float move_dist = 0.05f;
 
+   info.happened = true;
    Vec2 to_player = NormV2(SubV2(aabb_center(at_new), aabb_center(to_depenetrate_from)));
    Vec2 compass_dirs[4] = {
     V2( 1.0, 0.0),
@@ -1795,12 +1894,15 @@ Vec2 move_and_slide(Entity *from, Vec2 position, Vec2 movement_this_frame)
    }
    assert(closest_index != -1);
    Vec2 move_dir = compass_dirs[closest_index];
+   info.normal = move_dir;
    Vec2 move = MulV2F(move_dir, move_dist);
    at_new.upper_left = AddV2(at_new.upper_left,move);
    at_new.lower_right = AddV2(at_new.lower_right,move);
    iters_tried_to_push_apart++;
   }
  }
+
+ if(p.col_info_out) *p.col_info_out = info;
 
  return aabb_center(at_new);
 }
@@ -1897,48 +1999,54 @@ void draw_dialog_panel(Entity *talking_to)
    //BUFF_ITER(Sentence, &talking_to->player_dialog)
    if(talking_to->player_dialog.cur_index > 0)
    {
-    BUFF_ITER_EX(Sentence, &talking_to->player_dialog, talking_to->player_dialog.cur_index-1, it >= &talking_to->player_dialog.data[0], it--)
+    BUFF_ITER_EX(DialogElement, &talking_to->player_dialog, talking_to->player_dialog.cur_index-1, it >= &talking_to->player_dialog.data[0], it--)
     {
-     bool player_talking = i % 2 != 0; // iterating backwards
-     Color *colors = calloc(sizeof(*colors), it->cur_index);
-     bool in_astrix = false;
-     for(int char_i = 0; char_i < it->cur_index; char_i++)
+     if(it->author == SYSTEM)
      {
-      bool set_in_astrix_false = false;
-      if(it->data[char_i] == '*')
-      {
-       if(in_astrix)
-       {
-        set_in_astrix_false = true;
-       }
-       else
-       {
-        in_astrix = true;
-       }
-      }
-      if(player_talking)
-      {
-       colors[char_i] = BLACK;
-      }
-      else
-      {
-       if(in_astrix)
-       {
-        colors[char_i] = colhex(0xab9100);
-       }
-       else
-       {
-        colors[char_i] = colhex(0x345e22);
-       }
-      }
-      if(set_in_astrix_false) in_astrix = false;
      }
-     float measured_line_height = draw_wrapped_text(true, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->data, colors, 0.5f, true, dialog_panel);
-     new_line_height += (new_line_height - measured_line_height);
-     draw_wrapped_text(false, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->data, colors, 0.5f, true, dialog_panel);
+     else
+     {
+      bool player_talking = it->author == PLAYER;
+      Color *colors = calloc(sizeof(*colors), it->s.cur_index);
+      bool in_astrix = false;
+      for(int char_i = 0; char_i < it->s.cur_index; char_i++)
+      {
+       bool set_in_astrix_false = false;
+       if(it->s.data[char_i] == '*')
+       {
+        if(in_astrix)
+        {
+         set_in_astrix_false = true;
+        }
+        else
+        {
+         in_astrix = true;
+        }
+       }
+       if(player_talking)
+       {
+        colors[char_i] = BLACK;
+       }
+       else
+       {
+        if(in_astrix)
+        {
+         colors[char_i] = colhex(0xab9100);
+        }
+        else
+        {
+         colors[char_i] = colhex(0x345e22);
+        }
+       }
+       if(set_in_astrix_false) in_astrix = false;
+      }
+      float measured_line_height = draw_wrapped_text(true, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->s.data, colors, 0.5f, true, dialog_panel);
+      new_line_height += (new_line_height - measured_line_height);
+      draw_wrapped_text(false, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->s.data, colors, 0.5f, true, dialog_panel);
 
-     free(colors);
-     i++;
+      free(colors);
+      i++;
+     }
     }
    }
 
@@ -2162,7 +2270,7 @@ void frame(void)
      {
       Log("Failed to generate dialog! Fuck!");
       // need somethin better here. Maybe each sentence has to know if it's player or NPC, that way I can remove the player's dialog
-      make_space_and_append(&it->player_dialog, &SENTENCE_CONST("I'm not sure..."));
+      make_space_and_append(&it->player_dialog, (DialogElement){ .s = SENTENCE_CONST("I'm not sure..."), .author = NPC });
      }
      it->gen_request_id = 0;
     }
@@ -2184,6 +2292,10 @@ void frame(void)
     {
      float shadow_size = knight_rolling.region_size.x * 0.5f;
      Vec2 shadow_offset = V2(0.0f, -20.0f);
+     if(npc_is_knight_sprite(it))
+     {
+      shadow_offset = V2(0.5f, -10.0f);
+     }
 #if 0
      if(it->npc_kind == MERCHANT)
      {
@@ -2245,7 +2357,7 @@ void frame(void)
      Vec2 target_vel = NormV2(AddV2(rotate_counter_clockwise(to_player), MulV2F(to_player, 0.5f)));
      target_vel = MulV2F(target_vel, 3.0f);
      it->vel = LerpV2(it->vel, 15.0f * dt, target_vel);
-     it->pos = move_and_slide(it, it->pos, MulV2F(it->vel, pixels_per_meter * dt));
+     it->pos = move_and_slide((MoveSlideParams){it, it->pos, MulV2F(it->vel, pixels_per_meter * dt)});
     }
 
     Color col = LerpV4(WHITE, it->damage, RED);
@@ -2271,7 +2383,7 @@ void frame(void)
       if(fabsf(it->vel.x) > 0.01f)
        it->facing_left = it->vel.x < 0.0f;
 
-      it->pos = move_and_slide(it, it->pos, MulV2F(it->vel, pixels_per_meter * dt));
+      it->pos = move_and_slide((MoveSlideParams){it, it->pos, MulV2F(it->vel, pixels_per_meter * dt)});
       AABB weapon_aabb = entity_sword_aabb(it, 30.0f, 18.0f);
       dbgrect(weapon_aabb);
       Vec2 target_vel = {0};
@@ -2335,7 +2447,7 @@ void frame(void)
      draw_animated_sprite(&merchant_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
     }
 #endif
-    else if(it->npc_kind == NPC_Max || it->npc_kind == NPC_Hunter || it->npc_kind == NPC_John)
+    else if(npc_is_knight_sprite(it))
     {
      Color tint = WHITE;
      if(it->npc_kind == NPC_Max)
@@ -2375,6 +2487,23 @@ void frame(void)
       *it = (Entity){0};
      }
     }
+   }
+   else if (it->is_item)
+   {
+    if(it->held_by_player)
+    {
+     it->pos = AddV2(player->pos, V2(5.0f * (player->facing_left ? -1.0f : 1.0f), 0.0f));
+    }
+    else
+    {
+     it->vel = LerpV2(it->vel, dt*7.0f, V2(0.0f,0.0f));
+     CollisionInfo info = {0};
+     it->pos = move_and_slide((MoveSlideParams){it, it->pos, MulV2F(it->vel, pixels_per_meter * dt), .dont_collide_with_entities = true, .col_info_out = &info});
+     if(info.happened) it->vel = ReflectV2(it->vel, info.normal);
+    }
+
+    colorquad(true, quad_centered(it->pos, V2(15.0f, 15.0f)), WHITE);
+    //draw_quad((DrawParams){true, it->pos, IMG(image_white_square)
    }
    else if (it->is_bullet)
    {
@@ -2432,14 +2561,14 @@ void frame(void)
 
 
    // do dialog
-   Entity *closest_talkto = NULL;
+   Entity *closest_interact_with = NULL;
    {
     // find closest to talk to
     {
      AABB dialog_rect = centered_aabb(player->pos, V2(TILE_SIZE*2.0f, TILE_SIZE*2.0f));
      dbgrect(dialog_rect);
      Overlapping possible_dialogs = get_overlapping(cur_level, dialog_rect);
-     float closest_talkto_dist = INFINITY;
+     float closest_interact_with_dist = INFINITY;
      BUFF_ITER(Overlap, &possible_dialogs)
      {
       bool entity_talkable = true;
@@ -2450,31 +2579,38 @@ void frame(void)
 #ifdef WEB
       if(entity_talkable) entity_talkable = entity_talkable && it->e->gen_request_id == 0;
 #endif
-      if(entity_talkable)
+
+      bool entity_pickupable = !it->is_tile && !player->holding_item && it->e->is_item;
+
+      if(entity_talkable || entity_pickupable)
       {
        float dist = LenV2(SubV2(it->e->pos, player->pos));
-       if(dist < closest_talkto_dist)
+       if(dist < closest_interact_with_dist)
        {
-        closest_talkto_dist = dist;
-        closest_talkto = it->e;
+        closest_interact_with_dist = dist;
+        closest_interact_with = it->e;
        }
       }
      }
     }
 
-    Entity *talking_to = closest_talkto;
+
+    Entity *interacting_with = closest_interact_with;
     if(player->state == CHARACTER_TALKING)
     {
-     talking_to = player->talking_to;
-     assert(talking_to);
+     interacting_with = player->talking_to;
+     assert(interacting_with);
     }
 
     // if somebody, show their dialog panel
-    if(talking_to) 
+    if(interacting_with) 
     {
-     // talking to them feedback
-     draw_quad((DrawParams){true, quad_centered(talking_to->pos, V2(TILE_SIZE, TILE_SIZE)), image_dialog_circle, full_region(image_dialog_circle), WHITE});
-     draw_dialog_panel(talking_to);
+     // interaction circle
+     draw_quad((DrawParams){true, quad_centered(interacting_with->pos, V2(TILE_SIZE, TILE_SIZE)), image_dialog_circle, full_region(image_dialog_circle), WHITE});
+     if(interacting_with->is_npc)
+     {
+      draw_dialog_panel(interacting_with);
+     }
     }
 
     // process dialog and display dialog box when talking to NPC
@@ -2489,17 +2625,38 @@ void frame(void)
     }
    }
    // roll input management, sometimes means talk to the npc
-   if(player->state != CHARACTER_TALKING && roll_just_pressed && closest_talkto != NULL)
+   if(player->state != CHARACTER_TALKING && roll_just_pressed && closest_interact_with)
    {
-    // begin dialog with closest npc
-    player->state = CHARACTER_TALKING;
-    player->talking_to = closest_talkto;
-    begin_text_input();
+    if(closest_interact_with->is_npc)
+    {
+     // begin dialog with closest npc
+     player->state = CHARACTER_TALKING;
+     player->talking_to = closest_interact_with;
+     begin_text_input();
+    }
+    else if(closest_interact_with->is_item)
+    {
+     // pick up item
+     closest_interact_with->held_by_player = true;
+     player->holding_item = closest_interact_with;
+    }
+    else
+    {
+     assert(false);
+    }
    }
    else
    {
-    // rolling trigger from input
-    if(roll && !player->is_rolling && player->time_not_rolling > 0.3f && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
+    // in this branch, we know that no interacting with npcs or items is going to happen.
+    // but we still have to process roll input
+    if(roll_just_pressed && player->holding_item)
+    {
+     // throw item
+     player->holding_item->vel = MulV2F(player->to_throw_direction, 20.0f);
+     player->holding_item->held_by_player = false;
+     player->holding_item = 0;
+    }
+    else if(roll_just_pressed && !player->is_rolling && player->time_not_rolling > 0.3f && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
     {
      player->is_rolling = true;
      player->roll_progress = 0.0;
@@ -2546,6 +2703,7 @@ void frame(void)
    Vec2 target_vel = {0};
    float speed = 0.0f;
 
+   if(LenV2(movement) > 0.01f) player->to_throw_direction = NormV2(movement);
    if(player->state == CHARACTER_WALKING)
    {
     speed = PLAYER_SPEED;
@@ -2620,7 +2778,7 @@ void frame(void)
    {
     Vec2 target_vel = MulV2F(movement, dt * pixels_per_meter * speed);
     player->vel = LerpV2(player->vel, dt * 15.0f, target_vel);
-    player->pos = move_and_slide(player, player->pos, player->vel);
+    player->pos = move_and_slide((MoveSlideParams){player, player->pos, player->vel});
    }
 
 
@@ -2767,6 +2925,7 @@ sapp_desc sokol_main(int argc, char* argv[])
    //.gl_force_gles2 = true, not sure why this was here in example, look into
    .window_title = "RPGPT",
    .win32_console_attach = true,
+   .win32_console_create = true,
    .icon.sokol_default = true,
  };
 }

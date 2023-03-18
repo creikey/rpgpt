@@ -65,7 +65,8 @@ MD_Arena *cg_arena = NULL;
 MD_String8 ChildValue(MD_Node *n, MD_String8 name) {
  MD_Node *child_with_value = MD_ChildFromString(n, name, 0);
  assert_cond(child_with_value, MD_S8Fmt(cg_arena, "Could not find child named '%.*s' of node '%.*s'", MD_S8VArg(name), MD_S8VArg(n->string)));
- assert_cond(child_with_value->first_child, MD_S8Lit("Must have child"));
+ assert_cond(!MD_NodeIsNil(child_with_value->first_child), MD_S8Lit("Must have child"));
+ //assert(child_with_value->first_child->string.str != 0 && child_with_value->first_child->string.size > 0);
  return child_with_value->first_child->string;
 }
 
@@ -129,8 +130,6 @@ int main(int argc, char **argv) {
  cg_arena = MD_ArenaAlloc();
  assert_cond(cg_arena, MD_S8Lit("Memory"));
 
- char *nulled = nullterm(MD_S8Lit("test"));
-
  MD_ParseResult training_parse = MD_ParseWholeFile(cg_arena, MD_S8Lit("training.mdesk"));
  MD_String8 global_prompt = {0};
  for(MD_EachNode(node, training_parse.node->first_child))
@@ -168,64 +167,67 @@ int main(int argc, char **argv) {
   {
    MD_Node *node_with = find_by_name(&characters, ChildValue(node, S8("with")));
 
-   MD_String8List item_prompts = {0};
-   MD_Node *items_node = MD_ChildFromString(node, S8("items"), 0);
-   if(!MD_NodeIsNil(items_node))
+   int upto_npc_line = 0;
+   int cur_npc_line = 0;
+   MD_Node *cur_sentence = MD_ChildFromString(node, S8("data"), 0)->first_child;
+   MD_Node *has_item = 0;
+   MD_String8List conversation = {0};
+   while(!MD_NodeIsNil(cur_sentence))
    {
-    for(MD_EachNode(item_name_node, items_node->first_child))
+    assert(!MD_NodeIsNil(cur_sentence));
+    bool is_player = MD_NodeHasTag(cur_sentence, S8("player"), 0);
+    bool is_npc = MD_NodeHasTag(cur_sentence, S8("npc"), 0);
+    bool is_item_possess = MD_NodeHasTag(cur_sentence, S8("item_possess"), 0);
+    bool is_item_discard = MD_NodeHasTag(cur_sentence, S8("item_discard"), 0);
+    if(is_player)
     {
-     MD_String8 item_prompt = ChildValue(find_by_name(&items, item_name_node->string), S8("prompt"));
-     MD_S8ListPush(cg_arena, &item_prompts, item_prompt);
+     list_printf(&conversation, "Player: \\\"%.*s\\\"\\n", MD_S8VArg(cur_sentence->string));
     }
-   }
-   MD_StringJoin join = (MD_StringJoin){ .mid = S8("\\n") };
-   MD_String8 items_prompt = S8("");
-   if(item_prompts.node_count > 0)
-   {
-    MD_S8ListPush(cg_arena, &item_prompts, S8(""));
-    items_prompt = MD_S8ListJoin(cg_arena, item_prompts, &join);
-   }
-
-   int num_sentences = 0;
-   for(MD_EachNode(s, MD_ChildFromString(node, S8("data"), 0)->first_child))
-   {
-    num_sentences += 1;
-   }
-   assert(num_sentences >= 2);
-   assert(num_sentences % 2 == 0);
-   
-   for(int upto_length = 2; upto_length <= num_sentences; upto_length += 2)
-   {
-    fprintf(train, "{\"prompt\": \"");
-    fprintf(train, nullterm(global_prompt), MD_S8VArg(ChildValue(node_with, S8("actions_str"))));
-    fprintf(train, "\\n");
-    fprintf(train, "%.*s", MD_S8VArg(items_prompt));
-    fprintf(train, "%.*s\\n", MD_S8VArg(ChildValue(node_with, S8("prompt"))));
-    MD_Node *cur_sentence = MD_ChildFromString(node, S8("data"), 0)->first_child;
-    MD_String8 completion = {0};
-    for(int i = 0; i < upto_length; i += 1)
+    if(is_item_possess)
     {
-     assert(!MD_NodeIsNil(cur_sentence));
-     if(i % 2 == 0)
+     MD_Node *item = find_by_name(&items, cur_sentence->string);
+     assert(item);
+     has_item = item;
+     list_printf(&conversation, "%.*s\\n", MD_S8VArg(ChildValue(item, S8("possess_message"))));
+    }
+    if(is_item_discard)
+    {
+     MD_Node *item = find_by_name(&items, cur_sentence->string);
+     assert(item);
+     has_item = 0;
+     list_printf(&conversation, "%.*s\\n", MD_S8VArg(ChildValue(item, S8("discard_message"))));
+    }
+    bool restarting = false;
+    if(is_npc)
+    {
+     list_printf(&conversation, "%.*s: \\\"", MD_S8VArg(ChildValue(node_with, S8("name"))));
+     if(upto_npc_line == cur_npc_line)
      {
-      fprintf(train, "Player: \\\"%.*s\\\"\\n", MD_S8VArg(cur_sentence->string));
+      MD_String8 completion = cur_sentence->string;
+      fprintf(train, "{\"prompt\": \"");
+      fprintf(train, nullterm(global_prompt), MD_S8VArg(ChildValue(node_with, S8("actions_str"))));
+      fprintf(train, "\\n");
+      if(has_item) fprintf(train, "%.*s\\n", MD_S8VArg(ChildValue(has_item, S8("global_prompt_message"))));
+      fprintf(train, "%.*s\\n", MD_S8VArg(ChildValue(node_with, S8("prompt"))));
+
+      //MD_StringJoin join = (MD_StringJoin){.mid = S8("\\n")};
+      MD_StringJoin join = (MD_StringJoin){0};
+      MD_String8 conversation_string = MD_S8ListJoin(cg_arena, conversation, &join);
+      fprintf(train, "%.*s\", \"completion\": \"%.*s\\\"\"}\n", MD_S8VArg(conversation_string), MD_S8VArg(completion));
+
+      upto_npc_line += 1;
+      cur_npc_line = 0;
+      cur_sentence = MD_ChildFromString(node, S8("data"), 0)->first_child;
+      conversation = (MD_String8List){0};
+      restarting = true;
      }
      else
      {
-      fprintf(train, "%.*s: \\\"", MD_S8VArg(ChildValue(node_with, S8("name"))));
-      if(i == upto_length - 1)
-      {
-       completion = cur_sentence->string;
-      }
-      else
-      {
-       fprintf(train, "%.*s\\\"\\n", MD_S8VArg(cur_sentence->string));
-      }
-
+      list_printf(&conversation, "%.*s\\\"\\n", MD_S8VArg(cur_sentence->string));
+      cur_npc_line += 1;
      }
-     cur_sentence = cur_sentence->next;
     }
-    fprintf(train, "\", \"completion\": \"%.*s\\\"\"}\n", MD_S8VArg(completion));
+    if(!restarting) cur_sentence = cur_sentence->next;
    }
   }
  }
@@ -403,14 +405,51 @@ int main(int argc, char **argv) {
 
  output = fopen(MD_S8Fmt(cg_arena, "%.*s/characters.gen.h\0", MD_S8VArg(OUTPUT_FOLDER)).str, "w");
  //fprintf(output, "char *global_prompt = \"%.*s\";\n", MD_S8VArg(global_prompt));
- fprintf(output, "char *prompt_table[] = {\n");
+
+ fprintf(output, "char *general_prompt_table[] = {\n");
  BUFF_ITER(MD_Node*, &characters)
  {
   MD_String8 personalized_global_prompt = MD_S8Fmt(cg_arena, nullterm(global_prompt), MD_S8VArg(ChildValue(*it, S8("actions_str"))));
-  fprintf(output, "\"%.*s\\n%.*s\", // %.*s\n", MD_S8VArg(personalized_global_prompt), MD_S8VArg(ChildValue(*it, S8("prompt"))),MD_S8VArg((*it)->string));
+  fprintf(output, "\"%.*s\", // %.*s\n", MD_S8VArg(personalized_global_prompt), MD_S8VArg((*it)->string));
+ }
+ fprintf(output, "}; // general prompt table\n");
+
+
+ fprintf(output, "char *prompt_table[] = {\n");
+ BUFF_ITER(MD_Node*, &characters)
+ {
+  fprintf(output, "\"%.*s\", // %.*s\n", MD_S8VArg(ChildValue(*it, S8("prompt"))),MD_S8VArg((*it)->string));
  }
  fprintf(output, "}; // prompt table\n");
- 
+
+ fprintf(output, "typedef enum ItemKind {\nITEM_Invalid,\n");
+ BUFF_ITER(MD_Node*, &items)
+ {
+  fprintf(output, "ITEM_%.*s,\n", MD_S8VArg((*it)->string));
+ }
+ fprintf(output, "} ItemKind;\n");
+
+ fprintf(output, "char *item_prompt_table[] = {\n\"Invalid\",\n");
+ BUFF_ITER(MD_Node*, &items)
+ {
+  fprintf(output, "\"%.*s\",\n", MD_S8VArg(ChildValue(*it, S8("global_prompt_message"))));
+ }
+ fprintf(output, "}; // item prompt table\n");
+
+ fprintf(output, "char *item_possess_message_table[] = {\n\"Invalid\",\n");
+ BUFF_ITER(MD_Node*, &items)
+ {
+  fprintf(output, "\"%.*s\",\n", MD_S8VArg(ChildValue(*it, S8("possess_message"))));
+ }
+ fprintf(output, "}; // item possess_message table\n");
+
+ fprintf(output, "char *item_discard_message_table[] = {\n\"Invalid\",\n");
+ BUFF_ITER(MD_Node*, &items)
+ {
+  fprintf(output, "\"%.*s\",\n", MD_S8VArg(ChildValue(*it, S8("discard_message"))));
+ }
+ fprintf(output, "}; // item discard_message table\n");
+
  fprintf(output, "char *name_table[] = {\n");
  BUFF_ITER(MD_Node*, &characters)
  {

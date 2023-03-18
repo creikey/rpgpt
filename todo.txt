@@ -1,10 +1,17 @@
 Happening by END OF STREAM:
-DONE - Metadesk AI training
+ - Item holding changes prompt good
+ - Sound on text in/out
+ - Text drop shadow
+MAKE ANOTHER TIKTOK, LINK IN playgpt.io WEBPAGE
+SEND NEW BETA, WATCH PEOPLE
  - A few characters
  - Item hold/let go, collision
  - Item affects dialog
-SEND NEW BETA, WATCH PEOPLE
+ - Put playgpt.io in twitch title
  - Make tiktok
+    - tell creepy story
+    - put link playgpt.io in description
+    - mention the website, and call to action (follow and subscribe to mailing list) at end
 
 Later:
  - Drop shadow on text, or outline. Something
