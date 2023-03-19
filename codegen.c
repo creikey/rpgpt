@@ -252,6 +252,19 @@ int main(int argc, char **argv) {
  MD_String8List level_decl_list = {0};
  MD_String8List tileset_decls = {0};
  for(MD_EachNode(node, parse.node->first_child)) {
+  if(MD_S8Match(node->first_tag->string, MD_S8Lit("sound"), 0)) {
+   MD_String8 variable_name = MD_S8Fmt(cg_arena, "sound_%.*s", MD_S8VArg(node->string));
+   log("New sound variable %.*s\n", MD_S8VArg(variable_name));
+   MD_String8 filepath = ChildValue(node, MD_S8Lit("filepath"));
+   filepath = asset_file_path(filepath);
+   assert_cond(filepath.str != 0, MD_S8Fmt(cg_arena, "No filepath specified for sound '%.*s'", MD_S8VArg(node->string)));
+   FILE *asset_file = fopen(filepath.str, "r");
+   assert_cond(asset_file, MD_S8Fmt(cg_arena, "Could not open filepath %.*s for asset '%.*s'", MD_S8VArg(filepath), MD_S8VArg(node->string)));
+   fclose(asset_file);
+
+   MD_S8ListPush(cg_arena, &declarations_list, MD_S8Fmt(cg_arena, "AudioSample %.*s = {0};\n", MD_S8VArg(variable_name)));
+   MD_S8ListPush(cg_arena, &load_list, MD_S8Fmt(cg_arena, "%.*s = load_wav_audio(\"%.*s\");\n", MD_S8VArg(variable_name), MD_S8VArg(filepath)));
+  }
   if(MD_S8Match(node->first_tag->string, MD_S8Lit("image"), 0)) {
    MD_String8 variable_name = MD_S8Fmt(cg_arena, "image_%.*s", MD_S8VArg(node->string));
    log("New image variable %.*s\n", MD_S8VArg(variable_name));

@@ -1,3 +1,7 @@
+@sound simple_talk:
+{
+ filepath: "simple_text_chirp.wav",
+}
 @image merchant:
 {
  filepath: "copyrighted/merchant.png",

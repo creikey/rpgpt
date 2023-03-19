@@ -13,12 +13,16 @@
 #include "sokol_app.h"
 #include "sokol_gfx.h"
 #include "sokol_time.h"
+#include "sokol_audio.h"
+#include "sokol_log.h"
 #include "sokol_glue.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
 #include "HandmadeMath.h"
+#define DR_WAV_IMPLEMENTATION
+#include "dr_wav.h"
 
 #pragma warning(disable : 4996) // fopen is safe. I don't care about fopen_s
 
@@ -280,231 +284,61 @@ void make_space_and_append(Dialog *d, DialogElement elem)
  BUFF_APPEND(d, elem);
 }
 
-void say_characters(Entity *npc, int num_characters)
+typedef struct AudioSample
 {
- Sentence *sentence_to_append_to = &npc->player_dialog.data[npc->player_dialog.cur_index-1].s;
- for(int i = 0; i < num_characters; i++)
- {
-  if(!BUFF_EMPTY(&npc->player_dialog) && !BUFF_EMPTY(&npc->sentence_to_say))
-  {
-   char new_character = npc->sentence_to_say.data[0];
-   bool found_matching_star = false;
-   BUFF(char, MAX_SENTENCE_LENGTH) match_buffer = {0};
-   if(new_character == '*')
-   {
-    for(int ii = sentence_to_append_to->cur_index-1; ii >= 0; ii--)
-    {
-     if(sentence_to_append_to->data[ii] == '*')
-     {
-      found_matching_star = true;
-      break;
-     }
-     BUFF_PUSH_FRONT(&match_buffer, sentence_to_append_to->data[ii]);
-    }
-   }
-   if(found_matching_star)
-   {
-#if 0 // actions
-    if(strcmp(match_buffer.data, "fights player") == 0 && npc->npc_kind == OLD_MAN)
-    {
-     npc->aggressive = true;
-    }
-    if(strcmp(match_buffer.data, "sells grounding boots") == 0 && npc->npc_kind == MERCHANT)
-    {
-     player->boots_modifier -= 1;
+ float *pcm_data; // allocated by loader, must be freed
+ uint64_t pcm_data_length;
+} AudioSample;
 
-    }
-    if(strcmp(match_buffer.data, "sells swiftness boots") == 0 && npc->npc_kind == MERCHANT)
-    {
-     player->boots_modifier += 1;
-    }
-    if(strcmp(match_buffer.data, "moves") == 0 && npc->npc_kind == DEATH)
-    {
-     npc->going_to_target = true;
-     npc->target_goto = AddV2(npc->pos, V2(0.0, -TILE_SIZE*1.5f));
-    }
-#endif
-   }
-   BUFF_APPEND(sentence_to_append_to, new_character);
-   BUFF_REMOVE_FRONT(&npc->sentence_to_say);
-  }
- }
+typedef struct AudioPlayer
+{
+ AudioSample *sample; // if not 0, exists
+ double volume; // ZII, 1.0 + this again
+ double pitch; // zero initialized, the pitch used to play is 1.0 + this
+ double cursor_time; // in seconds, current audio sample is cursor_time * sample_rate
+} AudioPlayer;
+
+AudioPlayer playing_audio[128] = {0};
+
+#define SAMPLE_RATE 44100
+
+AudioSample load_wav_audio(const char *path)
+{
+ unsigned int channels;
+ unsigned int sampleRate;
+ AudioSample to_return = {0};
+ to_return.pcm_data = drwav_open_file_and_read_pcm_frames_f32(path, &channels, &sampleRate, &to_return.pcm_data_length, 0);
+ assert(channels == 1);
+ assert(sampleRate == SAMPLE_RATE);
+ return to_return;
 }
 
-bool npc_is_knight_sprite(Entity *it)
+uint64_t cursor_pcm(AudioPlayer *p)
 {
- return it->is_npc && ( it->npc_kind == NPC_Max || it->npc_kind == NPC_Hunter || it->npc_kind == NPC_John);
+ return (uint64_t)(p->cursor_time * SAMPLE_RATE);
 }
-
-void add_new_npc_sentence(Entity *npc, char *sentence)
+float float_rand( float min, float max )
 {
- size_t sentence_len = strlen(sentence);
- assert(sentence_len < MAX_SENTENCE_LENGTH);
- Sentence new_sentence = {0};
- bool inside_star = false;
- for(int i = 0; i < sentence_len; i++)
- {
-  if(sentence[i] == '"') break;
-  if(sentence[i] == '\n') continue;
-  BUFF_APPEND(&new_sentence, sentence[i]);
- }
- DialogElement empty_elem = { .author = NPC };
- say_characters(npc, npc->sentence_to_say.cur_index);
- make_space_and_append(&npc->player_dialog, empty_elem);
- npc->sentence_to_say = new_sentence;
+ float scale = rand() / (float) RAND_MAX; /* [0, 1.0] */
+ return min + scale * ( max - min );      /* [min, max] */
 }
-
-void begin_text_input(); // called when player engages in dialog, must say something and fill text_input_buffer
-// a callback, when 'text backend' has finished making text. End dialog
-void end_text_input(char *what_player_said)
+void play_audio(AudioSample *sample)
 {
- player->state = CHARACTER_IDLE;
-#ifdef WEB // hacky
- _sapp_emsc_register_eventhandlers();
-#endif
-
- size_t player_said_len = strlen(what_player_said);
- int actual_len = 0;
- for(int i = 0; i < player_said_len; i++) if(what_player_said[i] != '\n') actual_len++;
- if(actual_len == 0) 
+ AudioPlayer *to_use = 0;
+ for(int i = 0; i < ARRLEN(playing_audio); i++)
  {
-  // this just means cancel the dialog
+  if(playing_audio[i].sample == 0)
+  {
+   to_use = &playing_audio[i];
+   break;
+  }
  }
- else
- {
-  Sentence what_player_said_sentence = {0};
-  assert(player_said_len < ARRLEN(what_player_said_sentence.data));
-  for(int i = 0; i < player_said_len; i++)
-  {
-   char c = what_player_said[i];
-   if(c == '\n') break;
-   BUFF_APPEND(&what_player_said_sentence, c);
-  }
-
-  // order is player message, item status message in training data. So has to be same here
-  Dialog *to_append = &player->talking_to->player_dialog;
-  Entity *talking = player->talking_to;
-  make_space_and_append(to_append, (DialogElement){.s = what_player_said_sentence, .author = PLAYER});
-  if(talking->last_seen_holding != player->holding_item)
-  {
-   if(talking->last_seen_holding)
-   {
-    Sentence discard = from_str(item_discard_message_table[talking->last_seen_holding->item_kind]);
-    BUFF_APPEND(&discard, '\n');
-    make_space_and_append(to_append, (DialogElement){.author = SYSTEM, .s = discard});
-    assert(talking->last_seen_holding->is_item);
-    talking->last_seen_holding = 0;
-   }
-   if(player->holding_item)
-   {
-    assert(player->holding_item->is_item);
-    Sentence possess = from_str(item_possess_message_table[player->holding_item->item_kind]);
-    BUFF_APPEND(&possess, '\n');
-    make_space_and_append(to_append, (DialogElement){.author = SYSTEM, .s = possess});
-   }
-   talking->last_seen_holding = player->holding_item;
-  }
-
-  // the npc response will be appended here, or at least be async queued to be appended here
-  BUFF(char, 4000) prompt_buff = {0};
-  BUFF(char *, 100) to_join = {0};
-
-
-  assert(talking->npc_kind >= 0);
-  assert(talking->npc_kind < ARRLEN(prompt_table));
-  assert(talking->npc_kind < ARRLEN(general_prompt_table));
-  assert(talking->npc_kind < ARRLEN(name_table));
-
-  // general prompt
-  BUFF_APPEND(&to_join, general_prompt_table[talking->npc_kind]);
-  BUFF_APPEND(&to_join, "\n");
- 
-  // item prompt
-  if(player->holding_item)
-  {
-   BUFF_APPEND(&to_join, item_prompt_table[player->holding_item->item_kind]);
-   BUFF_APPEND(&to_join, "\n");
-  }
-
-  // characters prompt
-  BUFF_APPEND(&to_join, prompt_table[talking->npc_kind]);
-  BUFF_APPEND(&to_join, "\n");
-  char *character_prompt = name_table[talking->npc_kind];
-
-  // all the dialog
-  int i = 0;
-  BUFF_ITER(DialogElement, &player->talking_to->player_dialog)
-  {
-   //bool is_player = 
-   if(it->author == PLAYER)
-   {
-    BUFF_APPEND(&to_join, "Player: \"");
-   }
-   else if(it->author == NPC)
-   {
-    BUFF_APPEND(&to_join, character_prompt);
-    BUFF_APPEND(&to_join, ": \"");
-   }
-   else if(it->author == SYSTEM)
-   {
-   }
-   else
-   {
-    assert(false);
-   }
-   BUFF_APPEND(&to_join, it->s.data);
-   if(it->author == PLAYER || it->author == NPC)
-    BUFF_APPEND(&to_join, "\"\n");
-   i++;
-  }
-
-  BUFF_APPEND(&to_join, character_prompt);
-  BUFF_APPEND(&to_join, ": \"");
-
-  // concatenate into prompt_buff
-  BUFF_ITER(char *, &to_join)
-  {
-   size_t cur_len = strlen(*it);
-   for(int i = 0; i < cur_len; i++)
-   {
-    BUFF_APPEND(&prompt_buff, (*it)[i]);
-   }
-  }
-
-  const char * prompt = prompt_buff.data;
-#ifdef DEVTOOLS
-  Log("Prompt: `%s`\n", prompt);
-#endif
-#ifdef WEB
-  // fire off generation request, save id
-  int req_id = EM_ASM_INT({
-    return make_generation_request(UTF8ToString($1), UTF8ToString($0));
-  }, SERVER_URL, prompt);
-  player->talking_to->gen_request_id = req_id;
-#endif
-#ifdef DESKTOP
-  if(player->talking_to->npc_kind == NPC_Death)
-  {
-      add_new_npc_sentence(player->talking_to, "test *moves* I am death, destroyer of games. Come join me in the afterlife, or continue onwards *moves*");
-      //add_new_npc_sentence(player->talking_to, "test");
-  }
-  if(player->talking_to->npc_kind == NPC_Hunter)
-  {
-   add_new_npc_sentence(player->talking_to, "I am hunter");
-  }
-  if(player->talking_to->npc_kind == NPC_Max)
-  {
-   add_new_npc_sentence(player->talking_to, "I am max");
-  }
-  if(player->talking_to->npc_kind == NPC_John)
-  {
-   add_new_npc_sentence(player->talking_to, "I am john *gives WhiteSquare*");
-  }
-
-#endif
- }
+ assert(to_use);
+ *to_use = (AudioPlayer){0};
+ to_use->sample = sample;
+ to_use->volume = -0.5f;
+ to_use->pitch = float_rand(0.9f, 1.1f);
 }
-
 // keydown needs to be referenced when begin text input,
 // on web it disables event handling so the button up event isn't received
 bool keydown[SAPP_KEYCODE_MENU] = {0};
@@ -756,6 +590,7 @@ TileInstance get_tile(Level *l, TileCoord t)
  return get_tile_layer(l, 0, t);
 }
 
+
 sg_image load_image(const char *path)
 {
  sg_image to_return = {0};
@@ -790,6 +625,234 @@ sg_image load_image(const char *path)
 
 #include "quad-sapp.glsl.h"
 #include "assets.gen.c"
+
+void say_characters(Entity *npc, int num_characters)
+{
+ play_audio(&sound_simple_talk);
+ Sentence *sentence_to_append_to = &npc->player_dialog.data[npc->player_dialog.cur_index-1].s;
+ for(int i = 0; i < num_characters; i++)
+ {
+  if(!BUFF_EMPTY(&npc->player_dialog) && !BUFF_EMPTY(&npc->sentence_to_say))
+  {
+   char new_character = npc->sentence_to_say.data[0];
+   bool found_matching_star = false;
+   BUFF(char, MAX_SENTENCE_LENGTH) match_buffer = {0};
+   if(new_character == '*')
+   {
+    for(int ii = sentence_to_append_to->cur_index-1; ii >= 0; ii--)
+    {
+     if(sentence_to_append_to->data[ii] == '*')
+     {
+      found_matching_star = true;
+      break;
+     }
+     BUFF_PUSH_FRONT(&match_buffer, sentence_to_append_to->data[ii]);
+    }
+   }
+   if(found_matching_star)
+   {
+#if 0 // actions
+    if(strcmp(match_buffer.data, "fights player") == 0 && npc->npc_kind == OLD_MAN)
+    {
+     npc->aggressive = true;
+    }
+    if(strcmp(match_buffer.data, "sells grounding boots") == 0 && npc->npc_kind == MERCHANT)
+    {
+     player->boots_modifier -= 1;
+
+    }
+    if(strcmp(match_buffer.data, "sells swiftness boots") == 0 && npc->npc_kind == MERCHANT)
+    {
+     player->boots_modifier += 1;
+    }
+    if(strcmp(match_buffer.data, "moves") == 0 && npc->npc_kind == DEATH)
+    {
+     npc->going_to_target = true;
+     npc->target_goto = AddV2(npc->pos, V2(0.0, -TILE_SIZE*1.5f));
+    }
+#endif
+   }
+   BUFF_APPEND(sentence_to_append_to, new_character);
+   BUFF_REMOVE_FRONT(&npc->sentence_to_say);
+  }
+ }
+}
+
+bool npc_is_knight_sprite(Entity *it)
+{
+ return it->is_npc && ( it->npc_kind == NPC_Max || it->npc_kind == NPC_Hunter || it->npc_kind == NPC_John);
+}
+
+void add_new_npc_sentence(Entity *npc, char *sentence)
+{
+ size_t sentence_len = strlen(sentence);
+ assert(sentence_len < MAX_SENTENCE_LENGTH);
+ Sentence new_sentence = {0};
+ bool inside_star = false;
+ for(int i = 0; i < sentence_len; i++)
+ {
+  if(sentence[i] == '"') break;
+  if(sentence[i] == '\n') continue;
+  BUFF_APPEND(&new_sentence, sentence[i]);
+ }
+ DialogElement empty_elem = { .author = NPC };
+ say_characters(npc, npc->sentence_to_say.cur_index);
+ make_space_and_append(&npc->player_dialog, empty_elem);
+ npc->sentence_to_say = new_sentence;
+}
+
+void begin_text_input(); // called when player engages in dialog, must say something and fill text_input_buffer
+// a callback, when 'text backend' has finished making text. End dialog
+void end_text_input(char *what_player_said)
+{
+ player->state = CHARACTER_IDLE;
+#ifdef WEB // hacky
+ _sapp_emsc_register_eventhandlers();
+#endif
+
+ size_t player_said_len = strlen(what_player_said);
+ int actual_len = 0;
+ for(int i = 0; i < player_said_len; i++) if(what_player_said[i] != '\n') actual_len++;
+ if(actual_len == 0) 
+ {
+  // this just means cancel the dialog
+ }
+ else
+ {
+  Sentence what_player_said_sentence = {0};
+  assert(player_said_len < ARRLEN(what_player_said_sentence.data));
+  for(int i = 0; i < player_said_len; i++)
+  {
+   char c = what_player_said[i];
+   if(c == '\n') break;
+   BUFF_APPEND(&what_player_said_sentence, c);
+  }
+
+  // order is player message, item status message in training data. So has to be same here
+  Dialog *to_append = &player->talking_to->player_dialog;
+  Entity *talking = player->talking_to;
+  make_space_and_append(to_append, (DialogElement){.s = what_player_said_sentence, .author = PLAYER});
+  if(talking->last_seen_holding != player->holding_item)
+  {
+   if(talking->last_seen_holding)
+   {
+    Sentence discard = from_str(item_discard_message_table[talking->last_seen_holding->item_kind]);
+    BUFF_APPEND(&discard, '\n');
+    make_space_and_append(to_append, (DialogElement){.author = SYSTEM, .s = discard});
+    assert(talking->last_seen_holding->is_item);
+    talking->last_seen_holding = 0;
+   }
+   if(player->holding_item)
+   {
+    assert(player->holding_item->is_item);
+    Sentence possess = from_str(item_possess_message_table[player->holding_item->item_kind]);
+    BUFF_APPEND(&possess, '\n');
+    make_space_and_append(to_append, (DialogElement){.author = SYSTEM, .s = possess});
+   }
+   talking->last_seen_holding = player->holding_item;
+  }
+
+  // the npc response will be appended here, or at least be async queued to be appended here
+  BUFF(char, 4000) prompt_buff = {0};
+  BUFF(char *, 100) to_join = {0};
+
+
+  assert(talking->npc_kind >= 0);
+  assert(talking->npc_kind < ARRLEN(prompt_table));
+  assert(talking->npc_kind < ARRLEN(general_prompt_table));
+  assert(talking->npc_kind < ARRLEN(name_table));
+
+  // general prompt
+  BUFF_APPEND(&to_join, general_prompt_table[talking->npc_kind]);
+  BUFF_APPEND(&to_join, "\n");
+ 
+  // item prompt
+  if(player->holding_item)
+  {
+   BUFF_APPEND(&to_join, item_prompt_table[player->holding_item->item_kind]);
+   BUFF_APPEND(&to_join, "\n");
+  }
+
+  // characters prompt
+  BUFF_APPEND(&to_join, prompt_table[talking->npc_kind]);
+  BUFF_APPEND(&to_join, "\n");
+  char *character_prompt = name_table[talking->npc_kind];
+
+  // all the dialog
+  int i = 0;
+  BUFF_ITER(DialogElement, &player->talking_to->player_dialog)
+  {
+   //bool is_player = 
+   if(it->author == PLAYER)
+   {
+    BUFF_APPEND(&to_join, "Player: \"");
+   }
+   else if(it->author == NPC)
+   {
+    BUFF_APPEND(&to_join, character_prompt);
+    BUFF_APPEND(&to_join, ": \"");
+   }
+   else if(it->author == SYSTEM)
+   {
+   }
+   else
+   {
+    assert(false);
+   }
+   BUFF_APPEND(&to_join, it->s.data);
+   if(it->author == PLAYER || it->author == NPC)
+    BUFF_APPEND(&to_join, "\"\n");
+   i++;
+  }
+
+  BUFF_APPEND(&to_join, character_prompt);
+  BUFF_APPEND(&to_join, ": \"");
+
+  // concatenate into prompt_buff
+  BUFF_ITER(char *, &to_join)
+  {
+   size_t cur_len = strlen(*it);
+   for(int i = 0; i < cur_len; i++)
+   {
+    BUFF_APPEND(&prompt_buff, (*it)[i]);
+   }
+  }
+
+  const char * prompt = prompt_buff.data;
+#ifdef DEVTOOLS
+  Log("Prompt: `%s`\n", prompt);
+#endif
+#ifdef WEB
+  // fire off generation request, save id
+  int req_id = EM_ASM_INT({
+    return make_generation_request(UTF8ToString($1), UTF8ToString($0));
+  }, SERVER_URL, prompt);
+  player->talking_to->gen_request_id = req_id;
+#endif
+#ifdef DESKTOP
+  if(player->talking_to->npc_kind == NPC_Death)
+  {
+      add_new_npc_sentence(player->talking_to, "test *moves* I am death, destroyer of games. Come join me in the afterlife, or continue onwards *moves*");
+      //add_new_npc_sentence(player->talking_to, "test");
+  }
+  if(player->talking_to->npc_kind == NPC_Hunter)
+  {
+   add_new_npc_sentence(player->talking_to, "I am hunter");
+  }
+  if(player->talking_to->npc_kind == NPC_Max)
+  {
+   add_new_npc_sentence(player->talking_to, "I am max");
+  }
+  if(player->talking_to->npc_kind == NPC_John)
+  {
+   add_new_npc_sentence(player->talking_to, "I am john *gives WhiteSquare*");
+  }
+
+#endif
+ }
+}
+
+
 
 AnimatedSprite knight_idle =
 {
@@ -974,6 +1037,34 @@ void reset_level()
  item->pos = AddV2(player->pos, V2(0.0, 30.0));
 }
 
+void audio_stream_callback(float *buffer, int num_frames, int num_channels)
+{
+ assert(num_channels == 1);
+ const int num_samples = num_frames * num_channels;
+ double time_to_play = (double)num_frames / (double)SAMPLE_RATE;
+ double time_per_sample = 1.0 / (double)SAMPLE_RATE;
+ for(int i = 0; i < num_samples; i++)
+ {
+  float output_frame = 0.0f;
+  for(int audio_i = 0; audio_i < ARRLEN(playing_audio); audio_i++)
+  {
+   AudioPlayer *it = &playing_audio[audio_i];
+   if(it->sample != 0)
+   {
+    if(cursor_pcm(it) >= it->sample->pcm_data_length)
+    {
+     it->sample = 0;
+    }
+    else
+    {
+     output_frame += it->sample->pcm_data[cursor_pcm(it)]*(float)(it->volume + 1.0);
+     it->cursor_time += time_per_sample*(it->pitch + 1.0);
+    }
+   }
+  }
+  buffer[i] = output_frame;
+ }
+}
 
 void init(void)
 {
@@ -981,8 +1072,12 @@ void init(void)
  Log("Size of %d entities: %zu kb\n", (int)ARRLEN(entities), sizeof(entities)/1024);
  sg_setup(&(sg_desc){
    .context = sapp_sgcontext(),
-  });
+ });
  stm_setup();
+ saudio_setup(&(saudio_desc){
+   .stream_cb = audio_stream_callback,
+  .logger.func = slog_func,
+ });
 
  scratch = make_arena(1024 * 10);
 
@@ -1712,6 +1807,16 @@ AABB draw_text(TextParams t)
     if(t.colors)
     {
      col = t.colors[i];
+    }
+    if(false) // drop shadow, don't really like it
+    if(t.world_space)
+    {
+     Quad shadow_quad = to_draw;
+     for(int i = 0; i < 4; i++)
+     {
+      shadow_quad.points[i] = AddV2(shadow_quad.points[i], V2(0.0, -1.0));
+     }
+     draw_quad((DrawParams){t.world_space, shadow_quad, image_font, font_atlas_region, (Color){0.0f,0.0f,0.0f,0.4f}, t.clip_to, .y_coord_sorting = 1.0f, .queue_for_translucent = true});
     }
     draw_quad((DrawParams){t.world_space, to_draw, image_font, font_atlas_region, col, t.clip_to, .y_coord_sorting = 1.0f, .queue_for_translucent = true});
    }

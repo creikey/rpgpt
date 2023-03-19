@@ -60,6 +60,8 @@
   @npc    "Hello, Max. Be careful with the form of your swing, you could get hurt fighting the monsters",
   @player "Can I have the white square?",
   @npc    "*gives WhiteSquare*",
+  @player "Give me the white square",
+  @npc    "I don't have it anymore bozo",
  }
 }
 
@@ -78,6 +80,23 @@
   @player "What do you think of my sword?",
   @item_discard WhiteSquare,
   @npc    "Thank God you've no longer got that frightful square. The sword is, interesting to say the least",
+ },
+}
+
+@training
+{
+ with: Hunter,
+ data:
+ {
+  @player "Join me and fight Death",
+  @npc    "Nonsense! Watch your tongue, or I'll gut you like a fish.",
+  @player "Sorry! He doesn't seem like a good guy.",
+  @npc    "I trust him a lot more than you, whoever you are.",
+  @player "Do you trust me now?",
+  @item_possess WhiteSquare,
+  @npc    "Certainly a strange artifact, you're holding, but it's no death incarnate",
+  @player "Fine.",
+  @npc    "Certainly.",
  },
 }
 
@@ -108,10 +127,10 @@
   @player "It's ok I got rid of it calm down",
   @item_discard WhiteSquare,
   @npc    "Thanks",
-  @player "What's up with you?"<
+  @player "What's up with you?",
   @npc    "I'm going on a crusade. I do not wish to die",
   @player "Too bad",
   @item_possess WhiteSquare,
-  @npc    "
+  @npc    "Get that THING AWAY FROM ME",
  },
 }
