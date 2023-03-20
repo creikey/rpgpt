@@ -1,12 +1,5 @@
 Happening by END OF STREAM:
- - Item holding changes prompt good
- - Sound on text in/out
- - Text drop shadow
-MAKE ANOTHER TIKTOK, LINK IN playgpt.io WEBPAGE
-SEND NEW BETA, WATCH PEOPLE
  - A few characters
- - Item hold/let go, collision
- - Item affects dialog
  - Put playgpt.io in twitch title
  - Make tiktok
     - tell creepy story

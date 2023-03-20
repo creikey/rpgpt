@@ -28,7 +28,7 @@ func index(w http.ResponseWriter, req *http.Request) {
 
   ctx := context.Background()
   req := gogpt.CompletionRequest{
-   Model:     "curie:ft-personal-2023-03-16-04-40-18",
+   Model:     "curie:ft-personal-2023-03-19-08-03-36",
    MaxTokens: 80,
    Prompt:    promptString,
    Temperature: 0.9,
