@@ -99,6 +99,7 @@ typedef struct TileInstance
 typedef struct AnimatedTile
 {
  uint16_t id_from;
+ bool exists;
  int num_frames;
  uint16_t frames[32];
 } AnimatedTile;
@@ -133,7 +134,7 @@ typedef enum CharacterState
 #ifdef DEVTOOLS
 #define SERVER_URL "http://localhost:8090"
 #else
-#define SERVER_URL "https://rpgpt.duckdns.org/"
+#define SERVER_URL "https://rpgpt.duckdns.org/completion"
 #endif
 
 
@@ -165,7 +166,7 @@ typedef struct DialogElement
 typedef BUFF(DialogElement, 2*12) Dialog;
 
 #include "characters.gen.h"
- NPC_SKELETON,
+ NPC_Skeleton,
  NPC_MOOSE,
 } NpcKind;
 
@@ -212,8 +213,8 @@ typedef struct Entity
  int gen_request_id;
 #endif
  bool aggressive;
+ bool walking;
  double shotgun_timer;
- // only for death npc
  bool going_to_target;
  Vec2 target_goto;
  // only for skeleton npc
@@ -243,7 +244,7 @@ typedef struct Overlap
 typedef BUFF(Overlap, 16) Overlapping;
 
 #define LEVEL_TILES 150
-#define LAYERS 2
+#define LAYERS 3
 #define TILE_SIZE 32 // in pixels
 #define MAX_ENTITIES 128
 #define PLAYER_SPEED 3.5f // in meters per second
@@ -467,7 +468,7 @@ Vec2 entity_aabb_size(Entity *e)
 {
  if(e->is_character)
  {
-  return V2(TILE_SIZE, TILE_SIZE*0.5f);
+  return V2(TILE_SIZE*0.9f, TILE_SIZE*0.5f);
  }
  else if(e->is_npc)
  {
@@ -475,17 +476,29 @@ Vec2 entity_aabb_size(Entity *e)
   {
    return V2(TILE_SIZE*0.5f, TILE_SIZE*0.5f);
   }
+  else if(e->npc_kind == NPC_GodRock)
+  {
+   return V2(TILE_SIZE*0.5f, TILE_SIZE*0.5f);
+  }
+  else if(e->npc_kind == NPC_OldMan)
+  {
+   return V2(TILE_SIZE*0.5f, TILE_SIZE*0.5f);
+  }
   else if(e->npc_kind == NPC_Death)
   {
    return V2(TILE_SIZE*1.10f, TILE_SIZE*1.10f);
   }
-  else if(e->npc_kind == NPC_SKELETON)
+  else if(e->npc_kind == NPC_Skeleton)
   {
    return V2(TILE_SIZE*1.0f, TILE_SIZE*1.0f);
   }
   else if(e->npc_kind == NPC_MOOSE)
   {
    return V2(TILE_SIZE*1.0f, TILE_SIZE*1.0f);
+  }
+  else if(e->npc_kind == NPC_Blocky)
+  {
+   return V2(TILE_SIZE*0.5f, TILE_SIZE*0.5f);
   }
   else
   {
@@ -515,7 +528,20 @@ Vec2 entity_aabb_size(Entity *e)
 bool is_tile_solid(TileInstance t)
 {
  uint16_t tile_id = t.kind;
- return tile_id == 53 || tile_id == 0 || tile_id == 367 || tile_id == 317 || tile_id == 313 || tile_id == 366 || tile_id == 368;
+ uint16_t collideable[] = {
+  57 , 58 , 59 ,
+  121, 122, 123,
+  185, 186, 187,
+  249, 250, 251,
+  313, 314, 315,
+  377, 378, 379,
+ };
+ for(int i = 0; i < ARRLEN(collideable); i++)
+ {
+  if(tile_id == collideable[i]+1) return true;
+ }
+ return false;
+ //return tile_id == 53 || tile_id == 0 || tile_id == 367 || tile_id == 317 || tile_id == 313 || tile_id == 366 || tile_id == 368;
 }
 // tilecoord is integer tile position, not like tile coord
 Vec2 tilecoord_to_world(TileCoord t)
@@ -570,7 +596,14 @@ AABB centered_aabb(Vec2 at, Vec2 size)
 
 AABB entity_aabb(Entity *e)
 {
- return centered_aabb(e->pos, entity_aabb_size(e));
+ Vec2 at = e->pos;
+/* following doesn't work because in move_and_slide I'm not using this function
+ if(e->is_character) // aabb near feet
+ {
+  at = AddV2(at, V2(0.0f, -50.0f));
+ }
+*/
+ return centered_aabb(at, entity_aabb_size(e));
 }
 
 TileInstance get_tile_layer(Level *l, int layer, TileCoord t)
@@ -651,6 +684,15 @@ void say_characters(Entity *npc, int num_characters)
    }
    if(found_matching_star)
    {
+    assert(npc->is_npc);
+    if(npc->npc_kind == NPC_Blocky)
+    {
+     if(!npc->going_to_target && strcmp(match_buffer.data, "lets player pass") == 0)
+     {
+      npc->target_goto = AddV2(npc->pos, V2(-TILE_SIZE*3.0f, 0.0f));
+      npc->going_to_target = true;
+     }
+    }
 #if 0 // actions
     if(strcmp(match_buffer.data, "fights player") == 0 && npc->npc_kind == OLD_MAN)
     {
@@ -680,7 +722,7 @@ void say_characters(Entity *npc, int num_characters)
 
 bool npc_is_knight_sprite(Entity *it)
 {
- return it->is_npc && ( it->npc_kind == NPC_Max || it->npc_kind == NPC_Hunter || it->npc_kind == NPC_John);
+ return it->is_npc && ( it->npc_kind == NPC_Max || it->npc_kind == NPC_Hunter || it->npc_kind == NPC_John || it->npc_kind == NPC_Blocky);
 }
 
 void add_new_npc_sentence(Entity *npc, char *sentence)
@@ -832,8 +874,16 @@ void end_text_input(char *what_player_said)
 #ifdef DESKTOP
   if(player->talking_to->npc_kind == NPC_Death)
   {
-      add_new_npc_sentence(player->talking_to, "test *moves* I am death, destroyer of games. Come join me in the afterlife, or continue onwards *moves*");
-      //add_new_npc_sentence(player->talking_to, "test");
+   add_new_npc_sentence(player->talking_to, "test *moves* I am death, destroyer of games. Come join me in the afterlife, or continue onwards *moves*");
+   //add_new_npc_sentence(player->talking_to, "test");
+  }
+  if(player->talking_to->npc_kind == NPC_OldMan)
+  {
+   add_new_npc_sentence(player->talking_to, "I am the old man");
+  }
+  if(player->talking_to->npc_kind == NPC_Blocky)
+  {
+   add_new_npc_sentence(player->talking_to, "I am Blocky. *lets player pass*");
   }
   if(player->talking_to->npc_kind == NPC_Hunter)
   {
@@ -1030,11 +1080,6 @@ void reset_level()
   }
   assert(player != NULL); // level initial config must have player entity
  }
-
- Entity *item = new_entity();
- item->is_item = true;
- item->item_kind = ITEM_WhiteSquare;
- item->pos = AddV2(player->pos, V2(0.0, 30.0));
 }
 
 void audio_stream_callback(float *buffer, int num_frames, int num_channels)
@@ -1946,7 +1991,7 @@ Vec2 move_and_slide(MoveSlideParams p)
    Vec2 *it = &points_to_check[i];
    TileCoord tilecoord_to_check = world_to_tilecoord(*it);
 
-   if(is_tile_solid(get_tile(&level_level0, tilecoord_to_check)))
+   if(is_tile_solid(get_tile_layer(&level_level0, 2, tilecoord_to_check)))
    
     to_check[to_check_index++] = tile_aabb(tilecoord_to_check);
     assert(to_check_index < ARRLEN(to_check));
@@ -1967,6 +2012,7 @@ Vec2 move_and_slide(MoveSlideParams p)
  }
 
  CollisionInfo info = {0};
+ for(int col_iter_i = 0; col_iter_i < 1; col_iter_i++)
  for(int i = 0; i < to_check_index; i++)
  {
   AABB to_depenetrate_from = to_check[i];
@@ -1979,7 +2025,8 @@ Vec2 move_and_slide(MoveSlideParams p)
    const float move_dist = 0.05f;
 
    info.happened = true;
-   Vec2 to_player = NormV2(SubV2(aabb_center(at_new), aabb_center(to_depenetrate_from)));
+   Vec2 from_point = aabb_center(to_depenetrate_from);
+   Vec2 to_player = NormV2(SubV2(aabb_center(at_new), from_point));
    Vec2 compass_dirs[4] = {
     V2( 1.0, 0.0),
     V2(-1.0, 0.0),
@@ -2000,6 +2047,7 @@ Vec2 move_and_slide(MoveSlideParams p)
    assert(closest_index != -1);
    Vec2 move_dir = compass_dirs[closest_index];
    info.normal = move_dir;
+   dbgvec(from_point, MulV2F(move_dir, 30.0f));
    Vec2 move = MulV2F(move_dir, move_dist);
    at_new.upper_left = AddV2(at_new.upper_left,move);
    at_new.lower_right = AddV2(at_new.lower_right,move);
@@ -2009,7 +2057,9 @@ Vec2 move_and_slide(MoveSlideParams p)
 
  if(p.col_info_out) *p.col_info_out = info;
 
- return aabb_center(at_new);
+ Vec2 result_pos = aabb_center(at_new);
+ dbgrect(centered_aabb(result_pos, collision_aabb_size));
+ return result_pos;
 }
 
 // returns next vertical cursor position
@@ -2219,6 +2269,7 @@ void frame(void)
   {
    movement = NormV2(movement);
   }
+
   sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
   sg_apply_pipeline(state.pip);
 
@@ -2275,7 +2326,7 @@ void frame(void)
        AnimatedTile *anim = NULL;
        for(int i = 0; i < sizeof(tileset.animated)/sizeof(*tileset.animated); i++)
        {
-        if(tileset.animated[i].id_from == cur.kind-1)
+        if(tileset.animated[i].exists && tileset.animated[i].id_from == cur.kind-1)
         {
          anim = &tileset.animated[i];
         }
@@ -2338,7 +2389,6 @@ void frame(void)
 #endif // devtools
 
   // process entities
-  
   PROFILE_SCOPE("entity processing")
   ENTITIES_ITER(entities)
   {
@@ -2346,7 +2396,6 @@ void frame(void)
    if(it->gen_request_id != 0)
    {
     assert(it->gen_request_id > 0);
-    draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, V2(0.0, 50.0)), V2(100.0,100.0)), IMG(image_thinking), WHITE});
     int status = EM_ASM_INT({
       return get_generation_request_status($0);
       }, it->gen_request_id);
@@ -2390,37 +2439,6 @@ void frame(void)
     it->dead_time += dt;
    }
 
-   // draw drop shadow
-   if(it->is_character || it->is_npc || it->is_prop)
-   {
-    //if(it->npc_kind != DEATH)
-    {
-     float shadow_size = knight_rolling.region_size.x * 0.5f;
-     Vec2 shadow_offset = V2(0.0f, -20.0f);
-     if(npc_is_knight_sprite(it))
-     {
-      shadow_offset = V2(0.5f, -10.0f);
-     }
-#if 0
-     if(it->npc_kind == MERCHANT)
-     {
-      shadow_offset = V2(-4.5f, -15.0f);
-     }
-     else if(it->npc_kind == OLD_MAN)
-     {
-      shadow_offset = V2(-1.5f, -8.0f);
-      shadow_size *= 0.5f;
-     }
-#endif
-     if(it->is_prop)
-     {
-      shadow_size *= 2.5f;
-      shadow_offset = V2(3.0f, -8.0f);
-     }
-     draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, shadow_offset), V2(shadow_size, shadow_size)),IMG(image_drop_shadow), (Color){1.0f,1.0f,1.0f,0.5f}});
-    }
-   }
-
    if(it->is_npc)
    {
     if(!BUFF_EMPTY(&it->sentence_to_say))
@@ -2433,9 +2451,9 @@ void frame(void)
       it->character_say_timer -= character_say_time;
      }
     }
-    //if(it->npc_kind == OLD_MAN && it->aggressive)
-    if(false)
+    if(it->npc_kind == NPC_OldMan)
     {
+     /*
      draw_dialog_panel(it);
      Entity *targeting = player;
      it->shotgun_timer += dt;
@@ -2463,25 +2481,13 @@ void frame(void)
      target_vel = MulV2F(target_vel, 3.0f);
      it->vel = LerpV2(it->vel, 15.0f * dt, target_vel);
      it->pos = move_and_slide((MoveSlideParams){it, it->pos, MulV2F(it->vel, pixels_per_meter * dt)});
+     */
     }
 
-    Color col = LerpV4(WHITE, it->damage, RED);
-    //if(it->npc_kind == OLD_MAN)
-    if(false)
+    else if(it->npc_kind == NPC_Skeleton)
     {
-     bool face_left = false;
-     if(it->aggressive)
-     {
-      face_left = SubV2(player->pos, it->pos).x < 0.0f;
-     }
-     draw_animated_sprite(&old_man_idle, elapsed_time, face_left, it->pos, col);
-    }
-    else if(it->npc_kind == NPC_SKELETON)
-    {
-     Color col = WHITE;
      if(it->dead)
      {
-      draw_animated_sprite(&skeleton_die, it->dead_time, it->facing_left, it->pos, col);
      }
      else
      {
@@ -2496,8 +2502,6 @@ void frame(void)
       Overlapping overlapping_weapon = get_overlapping(cur_level, weapon_aabb);
       if(it->swing_timer > 0.0)
       {
-       // swinging sword
-       draw_animated_sprite(&skeleton_swing_sword, it->swing_timer, it->facing_left, it->pos, col);
        it->swing_timer += dt;
        if(it->swing_timer >= anim_sprite_duration(&skeleton_swing_sword))
        {
@@ -2516,7 +2520,8 @@ void frame(void)
       else
       {
        // in huntin' range
-       if(LenV2(SubV2(player->pos, it->pos)) < 250.0f)
+       it->walking = LenV2(SubV2(player->pos, it->pos)) < 250.0f;
+       if(it->walking)
        {
         Entity *skele = it;
         BUFF_ITER(Overlap, &overlapping_weapon)
@@ -2527,12 +2532,10 @@ void frame(void)
           BUFF_CLEAR(&skele->done_damage_to_this_swing);
          }
         }
-        draw_animated_sprite(&skeleton_run, elapsed_time, it->facing_left, it->pos, col);
         target_vel = MulV2F(NormV2(SubV2(player->pos, it->pos)), 4.0f);
        }
        else
        {
-        draw_animated_sprite(&skeleton_idle, elapsed_time, it->facing_left, it->pos, col);
        }
       }
       it->vel = LerpV2(it->vel, dt*8.0f, target_vel);
@@ -2540,7 +2543,6 @@ void frame(void)
     }
     else if(it->npc_kind == NPC_Death)
     {
-     draw_animated_sprite(&death_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
     }
 #if 0
     else if(it->npc_kind == DEATH)
@@ -2552,30 +2554,36 @@ void frame(void)
      draw_animated_sprite(&merchant_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
     }
 #endif
-    else if(npc_is_knight_sprite(it))
+    else if(it->npc_kind == NPC_Max)
     {
-     Color tint = WHITE;
-     if(it->npc_kind == NPC_Max)
-     {
-      tint = colhex(0xfc8803);
-     }
-     else if(it->npc_kind == NPC_Hunter)
-     {
-      tint = colhex(0x4ac918);
-     }
-     else if(it->npc_kind == NPC_John)
-     {
-      tint = colhex(0x16c7a1);
-     }
-     else
-     {
-      assert(false);
-     }
-     draw_animated_sprite(&knight_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), tint);
+    }
+    else if(it->npc_kind == NPC_Hunter)
+    {
+    }
+    else if(it->npc_kind == NPC_John)
+    {
     }
     else if(it->npc_kind == NPC_MOOSE)
     {
-     draw_animated_sprite(&moose_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
+    }
+    else if(it->npc_kind == NPC_GodRock)
+    {
+    }
+    else if(it->npc_kind == NPC_Blocky)
+    {
+     if(it->going_to_target)
+     {
+      it->walking = true;
+      Vec2 towards = SubV2(it->target_goto, it->pos);
+      if(LenV2(towards) > 1.0f)
+      {
+       it->pos = LerpV2(it->pos, dt*5.0f, it->target_goto);
+      }
+     }
+     else
+     {
+      it->walking = false;
+     }
     }
     else
     {
@@ -2583,7 +2591,7 @@ void frame(void)
     }
     if(it->damage >= 1.0)
     {
-     if(it->npc_kind == NPC_SKELETON)
+     if(it->npc_kind == NPC_Skeleton)
      {
       it->dead = true;
      }
@@ -2607,27 +2615,25 @@ void frame(void)
      if(info.happened) it->vel = ReflectV2(it->vel, info.normal);
     }
 
-    colorquad(true, quad_centered(it->pos, V2(15.0f, 15.0f)), WHITE);
     //draw_quad((DrawParams){true, it->pos, IMG(image_white_square)
    }
    else if (it->is_bullet)
    {
     it->pos = AddV2(it->pos, MulV2F(it->vel, pixels_per_meter * dt));
     dbgvec(it->pos, it->vel);
-    AABB normal_aabb = entity_aabb(it);
-    Quad drawn = quad_centered(aabb_center(normal_aabb), MulV2F(aabb_size(normal_aabb), 1.5f));
-    draw_quad((DrawParams){true, drawn, IMG(image_bullet), WHITE});
     Overlapping over = get_overlapping(cur_level, entity_aabb(it));
     Entity *from_bullet = it;
+    bool destroy_bullet = false;
     BUFF_ITER(Overlap, &over) if(it->e != from_bullet)
     {
      if(!it->is_tile && !(it->e->is_bullet))
      {
       // knockback and damage
       request_do_damage(it->e, from_bullet->pos, 0.2f);
-      *from_bullet = (Entity){0};
+      destroy_bullet = true;
      }
     }
+    if(destroy_bullet) *from_bullet = (Entity){0};
     if(!has_point(level_aabb, it->pos)) *it = (Entity){0};
    }
    else if(it->is_character)
@@ -2635,23 +2641,6 @@ void frame(void)
    }
    else if(it->is_prop)
    {
-    if(it->prop_kind == TREE0)
-    {
-     Vec2 prop_size = V2(126.0f, 180.0f);
-     draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, V2(0.0f, 70.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(3.0f, 295.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f});
-    }
-    if(it->prop_kind == TREE1)
-    {
-     Vec2 prop_size = V2(102.0f, 145.0f);
-     draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, V2(-4.0f, 55.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(5.0f, 684.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f});
-    }
-    if(it->prop_kind == TREE2)
-    {
-     Vec2 prop_size = V2(128.0f, 192.0f);
-     draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, V2(-2.5f, 70.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(385.0f, 479.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f});
-    }
-
-
    }
    else
    {
@@ -2659,8 +2648,7 @@ void frame(void)
    }
   }
 
-  // process player character
-  PROFILE_SCOPE("process player character")
+  PROFILE_SCOPE("process player and render player character")
   {
    Vec2 character_sprite_pos = AddV2(player->pos, V2(0.0, 20.0f));
 
@@ -2680,7 +2668,7 @@ void frame(void)
       if(entity_talkable) entity_talkable = entity_talkable && !it->is_tile;
       if(entity_talkable) entity_talkable = entity_talkable && it->e->is_npc;
       if(entity_talkable) entity_talkable = entity_talkable && !it->e->aggressive;
-      if(entity_talkable) entity_talkable = entity_talkable && !(it->e->npc_kind == NPC_SKELETON);
+      if(entity_talkable) entity_talkable = entity_talkable && !(it->e->npc_kind == NPC_Skeleton);
 #ifdef WEB
       if(entity_talkable) entity_talkable = entity_talkable && it->e->gen_request_id == 0;
 #endif
@@ -2795,15 +2783,6 @@ void frame(void)
     if(!player->is_rolling) player->time_not_rolling += dt;
    }
 
-   Vec2 target = MulV2F(player->pos, -1.0f * cam.scale);
-   if(LenV2(SubV2(target, cam.pos)) <= 0.2)
-   {
-    cam.pos = target;
-   }
-   else
-   {
-    cam.pos = LerpV2(cam.pos, dt*8.0f, target);
-   }
 
    Vec2 target_vel = {0};
    float speed = 0.0f;
@@ -2897,6 +2876,180 @@ void frame(void)
     draw_quad((DrawParams){false, (Quad){.ul=V2(0.0f, screen_size().Y), .ur = screen_size(), .lr = V2(screen_size().X, 0.0f)}, image_hurt_vignette, full_region(image_hurt_vignette), (Color){1.0f, 1.0f, 1.0f, player->damage}});
    }
   }
+
+  // render entities
+  PROFILE_SCOPE("entity rendering")
+  ENTITIES_ITER(entities)
+  {
+#ifdef WEB
+   if(it->gen_request_id != 0)
+   {
+    draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, V2(0.0, 50.0)), V2(100.0,100.0)), IMG(image_thinking), WHITE});
+   }
+#endif
+
+   // draw drop shadow
+   if(it->is_character || it->is_npc || it->is_prop)
+   {
+    //if(it->npc_kind != DEATH)
+    {
+     float shadow_size = knight_rolling.region_size.x * 0.5f;
+     Vec2 shadow_offset = V2(0.0f, -20.0f);
+     if(npc_is_knight_sprite(it))
+     {
+      shadow_offset = V2(0.5f, -10.0f);
+     }
+#if 0
+     if(it->npc_kind == MERCHANT)
+     {
+      shadow_offset = V2(-4.5f, -15.0f);
+     }
+     else if(it->npc_kind == OLD_MAN)
+     {
+      shadow_offset = V2(-1.5f, -8.0f);
+      shadow_size *= 0.5f;
+     }
+#endif
+     if(it->is_prop)
+     {
+      shadow_size *= 2.5f;
+      shadow_offset = V2(-5.0f, -8.0f);
+     }
+     draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, shadow_offset), V2(shadow_size, shadow_size)),IMG(image_drop_shadow), (Color){1.0f,1.0f,1.0f,0.5f}});
+    }
+   }
+
+   Color col = LerpV4(WHITE, it->damage, RED);
+   if(it->is_npc)
+   {
+    if(it->npc_kind == NPC_OldMan)
+    {
+     bool face_left = false;
+     if(it->aggressive)
+     {
+      face_left = SubV2(player->pos, it->pos).x < 0.0f;
+     }
+     draw_animated_sprite(&old_man_idle, elapsed_time, face_left, it->pos, col);
+    }
+    else if(it->npc_kind == NPC_Skeleton)
+    {
+     Color col = WHITE;
+     if(it->dead)
+     {
+      draw_animated_sprite(&skeleton_die, it->dead_time, it->facing_left, it->pos, col);
+     }
+     else
+     {
+      if(it->swing_timer > 0.0)
+      {
+       // swinging sword
+       draw_animated_sprite(&skeleton_swing_sword, it->swing_timer, it->facing_left, it->pos, col);
+      }
+      else
+      {
+       if(it->walking)
+       {
+        draw_animated_sprite(&skeleton_run, elapsed_time, it->facing_left, it->pos, col);
+       }
+       else
+       {
+        draw_animated_sprite(&skeleton_idle, elapsed_time, it->facing_left, it->pos, col);
+       }
+      }
+     }
+    }
+    else if(it->npc_kind == NPC_Death)
+    {
+     draw_animated_sprite(&death_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
+    }
+    else if(it->npc_kind == NPC_GodRock)
+    {
+     Vec2 prop_size = V2(46.0f, 40.0f);
+     draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, V2(-0.0f, 0.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(15.0f, 219.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.7f});
+    }
+    else if(npc_is_knight_sprite(it))
+    {
+     Color tint = WHITE;
+     if(it->npc_kind == NPC_Max)
+     {
+      tint = colhex(0xfc8803);
+     }
+     else if(it->npc_kind == NPC_Hunter)
+     {
+      tint = colhex(0x4ac918);
+     }
+     else if(it->npc_kind == NPC_Blocky)
+     {
+      tint = colhex(0xa84032);
+     }
+     else if(it->npc_kind == NPC_John)
+     {
+      tint = colhex(0x16c7a1);
+     }
+     else
+     {
+      assert(false);
+     }
+     draw_animated_sprite(&knight_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), tint);
+    }
+    else if(it->npc_kind == NPC_MOOSE)
+    {
+     draw_animated_sprite(&moose_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
+    }
+    else
+    {
+     assert(false);
+    }
+   }
+   else if (it->is_item)
+   {
+    Quad drawn = quad_centered(it->pos, V2(15.0f, 15.0f));
+    if(it->item_kind == ITEM_Tripod)
+    {
+     draw_quad((DrawParams){true, drawn, IMG(image_tripod), WHITE});
+    }
+    else if(it->item_kind == ITEM_WhiteSquare)
+    {
+     colorquad(true, drawn, WHITE);
+    }
+    else
+    {
+     assert(false);
+    }
+   }
+   else if (it->is_bullet)
+   {
+    AABB normal_aabb = entity_aabb(it);
+    Quad drawn = quad_centered(aabb_center(normal_aabb), MulV2F(aabb_size(normal_aabb), 1.5f));
+    draw_quad((DrawParams){true, drawn, IMG(image_bullet), WHITE});
+   }
+   else if(it->is_character)
+   {
+   }
+   else if(it->is_prop)
+   {
+    if(it->prop_kind == TREE0)
+    {
+     Vec2 prop_size = V2(74.0f, 137.0f);
+     draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, V2(-5.0f, 45.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(2.0f, 4.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.7f});
+    }
+     
+    if(it->prop_kind == TREE1)
+    {
+     Vec2 prop_size = V2(102.0f, 145.0f);
+     draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, V2(-4.0f, 55.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(5.0f, 684.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f});
+    }
+    if(it->prop_kind == TREE2)
+    {
+     Vec2 prop_size = V2(128.0f, 192.0f);
+     draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, V2(-2.5f, 70.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(385.0f, 479.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f});
+    }
+   }
+   else
+   {
+    assert(false);
+   }
+  }
    
    // translucent
   draw_all_translucent();
@@ -2913,6 +3066,19 @@ void frame(void)
   y -= vertical_spacing;
   draw_quad((DrawParams){false, quad_at(V2(padding, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_space_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_space)}, .y_coord_sorting = 1.0f});
 
+
+  // update camera position
+  {
+   Vec2 target = MulV2F(player->pos, -1.0f * cam.scale);
+   if(LenV2(SubV2(target, cam.pos)) <= 0.2)
+   {
+    cam.pos = target;
+   }
+   else
+   {
+    cam.pos = LerpV2(cam.pos, dt*8.0f, target);
+   }
+  }
 
   PROFILE_SCOPE("flush rendering")
   {

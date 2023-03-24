@@ -16,6 +16,10 @@ copy "EPIC RPG World Pack - Ancient Ruins V 1.7\EPIC RPG World Pack - Ancient Ru
 copy "EPIC RPG World Pack - Ancient Ruins V 1.7\EPIC RPG World Pack - Ancient Ruins V 1.7\Characters\Moose\moose1-all animations-347x192.png" "assets\copyrighted\moose.png" || goto :error
 copy "Undead - Pixel Art Characters\Undead - Pixel Art Characters\Sprites\Wraith_Red.png" "assets\copyrighted\wraith.png" || goto :error
 copy "Undead - Pixel Art Characters\Undead - Pixel Art Characters\Sprites\Skeleton_Blue.png" "assets\copyrighted\skeleton.png" || goto :error
+copy "ForgottenMemories\Props.png" "assets\copyrighted\Props.png" || goto :error
+copy "ForgottenMemories\TileSet.png" "assets\copyrighted\TileSet.png" || goto :error
+copy "ForgottenMemories\Trees.png" "assets\copyrighted\Trees.png" || goto :error
+copy "ForgottenMemories\WaterTiles-6frames.png" "assets\copyrighted\WaterTiles-6frames.png" || goto :error
 
 rmdir /S /q gen
 mkdir gen

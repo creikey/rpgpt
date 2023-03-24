@@ -1,16 +1,14 @@
 Happening by END OF STREAM:
- - A few characters
- - Put playgpt.io in twitch title
+DONE - Moar content in game
+ - Mobile controls
+DONE - Train model, better training data
+ship beta
  - Make tiktok
-    - tell creepy story
-    - put link playgpt.io in description
-    - mention the website, and call to action (follow and subscribe to mailing list) at end
+   - Wonderous, curious story "What if you could say anything to somebody?"
 
 Later:
- - Drop shadow on text, or outline. Something
+ - Put playgpt.io in twitch title
  - Portal at end, exit level
- - Moose boss
- - Sound
  - Save every request and response (server logs, use systemd)
  - Ask death to come help you fight, new action
  - Perfect dodge roll just after you roll, sound effect

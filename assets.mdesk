@@ -86,10 +86,18 @@
 {
  filepath: "mystery_tile.png",
 }
-@tileset ruins_animated:
+@image tripod:
 {
- image: image_animated_terrain,
- filepath: "copyrighted/ruins_animated.tsx",
+ filepath: "tripod.png",
+}
+@image main_tileset:
+{
+ filepath: "copyrighted/TileSet.png",
+}
+@tileset main:
+{
+ image: image_main_tileset,
+ filepath: "Main.tsx",
  firstgid: 1,
 }
 @tileset ruins_ancient:
@@ -100,5 +108,5 @@
 }
 @level level0:
 {
- filepath: "level0.json",
+ filepath: "new_level.json",
 }

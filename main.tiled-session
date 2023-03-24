@@ -1,0 +1,21 @@
+{
+    "Map/SizeTest": {
+        "height": 4300,
+        "width": 2
+    },
+    "activeFile": "",
+    "expandedProjectPaths": [
+    ],
+    "fileStates": {
+    },
+    "last.imagePath": "C:/Users/Cameron/Documents/rpgpt/assets/copyrighted",
+    "map.height": 100,
+    "map.lastUsedFormat": "json",
+    "map.width": 100,
+    "openFiles": [
+    ],
+    "project": "main.tiled-project",
+    "recentFiles": [
+    ],
+    "tileset.lastUsedFormat": "tsx"
+}

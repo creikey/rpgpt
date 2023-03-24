@@ -31,6 +31,7 @@ void dump(MD_Node* from) {
  }
 }
 
+
 void dump_root(MD_Node* from) {
  // Iterate through each top-level node
  for(MD_EachNode(node, from->first_child))
@@ -61,6 +62,7 @@ bool has_decimal(MD_String8 s)
 }
 
 MD_Arena *cg_arena = NULL;
+
 
 MD_String8 ChildValue(MD_Node *n, MD_String8 name) {
  MD_Node *child_with_value = MD_ChildFromString(n, name, 0);
@@ -126,12 +128,26 @@ char* goto_end_of(char *tomove, size_t max_move, char *pattern) {
 #define list_printf(list_ptr, ...) MD_S8ListPush(cg_arena, list_ptr, MD_S8Fmt(cg_arena, __VA_ARGS__))
 #define S8(s) MD_S8Lit(s)
 
+void dump_full(MD_Node* from)
+{
+ for(MD_EachNode(node, from))
+ {
+  printf("@%.*s %.*s\n", MD_S8VArg(node->first_tag->string), MD_S8VArg(node->string));
+ }
+/* MD_String8List output_list = {0};
+ MD_DebugDumpFromNode(cg_arena, &output_list, from, 4, S8("  "), 0);
+ MD_StringJoin join = (MD_StringJoin){0};
+ MD_String8 debugged = MD_S8ListJoin(cg_arena, output_list , &join);
+ printf("%.*s\n", MD_S8VArg(debugged));*/
+}
+
 int main(int argc, char **argv) {
  cg_arena = MD_ArenaAlloc();
  assert_cond(cg_arena, MD_S8Lit("Memory"));
 
  MD_ParseResult training_parse = MD_ParseWholeFile(cg_arena, MD_S8Lit("training.mdesk"));
  MD_String8 global_prompt = {0};
+ dump_full(training_parse.node->first_child);
  for(MD_EachNode(node, training_parse.node->first_child))
  {
   if(MD_S8Match(node->first_tag->string, MD_S8Lit("global_prompt"), 0))
@@ -178,6 +194,7 @@ int main(int argc, char **argv) {
     bool is_player = MD_NodeHasTag(cur_sentence, S8("player"), 0);
     bool is_npc = MD_NodeHasTag(cur_sentence, S8("npc"), 0);
     bool is_item_possess = MD_NodeHasTag(cur_sentence, S8("item_possess"), 0);
+    assert(!MD_NodeHasTag(cur_sentence, S8("item_posess"), 0));
     bool is_item_discard = MD_NodeHasTag(cur_sentence, S8("item_discard"), 0);
     if(is_player)
     {
@@ -301,7 +318,7 @@ int main(int argc, char **argv) {
     char *new_cur = fillnull(cur, '"');
     int frame_from = atoi(cur);
     cur = new_cur;
-    list_printf(&tileset_decls, "{ .id_from = %d, .frames = { ", frame_from);
+    list_printf(&tileset_decls, "{ .exists = true, .id_from = %d, .frames = { ", frame_from);
 
     int num_frames = 0;
     while(true) {
@@ -350,6 +367,10 @@ int main(int argc, char **argv) {
       if(MD_S8Match(class, MD_S8Lit("PROP"), 0))
       {
        fprintf(output, "{ .exists = true, .is_prop = true, .prop_kind = %.*s, .pos = { .X=%.*s, .Y=%.*s }, }, ", MD_S8VArg(name), MD_S8VArg(x_string), MD_S8VArg(y_string));
+      }
+      else if(MD_S8Match(class, MD_S8Lit("ITEM"), 0))
+      {
+       fprintf(output, "{ .exists = true, .is_item = true, .item_kind = ITEM_%.*s, .pos = { .X=%.*s, .Y=%.*s }, }, ", MD_S8VArg(name), MD_S8VArg(x_string), MD_S8VArg(y_string));
       }
       else if(MD_S8Match(name, MD_S8Lit("PLAYER"), 0))
       {
