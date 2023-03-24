@@ -4,7 +4,17 @@ DONE - Mobile controls
 DONE - Train model, better training data
 ship beta
  - Make tiktok
-   - Wonderous, curious story "What if you could say anything to somebody?"
+ - Particle fx and sound fx for when hit
+ - Remove control attack key as devtools
+ - Old man in beginning is invincible
+ - Ignore keyrepeat events
+ - Make vignette in front
+ - Fade dialog with distance
+ - Keep people away from skeletons, make aggroed/chase state where you can't talk to people
+ - Fixed timesep the gameplay (which means separate player rendering)
+ - Make action between stars much more technical sounding so AI doesn't hallucinate responses
+ - Add cancel button
+ - Wonderous, curious story "What if you could say anything to somebody?"
 
 Later:
  - Put playgpt.io in twitch title
