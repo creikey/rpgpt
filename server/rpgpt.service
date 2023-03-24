@@ -1,0 +1,19 @@
+[Unit]
+Description=RPGPT/PlayGPT server
+ConditionPathExists=/root/rpgpt/server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/root/rpgpt/server
+ExecStart=/usr/local/go/bin/go run .
+Restart=on-failure
+RestartSec=10
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=appgoservice
+
+[Install]
+WantedBy=multi-user.target

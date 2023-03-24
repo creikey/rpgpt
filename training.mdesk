@@ -140,6 +140,25 @@
 
 @training
 {
+ with: Blocky,
+ data:
+ {
+  @player  "Hey",
+  @npc     "I'm not letting you pass. No passing.",
+  @player  "Please",
+  @npc     "No passing",
+  @player  "Plllllz",
+  @npc     "No passing",
+  @player  "I'll go e you tripod. I have tripod",
+  @npc     "You don't have one right now",
+  @player  "Yes I do see",
+  @item_possess Tripod,
+  @npc     "Well alright then *lets player pass*",
+ },
+}
+
+@training
+{
  with: GodRock,
  data:
  {
