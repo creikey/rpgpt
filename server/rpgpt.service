@@ -9,10 +9,9 @@ User=root
 Group=root
 WorkingDirectory=/root/rpgpt/server
 ExecStart=/usr/bin/go run .
+EnvironmentFile=/root/.high_security
 Restart=on-failure
 RestartSec=10
-StandardOutput=syslog
-StandardError=syslog
 SyslogIdentifier=appgoservice
 
 [Install]

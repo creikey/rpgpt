@@ -14,7 +14,6 @@ var c *gogpt.Client
 
 func index(w http.ResponseWriter, req *http.Request) {
  //time.Sleep(4 * time.Second)
- (w).Header().Set("Access-Control-Allow-Origin", "*")
  req.Body = http.MaxBytesReader(w, req.Body, 1024 * 1024) // no sending huge files to crash the server
  promptBytes, err := io.ReadAll(req.Body)
  if err != nil {

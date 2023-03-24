@@ -1,3 +1,5 @@
+# Server builds
+server/rpgpt
 # sensitive
 API_KEY.bat
 
