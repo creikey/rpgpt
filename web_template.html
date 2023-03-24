@@ -151,14 +151,19 @@ function end_dialog() {
 function on_textarea_key(event) {
     let final_textarea_string = "";
     let cur_textarea_string = document.getElementById("inputtext").value;
+    let should_end = false;
     for(let i = 0; i < Math.min(cur_textarea_string.length, 250); i++)
     {
         let cur = cur_textarea_string[i];
-        if(cur === "\n") continue;
+        if(cur === "\n") {
+         should_end = true;
+         continue;
+        }
         if(cur.charCodeAt(0) >= 255) continue; // non ascii gtfo
         final_textarea_string += cur_textarea_string[i];
     }
     document.getElementById("inputtext").value = final_textarea_string;
+    if(should_end) end_dialog();
     if(event.key === "Enter") end_dialog();
     if(event.key === "Escape")
     {

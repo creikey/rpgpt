@@ -1017,6 +1017,7 @@ AnimatedSprite merchant_idle =
  .region_size = {110.0f, 110.0f},
  .offset = {0.0f, -20.0f},
 };
+/*
 AnimatedSprite moose_idle = 
 {
  .img = &image_moose,
@@ -1027,6 +1028,7 @@ AnimatedSprite moose_idle =
  .region_size = {347.0f, 160.0f},
  .offset = {-1.5f, -10.0f},
 };
+*/
 
 
 sg_image image_font = {0};
@@ -1255,6 +1257,77 @@ typedef struct Camera
  float scale;
 } Camera;
 
+bool mobile_controls = false;
+Vec2 thumbstick_base_pos = {0};
+Vec2 thumbstick_nub_pos = {0};
+typedef struct TouchMemory
+{
+ // need this because uintptr_t = 0 *doesn't* mean no touching!
+ bool active;
+ uintptr_t identifier;
+} TouchMemory;
+TouchMemory activate(uintptr_t by)
+{
+ Log("Activating %ld\n", by);
+ return (TouchMemory){.active = true, .identifier = by};
+}
+// returns if deactivated
+bool maybe_deactivate(TouchMemory *memory, uintptr_t ended_identifier)
+{
+ if(memory->active)
+ {
+  if(memory->identifier == ended_identifier)
+  {
+   Log("Deactivating %ld\n", memory->identifier);
+   *memory = (TouchMemory){0};
+   return true;
+  }
+ }
+ else
+ {
+  return false;
+ }
+ return false;
+}
+TouchMemory movement_touch = {0};
+TouchMemory roll_pressed_by = {0};
+TouchMemory attack_pressed_by = {0};
+bool mobile_roll_pressed = false;
+bool mobile_attack_pressed = false;
+
+float thumbstick_base_size()
+{
+ if(screen_size().x < screen_size().y)
+ {
+  return screen_size().x * 0.24f;
+ }
+ else
+ {
+  return screen_size().x * 0.14;
+ }
+}
+
+float mobile_button_size()
+{
+ if(screen_size().x < screen_size().y)
+ {
+  return screen_size().x * 0.2f;
+ }
+ else
+ {
+  return screen_size().x * 0.09f;
+ }
+}
+
+Vec2 roll_button_pos()
+{
+ return V2(screen_size().x - mobile_button_size(), screen_size().y * 0.4f);
+}
+
+Vec2 attack_button_pos()
+{
+ return V2(screen_size().x - mobile_button_size()*2.0f, screen_size().y * 0.25f);
+}
 
 // everything is in pixels in world space, 43 pixels is approx 1 meter measured from 
 // merchant sprite being 5'6"
@@ -1357,7 +1430,7 @@ Quad quad_centered(Vec2 at, Vec2 size)
 bool aabb_is_valid(AABB aabb)
 {
  Vec2 size_vec = SubV2(aabb.lower_right, aabb.upper_left); // negative in vertical direction
- return size_vec.Y <= 0.0f && size_vec.X >= 0.0f;
+ return size_vec.Y < 0.0f && size_vec.X > 0.0f;
 }
 
 // positive in both directions
@@ -1972,6 +2045,8 @@ Vec2 move_and_slide(MoveSlideParams p)
 {
  Vec2 collision_aabb_size = entity_aabb_size(p.from);
  Vec2 new_pos = AddV2(p.position, p.movement_this_frame);
+ assert(collision_aabb_size.x > 0.0f);
+ assert(collision_aabb_size.y > 0.0f);
  AABB at_new = centered_aabb(new_pos, collision_aabb_size);
  dbgrect(at_new);
  AABB to_check[256] = {0};
@@ -2219,9 +2294,9 @@ double last_frame_processing_time = 0.0;
 uint64_t last_frame_time;
 Vec2 mouse_pos = {0}; // in screen space
 bool roll_just_pressed = false; // to use to initiate dialog, shouldn't initiate dialog if the button is simply held down
-#ifdef DEVTOOLS
 float learned_shift = 0.0;
 float learned_space = 0.0;
+#ifdef DEVTOOLS
 bool mouse_frozen = false;
 #endif
 void frame(void)
@@ -2248,6 +2323,16 @@ void frame(void)
   return;
 #endif
 
+  // better for vertical aspect ratios
+  if(screen_size().x < 0.7f*screen_size().y)
+  {
+   cam.scale = 3.5f;
+  }
+  else
+  {
+   cam.scale = 2.0f;
+  }
+
   uint64_t time_start_frame = stm_now();
   // elapsed_time
   double dt_double = 0.0;
@@ -2259,12 +2344,28 @@ void frame(void)
   }
   float dt = (float)dt_double;
 
-  Vec2 movement = V2(
-    (float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A],
-    (float)keydown[SAPP_KEYCODE_W] - (float)keydown[SAPP_KEYCODE_S]
-    );
-  bool attack = keydown[SAPP_KEYCODE_SPACE] || keydown[SAPP_KEYCODE_LEFT_CONTROL];
-  bool roll = keydown[ROLL_KEY];
+  Vec2 movement = {0};
+  bool attack = false;
+  bool roll = false;
+  if(mobile_controls)
+  {
+   movement = SubV2(thumbstick_nub_pos, thumbstick_base_pos);
+   if(LenV2(movement) > 0.0f)
+   {
+    movement = MulV2F(NormV2(movement), LenV2(movement)/(thumbstick_base_size()*0.5f));
+   }
+   attack = mobile_attack_pressed;
+   roll = mobile_roll_pressed;
+  }
+  else
+  {
+   movement = V2(
+     (float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A],
+     (float)keydown[SAPP_KEYCODE_W] - (float)keydown[SAPP_KEYCODE_S]
+     );
+   attack = keydown[SAPP_KEYCODE_SPACE] || keydown[SAPP_KEYCODE_LEFT_CONTROL];
+   roll = keydown[ROLL_KEY];
+  }
   if(LenV2(movement) > 1.0)
   {
    movement = NormV2(movement);
@@ -2994,7 +3095,7 @@ void frame(void)
     }
     else if(it->npc_kind == NPC_MOOSE)
     {
-     draw_animated_sprite(&moose_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
+     //draw_animated_sprite(&moose_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
     }
     else
     {
@@ -3057,15 +3158,28 @@ void frame(void)
   // ui
 
 #define HELPER_SIZE 250.0f
-  float total_height = HELPER_SIZE * 2.0f;
-  float vertical_spacing = HELPER_SIZE/2.0f;
-  total_height -= (total_height - (vertical_spacing + HELPER_SIZE));
-  const float padding = 50.0f;
-  float y = screen_size().y/2.0f + total_height/2.0f;
-  draw_quad((DrawParams){false, quad_at(V2(padding, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_shift_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_shift)}, .y_coord_sorting = 1.0f});
-  y -= vertical_spacing;
-  draw_quad((DrawParams){false, quad_at(V2(padding, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_space_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_space)}, .y_coord_sorting = 1.0f});
+  if(!mobile_controls)
+  {
+   float total_height = HELPER_SIZE * 2.0f;
+   float vertical_spacing = HELPER_SIZE/2.0f;
+   total_height -= (total_height - (vertical_spacing + HELPER_SIZE));
+   const float padding = 50.0f;
+   float y = screen_size().y/2.0f + total_height/2.0f;
+   draw_quad((DrawParams){false, quad_at(V2(padding, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_shift_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_shift)}, .y_coord_sorting = 1.0f});
+   y -= vertical_spacing;
+   draw_quad((DrawParams){false, quad_at(V2(padding, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_space_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_space)}, .y_coord_sorting = 1.0f});
+  }
 
+
+  if(mobile_controls)
+  {
+   float thumbstick_nub_size = (img_size(image_mobile_thumbstick_nub).x / img_size(image_mobile_thumbstick_base).x) * thumbstick_base_size();
+   draw_quad((DrawParams){false, quad_centered(thumbstick_base_pos, V2(thumbstick_base_size(), thumbstick_base_size())), IMG(image_mobile_thumbstick_base), WHITE, .y_coord_sorting = 1.0f});
+   draw_quad((DrawParams){false, quad_centered(thumbstick_nub_pos, V2(thumbstick_nub_size, thumbstick_nub_size)), IMG(image_mobile_thumbstick_nub), WHITE, .y_coord_sorting = 1.0f});
+
+   draw_quad((DrawParams){false, quad_centered(roll_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .y_coord_sorting = 1.0f});
+   draw_quad((DrawParams){false, quad_centered(attack_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .y_coord_sorting = 1.0f});
+  }
 
   // update camera position
   {
@@ -3102,6 +3216,16 @@ void cleanup(void)
 
 void event(const sapp_event *e)
 {
+ if(e->type == SAPP_EVENTTYPE_TOUCHES_BEGAN)
+ {
+  if(!mobile_controls)
+  {
+   thumbstick_base_pos = V2(screen_size().x * 0.25f, screen_size().y * 0.25f);
+   thumbstick_nub_pos = thumbstick_base_pos;
+  }
+  mobile_controls = true;
+ }
+
 #ifdef DESKTOP
  // the desktop text backend, for debugging purposes
  if(receiving_text_input)
@@ -3120,8 +3244,86 @@ void event(const sapp_event *e)
   }
  }
 #endif
+ 
+ // mobile handling touch controls handling touch input
+ if(mobile_controls)
+ {
+  if(e->type == SAPP_EVENTTYPE_TOUCHES_BEGAN)
+  {
+#define TOUCHPOINT_SCREEN(point) V2(point.pos_x, screen_size().y - point.pos_y)
+   for(int i = 0; i < e->num_touches; i++)
+   {
+    sapp_touchpoint point = e->touches[i];
+    Vec2 touchpoint_screen_pos = TOUCHPOINT_SCREEN(point);
+    if(touchpoint_screen_pos.x < screen_size().x*0.4f)
+    {
+     if(!movement_touch.active)
+     {
+      //if(LenV2(SubV2(touchpoint_screen_pos, thumbstick_base_pos)) > 1.25f * thumbstick_base_size())
+      if(true)
+      {
+       thumbstick_base_pos = touchpoint_screen_pos;
+      }
+      movement_touch = activate(point.identifier);
+      thumbstick_nub_pos = thumbstick_base_pos;
+     }
+    }
+    if(LenV2(SubV2(touchpoint_screen_pos, roll_button_pos())) < mobile_button_size()*0.5f)
+    {
+     roll_pressed_by = activate(point.identifier);
+     mobile_roll_pressed = true;
+     roll_just_pressed = true;
+    }
+    if(LenV2(SubV2(touchpoint_screen_pos, attack_button_pos())) < mobile_button_size()*0.5f)
+    {
+     mobile_attack_pressed = true;
+     attack_pressed_by = activate(point.identifier);
+    }
+   }
+  }
+  if(e->type == SAPP_EVENTTYPE_TOUCHES_MOVED)
+  {
+   for(int i = 0; i < e->num_touches; i++)
+   {
+    if(movement_touch.active)
+    {
+     if(e->touches[i].identifier == movement_touch.identifier)
+     {
+      thumbstick_nub_pos = TOUCHPOINT_SCREEN(e->touches[i]);
+      Vec2 move_vec = SubV2(thumbstick_nub_pos, thumbstick_base_pos);
+      float clampto_size = thumbstick_base_size()/2.0f;
+      if(LenV2(move_vec) > clampto_size)
+      {
+       thumbstick_nub_pos = AddV2(thumbstick_base_pos, MulV2F(NormV2(move_vec), clampto_size));
+      }
+     }
+    }
+   }
+  }
+  if(e->type == SAPP_EVENTTYPE_TOUCHES_ENDED)
+  {
+   for(int i = 0; i < e->num_touches; i++)
+   if(e->touches[i].changed) // only some of the touch events are released
+   {
+    if(maybe_deactivate(&roll_pressed_by, e->touches[i].identifier))
+    {
+     mobile_roll_pressed = false;
+    }
+    if(maybe_deactivate(&attack_pressed_by, e->touches[i].identifier))
+    {
+     mobile_attack_pressed = false;
+    }
+    if(maybe_deactivate(&movement_touch, e->touches[i].identifier))
+    {
+     thumbstick_nub_pos = thumbstick_base_pos;
+    }
+   }
+  }
+ }
+
  if(e->type == SAPP_EVENTTYPE_KEY_DOWN)
  {
+  mobile_controls = false;
   assert(e->key_code < sizeof(keydown)/sizeof(*keydown));
   keydown[e->key_code] = true;
   
@@ -3148,6 +3350,10 @@ void event(const sapp_event *e)
   if(e->key_code == SAPP_KEYCODE_T)
   {
    mouse_frozen = !mouse_frozen;
+  }
+  if(e->key_code == SAPP_KEYCODE_M)
+  {
+   mobile_controls = true;
   }
   if(e->key_code == SAPP_KEYCODE_P)
   {

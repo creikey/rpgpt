@@ -70,10 +70,12 @@
 {
  filepath: "copyrighted/skeleton.png",
 }
+/*
 @image moose:
 {
  filepath: "copyrighted/moose.png",
 }
+*/
 @image shift_icon:
 {
  filepath: "shift_icon.png",
@@ -85,6 +87,18 @@
 @image mystery_tile:
 {
  filepath: "mystery_tile.png",
+}
+@image mobile_button:
+{
+ filepath: "Button.png",
+}
+@image mobile_thumbstick_nub:
+{
+ filepath: "ThumbstickNub.png",
+}
+@image mobile_thumbstick_base:
+{
+ filepath: "ThumbstickBase.png",
 }
 @image tripod:
 {
