@@ -1,6 +1,6 @@
 Happening by END OF STREAM:
 DONE - Moar content in game
- - Mobile controls
+DONE - Mobile controls
 DONE - Train model, better training data
 ship beta
  - Make tiktok
