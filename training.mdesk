@@ -10,7 +10,7 @@
 @character Blocky:
 {
  name: "Block",
- prompt: "Block wants to block the player from going to the secret artifact. He has no idea how long he's been alive for, his entire existence is just standing there doing nothing. He'll let the player past if you bring him a tripod",
+ prompt: "Block wants to block the player from going to the secret artifact. He has no idea how long he's been alive for, his entire existence is just standing there doing nothing. He'll let the player pass if they bring him Tripod, as he's fascinated by it.",
  actions_str: "*lets player pass*",
 }
 
@@ -154,6 +154,23 @@
   @player  "Yes I do see",
   @item_possess Tripod,
   @npc     "Well alright then *lets player pass*",
+ },
+}
+
+@training
+{
+ with: Blocky,
+ data:
+ {
+ @player "Hey",
+ @npc    "No passing",
+ @player "Why not?",
+ @npc    "I must serve Death until he leads the troops to the death fiends. Beyond that is certain death",
+ @player "Why so much death?",
+ @npc    "I don't know. I just follow Death's orders",
+ @player "Now will you let me pass?",
+ @item_possess Tripod,
+ @npc    "That tripod. It speaks to me, humbles me. It is as I am. I will let you through *lets player pass*",
  },
 }
 
