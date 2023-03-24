@@ -7,6 +7,14 @@
     "expandedProjectPaths": [
     ],
     "fileStates": {
+        "assets/new_level.json": {
+            "scale": 0.25,
+            "selectedLayer": 1,
+            "viewCenter": {
+                "x": 1378,
+                "y": 1072
+            }
+        }
     },
     "last.imagePath": "C:/Users/Cameron/Documents/rpgpt/assets/copyrighted",
     "map.height": 100,
@@ -16,6 +24,7 @@
     ],
     "project": "main.tiled-project",
     "recentFiles": [
+        "assets/new_level.json"
     ],
     "tileset.lastUsedFormat": "tsx"
 }

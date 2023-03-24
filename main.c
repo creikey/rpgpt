@@ -1268,7 +1268,7 @@ typedef struct TouchMemory
 } TouchMemory;
 TouchMemory activate(uintptr_t by)
 {
- Log("Activating %ld\n", by);
+ //Log("Activating %ld\n", by);
  return (TouchMemory){.active = true, .identifier = by};
 }
 // returns if deactivated
@@ -1278,7 +1278,7 @@ bool maybe_deactivate(TouchMemory *memory, uintptr_t ended_identifier)
  {
   if(memory->identifier == ended_identifier)
   {
-   Log("Deactivating %ld\n", memory->identifier);
+   //Log("Deactivating %ld\n", memory->identifier);
    *memory = (TouchMemory){0};
    return true;
   }
@@ -1303,7 +1303,7 @@ float thumbstick_base_size()
  }
  else
  {
-  return screen_size().x * 0.14;
+  return screen_size().x * 0.14f;
  }
 }
 
@@ -2525,7 +2525,7 @@ void frame(void)
      {
       Log("Failed to generate dialog! Fuck!");
       // need somethin better here. Maybe each sentence has to know if it's player or NPC, that way I can remove the player's dialog
-      make_space_and_append(&it->player_dialog, (DialogElement){ .s = SENTENCE_CONST("I'm not sure..."), .author = NPC });
+      add_new_npc_sentence(it, "I'm not sure...");
      }
      it->gen_request_id = 0;
     }

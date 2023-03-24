@@ -163,13 +163,13 @@ function on_textarea_key(event) {
         final_textarea_string += cur_textarea_string[i];
     }
     document.getElementById("inputtext").value = final_textarea_string;
-    if(should_end) end_dialog();
-    if(event.key === "Enter") end_dialog();
+    if(event.key === "Enter") should_end = true;
     if(event.key === "Escape")
     {
         document.getElementById("inputtext").value = "";
-        end_dialog();
+        should_end = true;
     }
+    if(should_end) end_dialog();
 }
 
 const max_retries = 5;
@@ -184,6 +184,11 @@ let generation_requests = []; // array of dictionaries with structure:
  */
 
 function resend_request(r) {
+    r.failed = false;
+    r.request = new XMLHttpRequest();
+    r.request.onerror = function(e) {
+     r.failed = true;
+    };
     r.request.open("POST", r.request_info.url, true);
     r.request.send(r.request_info.body);
 }
@@ -195,8 +200,9 @@ function make_generation_request(p, api) {
     let to_push = {
         "id": cur_id,
         "request": new XMLHttpRequest(),
-        "retries_remaining": 5,
-        "request_info": {"url": api, "body": p}
+        "retries_remaining": max_retries,
+        "request_info": {"url": api, "body": p},
+        "failed": false,
     }
     console.log("Making generation request with id " + to_push.id);
     generation_requests.push(to_push)
@@ -209,15 +215,23 @@ function make_generation_request(p, api) {
 function get_generation_request_status(id) {
     for(let i = 0; i < generation_requests.length; i++) {
         if(generation_requests[i].id == id) {
-            let http_status = generation_requests[i].request.status;
-            if(http_status == 200) {
-                return 1;
+            if(generation_requests[i].failed)
+            {
             }
-            else if(http_status == 0) { // not done yet
-                return 0;
+            else
+            {
+             let http_status = generation_requests[i].request.status;
+             if(http_status == 200) {
+              return 1;
+             }
+             else if(http_status == 0) { // not done yet
+              return 0;
+             }
             }
-            else { // errored
+
+            { // errored
                 if(generation_requests[i].retries_remaining > 0) {
+                    console.log("Retrying request");
                     generation_requests[i].retries_remaining -= 1;
                     resend_request(generation_requests[i]);
                     return 0;
