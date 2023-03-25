@@ -1,29 +1,28 @@
 Happening by END OF STREAM:
-DONE - Moar content in game
-DONE - Mobile controls
-DONE - Train model, better training data
-ship beta
- - Make tiktok
- - Particle fx and sound fx for when hit
- - Remove control attack key as devtools
- - Old man in beginning is invincible
- - Ignore keyrepeat events
- - Make vignette in front
- - Fade dialog with distance
- - Keep people away from skeletons, make aggroed/chase state where you can't talk to people
+ - Payment working
  - Fixed timesep the gameplay (which means separate player rendering)
  - Make action between stars much more technical sounding so AI doesn't hallucinate responses
+ - Help you fight and fight you actions
+ - New characters/items from fate
+ - New art in
+ - Old man in beginning is invincible
  - Add cancel button
- - Wonderous, curious story "What if you could say anything to somebody?"
+ - Style buttons
+ - Make map better
+ - Fade dialog with distance
+ - Make vignette in front
+ - Ignore keyrepeat events
+ - Remove control attack key as devtools
+ - Particle fx and sound fx for when hit
+ - Max text length on text input
+SHIP BETA
+ - Make ANOTHER tiktok if you can. Por favor
 
 Later:
  - Put playgpt.io in twitch title
  - Portal at end, exit level
- - Save every request and response (server logs, use systemd)
- - Ask death to come help you fight, new action
+ - Keep people away from skeletons, make aggroed/chase state where you can't talk to people
  - Perfect dodge roll just after you roll, sound effect
  and particles. Lets you keep momentum. Each dodge roll
  takes slightly different amount of time so you have to
  judge it
- - Max text length on text input
- - Mobile controls
