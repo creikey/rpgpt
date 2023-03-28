@@ -4,6 +4,7 @@ echo Asset packs which must be bought and unzipped into root directory before ru
 echo https://rafaelmatos.itch.io/epic-rpg-world-pack-ancient-ruins
 echo https://sventhole.itch.io/undead-pixel-art-characters
 
+
 rmdir /S /q assets\copyrighted
 mkdir assets\copyrighted
 copy "EPIC RPG World Pack - Ancient Ruins V 1.7\EPIC RPG World Pack - Ancient Ruins V 1.7\Characters\NPC Merchant-idle.png" "assets\copyrighted\merchant.png" || goto :error

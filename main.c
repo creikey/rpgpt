@@ -354,10 +354,19 @@ void begin_text_input()
 }
 #else
 #ifdef WEB
+EMSCRIPTEN_KEEPALIVE
+void stop_controlling_input()
+{
+ _sapp_emsc_unregister_eventhandlers(); // stop getting input, hand it off to text input
+}
+
+EMSCRIPTEN_KEEPALIVE
+void start_controlling_input()
+{
+ _sapp_emsc_register_eventhandlers();
+}
 void begin_text_input()
 {
- Log("Disabling event handlers\n");
- _sapp_emsc_unregister_eventhandlers(); // stop getting input, hand it off to text input
  memset(keydown, 0, ARRLEN(keydown));
  emscripten_run_script("start_dialog();");
 }
@@ -747,9 +756,13 @@ void begin_text_input(); // called when player engages in dialog, must say somet
 // a callback, when 'text backend' has finished making text. End dialog
 void end_text_input(char *what_player_said)
 {
+ // avoid double ending text input
+ if(player->state != CHARACTER_TALKING)
+ {
+  return;
+ }
  player->state = CHARACTER_IDLE;
 #ifdef WEB // hacky
- _sapp_emsc_register_eventhandlers();
 #endif
 
  size_t player_said_len = strlen(what_player_said);
@@ -1115,6 +1128,11 @@ void audio_stream_callback(float *buffer, int num_frames, int num_channels)
 
 void init(void)
 {
+#ifdef WEB
+ EM_ASM({
+   set_server_url(UTF8ToString($0));
+ }, SERVER_URL);
+#endif
  Log("Size of entity struct: %zu\n", sizeof(Entity));
  Log("Size of %d entities: %zu kb\n", (int)ARRLEN(entities), sizeof(entities)/1024);
  sg_setup(&(sg_desc){

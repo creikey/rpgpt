@@ -1,35 +1,15 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
-<!-- saved from url=(0055)https://floooh.github.io/sokol-html5/triangle-sapp.html -->
-<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<html lang="en">
+ <head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 
 <title>AI RPG</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
 <style type="text/css">
 body {
     margin: 0;
     background-color: black;
-}
-.game-title {
-    pointer-events: none;
-    position: absolute;
-    bottom: 10px;
-    margin-top: 0px;
-    padding-left: 10px;
-    color: white;
-    text-decoration: none;
-    z-index: 1;
-    text-align: left;
-    font-family: "Arial Black", Gadget, sans-serif;
-    font-size: 30px;
-}
-.game-menu-item {
-    pointer-events: auto;
-    font-size: 18px;
-    padding-left: 10px;
-    font-family: Arial, Helvetica, sans-serif;
-}
-.game-menu-link {
-    text-decoration: none;
-    color: white;
 }
 .game {
     position: absolute;
@@ -50,7 +30,7 @@ body {
     image-rendering: pixelated;
     -ms-interpolation-mode: nearest-neighbor;
 }
-.inputdiv {
+#inputdiv, #buy_menu {
     position: absolute;
     top: 0px;
     left: 0px;
@@ -58,12 +38,13 @@ body {
     border: 0;
     width: 100%;
     height: 100%;
-    overflow: hidden;
-    display: none; /* set to flex by javascript */
     justify-content: center;
     align-items: center;
-
+}
+#inputdiv {
     z-index: 10;
+    display: none; /* set to flex by javascript */
+    overflow: hidden;
     background: #00000090;
 }
 #inputtext {
@@ -99,16 +80,100 @@ body {
  font-size: 3em;
 }
 
+#buy_menu {
+ display: none; /* set in javascript when shown when error code */
+ flex-direction: column;
+ justify-content: center;
+ word-wrap: break-word;
+ align-items: center;
+ text-align: center;
+ height: 100vh;
+ background: #000000D0;
+ font-family: arial;
+ gap: 20px;
+ color: #fff;
+ z-index: 20;
+}
+
+#buy_menu h1, #daypass {
+ margin-left: 30px;
+ margin-right: 30px;
+}
+
+/* Style the payment screen title */
+#buy_menu h1 {
+ font-size: 32px;
+}
+
+/* Style the payment button */
+#payment-button, #submit-button {
+ background-color: #fff;
+ color: #000;
+ font-size: 24px;
+ padding: 10px 20px;
+ border: none;
+ border-radius: 5px;
+ cursor: pointer;
+}
+#daypass {
+    border: 4px solid white;
+    border-radius: 25px;
+    padding: 10px;
+    display: flex;
+    gap: 20px;
+}
+#codebox {
+    border: 4px solid white;
+    border-radius: 10px;
+    padding: 10px;
+    margin: 30px;
+}
+#visibility-toggle, #closebutton {
+ border: none;
+ font-size: 30px;
+ background: none;
+ color: white;
+}
+#closebutton {
+ float: right;
+}
+/* Media queries for smaller screens */
+@media screen and (max-width: 480px) {
+ #buy_menu h1 {
+   font-size: 24px;
+   margin-bottom: 20px;
+ }
+ 
+ #payment-button {
+   font-size: 20px;
+   padding: 8px 16px;
+ }
+}
 </style>
-<link id="sokol-app-favicon" rel="shortcut icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAZdJREFUOE9VUzFSw0AMlGihggekwhV0eQGZ8AQggQ4chlR5CjSeAUwHOHkCZPALoEuVVHkAdCnxMVpJd8YzHt/5pNXuSsdkDxNRkHfSC8REIZB88ASSXxrBdzU+tiVmBHs6UQMAiwgK6kCy4NsPACBPcfQ4VPtSSLdSfbjEmg0kVBkKMQ7lfIXKAoTnt8okPVbjwUqCJR//mtdMpaEa09ZwCZyopfk5g5Doye7UTz0JuUovfti0EIXvAbS7ebw3BaFIwaQAAwAqxzwAUTBYrE8AokG2AIpmHnZmzkG9aLHGcrE+1VoC14a3Nh90ZsKLOSTP/2OYc9pZxReq5Vce5UnqVfdJDlIXEklzOhkFpeXnJQQ7aN4tZcCsi0w0ehtrgMm/7xemAJ2n6/mNdtBseegXykCtJsrfx0ZC3RWA9hCO5uM0r4Ho8bjwgYwWIODoZYPZj8326UCpQPXFjsnAPEvtdA9k2XvegCV6ZZeq3av6fBvUvYZKsBbZiQI4tG0kQzW6kzrE1qfW/cWk+i1w14WuGxgvBOD+AP0MuCLRb/uuAAAAAElFTkSuQmCC"></head>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+ </head>
+
 <body style="background:black">
+ <div id="buy_menu">
+  <h1>AI is expensive so you need to pay for it</h1>
+  <p>You can play for free 10 minutes per day</p>
+  <div id="daypass">
+   <button id="closebutton" onclick="closepayment()"><i class="fa-regular fa-xmark"></i></button>
+   <p>24 Hour Pass</p>
+   <button id="payment-button" onclick="do_checkout()">Buy Now</button>
+  </div>
+  <div id="codebox">
+   <label for="pass">Day pass code:</label>
+   <input type="password" name="pass" id="codeinput" onkeyup='on_codeinput_key(event);' required>
+   <button id="visibility-toggle" onclick="visibility_toggle()"><i class="fa fa-eye-slash" id="visibility-toggle-eye"></i></button>
+  </div>
+ </div>
  <div id="inputdiv" class="inputdiv">
   <textarea onkeyup='on_textarea_key(event);' id="inputtext">
   </textarea>
   <button id="inputbutton" onclick="end_dialog()"> Submit </button>
  </div>
   <canvas class="game" id="canvas" oncontextmenu="event.preventDefault()" width="1504" height="864"></canvas>
-
 
   <script type="text/javascript">
     var Module = {
@@ -137,10 +202,49 @@ body {
     };
   </script>
   <script type="text/javascript">
+   let game_doing_input = true;
+   let server_url = "";
+   let my_code = "";
+   let code_visible = false;
+   let input_modal = document.getElementById("inputdiv");
+   let pause_modal = document.getElementById("buy_menu");
+
+   function visibility_toggle() {
+    if(code_visible) {
+     code_visible = false;
+     document.getElementById("codeinput").type = "password";
+     document.getElementById("visibility-toggle-eye").className = "fa fa-eye-slash";
+    } else {
+     code_visible = true;
+     document.getElementById("codeinput").type = "text";
+     document.getElementById("visibility-toggle-eye").className = "fa fa-eye";
+    }
+   }
+
+   function frame(delta) {
+    let input_visible = input_modal.style.display === "flex";
+    let pause_visible = pause_modal.style.display === "flex";
+
+    if( (input_visible || pause_visible) && game_doing_input)
+    {
+     Module.ccall('stop_controlling_input', 'void', [], []);
+     game_doing_input = false;
+    }
+    if( !input_visible && !pause_visible && !game_doing_input)
+    {
+     Module.ccall('start_controlling_input', 'void', [], []);
+     game_doing_input = true;
+    }
+    
+    window.requestAnimationFrame(frame);
+   }
+  Module.onRuntimeInitialized = () => {
+   window.requestAnimationFrame(frame);
+  }
 
       function start_dialog() {
           document.getElementById("inputtext").value = "";
-          setTimeout(function(){document.getElementById("inputtext").focus();},200); // for some reason focus doesn't work immediately here
+          setTimeout(function(){document.getElementById("inputtext").focus();},50); // for some reason focus doesn't work immediately here
           document.getElementById("inputdiv").style.display = "flex";
       }
 function end_dialog() {
@@ -148,28 +252,54 @@ function end_dialog() {
     Module.ccall('end_text_input', 'void', ['string'], [document.getElementById("inputtext").value]);
 }
 
+function show_paywall() {
+ document.getElementById('buy_menu').style.display = "flex";
+}
+
+function hide_paywall() {
+ document.getElementById('buy_menu').style.display = "none";
+}
+
+function on_codeinput_key(event) {
+ let final_codeinput_string = "";
+ let codeinput = document.getElementById("codeinput");
+ for(let i = 0; i < codeinput.value.length; i++) {
+  let cur = codeinput.value[i];
+  let cur_charcode = cur.charCodeAt(0);
+  if(cur_charcode >= "a".charCodeAt(0) && cur_charcode <= "z".charCodeAt(0)) {
+   final_codeinput_string += String.fromCharCode(cur_charcode + ("A".charCodeAt(0) - "a".charCodeAt(0)));
+  } else {
+   if((cur_charcode >= "A".charCodeAt(0) && cur_charcode <= "Z".charCodeAt(0)) || (cur_charcode >= "0".charCodeAt(0) && cur_charcode <= "9".charCodeAt(0))) {
+    final_codeinput_string += cur;
+   }
+  }
+ }
+ codeinput.value = final_codeinput_string;
+ my_code = codeinput.value;
+}
+
 function on_textarea_key(event) {
-    let final_textarea_string = "";
-    let cur_textarea_string = document.getElementById("inputtext").value;
-    let should_end = false;
-    for(let i = 0; i < Math.min(cur_textarea_string.length, 250); i++)
-    {
-        let cur = cur_textarea_string[i];
-        if(cur === "\n") {
-         should_end = true;
-         continue;
-        }
-        if(cur.charCodeAt(0) >= 255) continue; // non ascii gtfo
-        final_textarea_string += cur_textarea_string[i];
-    }
-    document.getElementById("inputtext").value = final_textarea_string;
-    if(event.key === "Enter") should_end = true;
-    if(event.key === "Escape")
-    {
-        document.getElementById("inputtext").value = "";
-        should_end = true;
-    }
-    if(should_end) end_dialog();
+ let final_textarea_string = "";
+ let cur_textarea_string = document.getElementById("inputtext").value;
+ let should_end = false;
+ for(let i = 0; i < Math.min(cur_textarea_string.length, 250); i++)
+ {
+  let cur = cur_textarea_string[i];
+  if(cur === "\n") {
+   should_end = true;
+   continue;
+  }
+  if(cur.charCodeAt(0) >= 255) continue; // non ascii gtfo
+  final_textarea_string += cur_textarea_string[i];
+ }
+ document.getElementById("inputtext").value = final_textarea_string;
+ if(event.key === "Enter") should_end = true;
+ if(event.key === "Escape")
+ {
+  document.getElementById("inputtext").value = "";
+  should_end = true;
+ }
+ if(should_end) end_dialog();
 }
 
 const max_retries = 5;
@@ -182,6 +312,20 @@ let generation_requests = []; // array of dictionaries with structure:
    retries_remaining: number, // on failure, retries over and over until out of retries
    }
  */
+function do_checkout() {
+ fetch(server_url + "/checkout").then((response) => response.text()).then((text) => {
+  split_up = text.split("|");
+  if(split_up.length !== 2) {
+   console.log("Weird response from server, length isn't 2");
+  }
+  my_code = split_up[0];
+  document.getElementById("codeinput").value = my_code;
+  let url_to_go_to = split_up[1];
+  window.location.href = url_to_go_to;
+ }).catch((error) => {
+   console.log("Error doing checkout: " + error);
+ });
+}
 
 function resend_request(r) {
     r.failed = false;
@@ -190,24 +334,29 @@ function resend_request(r) {
      r.failed = true;
     };
     r.request.open("POST", r.request_info.url, true);
-    r.request.send(r.request_info.body);
+    r.request.send(my_code + "|" + r.request_info.body);
+}
+
+// server URL is decided in C
+function set_server_url(p) {
+ server_url = p;
 }
 
 // Returns an integer, a "handle" into the generation request. Takes in the string prompt, and api URL
 // the api url must start with `http://` or https.
 function make_generation_request(p, api) {
-    cur_id += 1;
-    let to_push = {
-        "id": cur_id,
-        "request": new XMLHttpRequest(),
-        "retries_remaining": max_retries,
-        "request_info": {"url": api, "body": p},
-        "failed": false,
-    }
-    console.log("Making generation request with id " + to_push.id);
-    generation_requests.push(to_push)
-    resend_request(to_push)
-    return cur_id;
+ cur_id += 1;
+ let to_push = {
+  "id": cur_id,
+  "request": new XMLHttpRequest(),
+  "retries_remaining": max_retries,
+  "request_info": {"url": api, "body": p},
+  "failed": false,
+ }
+ console.log("Making generation request with id " + to_push.id);
+ generation_requests.push(to_push)
+ resend_request(to_push)
+ return cur_id;
 }
 
 // returns 0 if not done yet, 1 if succeeded, 2 if failed after too many retries (i.e server down, or no internet)
@@ -222,7 +371,19 @@ function get_generation_request_status(id) {
             {
              let http_status = generation_requests[i].request.status;
              if(http_status == 200) {
-              return 1;
+              if(generation_requests[i].request.responseText[0] === "0")
+              {
+               show_paywall();
+               return 2;
+              }
+              else if(generation_requests[i].request.responseText[0] === "1")
+              {
+               return 1; // done, everything ok
+              }
+              else
+              {
+               console.log("Unknown body code " + generation_requests[i].request.responseText);
+              }
              }
              else if(http_status == 0) { // not done yet
               return 0;
@@ -266,7 +427,7 @@ function get_generation_request_content(id) {
             break;
         }
     }
-    return to_return;;
+    return to_return.slice(1); // first character is a code that says if the request was successful or not
 }
   </script>
   {{{ SCRIPT }}}

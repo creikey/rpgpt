@@ -6,6 +6,7 @@ Happening by END OF STREAM:
  - New characters/items from fate
  - New art in
  - Old man in beginning is invincible
+ - Make new openai key (it was leaked)
  - Add cancel button
  - Style buttons
  - Make map better
