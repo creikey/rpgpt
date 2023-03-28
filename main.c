@@ -69,7 +69,6 @@ Vec2 ReflectV2(Vec2 v, Vec2 normal)
  return to_return;
 }
 
-
 typedef struct AABB
 {
  Vec2 upper_left;
@@ -177,9 +176,17 @@ typedef enum PropKind
  TREE2,
 } PropKind;
 
+typedef struct EntityRef
+{
+ int index;
+ int generation;
+} EntityRef;
+
 typedef struct Entity
 {
  bool exists;
+ bool destroy;
+ int generation;
 
  // fields for all entities
  Vec2 pos;
@@ -189,7 +196,7 @@ typedef struct Entity
  double dead_time;
  bool dead;
  // multiple entities have a sword swing
- BUFF(struct Entity*, 8) done_damage_to_this_swing; // only do damage once, but hitbox stays around
+ BUFF(EntityRef, 8) done_damage_to_this_swing; // only do damage once, but hitbox stays around
 
  bool is_bullet;
 
@@ -206,7 +213,7 @@ typedef struct Entity
  bool is_npc;
  double character_say_timer;
  NpcKind npc_kind;
- struct Entity *last_seen_holding;
+ EntityRef last_seen_holding;
  Sentence sentence_to_say;
  Dialog player_dialog;
 #ifdef WEB
@@ -222,11 +229,11 @@ typedef struct Entity
 
  // character
  bool is_character;
- struct Entity *holding_item;
+ EntityRef holding_item;
  Vec2 to_throw_direction;
  int boots_modifier;
  CharacterState state;
- struct Entity *talking_to; // Maybe should be generational index, but I dunno. No death yet
+ EntityRef talking_to; // Maybe should be generational index, but I dunno. No death yet
  bool is_rolling; // can only roll in idle or walk states
  double time_not_rolling; // for cooldown for roll, so you can't just hold it and be invincible
  double roll_progress;
@@ -440,36 +447,6 @@ AABB entity_sword_aabb(Entity *e, float width, float height)
     .lower_right = AddV2(e->pos, V2(width, -height)),
   };
  }
-}
-
-typedef BUFF(Entity*, 16) SwordToDamage;
-SwordToDamage entity_sword_to_do_damage(Entity *from, Overlapping o)
-{
- SwordToDamage to_return = {0};
- BUFF_ITER(Overlap, &o)
- {
-  if(!it->is_tile && it->e != from)
-  {
-   bool done_damage = false;
-   Entity *looking_for = it->e;
-   BUFF_ITER(Entity*, &from->done_damage_to_this_swing)
-   {
-    if(*it == looking_for) done_damage = true;
-   }
-   if(!done_damage)
-   {
-    if(!BUFF_HAS_SPACE(&from->done_damage_to_this_swing))
-    {
-     BUFF_REMOVE_FRONT(&from->done_damage_to_this_swing);
-     Log("Too many things to do damage to...\n");
-     assert(false);
-    }
-    BUFF_APPEND(&to_return, looking_for);
-    BUFF_APPEND(&from->done_damage_to_this_swing, looking_for);
-   }
-  }
- }
- return to_return;
 }
 
 // aabb advice by iRadEntertainment
@@ -752,6 +729,57 @@ void add_new_npc_sentence(Entity *npc, char *sentence)
  npc->sentence_to_say = new_sentence;
 }
 
+AABB level_aabb = { .upper_left = {0.0f, 0.0f}, .lower_right = {TILE_SIZE * LEVEL_TILES, -(TILE_SIZE * LEVEL_TILES)} };
+Entity entities[MAX_ENTITIES] = {0};
+
+EntityRef frome(Entity *e)
+{
+ EntityRef to_return = {
+  .index = (int)(e - entities),
+  .generation = e->generation,
+ };
+ assert(to_return.index >= 0);
+ assert(to_return.index < ARRLEN(entities));
+ return to_return;
+}
+
+Entity *gete(EntityRef ref)
+{
+ if(ref.generation == 0) return 0;
+ Entity *to_return = &entities[ref.index];
+ if(!to_return->exists || to_return->generation != ref.generation)
+ {
+  return 0;
+ }
+ else
+ {
+  return to_return;
+ }
+}
+
+bool eq(EntityRef ref1, EntityRef ref2)
+{
+ return ref1.index == ref2.index && ref1.generation == ref2.generation;
+}
+
+Entity *new_entity()
+{
+ for(int i = 0; i < ARRLEN(entities); i++)
+ {
+  if(!entities[i].exists)
+  {
+   Entity *to_return = &entities[i];
+   int gen = to_return->generation;
+   *to_return = (Entity){0};
+   to_return->exists = true;
+   to_return->generation = gen + 1;
+   return to_return;
+  }
+ }
+ assert(false);
+ return NULL;
+}
+
 void begin_text_input(); // called when player engages in dialog, must say something and fill text_input_buffer
 // a callback, when 'text backend' has finished making text. End dialog
 void end_text_input(char *what_player_said)
@@ -784,23 +812,24 @@ void end_text_input(char *what_player_said)
   }
 
   // order is player message, item status message in training data. So has to be same here
-  Dialog *to_append = &player->talking_to->player_dialog;
-  Entity *talking = player->talking_to;
+  Entity *talking = gete(player->talking_to);
+  assert(talking);
+  Dialog *to_append = &talking->player_dialog;
   make_space_and_append(to_append, (DialogElement){.s = what_player_said_sentence, .author = PLAYER});
-  if(talking->last_seen_holding != player->holding_item)
+  if(!eq(talking->last_seen_holding, player->holding_item))
   {
-   if(talking->last_seen_holding)
+   if(gete(talking->last_seen_holding))
    {
-    Sentence discard = from_str(item_discard_message_table[talking->last_seen_holding->item_kind]);
+    Sentence discard = from_str(item_discard_message_table[gete(talking->last_seen_holding)->item_kind]);
     BUFF_APPEND(&discard, '\n');
     make_space_and_append(to_append, (DialogElement){.author = SYSTEM, .s = discard});
-    assert(talking->last_seen_holding->is_item);
-    talking->last_seen_holding = 0;
+    assert(gete(talking->last_seen_holding)->is_item);
+    talking->last_seen_holding = (EntityRef){0};
    }
-   if(player->holding_item)
+   if(gete(player->holding_item))
    {
-    assert(player->holding_item->is_item);
-    Sentence possess = from_str(item_possess_message_table[player->holding_item->item_kind]);
+    assert(gete(player->holding_item)->is_item);
+    Sentence possess = from_str(item_possess_message_table[gete(player->holding_item)->item_kind]);
     BUFF_APPEND(&possess, '\n');
     make_space_and_append(to_append, (DialogElement){.author = SYSTEM, .s = possess});
    }
@@ -822,9 +851,9 @@ void end_text_input(char *what_player_said)
   BUFF_APPEND(&to_join, "\n");
  
   // item prompt
-  if(player->holding_item)
+  if(gete(player->holding_item))
   {
-   BUFF_APPEND(&to_join, item_prompt_table[player->holding_item->item_kind]);
+   BUFF_APPEND(&to_join, item_prompt_table[gete(player->holding_item)->item_kind]);
    BUFF_APPEND(&to_join, "\n");
   }
 
@@ -835,7 +864,7 @@ void end_text_input(char *what_player_said)
 
   // all the dialog
   int i = 0;
-  BUFF_ITER(DialogElement, &player->talking_to->player_dialog)
+  BUFF_ITER(DialogElement, &gete(player->talking_to)->player_dialog)
   {
    //bool is_player = 
    if(it->author == PLAYER)
@@ -882,33 +911,33 @@ void end_text_input(char *what_player_said)
   int req_id = EM_ASM_INT({
     return make_generation_request(UTF8ToString($1), UTF8ToString($0));
   }, SERVER_URL, prompt);
-  player->talking_to->gen_request_id = req_id;
+  gete(player->talking_to)->gen_request_id = req_id;
 #endif
 #ifdef DESKTOP
-  if(player->talking_to->npc_kind == NPC_Death)
+  if(gete(player->talking_to)->npc_kind == NPC_Death)
   {
-   add_new_npc_sentence(player->talking_to, "test *moves* I am death, destroyer of games. Come join me in the afterlife, or continue onwards *moves*");
-   //add_new_npc_sentence(player->talking_to, "test");
+   add_new_npc_sentence(gete(player->talking_to), "test *moves* I am death, destroyer of games. Come join me in the afterlife, or continue onwards *moves*");
+   //add_new_npc_sentence(gete(player->talking_to), "test");
   }
-  if(player->talking_to->npc_kind == NPC_OldMan)
+  if(gete(player->talking_to)->npc_kind == NPC_OldMan)
   {
-   add_new_npc_sentence(player->talking_to, "I am the old man");
+   add_new_npc_sentence(gete(player->talking_to), "I am the old man");
   }
-  if(player->talking_to->npc_kind == NPC_Blocky)
+  if(gete(player->talking_to)->npc_kind == NPC_Blocky)
   {
-   add_new_npc_sentence(player->talking_to, "I am Blocky. *lets player pass*");
+   add_new_npc_sentence(gete(player->talking_to), "I am Blocky. *lets player pass*");
   }
-  if(player->talking_to->npc_kind == NPC_Hunter)
+  if(gete(player->talking_to)->npc_kind == NPC_Hunter)
   {
-   add_new_npc_sentence(player->talking_to, "I am hunter");
+   add_new_npc_sentence(gete(player->talking_to), "I am hunter");
   }
-  if(player->talking_to->npc_kind == NPC_Max)
+  if(gete(player->talking_to)->npc_kind == NPC_Max)
   {
-   add_new_npc_sentence(player->talking_to, "I am max");
+   add_new_npc_sentence(gete(player->talking_to), "I am max");
   }
-  if(player->talking_to->npc_kind == NPC_John)
+  if(gete(player->talking_to)->npc_kind == NPC_John)
   {
-   add_new_npc_sentence(player->talking_to, "I am john *gives WhiteSquare*");
+   add_new_npc_sentence(gete(player->talking_to), "I am john *gives WhiteSquare*");
   }
 
 #endif
@@ -1057,25 +1086,6 @@ static struct
  sg_bindings bind;
 } state;
 
-AABB level_aabb = { .upper_left = {0.0f, 0.0f}, .lower_right = {TILE_SIZE * LEVEL_TILES, -(TILE_SIZE * LEVEL_TILES)} };
-Entity entities[MAX_ENTITIES] = {0};
-
-Entity *new_entity()
-{
- for(int i = 0; i < ARRLEN(entities); i++)
- {
-  if(!entities[i].exists)
-  {
-   Entity *to_return = &entities[i];
-   *to_return = (Entity){0};
-   to_return->exists = true;
-   return to_return;
-  }
- }
- assert(false);
- return NULL;
-}
-
 void reset_level()
 {
  // load level
@@ -1087,6 +1097,7 @@ void reset_level()
   player = NULL;
   ENTITIES_ITER(entities)
   {
+   if(it->generation == 0) it->generation = 1; // zero value generation means doesn't exist
    if(it->is_character)
    {
     assert(player == NULL);
@@ -1124,6 +1135,39 @@ void audio_stream_callback(float *buffer, int num_frames, int num_channels)
   }
   buffer[i] = output_frame;
  }
+}
+
+
+typedef BUFF(Entity*, 16) SwordToDamage;
+SwordToDamage entity_sword_to_do_damage(Entity *from, Overlapping o)
+{
+ SwordToDamage to_return = {0};
+ BUFF_ITER(Overlap, &o)
+ {
+  if(!it->is_tile && it->e != from)
+  {
+   bool done_damage = false;
+   Entity *looking_for = it->e;
+   BUFF_ITER(EntityRef, &from->done_damage_to_this_swing)
+   {
+    EntityRef ref = *it;
+    Entity *it = gete(ref);
+    if(it == looking_for) done_damage = true;
+   }
+   if(!done_damage)
+   {
+    if(!BUFF_HAS_SPACE(&from->done_damage_to_this_swing))
+    {
+     BUFF_REMOVE_FRONT(&from->done_damage_to_this_swing);
+     Log("Too many things to do damage to...\n");
+     assert(false);
+    }
+    BUFF_APPEND(&to_return, looking_for);
+    BUFF_APPEND(&from->done_damage_to_this_swing, frome(looking_for));
+   }
+  }
+ }
+ return to_return;
 }
 
 void init(void)
@@ -2511,6 +2555,7 @@ void frame(void)
   PROFILE_SCOPE("entity processing")
   ENTITIES_ITER(entities)
   {
+   assert(!(it->exists && it->generation == 0));
 #ifdef WEB
    if(it->gen_request_id != 0)
    {
@@ -2716,7 +2761,7 @@ void frame(void)
      }
      else
      {
-      *it = (Entity){0};
+      it->destroy = true;
      }
     }
    }
@@ -2767,6 +2812,19 @@ void frame(void)
    }
   }
 
+  PROFILE_SCOPE("Destroy entities")
+  {
+   ENTITIES_ITER(entities)
+   {
+    if(it->destroy)
+    {
+     int gen = it->generation;
+     *it = (Entity){0};
+     it->generation = gen;
+    }
+   }
+  }
+
   PROFILE_SCOPE("process player and render player character")
   {
    Vec2 character_sprite_pos = AddV2(player->pos, V2(0.0, 20.0f));
@@ -2792,7 +2850,7 @@ void frame(void)
       if(entity_talkable) entity_talkable = entity_talkable && it->e->gen_request_id == 0;
 #endif
 
-      bool entity_pickupable = !it->is_tile && !player->holding_item && it->e->is_item;
+      bool entity_pickupable = !it->is_tile && !gete(player->holding_item) && it->e->is_item;
 
       if(entity_talkable || entity_pickupable)
       {
@@ -2810,7 +2868,7 @@ void frame(void)
     Entity *interacting_with = closest_interact_with;
     if(player->state == CHARACTER_TALKING)
     {
-     interacting_with = player->talking_to;
+     interacting_with = gete(player->talking_to);
      assert(interacting_with);
     }
 
@@ -2828,9 +2886,9 @@ void frame(void)
     // process dialog and display dialog box when talking to NPC
     if(player->state == CHARACTER_TALKING)
     {
-     assert(player->talking_to != NULL);
+     assert(gete(player->talking_to) != NULL);
 
-     if(player->talking_to->aggressive || !player->exists)
+     if(gete(player->talking_to)->aggressive || !player->exists)
      {
       player->state = CHARACTER_IDLE;
      }
@@ -2843,14 +2901,14 @@ void frame(void)
     {
      // begin dialog with closest npc
      player->state = CHARACTER_TALKING;
-     player->talking_to = closest_interact_with;
+     player->talking_to = frome(closest_interact_with);
      begin_text_input();
     }
     else if(closest_interact_with->is_item)
     {
      // pick up item
      closest_interact_with->held_by_player = true;
-     player->holding_item = closest_interact_with;
+     player->holding_item = frome(closest_interact_with);
     }
     else
     {
@@ -2861,12 +2919,14 @@ void frame(void)
    {
     // in this branch, we know that no interacting with npcs or items is going to happen.
     // but we still have to process roll input
-    if(roll_just_pressed && player->holding_item)
+    if(roll_just_pressed && gete(player->holding_item))
     {
      // throw item
-     player->holding_item->vel = MulV2F(player->to_throw_direction, 20.0f);
-     player->holding_item->held_by_player = false;
-     player->holding_item = 0;
+     Entity *thrown = gete(player->holding_item);
+     assert(thrown);
+     thrown->vel = MulV2F(player->to_throw_direction, 20.0f);
+     thrown->held_by_player = false;
+     player->holding_item = (EntityRef){0};
     }
     else if(roll_just_pressed && !player->is_rolling && player->time_not_rolling > 0.3f && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
     {
