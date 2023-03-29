@@ -735,6 +735,8 @@ typedef struct GameState {
  Entity entities[MAX_ENTITIES];
 } GameState;
 GameState gs = {0};
+double unprocessed_fixed_timestep_time = 0.0;
+#define FIXED_TIMESTEP (1.0/60.0)
 
 EntityRef frome(Entity *e)
 {
@@ -2569,472 +2571,498 @@ void frame(void)
 
   assert(player != NULL);
 
-#ifdef DEVTOOLS
-  dbgsquare(screen_to_world(mouse_pos));
-
-  // tile coord
-  if(show_devtools)
+  // fixed timestep loop
+  Entity *interacting_with = 0; // used by rendering to figure out who to draw dialog box on
+  int num_timestep_loops = 0;
   {
-   TileCoord hovering = world_to_tilecoord(screen_to_world(mouse_pos));
-   Vec2 points[4] ={0};
-   AABB q = tile_aabb(hovering);
-   dbgrect(q);
-   draw_text((TextParams){false, false, tprint("%d", get_tile(&level_level0, hovering).kind), world_to_screen(tilecoord_to_world(hovering)), BLACK, 1.0f});
-  }
+   unprocessed_fixed_timestep_time += dt;
+   while(unprocessed_fixed_timestep_time > FIXED_TIMESTEP)
+   {
+    num_timestep_loops++;
+    unprocessed_fixed_timestep_time -= FIXED_TIMESTEP;
+    float dt = (float)FIXED_TIMESTEP;
 
-  // debug draw font image
-  {
-   draw_quad((DrawParams){true, quad_centered(V2(0.0, 0.0), V2(250.0, 250.0)), image_font,full_region(image_font), WHITE});
-  }
-
-  // statistics
-  if(show_devtools)
-  PROFILE_SCOPE("statistics")
-  {
-   Vec2 pos = V2(0.0, screen_size().Y);
-   int num_entities = 0;
-   ENTITIES_ITER(gs.entities) num_entities++;
-   char *stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nEntities: %d\nDraw calls: %d\nProfiling: %s\n", dt*1000.0, last_frame_processing_time*1000.0, num_entities, num_draw_calls, profiling ? "yes" : "no");
-   AABB bounds = draw_text((TextParams){false, true, stats, pos, BLACK, 1.0f});
-   pos.Y -= bounds.upper_left.Y - screen_size().Y;
-   bounds = draw_text((TextParams){false, true, stats, pos, BLACK, 1.0f});
-   // background panel
-   colorquad(false, quad_aabb(bounds), (Color){1.0, 1.0, 1.0, 0.3f});
-   draw_text((TextParams){false, false, stats, pos, BLACK, 1.0f});
-   num_draw_calls = 0;
-  }
-#endif // devtools
-
-  // process gs.entities
-  PROFILE_SCOPE("entity processing")
-  ENTITIES_ITER(gs.entities)
-  {
-   assert(!(it->exists && it->generation == 0));
+    // process gs.entities
+    PROFILE_SCOPE("entity processing")
+    {
+     ENTITIES_ITER(gs.entities)
+     {
+      assert(!(it->exists && it->generation == 0));
 #ifdef WEB
-   if(it->gen_request_id != 0)
-   {
-    assert(it->gen_request_id > 0);
-    int status = EM_ASM_INT({
-      return get_generation_request_status($0);
-      }, it->gen_request_id);
-    if(status == 0)
-    {
-     // simply not done yet
-    }
-    else
-    {
-     if(status == 1)
-     {
-      // done! we can get the string
-      char sentence_str[MAX_SENTENCE_LENGTH] = {0};
-      EM_ASM({
-        let generation = get_generation_request_content($0);
-        stringToUTF8(generation, $1, $2);
-        }, it->gen_request_id, sentence_str, ARRLEN(sentence_str));
-
-      add_new_npc_sentence(it, sentence_str);
-
-      EM_ASM({
-        done_with_generation_request($0);
-        }, it->gen_request_id);
-     }
-     else if(status == 2)
-     {
-      Log("Failed to generate dialog! Fuck!");
-      // need somethin better here. Maybe each sentence has to know if it's player or NPC, that way I can remove the player's dialog
-      add_new_npc_sentence(it, "I'm not sure...");
-     }
-     it->gen_request_id = 0;
-    }
-   }
-#endif
-   if(fabsf(it->vel.x) > 0.01f)
-    it->facing_left = it->vel.x < 0.0f;
-
-
-   if(it->dead)
-   {
-    it->dead_time += dt;
-   }
-
-   if(it->is_npc)
-   {
-    if(!BUFF_EMPTY(&it->sentence_to_say))
-    {
-     it->character_say_timer += dt;
-     const float character_say_time = 0.02f;
-     while(it->character_say_timer > character_say_time)
-     {
-      say_characters(it, 1);
-      it->character_say_timer -= character_say_time;
-     }
-    }
-    if(it->npc_kind == NPC_OldMan)
-    {
-     /*
-     draw_dialog_panel(it);
-     Entity *targeting = player;
-     it->shotgun_timer += dt;
-     Vec2 to_player = NormV2(SubV2(targeting->pos, it->pos));
-     if(it->shotgun_timer >= 1.0f)
-     {
-      it->shotgun_timer = 0.0f;
-      const float spread = (float)PI/4.0f;
-      // shoot shotgun
-      int num_bullets = 5;
-      for(int i = 0; i < num_bullets; i++)
+      if(it->gen_request_id != 0)
       {
-       Vec2 dir = to_player;
-       float theta = Lerp(-spread/2.0f, ((float)i / (float)(num_bullets - 1)), spread/2.0f);
-       dir = RotateV2(dir, theta);
-       Entity *new_bullet = new_entity();
-       new_bullet->is_bullet = true;
-       new_bullet->pos = AddV2(it->pos, MulV2F(dir, 20.0f));
-       new_bullet->vel = MulV2F(dir, 15.0f);
-       it->vel = AddV2(it->vel, MulV2F(dir, -3.0f));
+       assert(it->gen_request_id > 0);
+       int status = EM_ASM_INT({
+         return get_generation_request_status($0);
+       }, it->gen_request_id);
+       if(status == 0)
+       {
+        // simply not done yet
+       }
+       else
+       {
+        if(status == 1)
+        {
+         // done! we can get the string
+         char sentence_str[MAX_SENTENCE_LENGTH] = {0};
+         EM_ASM({
+           let generation = get_generation_request_content($0);
+           stringToUTF8(generation, $1, $2);
+           }, it->gen_request_id, sentence_str, ARRLEN(sentence_str));
+
+         add_new_npc_sentence(it, sentence_str);
+
+         EM_ASM({
+           done_with_generation_request($0);
+           }, it->gen_request_id);
+        }
+        else if(status == 2)
+        {
+         Log("Failed to generate dialog! Fuck!");
+         // need somethin better here. Maybe each sentence has to know if it's player or NPC, that way I can remove the player's dialog
+         add_new_npc_sentence(it, "I'm not sure...");
+        }
+        it->gen_request_id = 0;
+       }
       }
-     }
-
-     Vec2 target_vel = NormV2(AddV2(rotate_counter_clockwise(to_player), MulV2F(to_player, 0.5f)));
-     target_vel = MulV2F(target_vel, 3.0f);
-     it->vel = LerpV2(it->vel, 15.0f * dt, target_vel);
-     it->pos = move_and_slide((MoveSlideParams){it, it->pos, MulV2F(it->vel, pixels_per_meter * dt)});
-     */
-    }
-
-    else if(it->npc_kind == NPC_Skeleton)
-    {
-     if(it->dead)
-     {
-     }
-     else
-     {
+#endif
       if(fabsf(it->vel.x) > 0.01f)
        it->facing_left = it->vel.x < 0.0f;
 
-      it->pos = move_and_slide((MoveSlideParams){it, it->pos, MulV2F(it->vel, pixels_per_meter * dt)});
-      AABB weapon_aabb = entity_sword_aabb(it, 30.0f, 18.0f);
-      dbgrect(weapon_aabb);
-      Vec2 target_vel = {0};
-      it->pos = AddV2(it->pos, MulV2F(it->vel, dt));
-      Overlapping overlapping_weapon = get_overlapping(cur_level, weapon_aabb);
-      if(it->swing_timer > 0.0)
+
+      if(it->dead)
       {
-       it->swing_timer += dt;
-       if(it->swing_timer >= anim_sprite_duration(&skeleton_swing_sword))
+       it->dead_time += dt;
+      }
+
+      if(it->is_npc)
+      {
+       if(!BUFF_EMPTY(&it->sentence_to_say))
        {
-        it->swing_timer = 0.0;
-       }
-       if(it->swing_timer >= 0.4f)
-       {
-        SwordToDamage to_damage = entity_sword_to_do_damage(it, overlapping_weapon);
-        Entity *from = it;
-        BUFF_ITER(Entity *, &to_damage)
+        it->character_say_timer += dt;
+        const float character_say_time = 0.02f;
+        while(it->character_say_timer > character_say_time)
         {
-         request_do_damage(*it, from->pos, 0.2f);
+         say_characters(it, 1);
+         it->character_say_timer -= character_say_time;
         }
+       }
+       if(it->npc_kind == NPC_OldMan)
+       {
+        /*
+           draw_dialog_panel(it);
+           Entity *targeting = player;
+           it->shotgun_timer += dt;
+           Vec2 to_player = NormV2(SubV2(targeting->pos, it->pos));
+           if(it->shotgun_timer >= 1.0f)
+           {
+           it->shotgun_timer = 0.0f;
+           const float spread = (float)PI/4.0f;
+        // shoot shotgun
+        int num_bullets = 5;
+        for(int i = 0; i < num_bullets; i++)
+        {
+        Vec2 dir = to_player;
+        float theta = Lerp(-spread/2.0f, ((float)i / (float)(num_bullets - 1)), spread/2.0f);
+        dir = RotateV2(dir, theta);
+        Entity *new_bullet = new_entity();
+        new_bullet->is_bullet = true;
+        new_bullet->pos = AddV2(it->pos, MulV2F(dir, 20.0f));
+        new_bullet->vel = MulV2F(dir, 15.0f);
+        it->vel = AddV2(it->vel, MulV2F(dir, -3.0f));
+        }
+        }
+
+        Vec2 target_vel = NormV2(AddV2(rotate_counter_clockwise(to_player), MulV2F(to_player, 0.5f)));
+        target_vel = MulV2F(target_vel, 3.0f);
+        it->vel = LerpV2(it->vel, 15.0f * dt, target_vel);
+        it->pos = move_and_slide((MoveSlideParams){it, it->pos, MulV2F(it->vel, pixels_per_meter * dt)});
+        */
+       }
+
+       else if(it->npc_kind == NPC_Skeleton)
+       {
+        if(it->dead)
+        {
+        }
+        else
+        {
+         if(fabsf(it->vel.x) > 0.01f)
+          it->facing_left = it->vel.x < 0.0f;
+
+         it->pos = move_and_slide((MoveSlideParams){it, it->pos, MulV2F(it->vel, pixels_per_meter * dt)});
+         AABB weapon_aabb = entity_sword_aabb(it, 30.0f, 18.0f);
+         dbgrect(weapon_aabb);
+         Vec2 target_vel = {0};
+         it->pos = AddV2(it->pos, MulV2F(it->vel, dt));
+         Overlapping overlapping_weapon = get_overlapping(cur_level, weapon_aabb);
+         if(it->swing_timer > 0.0)
+         {
+          it->swing_timer += dt;
+          if(it->swing_timer >= anim_sprite_duration(&skeleton_swing_sword))
+          {
+           it->swing_timer = 0.0;
+          }
+          if(it->swing_timer >= 0.4f)
+          {
+           SwordToDamage to_damage = entity_sword_to_do_damage(it, overlapping_weapon);
+           Entity *from = it;
+           BUFF_ITER(Entity *, &to_damage)
+           {
+            request_do_damage(*it, from->pos, 0.2f);
+           }
+          }
+         }
+         else
+         {
+          // in huntin' range
+          it->walking = LenV2(SubV2(player->pos, it->pos)) < 250.0f;
+          if(it->walking)
+          {
+           Entity *skele = it;
+           BUFF_ITER(Overlap, &overlapping_weapon)
+           {
+            if(it->e && it->e->is_character)
+            {
+             skele->swing_timer += dt;
+             BUFF_CLEAR(&skele->done_damage_to_this_swing);
+            }
+           }
+           target_vel = MulV2F(NormV2(SubV2(player->pos, it->pos)), 4.0f);
+          }
+          else
+          {
+          }
+         }
+         it->vel = LerpV2(it->vel, dt*8.0f, target_vel);
+        }
+       }
+       else if(it->npc_kind == NPC_Death)
+       {
+       }
+#if 0
+       else if(it->npc_kind == DEATH)
+       {
+        draw_animated_sprite(&death_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
+       }
+       else if(it->npc_kind == MERCHANT)
+       {
+        draw_animated_sprite(&merchant_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
+       }
+#endif
+       else if(it->npc_kind == NPC_Max)
+       {
+       }
+       else if(it->npc_kind == NPC_Hunter)
+       {
+       }
+       else if(it->npc_kind == NPC_John)
+       {
+       }
+       else if(it->npc_kind == NPC_MOOSE)
+       {
+       }
+       else if(it->npc_kind == NPC_GodRock)
+       {
+       }
+       else if(it->npc_kind == NPC_Blocky)
+       {
+        if(it->going_to_target)
+        {
+         it->walking = true;
+         Vec2 towards = SubV2(it->target_goto, it->pos);
+         if(LenV2(towards) > 1.0f)
+         {
+          it->pos = LerpV2(it->pos, dt*5.0f, it->target_goto);
+         }
+        }
+        else
+        {
+         it->walking = false;
+        }
+       }
+       else
+       {
+        assert(false);
+       }
+       if(it->damage >= 1.0)
+       {
+        if(it->npc_kind == NPC_Skeleton)
+        {
+         it->dead = true;
+        }
+        else
+        {
+         it->destroy = true;
+        }
+       }
+      }
+      else if (it->is_item)
+      {
+       if(it->held_by_player)
+       {
+        it->pos = AddV2(player->pos, V2(5.0f * (player->facing_left ? -1.0f : 1.0f), 0.0f));
+       }
+       else
+       {
+        it->vel = LerpV2(it->vel, dt*7.0f, V2(0.0f,0.0f));
+        CollisionInfo info = {0};
+        it->pos = move_and_slide((MoveSlideParams){it, it->pos, MulV2F(it->vel, pixels_per_meter * dt), .dont_collide_with_entities = true, .col_info_out = &info});
+        if(info.happened) it->vel = ReflectV2(it->vel, info.normal);
+       }
+
+       //draw_quad((DrawParams){true, it->pos, IMG(image_white_square)
+      }
+      else if (it->is_bullet)
+      {
+       it->pos = AddV2(it->pos, MulV2F(it->vel, pixels_per_meter * dt));
+       dbgvec(it->pos, it->vel);
+       Overlapping over = get_overlapping(cur_level, entity_aabb(it));
+       Entity *from_bullet = it;
+       bool destroy_bullet = false;
+       BUFF_ITER(Overlap, &over) if(it->e != from_bullet)
+       {
+        if(!it->is_tile && !(it->e->is_bullet))
+        {
+         // knockback and damage
+         request_do_damage(it->e, from_bullet->pos, 0.2f);
+         destroy_bullet = true;
+        }
+       }
+       if(destroy_bullet) *from_bullet = (Entity){0};
+       if(!has_point(level_aabb, it->pos)) *it = (Entity){0};
+      }
+      else if(it->is_character)
+      {
+      }
+      else if(it->is_prop)
+      {
+      }
+      else
+      {
+       assert(false);
+      }
+      }
+     }
+
+     PROFILE_SCOPE("Destroy gs.entities")
+     {
+      ENTITIES_ITER(gs.entities)
+      {
+       if(it->destroy)
+       {
+        int gen = it->generation;
+        *it = (Entity){0};
+        it->generation = gen;
+       }
+      }
+     }
+
+     PROFILE_SCOPE("process player")
+     {
+      // do dialog
+      Entity *closest_interact_with = 0;
+      {
+       // find closest to talk to
+       {
+        AABB dialog_rect = centered_aabb(player->pos, V2(TILE_SIZE*2.0f, TILE_SIZE*2.0f));
+        dbgrect(dialog_rect);
+        Overlapping possible_dialogs = get_overlapping(cur_level, dialog_rect);
+        float closest_interact_with_dist = INFINITY;
+        BUFF_ITER(Overlap, &possible_dialogs)
+        {
+         bool entity_talkable = true;
+         if(entity_talkable) entity_talkable = entity_talkable && !it->is_tile;
+         if(entity_talkable) entity_talkable = entity_talkable && it->e->is_npc;
+         if(entity_talkable) entity_talkable = entity_talkable && !it->e->aggressive;
+         if(entity_talkable) entity_talkable = entity_talkable && !(it->e->npc_kind == NPC_Skeleton);
+#ifdef WEB
+         if(entity_talkable) entity_talkable = entity_talkable && it->e->gen_request_id == 0;
+#endif
+
+         bool entity_pickupable = !it->is_tile && !gete(player->holding_item) && it->e->is_item;
+
+         if(entity_talkable || entity_pickupable)
+         {
+          float dist = LenV2(SubV2(it->e->pos, player->pos));
+          if(dist < closest_interact_with_dist)
+          {
+           closest_interact_with_dist = dist;
+           closest_interact_with = it->e;
+          }
+         }
+        }
+       }
+
+
+       interacting_with = closest_interact_with;
+       if(player->state == CHARACTER_TALKING)
+       {
+        interacting_with = gete(player->talking_to);
+        assert(interacting_with);
+       }
+
+
+       // process dialog and display dialog box when talking to NPC
+       if(player->state == CHARACTER_TALKING)
+       {
+        assert(gete(player->talking_to) != NULL);
+
+        if(gete(player->talking_to)->aggressive || !player->exists)
+        {
+         player->state = CHARACTER_IDLE;
+        }
+       }
+      }
+
+      // roll input management, sometimes means talk to the npc
+      if(player->state != CHARACTER_TALKING && roll_just_pressed && closest_interact_with)
+      {
+       if(closest_interact_with->is_npc)
+       {
+        // begin dialog with closest npc
+        player->state = CHARACTER_TALKING;
+        player->talking_to = frome(closest_interact_with);
+       }
+       else if(closest_interact_with->is_item)
+       {
+        // pick up item
+        closest_interact_with->held_by_player = true;
+        player->holding_item = frome(closest_interact_with);
+       }
+       else
+       {
+        assert(false);
        }
       }
       else
       {
-       // in huntin' range
-       it->walking = LenV2(SubV2(player->pos, it->pos)) < 250.0f;
-       if(it->walking)
+       // in this branch, we know that no interacting with npcs or items is going to happen.
+       // but we still have to process roll input
+       if(roll_just_pressed && gete(player->holding_item))
        {
-        Entity *skele = it;
-        BUFF_ITER(Overlap, &overlapping_weapon)
+        // throw item
+        Entity *thrown = gete(player->holding_item);
+        assert(thrown);
+        thrown->vel = MulV2F(player->to_throw_direction, 20.0f);
+        thrown->held_by_player = false;
+        player->holding_item = (EntityRef){0};
+       }
+       else if(roll_just_pressed && !player->is_rolling && player->time_not_rolling > 0.3f && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
+       {
+        player->is_rolling = true;
+        player->roll_progress = 0.0;
+       }
+      }
+
+      if(attack && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
+      {
+       player->state = CHARACTER_ATTACK;
+       BUFF_CLEAR(&player->done_damage_to_this_swing); 
+       player->swing_progress = 0.0;
+      }
+      // roll processing
+      {
+       if(player->state != CHARACTER_IDLE && player->state != CHARACTER_WALKING)
+       {
+        player->roll_progress = 0.0;
+        player->is_rolling = false;
+       }
+       if(player->is_rolling)
+       {
+        player->time_not_rolling = 0.0f;
+        player->roll_progress += dt;
+        if(player->roll_progress > anim_sprite_duration(&knight_rolling))
         {
-         if(it->e && it->e->is_character)
-         {
-          skele->swing_timer += dt;
-          BUFF_CLEAR(&skele->done_damage_to_this_swing);
-         }
+         player->is_rolling = false;
         }
-        target_vel = MulV2F(NormV2(SubV2(player->pos, it->pos)), 4.0f);
+       }
+       if(!player->is_rolling) player->time_not_rolling += dt;
+      }
+
+      Vec2 target_vel = {0};
+      float speed = 0.0f;
+
+      if(LenV2(movement) > 0.01f) player->to_throw_direction = NormV2(movement);
+      if(player->state == CHARACTER_WALKING)
+      {
+       speed = PLAYER_SPEED;
+       if(player->is_rolling) speed = PLAYER_ROLL_SPEED;
+
+       if(player->boots_modifier < 0)
+       {
+        speed *= 1.0f / (1.0f + -(float)player->boots_modifier * 0.1f);
+       }
+       if(player->boots_modifier > 0)
+       {
+        speed *= 1.0f + ((float)player->boots_modifier * 0.1f);
+       }
+       if(LenV2(movement) == 0.0)
+       {
+        player->state = CHARACTER_IDLE;
        }
        else
        {
        }
       }
-      it->vel = LerpV2(it->vel, dt*8.0f, target_vel);
-     }
-    }
-    else if(it->npc_kind == NPC_Death)
-    {
-    }
-#if 0
-    else if(it->npc_kind == DEATH)
-    {
-     draw_animated_sprite(&death_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
-    }
-    else if(it->npc_kind == MERCHANT)
-    {
-     draw_animated_sprite(&merchant_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
-    }
-#endif
-    else if(it->npc_kind == NPC_Max)
-    {
-    }
-    else if(it->npc_kind == NPC_Hunter)
-    {
-    }
-    else if(it->npc_kind == NPC_John)
-    {
-    }
-    else if(it->npc_kind == NPC_MOOSE)
-    {
-    }
-    else if(it->npc_kind == NPC_GodRock)
-    {
-    }
-    else if(it->npc_kind == NPC_Blocky)
-    {
-     if(it->going_to_target)
-     {
-      it->walking = true;
-      Vec2 towards = SubV2(it->target_goto, it->pos);
-      if(LenV2(towards) > 1.0f)
+      else if(player->state == CHARACTER_IDLE)
       {
-       it->pos = LerpV2(it->pos, dt*5.0f, it->target_goto);
+       if(LenV2(movement) > 0.01) player->state = CHARACTER_WALKING;
       }
-     }
-     else
-     {
-      it->walking = false;
-     }
-    }
-    else
-    {
-     assert(false);
-    }
-    if(it->damage >= 1.0)
-    {
-     if(it->npc_kind == NPC_Skeleton)
-     {
-      it->dead = true;
-     }
-     else
-     {
-      it->destroy = true;
-     }
-    }
-   }
-   else if (it->is_item)
-   {
-    if(it->held_by_player)
-    {
-     it->pos = AddV2(player->pos, V2(5.0f * (player->facing_left ? -1.0f : 1.0f), 0.0f));
-    }
-    else
-    {
-     it->vel = LerpV2(it->vel, dt*7.0f, V2(0.0f,0.0f));
-     CollisionInfo info = {0};
-     it->pos = move_and_slide((MoveSlideParams){it, it->pos, MulV2F(it->vel, pixels_per_meter * dt), .dont_collide_with_entities = true, .col_info_out = &info});
-     if(info.happened) it->vel = ReflectV2(it->vel, info.normal);
-    }
-
-    //draw_quad((DrawParams){true, it->pos, IMG(image_white_square)
-   }
-   else if (it->is_bullet)
-   {
-    it->pos = AddV2(it->pos, MulV2F(it->vel, pixels_per_meter * dt));
-    dbgvec(it->pos, it->vel);
-    Overlapping over = get_overlapping(cur_level, entity_aabb(it));
-    Entity *from_bullet = it;
-    bool destroy_bullet = false;
-    BUFF_ITER(Overlap, &over) if(it->e != from_bullet)
-    {
-     if(!it->is_tile && !(it->e->is_bullet))
-     {
-      // knockback and damage
-      request_do_damage(it->e, from_bullet->pos, 0.2f);
-      destroy_bullet = true;
-     }
-    }
-    if(destroy_bullet) *from_bullet = (Entity){0};
-    if(!has_point(level_aabb, it->pos)) *it = (Entity){0};
-   }
-   else if(it->is_character)
-   {
-   }
-   else if(it->is_prop)
-   {
-   }
-   else
-   {
-    assert(false);
-   }
-  }
-
-  PROFILE_SCOPE("Destroy gs.entities")
-  {
-   ENTITIES_ITER(gs.entities)
-   {
-    if(it->destroy)
-    {
-     int gen = it->generation;
-     *it = (Entity){0};
-     it->generation = gen;
-    }
-   }
-  }
-
-  PROFILE_SCOPE("process player and render player character")
-  {
-   Vec2 character_sprite_pos = AddV2(player->pos, V2(0.0, 20.0f));
-
-
-   // do dialog
-   Entity *closest_interact_with = NULL;
-   {
-    // find closest to talk to
-    {
-     AABB dialog_rect = centered_aabb(player->pos, V2(TILE_SIZE*2.0f, TILE_SIZE*2.0f));
-     dbgrect(dialog_rect);
-     Overlapping possible_dialogs = get_overlapping(cur_level, dialog_rect);
-     float closest_interact_with_dist = INFINITY;
-     BUFF_ITER(Overlap, &possible_dialogs)
-     {
-      bool entity_talkable = true;
-      if(entity_talkable) entity_talkable = entity_talkable && !it->is_tile;
-      if(entity_talkable) entity_talkable = entity_talkable && it->e->is_npc;
-      if(entity_talkable) entity_talkable = entity_talkable && !it->e->aggressive;
-      if(entity_talkable) entity_talkable = entity_talkable && !(it->e->npc_kind == NPC_Skeleton);
-#ifdef WEB
-      if(entity_talkable) entity_talkable = entity_talkable && it->e->gen_request_id == 0;
-#endif
-
-      bool entity_pickupable = !it->is_tile && !gete(player->holding_item) && it->e->is_item;
-
-      if(entity_talkable || entity_pickupable)
+      else if(player->state == CHARACTER_ATTACK)
       {
-       float dist = LenV2(SubV2(it->e->pos, player->pos));
-       if(dist < closest_interact_with_dist)
+       AABB weapon_aabb = entity_sword_aabb(player, 40.0f, 25.0f);
+       dbgrect(weapon_aabb);
+       SwordToDamage to_damage = entity_sword_to_do_damage(player, get_overlapping(cur_level, weapon_aabb));
+       BUFF_ITER(Entity*, &to_damage)
        {
-        closest_interact_with_dist = dist;
-        closest_interact_with = it->e;
+        request_do_damage(*it, player->pos, 0.2f);
+       }
+       player->swing_progress += dt;
+       if(player->swing_progress > anim_sprite_duration(&knight_attack))
+       {
+        player->state = CHARACTER_IDLE;
        }
       }
+      else if(player->state == CHARACTER_TALKING)
+      {
+      }
+      else
+      {
+       assert(false); // unknown character state? not defined how to process
+      }
+
+      // velocity processing
+      {
+       Vec2 target_vel = MulV2F(movement, dt * pixels_per_meter * speed);
+       player->vel = LerpV2(player->vel, dt * 15.0f, target_vel);
+       player->pos = move_and_slide((MoveSlideParams){player, player->pos, player->vel});
+      }
+      // health
+      if(player->damage >= 1.0)
+      {
+       reset_level();
+      }
      }
-    }
-
-
-    Entity *interacting_with = closest_interact_with;
-    if(player->state == CHARACTER_TALKING)
-    {
-     interacting_with = gete(player->talking_to);
-     assert(interacting_with);
-    }
-
-    // if somebody, show their dialog panel
-    if(interacting_with) 
-    {
-     // interaction circle
-     draw_quad((DrawParams){true, quad_centered(interacting_with->pos, V2(TILE_SIZE, TILE_SIZE)), image_dialog_circle, full_region(image_dialog_circle), WHITE});
-     if(interacting_with->is_npc)
-     {
-      draw_dialog_panel(interacting_with);
-     }
-    }
-
-    // process dialog and display dialog box when talking to NPC
-    if(player->state == CHARACTER_TALKING)
-    {
-     assert(gete(player->talking_to) != NULL);
-
-     if(gete(player->talking_to)->aggressive || !player->exists)
-     {
-      player->state = CHARACTER_IDLE;
-     }
-    }
+    } // while loop
    }
-   // roll input management, sometimes means talk to the npc
-   if(player->state != CHARACTER_TALKING && roll_just_pressed && closest_interact_with)
+
+  PROFILE_SCOPE("render player")
+  {
+   Vec2 character_sprite_pos = AddV2(player->pos, V2(0.0, 20.0f));
+   // if somebody, show their dialog panel
+   if(interacting_with) 
    {
-    if(closest_interact_with->is_npc)
+    // interaction circle
+    draw_quad((DrawParams){true, quad_centered(interacting_with->pos, V2(TILE_SIZE, TILE_SIZE)), image_dialog_circle, full_region(image_dialog_circle), WHITE});
+    if(interacting_with->is_npc)
     {
-     // begin dialog with closest npc
-     player->state = CHARACTER_TALKING;
-     player->talking_to = frome(closest_interact_with);
-    }
-    else if(closest_interact_with->is_item)
-    {
-     // pick up item
-     closest_interact_with->held_by_player = true;
-     player->holding_item = frome(closest_interact_with);
-    }
-    else
-    {
-     assert(false);
-    }
-   }
-   else
-   {
-    // in this branch, we know that no interacting with npcs or items is going to happen.
-    // but we still have to process roll input
-    if(roll_just_pressed && gete(player->holding_item))
-    {
-     // throw item
-     Entity *thrown = gete(player->holding_item);
-     assert(thrown);
-     thrown->vel = MulV2F(player->to_throw_direction, 20.0f);
-     thrown->held_by_player = false;
-     player->holding_item = (EntityRef){0};
-    }
-    else if(roll_just_pressed && !player->is_rolling && player->time_not_rolling > 0.3f && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
-    {
-     player->is_rolling = true;
-     player->roll_progress = 0.0;
+     draw_dialog_panel(interacting_with);
     }
    }
 
-   if(attack && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
-   {
-    player->state = CHARACTER_ATTACK;
-    BUFF_CLEAR(&player->done_damage_to_this_swing); 
-    player->swing_progress = 0.0;
-   }
-
-
-   // roll processing
-   {
-    if(player->state != CHARACTER_IDLE && player->state != CHARACTER_WALKING)
-    {
-     player->roll_progress = 0.0;
-     player->is_rolling = false;
-    }
-    if(player->is_rolling)
-    {
-     player->time_not_rolling = 0.0f;
-     player->roll_progress += dt;
-     if(player->roll_progress > anim_sprite_duration(&knight_rolling))
-     {
-      player->is_rolling = false;
-     }
-    }
-    if(!player->is_rolling) player->time_not_rolling += dt;
-   }
-
-
-   Vec2 target_vel = {0};
-   float speed = 0.0f;
-
-   if(LenV2(movement) > 0.01f) player->to_throw_direction = NormV2(movement);
    if(player->state == CHARACTER_WALKING)
    {
-    speed = PLAYER_SPEED;
-    if(player->is_rolling) speed = PLAYER_ROLL_SPEED;
-
-    if(player->boots_modifier < 0)
-    {
-     speed *= 1.0f / (1.0f + -(float)player->boots_modifier * 0.1f);
-    }
-    if(player->boots_modifier > 0)
-    {
-     speed *= 1.0f + ((float)player->boots_modifier * 0.1f);
-    }
-
-
     if(player->is_rolling)
     {
      draw_animated_sprite(&knight_rolling, player->roll_progress, player->facing_left, character_sprite_pos, WHITE);
@@ -3042,14 +3070,6 @@ void frame(void)
     else
     {
      draw_animated_sprite(&knight_running, elapsed_time, player->facing_left, character_sprite_pos, WHITE);
-    }
-
-    if(LenV2(movement) == 0.0)
-    {
-     player->state = CHARACTER_IDLE;
-    }
-    else
-    {
     }
    }
    else if(player->state == CHARACTER_IDLE)
@@ -3062,24 +3082,10 @@ void frame(void)
     {
      draw_animated_sprite(&knight_idle, elapsed_time, player->facing_left, character_sprite_pos, WHITE);
     }
-    if(LenV2(movement) > 0.01) player->state = CHARACTER_WALKING;
    }
    else if(player->state == CHARACTER_ATTACK)
    {
-    AABB weapon_aabb = entity_sword_aabb(player, 40.0f, 25.0f);
-    dbgrect(weapon_aabb);
-    SwordToDamage to_damage = entity_sword_to_do_damage(player, get_overlapping(cur_level, weapon_aabb));
-    BUFF_ITER(Entity*, &to_damage)
-    {
-     request_do_damage(*it, player->pos, 0.2f);
-    }
-
-    player->swing_progress += dt;
     draw_animated_sprite(&knight_attack, player->swing_progress, player->facing_left, character_sprite_pos, WHITE);
-    if(player->swing_progress > anim_sprite_duration(&knight_attack))
-    {
-     player->state = CHARACTER_IDLE;
-    }
    }
    else if(player->state == CHARACTER_TALKING)
    {
@@ -3090,20 +3096,8 @@ void frame(void)
     assert(false); // unknown character state? not defined how to draw
    }
 
-   // velocity processing
-   {
-    Vec2 target_vel = MulV2F(movement, dt * pixels_per_meter * speed);
-    player->vel = LerpV2(player->vel, dt * 15.0f, target_vel);
-    player->pos = move_and_slide((MoveSlideParams){player, player->pos, player->vel});
-   }
-
-
-   // health
-   if(player->damage >= 1.0)
-   {
-    reset_level();
-   }
-   else
+   // hurt vignette
+   if(player->damage > 0.0)
    {
     draw_quad((DrawParams){false, (Quad){.ul=V2(0.0f, screen_size().Y), .ur = screen_size(), .lr = V2(screen_size().X, 0.0f)}, image_hurt_vignette, full_region(image_hurt_vignette), (Color){1.0f, 1.0f, 1.0f, player->damage}});
    }
@@ -3287,7 +3281,6 @@ void frame(void)
   draw_all_translucent();
 
   // ui
-
 #define HELPER_SIZE 250.0f
   if(!mobile_controls)
   {
@@ -3311,6 +3304,43 @@ void frame(void)
    draw_quad((DrawParams){false, quad_centered(roll_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .y_coord_sorting = 1.0f});
    draw_quad((DrawParams){false, quad_centered(attack_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .y_coord_sorting = 1.0f});
   }
+
+#ifdef DEVTOOLS
+  dbgsquare(screen_to_world(mouse_pos));
+
+  // tile coord
+  if(show_devtools)
+  {
+   TileCoord hovering = world_to_tilecoord(screen_to_world(mouse_pos));
+   Vec2 points[4] ={0};
+   AABB q = tile_aabb(hovering);
+   dbgrect(q);
+   draw_text((TextParams){false, false, tprint("%d", get_tile(&level_level0, hovering).kind), world_to_screen(tilecoord_to_world(hovering)), BLACK, 1.0f});
+  }
+
+  // debug draw font image
+  {
+   draw_quad((DrawParams){true, quad_centered(V2(0.0, 0.0), V2(250.0, 250.0)), image_font,full_region(image_font), WHITE});
+  }
+
+  // statistics
+  if(show_devtools)
+  PROFILE_SCOPE("statistics")
+  {
+   Vec2 pos = V2(0.0, screen_size().Y);
+   int num_entities = 0;
+   ENTITIES_ITER(gs.entities) num_entities++;
+   char *stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nEntities: %d\nDraw calls: %d\nProfiling: %s\nNumber fixed timestep loops: %d\n", dt*1000.0, last_frame_processing_time*1000.0, num_entities, num_draw_calls, profiling ? "yes" : "no", num_timestep_loops);
+   AABB bounds = draw_text((TextParams){false, true, stats, pos, BLACK, 1.0f});
+   pos.Y -= bounds.upper_left.Y - screen_size().Y;
+   bounds = draw_text((TextParams){false, true, stats, pos, BLACK, 1.0f});
+   // background panel
+   colorquad(false, quad_aabb(bounds), (Color){1.0, 1.0, 1.0, 0.3f});
+   draw_text((TextParams){false, false, stats, pos, BLACK, 1.0f});
+   num_draw_calls = 0;
+  }
+#endif // devtools
+
 
   // update camera position
   {

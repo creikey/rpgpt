@@ -1,7 +1,6 @@
 Happening by END OF STREAM:
- - Payment working
- - Respond to cancel with stripe, redirect to ?cancelled=true that clears day pass ticket cookie and ui value
- - Fixed timesep the gameplay (which means separate player rendering)
+DONE - Payment working
+DONE - Fixed timesep the gameplay (which means separate player rendering)
  - Make action between stars much more technical sounding so AI doesn't hallucinate responses
  - Help you fight and fight you actions
  - New characters/items from fate
@@ -21,6 +20,7 @@ SHIP BETA
  - Make ANOTHER tiktok if you can. Por favor
 
 Later:
+ - Respond to cancel with stripe, redirect to ?cancelled=true that clears day pass ticket cookie and ui value
  - Put playgpt.io in twitch title
  - Portal at end, exit level
  - Keep people away from skeletons, make aggroed/chase state where you can't talk to people
