@@ -1,4 +1,4 @@
-module github.com/creikey/rpgpt
+module github.com/creikey/rpgpt/server
 
 go 1.19
 

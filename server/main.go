@@ -20,6 +20,7 @@ import (
  "gorm.io/gorm"
  "gorm.io/driver/sqlite"
 
+ "github.com/creikey/rpgpt/server/codes"
 )
 
 // BoughtType values. do not reorganize these or you fuck up the database
@@ -32,14 +33,13 @@ const (
  MaxCodes = 36 * 36 * 36 * 36
 )
 
-type userCode int
 
 type User struct {
  CreatedAt time.Time
  UpdatedAt time.Time
  DeletedAt gorm.DeletedAt `gorm:"index"`
 
- Code  userCode `gorm:"primaryKey"` // of maximum value max codes, incremented one by one. These are converted to 4 digit alphanumeric code users can remember/use
+ Code  codes.UserCode `gorm:"primaryKey"` // of maximum value max codes, incremented one by one. These are converted to 4 digit alphanumeric code users can remember/use
  BoughtTime int64 // unix time. Used to figure out if the pass is still valid
  BoughtType int // enum
 
@@ -54,51 +54,23 @@ var checkoutRedirectTo string
 var daypassPriceId string
 var webhookSecret string
 var db *gorm.DB
+var daypassTimedOut = make(map[codes.UserCode]int64) // value is time last requested, rate limiting by day pass. If exists is rate limited, should be removed when ok to request again
+// for 10 free minutes a day, is when ip address began requesting
+var ipAddyTenFree = make(map[string]int64)
 
-func intPow(n, m int) int {
- if m == 0 {
-  return 1
- }
- result := n
- for i := 2; i <= m; i++ {
-  result *= n
- }
- return result
-}
-
-var numberToChar = [...]rune{'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'}
-
-func codeToString(code userCode) (string, error) {
- toReturn := ""
- value := int(code)
- // converting to base 36 (A-Z + numbers) then into characters, then appending
- for digit := 3; digit >= 0; digit-- {
-  currentPlaceValue := value / intPow(36, digit)
-  value -= currentPlaceValue * intPow(36, digit)
-  if currentPlaceValue >= len(numberToChar) { return "", fmt.Errorf("Failed to generate usercode %d to string, currentPlaceValue %d and length of number to char %d", code, currentPlaceValue, len(numberToChar)) }
-  toReturn += string(numberToChar[currentPlaceValue])
- }
- return toReturn, nil;
-}
-
-func parseUserCode(s string) (userCode, error) {
- asRune := []rune(s)
- if len(asRune) != 4 { return 0, fmt.Errorf("String to deconvert is not of length 4: %s", s) }
- var toReturn userCode = 0
- for digit := 3; digit >= 0; digit-- {
-  curDigitNum := 0
-  found := false
-  for i, letter := range numberToChar {
-   if letter == asRune[digit] {
-    curDigitNum = i
-    found = true
-   }
+func cleanTimedOut() {
+ for k, v := range daypassTimedOut {
+  if currentTime() - v > 1 {
+   delete(daypassTimedOut, k)
   }
-  if !found { return 0, fmt.Errorf("Failed to find digit's number %s", s) }
-  toReturn += userCode(curDigitNum * intPow(36, digit))
  }
- return toReturn, nil
+ for k, v := range ipAddyTenFree {
+  if currentTime() - v > 24*60*60 {
+   delete(ipAddyTenFree, k)
+  }
+ }
 }
+
 
 func isUserOld(user User) bool {
  return (currentTime() - user.BoughtTime) > 24*60*60
@@ -110,7 +82,7 @@ func clearOld(db *gorm.DB) {
  if result.Error != nil {
   log.Fatal(result.Error)
  }
- var toDelete []userCode // codes
+ var toDelete []codes.UserCode // codes
  for _, user := range users {
   if user.BoughtType != 0 {
    panic("Don't know how to handle bought type " + string(user.BoughtType) + " yet")
@@ -174,11 +146,11 @@ func webhookResponse(w http.ResponseWriter, req *http.Request) {
   if !found {
    log.Println("Error Failed to find user in database to fulfill: very bad! ID: " + session.ID)
   } else {
-   userString, err := codeToString(toFulfill.Code)
+   userString, err := codes.CodeToString(toFulfill.Code)
    if err != nil {
     log.Printf("Error strange thing, saved user's code was unable to be converted to a string %s", err)
    }
-   log.Printf("Fulfilling user with code %s\n", userString)
+   log.Printf("Fulfilling user with code %s number %d\n", userString, toFulfill.Code)
    toFulfill.IsFulfilled = true
    db.Save(&toFulfill)
   }
@@ -194,16 +166,16 @@ func checkout(w http.ResponseWriter, req *http.Request) {
 
  // generate a code
  var newCode string
- var newCodeUser userCode
+ var newCodeUser codes.UserCode
  found := false
  for i := 0; i < 1000; i++ {
   codeInt := rand.Intn(MaxCodes)
-  newCodeUser = userCode(codeInt)
+  newCodeUser = codes.UserCode(codeInt)
   var tmp User
   r := db.Where("Code = ?", newCodeUser).Limit(1).Find(&tmp)
   if r.RowsAffected == 0{
    var err error
-   newCode, err = codeToString(newCodeUser)
+   newCode, err = codes.CodeToString(newCodeUser)
    if err != nil {
     w.WriteHeader(http.StatusInternalServerError)
     log.Fatalf("Failed to generate code from random number: %s", err)
@@ -219,6 +191,7 @@ func checkout(w http.ResponseWriter, req *http.Request) {
   return
  }
 
+ customMessage := fmt.Sprintf("**IMPORTANT** Your Day Pass Code is %s", newCode)
  params := &stripe.CheckoutSessionParams {
   LineItems: []*stripe.CheckoutSessionLineItemParams {
    &stripe.CheckoutSessionLineItemParams{
@@ -229,6 +202,7 @@ func checkout(w http.ResponseWriter, req *http.Request) {
   Mode: stripe.String(string(stripe.CheckoutSessionModePayment)),
   SuccessURL: stripe.String(checkoutRedirectTo),
   CancelURL: stripe.String(checkoutRedirectTo),
+  CustomText: &stripe.CheckoutSessionCustomTextParams{ Submit: &stripe.CheckoutSessionCustomTextSubmitParams { Message: &customMessage } },
  }
 
  s, err := session.New(params)
@@ -237,7 +211,7 @@ func checkout(w http.ResponseWriter, req *http.Request) {
   log.Printf("session.New: %v", err)
  }
 
- log.Printf("Creating user with checkout session ID %s\n", s.ID)
+ log.Printf("Creating user code %s with checkout session ID %s\n", newCode, newCodeUser ,s.ID)
  result := db.Create(&User {
   Code: newCodeUser,
   BoughtTime: currentTime(),
@@ -275,19 +249,33 @@ func index(w http.ResponseWriter, req *http.Request) {
 
   // see if need to pay
   rejected := false
+  cleanTimedOut()
   {
    if len(userToken) != 4 {
-    log.Println("Rejected because not 4: `" + userToken + "`") 
-    rejected = true
+    // where I do the IP rate limiting
+
+    userKey := req.RemoteAddr
+    createdTime, ok := ipAddyTenFree[userKey]
+    if !ok {
+     ipAddyTenFree[userKey] = currentTime()
+     rejected = false
+    } else {
+     if currentTime() - createdTime < 10*60 {
+      rejected = false
+     } else {
+      rejected = true // out of free time buddy
+     }
+    }
    } else {
     var thisUser User
-    thisUserCode, err  := parseUserCode(userToken)
+    thisUserCode, err := codes.ParseUserCode(userToken)
     if err != nil {
      log.Printf("Error: Failed to parse user token %s\n", userToken)
      rejected = true
     } else {
-     if db.First(&thisUser, thisUserCode).Error != nil {
-      log.Printf("User code %d string %s couldn't be found in the database: %s\n", thisUserCode, userToken, db.Error)
+     err := db.First(&thisUser, thisUserCode).Error 
+     if err != nil {
+      log.Printf("User code %d string %s couldn't be found in the database: %s\n", thisUserCode, userToken, err)
       rejected = true
      } else {
       if isUserOld(thisUser) {
@@ -295,7 +283,15 @@ func index(w http.ResponseWriter, req *http.Request) {
        db.Delete(&thisUser)
        rejected = true
       } else {
-       rejected = false
+       // now have valid user, in the database, to be rate limit checked
+       // rate limiting based on user token
+       _, exists := daypassTimedOut[thisUserCode]
+       if exists {
+        rejected = true
+       } else {
+        rejected = false
+        daypassTimedOut[thisUserCode] = currentTime()
+       }
       }
      }
     }
@@ -381,7 +377,7 @@ func main() {
  http.HandleFunc("/checkout", checkout)
 
  portString := ":8090"
- log.Println("Serving on " + portString + "...")
+ log.Println("DO NOT RUN WITH CLOUDFLARE PROXY it rate limits based on IP, if behind proxy every IP will be the same. Would need to fix req.RemoteAddr. Serving on " + portString + "...")
  http.ListenAndServe(portString, nil)
 }
 

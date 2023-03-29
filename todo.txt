@@ -1,5 +1,6 @@
 Happening by END OF STREAM:
  - Payment working
+ - Respond to cancel with stripe, redirect to ?cancelled=true that clears day pass ticket cookie and ui value
  - Fixed timesep the gameplay (which means separate player rendering)
  - Make action between stars much more technical sounding so AI doesn't hallucinate responses
  - Help you fight and fight you actions

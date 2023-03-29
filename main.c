@@ -1,3 +1,6 @@
+// you will die someday
+#define CURRENT_VERSION 3 // wehenver you change Entity increment this boz
+
 #define SOKOL_IMPL
 #if defined(WIN32) || defined(_WIN32)
 #define DESKTOP
@@ -188,14 +191,14 @@ typedef struct Entity
  bool destroy;
  int generation;
 
- // fields for all entities
+ // fields for all gs.entities
  Vec2 pos;
  Vec2 vel; // only used sometimes, like in old man and bullet
  float damage; // at 1.0, dead! zero initialized
  bool facing_left;
  double dead_time;
  bool dead;
- // multiple entities have a sword swing
+ // multiple gs.entities have a sword swing
  BUFF(EntityRef, 8) done_damage_to_this_swing; // only do damage once, but hitbox stays around
 
  bool is_bullet;
@@ -259,7 +262,7 @@ typedef BUFF(Overlap, 16) Overlapping;
 typedef struct Level
 {
  TileInstance tiles[LAYERS][LEVEL_TILES][LEVEL_TILES];
- Entity initial_entities[MAX_ENTITIES]; // shouldn't be directly modified, only used to initialize entities on loading of level
+ Entity initial_entities[MAX_ENTITIES]; // shouldn't be directly modified, only used to initialize gs.entities on loading of level
 } Level;
 
 typedef struct TileCoord
@@ -351,14 +354,15 @@ void play_audio(AudioSample *sample)
 // on web it disables event handling so the button up event isn't received
 bool keydown[SAPP_KEYCODE_MENU] = {0};
 
+
+bool in_dialog()
+{
+ return player->state == CHARACTER_TALKING;
+}
+
 #ifdef DESKTOP
 bool receiving_text_input = false;
 Sentence text_input_buffer = {0};
-void begin_text_input()
-{
- receiving_text_input = true;
- BUFF_CLEAR(&text_input_buffer);
-}
 #else
 #ifdef WEB
 EMSCRIPTEN_KEEPALIVE
@@ -370,12 +374,8 @@ void stop_controlling_input()
 EMSCRIPTEN_KEEPALIVE
 void start_controlling_input()
 {
- _sapp_emsc_register_eventhandlers();
-}
-void begin_text_input()
-{
  memset(keydown, 0, ARRLEN(keydown));
- emscripten_run_script("start_dialog();");
+ _sapp_emsc_register_eventhandlers();
 }
 #else
 #error "No platform defined for text input!
@@ -730,23 +730,27 @@ void add_new_npc_sentence(Entity *npc, char *sentence)
 }
 
 AABB level_aabb = { .upper_left = {0.0f, 0.0f}, .lower_right = {TILE_SIZE * LEVEL_TILES, -(TILE_SIZE * LEVEL_TILES)} };
-Entity entities[MAX_ENTITIES] = {0};
+typedef struct GameState {
+ int version;
+ Entity entities[MAX_ENTITIES];
+} GameState;
+GameState gs = {0};
 
 EntityRef frome(Entity *e)
 {
  EntityRef to_return = {
-  .index = (int)(e - entities),
+  .index = (int)(e - gs.entities),
   .generation = e->generation,
  };
  assert(to_return.index >= 0);
- assert(to_return.index < ARRLEN(entities));
+ assert(to_return.index < ARRLEN(gs.entities));
  return to_return;
 }
 
 Entity *gete(EntityRef ref)
 {
  if(ref.generation == 0) return 0;
- Entity *to_return = &entities[ref.index];
+ Entity *to_return = &gs.entities[ref.index];
  if(!to_return->exists || to_return->generation != ref.generation)
  {
   return 0;
@@ -764,11 +768,11 @@ bool eq(EntityRef ref1, EntityRef ref2)
 
 Entity *new_entity()
 {
- for(int i = 0; i < ARRLEN(entities); i++)
+ for(int i = 0; i < ARRLEN(gs.entities); i++)
  {
-  if(!entities[i].exists)
+  if(!gs.entities[i].exists)
   {
-   Entity *to_return = &entities[i];
+   Entity *to_return = &gs.entities[i];
    int gen = to_return->generation;
    *to_return = (Entity){0};
    to_return->exists = true;
@@ -780,7 +784,62 @@ Entity *new_entity()
  return NULL;
 }
 
-void begin_text_input(); // called when player engages in dialog, must say something and fill text_input_buffer
+void update_player_from_entities()
+{
+ player = 0;
+ ENTITIES_ITER(gs.entities)
+ {
+  if(it->is_character)
+  {
+   assert(player == 0);
+   player = it;
+  }
+ }
+ assert(player != 0);
+}
+
+void reset_level()
+{
+ // load level
+ Level *to_load = &level_level0;
+ {
+  assert(ARRLEN(to_load->initial_entities) == ARRLEN(gs.entities));
+  memcpy(gs.entities, to_load->initial_entities, sizeof(Entity) * MAX_ENTITIES);
+  gs.version = CURRENT_VERSION;
+  ENTITIES_ITER(gs.entities)
+  {
+   if(it->generation == 0) it->generation = 1; // zero value generation means doesn't exist
+  }
+ }
+ update_player_from_entities();
+}
+
+
+#ifdef WEB
+EMSCRIPTEN_KEEPALIVE
+void dump_save_data()
+{
+ EM_ASM({
+   save_game_data = new Int8Array(Module.HEAP8.buffer, $0, $1);
+ }, (char*)(&gs), sizeof(gs));
+}
+EMSCRIPTEN_KEEPALIVE
+void read_from_save_data(char *data, size_t length)
+{
+ GameState read_data = {0};
+ memcpy((char*)(&read_data), data, length);
+ if(read_data.version != CURRENT_VERSION)
+ {
+  Log("Bad gamestate, has version %d expected version %d\n", read_data.version, CURRENT_VERSION);
+ }
+ else
+ {
+  gs = read_data;
+  update_player_from_entities();
+ }
+}
+#endif
+
 // a callback, when 'text backend' has finished making text. End dialog
 void end_text_input(char *what_player_said)
 {
@@ -1086,27 +1145,7 @@ static struct
  sg_bindings bind;
 } state;
 
-void reset_level()
-{
- // load level
- Level *to_load = &level_level0;
- {
-  assert(ARRLEN(to_load->initial_entities) == ARRLEN(entities));
-  memcpy(entities, to_load->initial_entities, sizeof(Entity) * MAX_ENTITIES);
 
-  player = NULL;
-  ENTITIES_ITER(entities)
-  {
-   if(it->generation == 0) it->generation = 1; // zero value generation means doesn't exist
-   if(it->is_character)
-   {
-    assert(player == NULL);
-    player = it;
-   }
-  }
-  assert(player != NULL); // level initial config must have player entity
- }
-}
 
 void audio_stream_callback(float *buffer, int num_frames, int num_channels)
 {
@@ -1178,7 +1217,7 @@ void init(void)
  }, SERVER_URL);
 #endif
  Log("Size of entity struct: %zu\n", sizeof(Entity));
- Log("Size of %d entities: %zu kb\n", (int)ARRLEN(entities), sizeof(entities)/1024);
+ Log("Size of %d gs.entities: %zu kb\n", (int)ARRLEN(gs.entities), sizeof(gs.entities)/1024);
  sg_setup(&(sg_desc){
    .context = sapp_sgcontext(),
  });
@@ -1192,6 +1231,12 @@ void init(void)
 
  load_assets();
  reset_level();
+
+#ifdef WEB
+ EM_ASM({
+   load_all();
+ });
+#endif
 
  // load font
  {
@@ -2054,7 +2099,7 @@ void draw_animated_sprite(AnimatedSprite *s, double elapsed_time, bool flipped, 
  draw_quad((DrawParams){true, q, spritesheet_img, region, tint, .y_coord_sorting = y_sort_pos, .alpha_clip_threshold = 0.2f});
 }
 
-// gets aabbs overlapping the input aabb, including entities and tiles
+// gets aabbs overlapping the input aabb, including gs.entities and tiles
 Overlapping get_overlapping(Level *l, AABB aabb)
 {
  Overlapping to_return = {0};
@@ -2072,8 +2117,8 @@ Overlapping get_overlapping(Level *l, AABB aabb)
   }
  }
 
- // the entities jessie
- ENTITIES_ITER(entities)
+ // the gs.entities jessie
+ ENTITIES_ITER(gs.entities)
  {
   if(!(it->is_character && it->is_rolling) && overlapping(aabb, entity_aabb(it)))
   {
@@ -2138,7 +2183,7 @@ Vec2 move_and_slide(MoveSlideParams p)
  // add entity boxes
  if(!p.dont_collide_with_entities && !(p.from->is_character && p.from->is_rolling))
  {
-  ENTITIES_ITER(entities)
+  ENTITIES_ITER(gs.entities)
   {
    if(!(it->is_character && it->is_rolling) && it != p.from && !(it->is_npc && it->dead) && !it->is_item)
    {
@@ -2385,15 +2430,24 @@ void frame(void)
   return;
 #endif
 
+#ifdef DESKTOP
+  if(!receiving_text_input && in_dialog())
+  {
+   receiving_text_input = true;
+   BUFF_CLEAR(&text_input_buffer);
+  }
+#endif
+
   // better for vertical aspect ratios
   if(screen_size().x < 0.7f*screen_size().y)
   {
-   cam.scale = 3.5f;
+   cam.scale = 2.5f;
   }
   else
   {
    cam.scale = 2.0f;
   }
+
 
   uint64_t time_start_frame = stm_now();
   // elapsed_time
@@ -2539,7 +2593,7 @@ void frame(void)
   {
    Vec2 pos = V2(0.0, screen_size().Y);
    int num_entities = 0;
-   ENTITIES_ITER(entities) num_entities++;
+   ENTITIES_ITER(gs.entities) num_entities++;
    char *stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nEntities: %d\nDraw calls: %d\nProfiling: %s\n", dt*1000.0, last_frame_processing_time*1000.0, num_entities, num_draw_calls, profiling ? "yes" : "no");
    AABB bounds = draw_text((TextParams){false, true, stats, pos, BLACK, 1.0f});
    pos.Y -= bounds.upper_left.Y - screen_size().Y;
@@ -2551,9 +2605,9 @@ void frame(void)
   }
 #endif // devtools
 
-  // process entities
+  // process gs.entities
   PROFILE_SCOPE("entity processing")
-  ENTITIES_ITER(entities)
+  ENTITIES_ITER(gs.entities)
   {
    assert(!(it->exists && it->generation == 0));
 #ifdef WEB
@@ -2812,9 +2866,9 @@ void frame(void)
    }
   }
 
-  PROFILE_SCOPE("Destroy entities")
+  PROFILE_SCOPE("Destroy gs.entities")
   {
-   ENTITIES_ITER(entities)
+   ENTITIES_ITER(gs.entities)
    {
     if(it->destroy)
     {
@@ -2902,7 +2956,6 @@ void frame(void)
      // begin dialog with closest npc
      player->state = CHARACTER_TALKING;
      player->talking_to = frome(closest_interact_with);
-     begin_text_input();
     }
     else if(closest_interact_with->is_item)
     {
@@ -3056,9 +3109,9 @@ void frame(void)
    }
   }
 
-  // render entities
+  // render gs.entities
   PROFILE_SCOPE("entity rendering")
-  ENTITIES_ITER(entities)
+  ENTITIES_ITER(gs.entities)
   {
 #ifdef WEB
    if(it->gen_request_id != 0)

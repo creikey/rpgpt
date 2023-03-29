@@ -156,7 +156,7 @@ body {
 <body style="background:black">
  <div id="buy_menu">
   <h1>AI is expensive so you need to pay for it</h1>
-  <p>You can play for free 10 minutes per day</p>
+  <p>You can play free 10 minutes a day. If you're seeing this you must buy a day pass to continue. If you already bought one, but are still seeing this, check that the code matches up. If you're unsatisfied with your service, you can get a refund via the email stripe sent you.</p>
   <div id="daypass">
    <button id="closebutton" onclick="closepayment()"><i class="fa-regular fa-xmark"></i></button>
    <p>24 Hour Pass</p>
@@ -202,54 +202,121 @@ body {
     };
   </script>
   <script type="text/javascript">
-   let game_doing_input = true;
-   let server_url = "";
-   let my_code = "";
-   let code_visible = false;
-   let input_modal = document.getElementById("inputdiv");
-   let pause_modal = document.getElementById("buy_menu");
 
-   function visibility_toggle() {
-    if(code_visible) {
-     code_visible = false;
-     document.getElementById("codeinput").type = "password";
-     document.getElementById("visibility-toggle-eye").className = "fa fa-eye-slash";
-    } else {
-     code_visible = true;
-     document.getElementById("codeinput").type = "text";
-     document.getElementById("visibility-toggle-eye").className = "fa fa-eye";
-    }
+let game_doing_input = true;
+let server_url = "";
+let codeinput = document.getElementById("codeinput");
+function set_my_code(new_code) {
+ let final_codeinput_string = "";
+ for(let i = 0; i < new_code.length; i++) {
+  let cur = new_code[i];
+  let cur_charcode = cur.charCodeAt(0);
+  if(cur_charcode >= "a".charCodeAt(0) && cur_charcode <= "z".charCodeAt(0)) {
+   final_codeinput_string += String.fromCharCode(cur_charcode + ("A".charCodeAt(0) - "a".charCodeAt(0)));
+  } else {
+   if((cur_charcode >= "A".charCodeAt(0) && cur_charcode <= "Z".charCodeAt(0)) || (cur_charcode >= "0".charCodeAt(0) && cur_charcode <= "9".charCodeAt(0))) {
+    final_codeinput_string += cur;
    }
-
-   function frame(delta) {
-    let input_visible = input_modal.style.display === "flex";
-    let pause_visible = pause_modal.style.display === "flex";
-
-    if( (input_visible || pause_visible) && game_doing_input)
-    {
-     Module.ccall('stop_controlling_input', 'void', [], []);
-     game_doing_input = false;
-    }
-    if( !input_visible && !pause_visible && !game_doing_input)
-    {
-     Module.ccall('start_controlling_input', 'void', [], []);
-     game_doing_input = true;
-    }
-    
-    window.requestAnimationFrame(frame);
-   }
-  Module.onRuntimeInitialized = () => {
-   window.requestAnimationFrame(frame);
   }
+ }
+ codeinput.value = final_codeinput_string;
+}
+function get_my_code() {
+ return codeinput.value;
+}
+let code_visible = false;
+let input_modal = document.getElementById("inputdiv");
+let pause_modal = document.getElementById("buy_menu");
+let save_game_data = null;
 
-      function start_dialog() {
-          document.getElementById("inputtext").value = "";
-          setTimeout(function(){document.getElementById("inputtext").focus();},50); // for some reason focus doesn't work immediately here
-          document.getElementById("inputdiv").style.display = "flex";
-      }
+function visibility_toggle() {
+ if(code_visible) {
+  code_visible = false;
+  document.getElementById("codeinput").type = "password";
+  document.getElementById("visibility-toggle-eye").className = "fa fa-eye-slash";
+ } else {
+  code_visible = true;
+  document.getElementById("codeinput").type = "text";
+  document.getElementById("visibility-toggle-eye").className = "fa fa-eye";
+ }
+}
+
+function frame(delta) {
+ let input_visible = input_modal.style.display === "flex";
+ let pause_visible = pause_modal.style.display === "flex";
+
+ if( Module.ccall('in_dialog', 'bool', [], [])) {
+  if(!input_visible) {
+   document.getElementById("inputtext").value = "";
+   setTimeout(function(){document.getElementById("inputtext").focus();},50); // for some reason focus doesn't work immediately here
+   document.getElementById("inputdiv").style.display = "flex";
+  }
+ }
+
+ if( (input_visible || pause_visible) && game_doing_input)
+ {
+  Module.ccall('stop_controlling_input', 'void', [], []);
+  game_doing_input = false;
+ }
+ if( !input_visible && !pause_visible && !game_doing_input)
+ {
+  Module.ccall('start_controlling_input', 'void', [], []);
+  game_doing_input = true;
+ }
+
+ window.requestAnimationFrame(frame);
+}
+Module.onRuntimeInitialized = () => {
+ window.requestAnimationFrame(frame);
+}
+
+const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+// Use a lookup table to find the index.
+const lookup = typeof Uint8Array === 'undefined' ? [] : new Uint8Array(256);
+for (let i = 0; i < chars.length; i++) {
+    lookup[chars.charCodeAt(i)] = i;
+}
+const encode = (arraybuffer) => {
+    let bytes = new Uint8Array(arraybuffer), i, len = bytes.length, base64 = '';
+    for (i = 0; i < len; i += 3) {
+        base64 += chars[bytes[i] >> 2];
+        base64 += chars[((bytes[i] & 3) << 4) | (bytes[i + 1] >> 4)];
+        base64 += chars[((bytes[i + 1] & 15) << 2) | (bytes[i + 2] >> 6)];
+        base64 += chars[bytes[i + 2] & 63];
+    }
+    if (len % 3 === 2) {
+        base64 = base64.substring(0, base64.length - 1) + '=';
+    }
+    else if (len % 3 === 1) {
+        base64 = base64.substring(0, base64.length - 2) + '==';
+    }
+    return base64;
+};
+const decode = (base64) => {
+    let bufferLength = base64.length * 0.75, len = base64.length, i, p = 0, encoded1, encoded2, encoded3, encoded4;
+    if (base64[base64.length - 1] === '=') {
+        bufferLength--;
+        if (base64[base64.length - 2] === '=') {
+            bufferLength--;
+        }
+    }
+    const arraybuffer = new ArrayBuffer(bufferLength), bytes = new Uint8Array(arraybuffer);
+    for (i = 0; i < len; i += 4) {
+        encoded1 = lookup[base64.charCodeAt(i)];
+        encoded2 = lookup[base64.charCodeAt(i + 1)];
+        encoded3 = lookup[base64.charCodeAt(i + 2)];
+        encoded4 = lookup[base64.charCodeAt(i + 3)];
+        bytes[p++] = (encoded1 << 2) | (encoded2 >> 4);
+        bytes[p++] = ((encoded2 & 15) << 4) | (encoded3 >> 2);
+        bytes[p++] = ((encoded3 & 3) << 6) | (encoded4 & 63);
+    }
+    return arraybuffer;
+};
+
+
 function end_dialog() {
-    document.getElementById("inputdiv").style.display = "none";
-    Module.ccall('end_text_input', 'void', ['string'], [document.getElementById("inputtext").value]);
+ document.getElementById("inputdiv").style.display = "none";
+ Module.ccall('end_text_input', 'void', ['string'], [document.getElementById("inputtext").value]);
 }
 
 function show_paywall() {
@@ -261,21 +328,29 @@ function hide_paywall() {
 }
 
 function on_codeinput_key(event) {
- let final_codeinput_string = "";
- let codeinput = document.getElementById("codeinput");
- for(let i = 0; i < codeinput.value.length; i++) {
-  let cur = codeinput.value[i];
-  let cur_charcode = cur.charCodeAt(0);
-  if(cur_charcode >= "a".charCodeAt(0) && cur_charcode <= "z".charCodeAt(0)) {
-   final_codeinput_string += String.fromCharCode(cur_charcode + ("A".charCodeAt(0) - "a".charCodeAt(0)));
-  } else {
-   if((cur_charcode >= "A".charCodeAt(0) && cur_charcode <= "Z".charCodeAt(0)) || (cur_charcode >= "0".charCodeAt(0) && cur_charcode <= "9".charCodeAt(0))) {
-    final_codeinput_string += cur;
-   }
+ set_my_code(get_my_code());
+}
+
+function save_all() {
+ document.cookie = get_my_code();
+ if (typeof(Storage) !== "undefined") {
+  console.log("Saving full game");
+  Module.ccall('dump_save_data', 'void', [], []);
+  localStorage.setItem("game", encode(save_game_data));
+ }
+}
+
+function load_all() {
+ set_my_code(document.cookie);
+ if (typeof(Storage) !== "undefined") {
+  console.log("Attempting read of full game...");
+  let read_data = localStorage.getItem("game");
+  if (read_data != null) {
+   console.log("Reading full game");
+   let decoded = decode(read_data);
+   Module.ccall('read_from_save_data', 'void', ['array', 'number'], [new Uint8Array(decoded), decoded.byteLength]);
   }
  }
- codeinput.value = final_codeinput_string;
- my_code = codeinput.value;
 }
 
 function on_textarea_key(event) {
@@ -317,11 +392,12 @@ function do_checkout() {
   split_up = text.split("|");
   if(split_up.length !== 2) {
    console.log("Weird response from server, length isn't 2");
+  } else {
+   set_my_code(split_up[0])
+   save_all();
+   let url_to_go_to = split_up[1];
+   window.location.href = url_to_go_to;
   }
-  my_code = split_up[0];
-  document.getElementById("codeinput").value = my_code;
-  let url_to_go_to = split_up[1];
-  window.location.href = url_to_go_to;
  }).catch((error) => {
    console.log("Error doing checkout: " + error);
  });
@@ -334,7 +410,7 @@ function resend_request(r) {
      r.failed = true;
     };
     r.request.open("POST", r.request_info.url, true);
-    r.request.send(my_code + "|" + r.request_info.body);
+    r.request.send(get_my_code() + "|" + r.request_info.body);
 }
 
 // server URL is decided in C
@@ -362,72 +438,72 @@ function make_generation_request(p, api) {
 // returns 0 if not done yet, 1 if succeeded, 2 if failed after too many retries (i.e server down, or no internet)
 // -1 if it doesn't exist
 function get_generation_request_status(id) {
-    for(let i = 0; i < generation_requests.length; i++) {
-        if(generation_requests[i].id == id) {
-            if(generation_requests[i].failed)
-            {
-            }
-            else
-            {
-             let http_status = generation_requests[i].request.status;
-             if(http_status == 200) {
-              if(generation_requests[i].request.responseText[0] === "0")
-              {
-               show_paywall();
-               return 2;
-              }
-              else if(generation_requests[i].request.responseText[0] === "1")
-              {
-               return 1; // done, everything ok
-              }
-              else
-              {
-               console.log("Unknown body code " + generation_requests[i].request.responseText);
-              }
-             }
-             else if(http_status == 0) { // not done yet
-              return 0;
-             }
-            }
-
-            { // errored
-                if(generation_requests[i].retries_remaining > 0) {
-                    console.log("Retrying request");
-                    generation_requests[i].retries_remaining -= 1;
-                    resend_request(generation_requests[i]);
-                    return 0;
-                } else {
-                    return 2; // too many retries, failed
-                }
-            }
-        }
+ for(let i = 0; i < generation_requests.length; i++) {
+  if(generation_requests[i].id == id) {
+   if(generation_requests[i].failed)
+   {
+   }
+   else
+   {
+    let http_status = generation_requests[i].request.status;
+    if(http_status == 200) {
+     if(generation_requests[i].request.responseText[0] === "0")
+     {
+      show_paywall();
+      return 2;
+     }
+     else if(generation_requests[i].request.responseText[0] === "1")
+     {
+      return 1; // done, everything ok
+     }
+     else
+     {
+      console.log("Unknown body code " + generation_requests[i].request.responseText);
+     }
     }
-    return -1;
+    else if(http_status == 0) { // not done yet
+     return 0;
+    }
+   }
+
+   { // errored
+    if(generation_requests[i].retries_remaining > 0) {
+     console.log("Retrying request");
+     generation_requests[i].retries_remaining -= 1;
+     resend_request(generation_requests[i]);
+     return 0;
+    } else {
+     return 2; // too many retries, failed
+    }
+   }
+  }
+ }
+ return -1;
 }
 
 function done_with_generation_request(id) {
-    console.log("Removing request with id " + id);
-    let new_generation_requests = [];
-    for(let i = 0; i < generation_requests.length; i++) {
-        if(generation_requests[i].id == id)
-        {
-        } else {
-            new_generation_requests.push(generation_requests[i])
-        }
-    }
-    generation_requests = new_generation_requests;
+ console.log("Removing request with id " + id);
+ let new_generation_requests = [];
+ for(let i = 0; i < generation_requests.length; i++) {
+  if(generation_requests[i].id == id)
+  {
+  } else {
+   new_generation_requests.push(generation_requests[i])
+  }
+ }
+ generation_requests = new_generation_requests;
 }
 
 // doesn't fill string if not done yet, or the id doesn't exist
 function get_generation_request_content(id) {
-    let to_return = "";
-    for(let i = 0; i < generation_requests.length; i++) {
-        if(generation_requests[i].id == id) {
-            to_return = generation_requests[i].request.responseText;
-            break;
-        }
-    }
-    return to_return.slice(1); // first character is a code that says if the request was successful or not
+ let to_return = "";
+ for(let i = 0; i < generation_requests.length; i++) {
+  if(generation_requests[i].id == id) {
+   to_return = generation_requests[i].request.responseText;
+   break;
+  }
+ }
+ return to_return.slice(1); // first character is a code that says if the request was successful or not
 }
   </script>
   {{{ SCRIPT }}}
