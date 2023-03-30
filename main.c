@@ -2492,7 +2492,7 @@ void frame(void)
   sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
   sg_apply_pipeline(state.pip);
 
-  Level * cur_level = &level_level0;
+  Level *cur_level = &level_level0;
 
   // tilemap drawing
 #if 1
