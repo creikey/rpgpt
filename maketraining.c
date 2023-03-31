@@ -15,6 +15,9 @@ typedef struct
 #define PlayerItemChange(new_item) { .type = PlayerHeldItemChanged, .holding = new_item, }
 
 TrainingSample samples[] = {
+ // Vim regexes to be ran in order to automatically convert debug print versions of conversations
+ // s/Player: \(.*\)/PlayerSay(\1),/g
+ // s/[A-Z_a-z ]*: ACT \([a-zA-Z_]*\) \(.*\)/NPCDoSay(ACT_\1, \2),
  {
   .npc_kind = NPC_OldMan,
   .perceptions = {
@@ -94,6 +97,31 @@ TrainingSample samples[] = {
    NPCSay("Have you heard of the high elves?"),
    PlayerSay("Yes"),
    NPCDoSay(ACT_heals_player, "No need for me to speak then."),
+  },
+ },
+ {
+  .npc_kind = NPC_OldMan,
+  .perceptions = {
+   PlayerSay("Join me"),
+   NPCDoSay(ACT_none, "I can"),
+   PlayerSay("Please"),
+   NPCDoSay(ACT_none, "Though I shouldn't"),
+   PlayerSay("Why not?"),
+   NPCDoSay(ACT_none, "Because then death would win"),
+   PlayerSay("Why would you joining me cause death to win?"),
+   NPCDoSay(ACT_none, "I don't know that I can make it, kid. I'm feeling old and weary."),
+   PlayerSay("So?"),
+   NPCDoSay(ACT_joins_player, "You know what...You're right. Let's kick Death's ass"),
+  },
+ },
+ {
+  .npc_kind = NPC_Blocky,
+  .perceptions = {
+   PlayerItemChange(ITEM_Tripod),
+   PlayerSay("Move"),
+   NPCDoSay(ACT_none, "I'm just standing here."),
+   PlayerSay("Move out of the way"),
+   NPCDoSay(ACT_allows_player_to_pass, "You have the tripod, so let you pass I shall"),
   },
  },
 };

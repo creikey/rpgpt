@@ -2340,6 +2340,40 @@ void frame(void)
          it->character_say_timer -= character_say_time;
         }
        }
+       if(it->standing == STANDING_FIGHTING || it->standing == STANDING_JOINED)
+       {
+        Entity *targeting = player;
+        Vec2 to_player = NormV2(SubV2(targeting->pos, it->pos));
+        Vec2 target_vel = NormV2(AddV2(rotate_counter_clockwise(to_player), MulV2F(to_player, 0.5f)));
+        target_vel = MulV2F(target_vel, 3.0f);
+        it->vel = LerpV2(it->vel, 15.0f * dt, target_vel);
+        it->pos = move_and_slide((MoveSlideParams){it, it->pos, MulV2F(it->vel, pixels_per_meter * dt)});
+
+        if(it->standing == STANDING_FIGHTING)
+        {
+         it->shotgun_timer += dt;
+         Vec2 to_player = NormV2(SubV2(targeting->pos, it->pos));
+         if(it->shotgun_timer >= 1.0f)
+         {
+          it->shotgun_timer = 0.0f;
+          const float spread = (float)PI/4.0f;
+          // shoot shotgun
+          int num_bullets = 5;
+          for(int i = 0; i < num_bullets; i++)
+          {
+           Vec2 dir = to_player;
+           float theta = Lerp(-spread/2.0f, ((float)i / (float)(num_bullets - 1)), spread/2.0f);
+           dir = RotateV2(dir, theta);
+           Entity *new_bullet = new_entity();
+           new_bullet->is_bullet = true;
+           new_bullet->pos = AddV2(it->pos, MulV2F(dir, 20.0f));
+           new_bullet->vel = MulV2F(dir, 15.0f);
+           it->vel = AddV2(it->vel, MulV2F(dir, -3.0f));
+          }
+         }
+
+        }
+       }
        if(it->npc_kind == NPC_OldMan)
        {
         /*

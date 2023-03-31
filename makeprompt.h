@@ -74,6 +74,13 @@ typedef enum CharacterState
  CHARACTER_TALKING,
 } CharacterState;
 
+typedef enum
+{
+ STANDING_INDIFFERENT,
+ STANDING_JOINED,
+ STANDING_FIGHTING,
+} NPCPlayerStanding;
+
 typedef struct Entity
 {
  bool exists;
@@ -107,6 +114,7 @@ typedef struct Entity
  BUFF(Perception, REMEMBERED_PERCEPTIONS) remembered_perceptions;
  double character_say_timer;
  int characters_said;
+ NPCPlayerStanding standing;
  NpcKind npc_kind;
  ItemKind last_seen_holding_kind;
 #ifdef WEB
@@ -151,7 +159,20 @@ void fill_available_actions(Entity *it, AvailableActions *a)
  }
  else
  {
-  BUFF_APPEND(a, ACT_fights_player);
+  if(it->standing == STANDING_INDIFFERENT)
+  {
+   BUFF_APPEND(a, ACT_fights_player);
+   BUFF_APPEND(a, ACT_joins_player);
+  }
+  else if(it->standing == STANDING_JOINED)
+  {
+   BUFF_APPEND(a, ACT_leaves_player);
+   BUFF_APPEND(a, ACT_fights_player);
+  }
+  else if(it->standing == STANDING_FIGHTING)
+  {
+   BUFF_APPEND(a, ACT_leaves_player);
+  }
   if(npc_is_knight_sprite(it))
   {
    BUFF_APPEND(a, ACT_strikes_air);
@@ -181,6 +202,18 @@ void process_perception(Entity *it, Perception p)
   {
    it->target_goto = AddV2(it->pos, V2(-50.0, 0.0));
    it->moved = true;
+  }
+  else if(p.npc_action_type == ACT_fights_player)
+  {
+   it->standing = STANDING_FIGHTING;
+  }
+  else if(p.npc_action_type == ACT_leaves_player)
+  {
+   it->standing = STANDING_INDIFFERENT;
+  }
+  else if(p.npc_action_type == ACT_joins_player)
+  {
+   it->standing = STANDING_JOINED;
   }
  }
 }

@@ -1,7 +1,7 @@
 Happening by END OF STREAM:
 DONE - Payment working
 DONE - Fixed timesep the gameplay (which means separate player rendering)
- - Maybe factor actions! into the game to replace ** stuff. In beginning of each line before quotes, have ACT@fights_player, or other actions, and by default ACT@nothing to force AI to say something about what action is performed
+DONE - Maybe factor actions! into the game to replace ** stuff. In beginning of each line before quotes, have ACT@fights_player, or other actions, and by default ACT@nothing to force AI to say something about what action is performed
  - Help you fight and fight you actions
  - New characters/items from fate
  - New art in
