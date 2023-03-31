@@ -308,14 +308,14 @@ func index(w http.ResponseWriter, req *http.Request) {
 
   ctx := context.Background()
   req := gogpt.CompletionRequest {
-   Model:     "curie:ft-personal-2023-03-24-03-06-24",
+   Model:     "curie:ft-alnar-games-2023-03-31-02-21-14",
    MaxTokens: 80,
    Prompt:    promptString,
    Temperature: 0.9,
    FrequencyPenalty: 0.0,
    PresencePenalty: 0.6,
    TopP: 1.0,
-   Stop: []string{"\""},
+   Stop: []string{"\n"},
    N: 1,
   }
   resp, err := c.CreateCompletion(ctx, req)
@@ -326,7 +326,8 @@ func index(w http.ResponseWriter, req *http.Request) {
   }
   response := resp.Choices[0].Text
   if logResponses {
-   log.Println("Println response: ", response)
+   log.Println("Println response: `", response + "`")
+   log.Println()
   }
   fmt.Fprintf(w, "1%s", response)
  }

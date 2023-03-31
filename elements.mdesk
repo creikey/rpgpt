@@ -1,16 +1,34 @@
-@global_prompt "This is a conversation between a player and an NPC in a game, where the NPC performs actions by saying one of [%.*s]. The NPC doesn't say anything in stars that isn't in that list between [ and ]. The player is wearing a full suit of knight armor. The general, Death, is leading some troops on a crusade they have mixed opinions about. Nobody is racist."
+@global_prompt "This is a conversation between a player and an NPC in a video game. The player is wearing a full suit of knight armor. The general, Death, is leading some troops on a crusade they have mixed opinions about. Nobody is racist."
+
+actions:
+{
+ none,
+
+ // mostly player actions
+ walks_up,
+ hits_npc,
+ leaves,
+
+ // mostly npc actions
+ allows_player_to_pass,
+ gives_tripod,
+ heals_player,
+ fights_player,
+ strikes_air,
+ joins_player,
+ leaves_player,
+}
 
 @character OldMan:
 {
  name: "Fredrick the Wise",
- prompt: "Fredrick, an old man, has lived around these parts for decades. He's wise in the art of life, and knows what's going on in the game: general death is in town, in the wrong, and must be stopped."
- actions_str: "",
+ prompt: "Fredrick is the NPC. An old man, he's lived around these parts for decades. He's wise in the art of life, and knows what's going on in the game: general death is in town, in the wrong, and must be stopped."
 }
 
 @character Blocky:
 {
  name: "Block",
- prompt: "Block wants to block the player from going to the secret artifact. He has no idea how long he's been alive for, his entire existence is just standing there doing nothing. He'll let the player pass if they bring him Tripod, as he's fascinated by it.",
+ prompt: "Block is the NPC. He wants to block the player from going to the secret artifact. He has no idea how long he's been alive for, his entire existence is just standing there doing nothing. He'll let the player pass if they bring him Tripod, as he's fascinated by it.",
  actions_str: "ACT@[ALLOW_PASS]",
 }
 
@@ -18,14 +36,12 @@
 {
  name: "Hunter the Soldier",
  prompt: "Hunter, the NPC, is a nervous guy who trusts authority more than himself. He doesn't believe in the white square's powers.",
- actions_str: "",
 }
 
 @character GodRock:
 {
  name: "God",
- prompt: "God, in a rock.",
- actions_str: "",
+ prompt: "The NPC is God. God, in a rock.",
 }
 
 @character Max:
@@ -51,14 +67,14 @@
 
 @item WhiteSquare:
 {
- global_prompt_message: "The player has a mysterious white square. It is unknown what strange and erotic abilities one has when they possess the square.",
+ global_prompt_message: "The player is holding a mysterious white square. It is unknown what strange and erotic abilities one has when they possess the square.",
  possess_message: "The player is now holding the white square",
  discard_message: "The player is no longer holding the white square.",
 }
 
 @item Tripod:
 {
- global_prompt_message: "The player has a tripod used for holding things up. It's got an odd construction, but Block really likes it for some reason.",
+ global_prompt_message: "The player is holding a tripod used for holding things up. It's got an odd construction, but Block really likes it for some reason.",
  possess_message: "The player is now holding the tripod",
  discard_message: "The player is no longer holding the tripod.",
 }
@@ -68,6 +84,7 @@
  with: OldMan,
  data:
  {
+  @available_actions "fights_player, joins_player",
   @player "What's up",
   @npc    "Young warrior! You must stop Death, there isn't much time.",
   @player "Why?",

@@ -19,7 +19,7 @@
 MD_String8 OUTPUT_FOLDER = MD_S8LitComp("gen"); // no trailing slash
 MD_String8 ASSETS_FOLDER = MD_S8LitComp("assets");
 
-#define log(...) { printf("Codegen: "); printf(__VA_ARGS__); }
+#define Log(...) { printf("Codegen: "); printf(__VA_ARGS__); }
 
 void dump(MD_Node* from) {
  printf("/ %.*s\n", MD_S8VArg(from->string));
@@ -96,6 +96,7 @@ char* fillnull(char *s, char c) {
 }
 
 #define StrSame(s1, s2) MD_S8Match((s1), (s2), 0)
+#define EachString(it, first) MD_String8Node *it = (first); it != 0; it = it->next
 
 typedef BUFF(MD_Node*, 256) Nodes;
 MD_Node* find_by_name(Nodes *n, MD_String8 name)
@@ -127,6 +128,7 @@ char* goto_end_of(char *tomove, size_t max_move, char *pattern) {
 
 #define list_printf(list_ptr, ...) MD_S8ListPush(cg_arena, list_ptr, MD_S8Fmt(cg_arena, __VA_ARGS__))
 #define S8(s) MD_S8Lit(s)
+#define S8V(s) MD_S8VArg(s)
 
 void dump_full(MD_Node* from)
 {
@@ -145,7 +147,7 @@ int main(int argc, char **argv) {
  cg_arena = MD_ArenaAlloc();
  assert_cond(cg_arena, MD_S8Lit("Memory"));
 
- MD_ParseResult training_parse = MD_ParseWholeFile(cg_arena, MD_S8Lit("training.mdesk"));
+ MD_ParseResult training_parse = MD_ParseWholeFile(cg_arena, MD_S8Lit("elements.mdesk"));
  MD_String8 global_prompt = {0};
  dump_full(training_parse.node->first_child);
  for(MD_EachNode(node, training_parse.node->first_child))
@@ -155,9 +157,20 @@ int main(int argc, char **argv) {
    global_prompt = node->string;
   }
  }
- MD_String8 training_writeto = MD_S8Fmt(cg_arena, "%.*s/training_data.jsonl\0", MD_S8VArg(OUTPUT_FOLDER));
- FILE *train = fopen(training_writeto.str, "w");
- assert(train);
+ 
+ MD_String8List action_strings = {0};
+ for(MD_EachNode(node, training_parse.node->first_child))
+ {
+  if(StrSame(node->string, S8("actions")))
+  {
+   for(MD_EachNode(act_node, node->first_child))
+   {
+    Log("Adding node %.*s\n", S8V(act_node->string));
+    MD_S8ListPush(cg_arena, &action_strings, act_node->string);
+   }
+  }
+ }
+
 
  Nodes characters = {0};
  for(MD_EachNode(node, training_parse.node->first_child))
@@ -176,89 +189,15 @@ int main(int argc, char **argv) {
    BUFF_APPEND(&items, node);
   }
  }
- 
- for(MD_EachNode(node, training_parse.node->first_child))
- {
-  if(MD_S8Match(node->first_tag->string, MD_S8Lit("training"), 0))
-  {
-   MD_Node *node_with = find_by_name(&characters, ChildValue(node, S8("with")));
-
-   int upto_npc_line = 0;
-   int cur_npc_line = 0;
-   MD_Node *cur_sentence = MD_ChildFromString(node, S8("data"), 0)->first_child;
-   MD_Node *has_item = 0;
-   MD_String8List conversation = {0};
-   while(!MD_NodeIsNil(cur_sentence))
-   {
-    assert(!MD_NodeIsNil(cur_sentence));
-    bool is_player = MD_NodeHasTag(cur_sentence, S8("player"), 0);
-    bool is_npc = MD_NodeHasTag(cur_sentence, S8("npc"), 0);
-    bool is_item_possess = MD_NodeHasTag(cur_sentence, S8("item_possess"), 0);
-    assert(!MD_NodeHasTag(cur_sentence, S8("item_posess"), 0));
-    bool is_item_discard = MD_NodeHasTag(cur_sentence, S8("item_discard"), 0);
-    if(is_player)
-    {
-     list_printf(&conversation, "Player: \\\"%.*s\\\"\\n", MD_S8VArg(cur_sentence->string));
-    }
-    if(is_item_possess)
-    {
-     MD_Node *item = find_by_name(&items, cur_sentence->string);
-     assert(item);
-     has_item = item;
-     list_printf(&conversation, "%.*s\\n", MD_S8VArg(ChildValue(item, S8("possess_message"))));
-    }
-    if(is_item_discard)
-    {
-     MD_Node *item = find_by_name(&items, cur_sentence->string);
-     assert(item);
-     has_item = 0;
-     list_printf(&conversation, "%.*s\\n", MD_S8VArg(ChildValue(item, S8("discard_message"))));
-    }
-    bool restarting = false;
-    if(is_npc)
-    {
-     list_printf(&conversation, "%.*s: \\\"", MD_S8VArg(ChildValue(node_with, S8("name"))));
-     if(upto_npc_line == cur_npc_line)
-     {
-      MD_String8 completion = cur_sentence->string;
-      fprintf(train, "{\"prompt\": \"");
-      fprintf(train, nullterm(global_prompt), MD_S8VArg(ChildValue(node_with, S8("actions_str"))));
-      fprintf(train, "\\n");
-      if(has_item) fprintf(train, "%.*s\\n", MD_S8VArg(ChildValue(has_item, S8("global_prompt_message"))));
-      fprintf(train, "%.*s\\n", MD_S8VArg(ChildValue(node_with, S8("prompt"))));
-
-      //MD_StringJoin join = (MD_StringJoin){.mid = S8("\\n")};
-      MD_StringJoin join = (MD_StringJoin){0};
-      MD_String8 conversation_string = MD_S8ListJoin(cg_arena, conversation, &join);
-      fprintf(train, "%.*s\", \"completion\": \"%.*s\\\"\"}\n", MD_S8VArg(conversation_string), MD_S8VArg(completion));
-
-      upto_npc_line += 1;
-      cur_npc_line = 0;
-      cur_sentence = MD_ChildFromString(node, S8("data"), 0)->first_child;
-      conversation = (MD_String8List){0};
-      restarting = true;
-     }
-     else
-     {
-      list_printf(&conversation, "%.*s\\\"\\n", MD_S8VArg(cur_sentence->string));
-      cur_npc_line += 1;
-     }
-    }
-    if(!restarting) cur_sentence = cur_sentence->next;
-   }
-  }
- }
-
  BUFF_ITER(MD_Node*, &characters)
  {
-  printf("Character %.*s\n", MD_S8VArg((*it)->string));
+  Log("Character %.*s\n", MD_S8VArg((*it)->string));
  }
 
 
- // I hope to God MD_String8's are null terminated...
  MD_String8 writeto = MD_S8Fmt(cg_arena, "%.*s/assets.gen.c", MD_S8VArg(OUTPUT_FOLDER));
- log("Writing to %.*s\n", MD_S8VArg(writeto));
- FILE *output = fopen(writeto.str, "w");
+ Log("Writing to %.*s\n", MD_S8VArg(writeto));
+ FILE *output = fopen(nullterm(writeto), "w");
 
  MD_ParseResult parse = MD_ParseWholeFile(cg_arena, MD_S8Lit("assets.mdesk"));
 
@@ -271,7 +210,7 @@ int main(int argc, char **argv) {
  for(MD_EachNode(node, parse.node->first_child)) {
   if(MD_S8Match(node->first_tag->string, MD_S8Lit("sound"), 0)) {
    MD_String8 variable_name = MD_S8Fmt(cg_arena, "sound_%.*s", MD_S8VArg(node->string));
-   log("New sound variable %.*s\n", MD_S8VArg(variable_name));
+   Log("New sound variable %.*s\n", MD_S8VArg(variable_name));
    MD_String8 filepath = ChildValue(node, MD_S8Lit("filepath"));
    filepath = asset_file_path(filepath);
    assert_cond(filepath.str != 0, MD_S8Fmt(cg_arena, "No filepath specified for sound '%.*s'", MD_S8VArg(node->string)));
@@ -284,7 +223,7 @@ int main(int argc, char **argv) {
   }
   if(MD_S8Match(node->first_tag->string, MD_S8Lit("image"), 0)) {
    MD_String8 variable_name = MD_S8Fmt(cg_arena, "image_%.*s", MD_S8VArg(node->string));
-   log("New image variable %.*s\n", MD_S8VArg(variable_name));
+   Log("New image variable %.*s\n", MD_S8VArg(variable_name));
    MD_String8 filepath = ChildValue(node, MD_S8Lit("filepath"));
    filepath = asset_file_path(filepath);
    assert_cond(filepath.str != 0, MD_S8Fmt(cg_arena, "No filepath specified for image '%.*s'", MD_S8VArg(node->string)));
@@ -298,7 +237,7 @@ int main(int argc, char **argv) {
   if(MD_S8Match(node->first_tag->string, MD_S8Lit("tileset"), 0)) {
    // not a variable anymore
    MD_String8 variable_name = MD_S8Fmt(cg_arena, "tileset_%.*s", MD_S8VArg(node->string));
-   log("New tileset %.*s\n", MD_S8VArg(variable_name));
+   Log("New tileset %.*s\n", MD_S8VArg(variable_name));
    MD_String8 filepath = asset_file_path(ChildValue(node, MD_S8Lit("filepath")));
 
    MD_String8 tileset_file_contents = MD_LoadEntireFile(cg_arena, filepath);
@@ -340,7 +279,7 @@ int main(int argc, char **argv) {
   }
   if(MD_S8Match(node->first_tag->string, MD_S8Lit("level"), 0)) {
    MD_String8 variable_name = MD_S8Fmt(cg_arena, "level_%.*s", MD_S8VArg(node->string));
-   log("New level variable %.*s\n", MD_S8VArg(variable_name));
+   Log("New level variable %.*s\n", MD_S8VArg(variable_name));
    MD_String8 filepath = asset_file_path(ChildValue(node, MD_S8Lit("filepath")));
    MD_ParseResult level_parse = MD_ParseWholeFile(cg_arena, filepath);
    assert_cond(!MD_NodeIsNil(level_parse.node->first_child), MD_S8Lit("Failed to load level file"));
@@ -427,7 +366,8 @@ int main(int argc, char **argv) {
   }
  }
 
- MD_StringJoin join = MD_ZERO_STRUCT;
+
+ MD_StringJoin join = {0};
  MD_String8 declarations = MD_S8ListJoin(cg_arena, declarations_list, &join);
  MD_String8 loads = MD_S8ListJoin(cg_arena, load_list, &join);
  fprintf(output, "%.*s\nvoid load_assets() {\n%.*s\n}\n", MD_S8VArg(declarations), MD_S8VArg(loads));
@@ -440,14 +380,22 @@ int main(int argc, char **argv) {
  output = fopen(MD_S8Fmt(cg_arena, "%.*s/characters.gen.h\0", MD_S8VArg(OUTPUT_FOLDER)).str, "w");
  //fprintf(output, "char *global_prompt = \"%.*s\";\n", MD_S8VArg(global_prompt));
 
- fprintf(output, "char *general_prompt_table[] = {\n");
- BUFF_ITER(MD_Node*, &characters)
+ fprintf(output, "typedef enum Action {\n");
+ for(EachString(s, action_strings.first))
  {
-  MD_String8 personalized_global_prompt = MD_S8Fmt(cg_arena, nullterm(global_prompt), MD_S8VArg(ChildValue(*it, S8("actions_str"))));
-  fprintf(output, "\"%.*s\", // %.*s\n", MD_S8VArg(personalized_global_prompt), MD_S8VArg((*it)->string));
+  fprintf(output, "ACT_%.*s,\n", S8V(s->string));
  }
- fprintf(output, "}; // general prompt table\n");
+ fprintf(output, "} Action;\n");
 
+ fprintf(output, "char *action_strings[] = {\n");
+ for(EachString(s, action_strings.first))
+ {
+  fprintf(output, "\"%.*s\",\n", S8V(s->string));
+ }
+ fprintf(output, "}; // action strings\n");
+
+
+ fprintf(output, "char *global_prompt = \"%.*s\";\n", S8V(global_prompt));
 
  fprintf(output, "char *prompt_table[] = {\n");
  BUFF_ITER(MD_Node*, &characters)
@@ -456,28 +404,28 @@ int main(int argc, char **argv) {
  }
  fprintf(output, "}; // prompt table\n");
 
- fprintf(output, "typedef enum ItemKind {\nITEM_Invalid,\n");
+ fprintf(output, "typedef enum ItemKind {\nITEM_nothing,\n");
  BUFF_ITER(MD_Node*, &items)
  {
   fprintf(output, "ITEM_%.*s,\n", MD_S8VArg((*it)->string));
  }
  fprintf(output, "} ItemKind;\n");
 
- fprintf(output, "char *item_prompt_table[] = {\n\"Invalid\",\n");
+ fprintf(output, "char *item_prompt_table[] = {\n\"\",\n");
  BUFF_ITER(MD_Node*, &items)
  {
   fprintf(output, "\"%.*s\",\n", MD_S8VArg(ChildValue(*it, S8("global_prompt_message"))));
  }
  fprintf(output, "}; // item prompt table\n");
 
- fprintf(output, "char *item_possess_message_table[] = {\n\"Invalid\",\n");
+ fprintf(output, "char *item_possess_message_table[] = {\n\"The player is now holding nothing\",\n");
  BUFF_ITER(MD_Node*, &items)
  {
   fprintf(output, "\"%.*s\",\n", MD_S8VArg(ChildValue(*it, S8("possess_message"))));
  }
  fprintf(output, "}; // item possess_message table\n");
 
- fprintf(output, "char *item_discard_message_table[] = {\n\"Invalid\",\n");
+ fprintf(output, "char *item_discard_message_table[] = {\n\"The player is no longer holding nothing\",\n");
  BUFF_ITER(MD_Node*, &items)
  {
   fprintf(output, "\"%.*s\",\n", MD_S8VArg(ChildValue(*it, S8("discard_message"))));

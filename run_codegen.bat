@@ -32,6 +32,9 @@ thirdparty\sokol-shdc.exe --input quad.glsl --output gen\quad-sapp.glsl.h --slan
 cl /Ithirdparty /W3 /Zi /WX codegen.c || goto :error
 codegen || goto :error
 
+cl /Ithirdparty /Igen /W3 /Zi /WX maketraining.c || goto :error
+maketraining || goto :error
+
 goto :EOF
 
 :error

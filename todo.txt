@@ -21,6 +21,7 @@ SHIP BETA
 
 Later:
  - Respond to cancel with stripe, redirect to ?cancelled=true that clears day pass ticket cookie and ui value
+ - Strange ring item from braid that slows down time?
  - Put playgpt.io in twitch title
  - Portal at end, exit level
  - Keep people away from skeletons, make aggroed/chase state where you can't talk to people

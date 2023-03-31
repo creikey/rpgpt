@@ -1,0 +1,28 @@
+{
+    "activeFile": "",
+    "expandedProjectPaths": [
+    ],
+    "fileStates": {
+        "assets/level0.json": {
+            "scale": 0.17733333333333334,
+            "selectedLayer": 0,
+            "viewCenter": {
+                "x": 1843.9849624060148,
+                "y": 1240.6015037593986
+            }
+        },
+        "assets/testsmalllevel.json": {
+            "scale": 3.3249999999999997,
+            "selectedLayer": 0,
+            "viewCenter": {
+                "x": 128.1203007518797,
+                "y": 128.1203007518797
+            }
+        }
+    },
+    "openFiles": [
+    ],
+    "project": "main.tiled-project",
+    "recentFiles": [
+    ]
+}
