@@ -1,5 +1,5 @@
 // you will die someday
-#define CURRENT_VERSION 4 // wehenver you change Entity increment this boz
+#define CURRENT_VERSION 5 // wehenver you change Entity increment this boz
 
 #define SOKOL_IMPL
 #if defined(WIN32) || defined(_WIN32)
@@ -1631,7 +1631,7 @@ void request_do_damage(Entity *to, Vec2 from_point, float damage)
  else if(true)
  {
   to->damage += damage;
-  to->aggressive = true;
+  process_perception(to, (Perception){.type = PlayerAction, .player_action_type = ACT_hits_npc});
   to->vel = MulV2F(NormV2(SubV2(to->pos, from_point)), 15.0f);
  }
  else
@@ -2640,7 +2640,6 @@ void frame(void)
          bool entity_talkable = true;
          if(entity_talkable) entity_talkable = entity_talkable && !it->is_tile;
          if(entity_talkable) entity_talkable = entity_talkable && it->e->is_npc;
-         if(entity_talkable) entity_talkable = entity_talkable && !it->e->aggressive;
          if(entity_talkable) entity_talkable = entity_talkable && !(it->e->npc_kind == NPC_Skeleton);
 #ifdef WEB
          if(entity_talkable) entity_talkable = entity_talkable && it->e->gen_request_id == 0;
@@ -2669,12 +2668,10 @@ void frame(void)
        }
 
 
-       // process dialog and display dialog box when talking to NPC
+       // maybe get rid of talking to
        if(player->state == CHARACTER_TALKING)
        {
-        assert(gete(player->talking_to) != NULL);
-
-        if(gete(player->talking_to)->aggressive || !player->exists)
+        if(gete(player->talking_to) == 0)
         {
          player->state = CHARACTER_IDLE;
         }
@@ -2918,11 +2915,7 @@ void frame(void)
    {
     if(it->npc_kind == NPC_OldMan)
     {
-     bool face_left = false;
-     if(it->aggressive)
-     {
-      face_left = SubV2(player->pos, it->pos).x < 0.0f;
-     }
+     bool face_left =SubV2(player->pos, it->pos).x < 0.0f;
      draw_animated_sprite(&old_man_idle, elapsed_time, face_left, it->pos, col);
     }
     else if(it->npc_kind == NPC_Skeleton)

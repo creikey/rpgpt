@@ -2,7 +2,9 @@ Happening by END OF STREAM:
 DONE - Payment working
 DONE - Fixed timesep the gameplay (which means separate player rendering)
 DONE - Maybe factor actions! into the game to replace ** stuff. In beginning of each line before quotes, have ACT@fights_player, or other actions, and by default ACT@nothing to force AI to say something about what action is performed
- - Help you fight and fight you actions
+DONE - Help you fight and fight you actions
+ - Handle wanting another request, dirty perception, when already waiting on a request
+ - Do not use webhooks (shitty, bad idea propagated by bad docs) query stripe for if the payment went through on request if not fulfilled yet
  - New characters/items from fate
  - New art in
  - Old man in beginning is invincible

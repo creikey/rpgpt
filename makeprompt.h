@@ -120,7 +120,6 @@ typedef struct Entity
 #ifdef WEB
  int gen_request_id;
 #endif
- bool aggressive;
  bool walking;
  double shotgun_timer;
  bool moved;

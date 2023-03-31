@@ -124,6 +124,33 @@ TrainingSample samples[] = {
    NPCDoSay(ACT_allows_player_to_pass, "You have the tripod, so let you pass I shall"),
   },
  },
+ {
+  .npc_kind = NPC_OldMan,
+  .perceptions = {
+   PlayerSay("Hey"),
+   NPCDoSay(ACT_none, "I'm just sitting here, what are you doing?"),
+   PlayerAct(ACT_hits_npc),
+   NPCDoSay(ACT_none, "Looks like you're ready to do what needs to be done."),
+   PlayerAct(ACT_hits_npc),
+   NPCDoSay(ACT_fights_player, "I won't stand for this assault."),
+  },
+ },
+ {
+  .npc_kind = NPC_Blocky,
+  .perceptions = {
+   PlayerSay("This crazy old man is circling me"),
+   NPCDoSay(ACT_none, "Sounds like a problem."),
+   PlayerSay("Yes, tell him to go away."),
+   NPCDoSay(ACT_none, "I'm sure it'll be fine"),
+   PlayerSay("No it won't"),
+   NPCDoSay(ACT_none, "Nahhhh"),
+   PlayerAct(ACT_hits_npc),
+   NPCDoSay(ACT_fights_player, "You don't have a tripod."),
+   PlayerItemChange(ITEM_Tripod),
+   PlayerSay("Look! I have the tripod! Please stop fighting me!"),
+   NPCDoSay(ACT_leaves_player, "As you wish."),
+  },
+ },
 };
 
 
