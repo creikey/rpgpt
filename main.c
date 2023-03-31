@@ -1847,8 +1847,7 @@ Vec2 move_and_slide(MoveSlideParams p)
  assert(collision_aabb_size.y > 0.0f);
  AABB at_new = centered_aabb(new_pos, collision_aabb_size);
  dbgrect(at_new);
- AABB to_check[256] = {0};
- int to_check_index = 0;
+ BUFF(AABB, 256) to_check = {0};
 
  // add tilemap boxes
  {
@@ -1866,8 +1865,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 
    if(is_tile_solid(get_tile_layer(&level_level0, 2, tilecoord_to_check)))
    
-    to_check[to_check_index++] = tile_aabb(tilecoord_to_check);
-    assert(to_check_index < ARRLEN(to_check));
+    BUFF_APPEND(&to_check, tile_aabb(tilecoord_to_check));
   }
  }
 
@@ -1878,17 +1876,62 @@ Vec2 move_and_slide(MoveSlideParams p)
   {
    if(!(it->is_character && it->is_rolling) && it != p.from && !(it->is_npc && it->dead) && !it->is_item)
    {
-    to_check[to_check_index++] = centered_aabb(it->pos, entity_aabb_size(it));
-    assert(to_check_index < ARRLEN(to_check));
+    BUFF_APPEND(&to_check, centered_aabb(it->pos, entity_aabb_size(it)));
    }
   }
  }
 
+ // here we do some janky C stuff to resolve collisions with the closest
+ // box first, because doing so is a simple heuristic to avoid depenetrating and losing
+ // sideways velocity. It's visual and I can't put diagrams in code so uh oh!
+
+ BUFF(AABB, 32) actually_overlapping = {0};
+ BUFF_ITER(AABB, &to_check)
+ {
+  if(overlapping(at_new, *it))
+  {
+   BUFF_APPEND(&actually_overlapping, *it);
+  }
+ }
+
+ float smallest_distance = FLT_MAX;
+ int smallest_aabb_index = 0;
+ int i = 0;
+ BUFF_ITER(AABB, &actually_overlapping)
+ {
+  float cur_dist = LenV2(SubV2(aabb_center(at_new), aabb_center(*it)));
+  if(cur_dist < smallest_distance){
+   smallest_distance = cur_dist;
+   smallest_aabb_index = i;
+  }
+  i++;
+ }
+ 
+
+ i = 0;
+ BUFF(AABB, 32) overlapping_smallest_first = {0};
+ if(actually_overlapping.cur_index > 0)
+ {
+  BUFF_APPEND(&overlapping_smallest_first, actually_overlapping.data[smallest_aabb_index]);
+ }
+ BUFF_ITER(AABB, &actually_overlapping)
+ {
+  if(i == smallest_aabb_index)
+  {
+   continue;
+  }
+  else
+  {
+   BUFF_APPEND(&overlapping_smallest_first, *it);
+  }
+  i++;
+ }
+
  CollisionInfo info = {0};
  for(int col_iter_i = 0; col_iter_i < 1; col_iter_i++)
- for(int i = 0; i < to_check_index; i++)
+ BUFF_ITER(AABB, &overlapping_smallest_first)
  {
-  AABB to_depenetrate_from = to_check[i];
+  AABB to_depenetrate_from = *it;
   dbgrect(to_depenetrate_from);
   int iters_tried_to_push_apart = 0;
   while(overlapping(to_depenetrate_from, at_new) && iters_tried_to_push_apart < 500)
