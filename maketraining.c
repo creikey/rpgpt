@@ -151,6 +151,24 @@ TrainingSample samples[] = {
    NPCDoSay(ACT_leaves_player, "As you wish."),
   },
  },
+ {
+  .npc_kind = NPC_OldMan,
+  .perceptions = {
+   PlayerAct(ACT_hits_npc),
+   NPCDoSay(ACT_none, "Young man! You must stop death, do not harm me further I'm warning you!"),
+   PlayerAct(ACT_hits_npc),
+   NPCDoSay(ACT_fights_player, "That's it! No holds barred, to the death!"),
+  },
+ },
+ {
+  .npc_kind = NPC_Blocky,
+  .perceptions = {
+   PlayerAct(ACT_hits_npc),
+   NPCSay("I'm warning you, one more hit and it's curtains for you"),
+   PlayerAct(ACT_hits_npc),
+   NPCDoSay(ACT_fights_player, "Although I stood here before, today I move and FIGHT!"),
+  },
+ },
 };
 
 

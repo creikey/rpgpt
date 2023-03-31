@@ -2312,58 +2312,60 @@ void frame(void)
      {
       assert(!(it->exists && it->generation == 0));
 #ifdef WEB
-      if(it->gen_request_id != 0)
+      if(it->is_npc)
       {
-       assert(it->gen_request_id > 0);
-       int status = EM_ASM_INT({
-         return get_generation_request_status($0);
-         }, it->gen_request_id);
-       if(status == 0)
+       if(it->gen_request_id != 0)
        {
-        // simply not done yet
-       }
-       else
-       {
-        if(status == 1)
+        assert(it->gen_request_id > 0);
+        int status = EM_ASM_INT({
+          return get_generation_request_status($0);
+          }, it->gen_request_id);
+        if(status == 0)
         {
-         // done! we can get the string
-         char sentence_str[MAX_SENTENCE_LENGTH] = {0};
-         EM_ASM({
-           let generation = get_generation_request_content($0);
-           stringToUTF8(generation, $1, $2);
-           }, it->gen_request_id, sentence_str, ARRLEN(sentence_str));
-
-
-         // parse out from the sentence NPC action and dialog
-         Perception out = {0};
-         bool text_was_well_formatted = parse_ai_response(it, sentence_str, &out);
-
-         if(text_was_well_formatted)
-         {
-          process_perception(it, out);
-         }
-         else
-         {
-          it->perceptions_dirty = true; // on poorly formatted AI, just retry request.
-         }
-
-         EM_ASM({
-           done_with_generation_request($0);
-           }, it->gen_request_id);
+         // simply not done yet
         }
-        else if(status == 2)
+        else
         {
-         Log("Failed to generate dialog! Fuck!");
-         // need somethin better here. Maybe each sentence has to know if it's player or NPC, that way I can remove the player's dialog
-         process_perception(it, (Perception){.type = NPCDialog, .npc_action_type = ACT_none, .npc_dialog = SENTENCE_CONST("I'm not sure...")});
+         if(status == 1)
+         {
+          // done! we can get the string
+          char sentence_str[MAX_SENTENCE_LENGTH] = {0};
+          EM_ASM({
+            let generation = get_generation_request_content($0);
+            stringToUTF8(generation, $1, $2);
+            }, it->gen_request_id, sentence_str, ARRLEN(sentence_str));
+
+
+          // parse out from the sentence NPC action and dialog
+          Perception out = {0};
+          bool text_was_well_formatted = parse_ai_response(it, sentence_str, &out);
+
+          if(text_was_well_formatted)
+          {
+           process_perception(it, out);
+          }
+          else
+          {
+           it->perceptions_dirty = true; // on poorly formatted AI, just retry request.
+          }
+
+          EM_ASM({
+            done_with_generation_request($0);
+            }, it->gen_request_id);
+         }
+         else if(status == 2)
+         {
+          Log("Failed to generate dialog! Fuck!");
+          // need somethin better here. Maybe each sentence has to know if it's player or NPC, that way I can remove the player's dialog
+          process_perception(it, (Perception){.type = NPCDialog, .npc_action_type = ACT_none, .npc_dialog = SENTENCE_CONST("I'm not sure...")});
+         }
+         it->gen_request_id = 0;
         }
-        it->gen_request_id = 0;
        }
       }
 #endif
       if(fabsf(it->vel.x) > 0.01f)
        it->facing_left = it->vel.x < 0.0f;
-
 
       if(it->dead)
       {

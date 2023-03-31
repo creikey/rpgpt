@@ -188,6 +188,7 @@ void fill_available_actions(Entity *it, AvailableActions *a)
 
 void process_perception(Entity *it, Perception p)
 {
+ assert(it->is_npc);
  if(p.type != NPCDialog) it->perceptions_dirty = true;
  if(!BUFF_HAS_SPACE(&it->remembered_perceptions)) BUFF_REMOVE_FRONT(&it->remembered_perceptions);
  BUFF_APPEND(&it->remembered_perceptions, p);
