@@ -133,7 +133,7 @@ typedef struct AnimatedSprite
 #ifdef DEVTOOLS
 #define SERVER_URL "http://localhost:8090"
 #else
-#define SERVER_URL "https://rpgpt.duckdns.org/completion"
+#define SERVER_URL "https://rpgpt.duckdns.org"
 #endif
 
 #include "makeprompt.h"
@@ -2751,9 +2751,11 @@ void frame(void)
 
 #ifdef WEB
         // fire off generation request, save id
+        BUFF(char, 512) completion_server_url = {0};
+        printf_buff(&completion_server_url, "%s/completion", SERVER_URL);
         int req_id = EM_ASM_INT({
           return make_generation_request(UTF8ToString($1), UTF8ToString($0));
-          }, SERVER_URL, prompt.data);
+          }, completion_server_url, prompt.data);
         it->gen_request_id = req_id;
 #endif
 

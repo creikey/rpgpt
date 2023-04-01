@@ -370,8 +370,8 @@
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":520.833333333333,
-                 "y":577.5
+                 "x":564.833333333333,
+                 "y":457
                 }, 
                 {
                  "class":"",
@@ -493,17 +493,6 @@
                  "width":32,
                  "x":482.666666666667,
                  "y":433.333333333333
-                }, 
-                {
-                 "class":"",
-                 "height":32,
-                 "id":15,
-                 "name":"OldMan",
-                 "rotation":0,
-                 "visible":true,
-                 "width":32,
-                 "x":581,
-                 "y":584
                 }],
          "opacity":1,
          "type":"objectgroup",

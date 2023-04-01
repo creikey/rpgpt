@@ -38,7 +38,7 @@ const (
 type User struct {
  CreatedAt time.Time
  UpdatedAt time.Time
- DeletedAt gorm.DeletedAt `gorm:"index"`
+ DeletedAt gorm.DeletedAt `gorm:"completion"`
 
  Code  codes.UserCode `gorm:"primaryKey"` // of maximum value max codes, incremented one by one. These are converted to 4 digit alphanumeric code users can remember/use
  BoughtTime int64 // unix time. Used to figure out if the pass is still valid
@@ -240,7 +240,7 @@ func checkout(w http.ResponseWriter, req *http.Request) {
  }
 }
 
-func index(w http.ResponseWriter, req *http.Request) {
+func completion(w http.ResponseWriter, req *http.Request) {
  req.Body = http.MaxBytesReader(w, req.Body, 1024 * 1024) // no sending huge files to crash the server
  if doCors {
   w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -256,6 +256,8 @@ func index(w http.ResponseWriter, req *http.Request) {
 
   if len(splitBody) != 2 {
    w.WriteHeader(http.StatusBadRequest)
+   log.Println("Weird body length %d not 2\n", len(splitBody))
+   return
   }
   var promptString string = splitBody[1]
   var userToken string = splitBody[0]
@@ -405,7 +407,7 @@ func main() {
  doCors = os.Getenv("CORS") != ""
  c = gogpt.NewClient(api_key)
 
- http.HandleFunc("/", index)
+ http.HandleFunc("/completion", completion)
  http.HandleFunc("/webhook", webhookResponse)
  http.HandleFunc("/checkout", checkout)
 
