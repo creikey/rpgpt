@@ -2252,7 +2252,7 @@ void frame(void)
   // better for vertical aspect ratios
   if(screen_size().x < 0.7f*screen_size().y)
   {
-   cam.scale = 2.2f;
+   cam.scale = 2.3f;
   }
   else
   {
@@ -3256,7 +3256,7 @@ void frame(void)
    draw_quad((DrawParams){false, quad_centered(thumbstick_base_pos, V2(thumbstick_base_size(), thumbstick_base_size())), IMG(image_mobile_thumbstick_base), WHITE, .y_coord_sorting = Y_COORD_IN_FRONT});
    draw_quad((DrawParams){false, quad_centered(thumbstick_nub_pos, V2(thumbstick_nub_size, thumbstick_nub_size)), IMG(image_mobile_thumbstick_nub), WHITE, .y_coord_sorting = Y_COORD_IN_FRONT});
 
-   if(interacting_with)
+   if(interacting_with || gete(player->holding_item))
    {
     draw_quad((DrawParams){false, quad_centered(interact_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .y_coord_sorting = Y_COORD_IN_FRONT});
    }
