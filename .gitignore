@@ -1,3 +1,5 @@
+# Tiled session
+main.tiled-session
 # Server builds
 server/rpgpt
 server/*.db

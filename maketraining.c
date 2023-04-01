@@ -66,7 +66,7 @@ TrainingSample samples[] = {
    PlayerSay("True"),
    NPCSay("Do you want me to be standing there?"),
    PlayerSay("Yes"),
-   NPCSay("Too bad",),
+   NPCSay("Too bad"),
    PlayerSay("What the fuck?"),
    NPCSay("What do you mean?"),
    PlayerSay("What are you doing?"),
@@ -204,6 +204,68 @@ TrainingSample samples[] = {
    NPCDoSay(ACT_joins_player, "Anything for the tripod holder"),
   },
  },
+ {
+  .npc_kind = NPC_OldMan,
+  .perceptions = {
+   PlayerSay("Hey"),
+   NPCDoSay(ACT_none, "Hello"),
+   PlayerSay("Hey"),
+   NPCDoSay(ACT_none, "I'm not sure..."),
+   PlayerSay("Hey"),
+   NPCDoSay(ACT_none, "How goes it?"),
+  },
+ },
+ {
+  .npc_kind = NPC_OldMan,
+  .perceptions = {
+   PlayerSay("Join me"),
+   NPCDoSay(ACT_joins_player, "I would be honored"),
+   PlayerAct(ACT_hits_npc),
+   NPCDoSay(ACT_none, "Hey! Watch it!"),
+   PlayerAct(ACT_hits_npc),
+   NPCDoSay(ACT_fights_player, "That's it!"),
+  },
+ },
+ {
+  .npc_kind = NPC_OldMan,
+  .perceptions = {
+   PlayerItemChange(ITEM_WhiteSquare),
+   PlayerSay("What am I holding?"),
+   NPCDoSay(ACT_none, "I don't know, you're holding something."),
+   PlayerSay("What is it?"),
+   NPCDoSay(ACT_none, "It's just a white square"),
+   PlayerSay("Isn't it pretty?"),
+   NPCDoSay(ACT_none, "Absolutely"),
+   PlayerSay("Will you join me?"),
+   NPCDoSay(ACT_joins_player, "With that white square, we'll be unstoppable!"),
+  },
+ },
+ {
+  .npc_kind = NPC_Edeline,
+  .perceptions = {
+   NPCDoSay(ACT_none, "What?"),
+   PlayerSay("My knight armor"),
+   NPCDoSay(ACT_joins_player, "That is...highly unusual. You shouldn't be wearing armor like that, you'll get hurt."),
+   PlayerSay("Who are you?"),
+   NPCDoSay(ACT_none, "I'm a soothsayer."),
+   PlayerSay("What does that mean?"),
+   NPCDoSay(ACT_none, "What does it look like I'm doing?"),
+   PlayerSay("Following me around"),
+   NPCDoSay(ACT_leaves_player, "I'm not sure what you mean, are you mad at me or something?"),
+   PlayerSay("Not at all"),
+   NPCDoSay(ACT_none, "It appears you're telling the truth"),
+   PlayerSay("Fuck you"),
+   NPCDoSay(ACT_joins_player, "No need for vulgarities, I'm just sitting here"),
+   PlayerSay("I don't care"),
+   NPCDoSay(ACT_none, "You don't care...fine."),
+   PlayerSay("DIE"),
+   NPCDoSay(ACT_none, "I wasn't going to do that."),
+   PlayerAct(ACT_hits_npc),
+   NPCDoSay(ACT_leaves_player, "You shouldn't do that."),
+   PlayerAct(ACT_hits_npc),
+   NPCDoSay(ACT_fights_player, "You won't last a minute against me!"),
+  },
+ },
 };
 
 
@@ -226,6 +288,7 @@ Escaped escape_for_json(char *s)
   }
   else
   {
+   assert(s[i] <= 126 && s[i] >= 32 );
    BUFF_APPEND(&to_return, s[i]);
   }
  }

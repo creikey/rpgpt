@@ -184,7 +184,7 @@ func checkout(w http.ResponseWriter, req *http.Request) {
   codeInt := rand.Intn(MaxCodes)
   newCodeUser = codes.UserCode(codeInt)
   var tmp User
-  r := db.Where("Code = ?", newCodeUser).Limit(1).Find(&tmp)
+  r := db.Where("Code = ?", codeInt).Limit(1).Find(&tmp)
   if r.RowsAffected == 0{
    var err error
    newCode, err = codes.CodeToString(newCodeUser)
@@ -223,7 +223,7 @@ func checkout(w http.ResponseWriter, req *http.Request) {
   log.Printf("session.New: %v", err)
  }
 
- log.Printf("Creating user code %s with checkout session ID %s\n", newCode, newCodeUser ,s.ID)
+ log.Printf("Creating user code %s code integer %d with checkout session ID %s\n", newCode, newCodeUser ,s.ID)
  result := db.Create(&User {
   Code: newCodeUser,
   BoughtTime: currentTime(),
@@ -235,6 +235,7 @@ func checkout(w http.ResponseWriter, req *http.Request) {
   w.WriteHeader(http.StatusInternalServerError)
   log.Printf("Failed to write to database: %s", result.Error)
  } else {
+  log.Printf("SUccessfully created usercode!\n")
   fmt.Fprintf(w, "%s|%s", newCode, s.URL)
  }
 }
@@ -338,7 +339,7 @@ func index(w http.ResponseWriter, req *http.Request) {
 
   ctx := context.Background()
   req := gogpt.CompletionRequest {
-   Model:     "curie:ft-alnar-games-2023-03-31-04-24-33",
+   Model:     "curie:ft-alnar-games-2023-04-01-07-34-51",
    MaxTokens: 80,
    Prompt:    promptString,
    Temperature: 0.9,
@@ -368,6 +369,7 @@ func currentTime() int64 {
 }
 
 func main() {
+ rand.Seed(time.Now().UnixNano())
  var err error
  db, err = gorm.Open(sqlite.Open("rpgpt.db"), &gorm.Config{})
  if err != nil {

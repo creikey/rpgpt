@@ -147,7 +147,7 @@ typedef struct Entity
 
 bool npc_is_knight_sprite(Entity *it)
 {
- return it->is_npc && ( it->npc_kind == NPC_Max || it->npc_kind == NPC_Hunter || it->npc_kind == NPC_John || it->npc_kind == NPC_Blocky);
+ return it->is_npc && ( it->npc_kind == NPC_Max || it->npc_kind == NPC_Hunter || it->npc_kind == NPC_John || it->npc_kind == NPC_Blocky || it->npc_kind == NPC_Edeline);
 }
 
 typedef BUFF(char, MAX_SENTENCE_LENGTH*(REMEMBERED_PERCEPTIONS+4)) PromptBuff;
@@ -322,7 +322,7 @@ void generate_prompt(Entity *it, PromptBuff *into)
   }
   else if(it->type == NPCDialog)
   {
-   printf_buff(into, "%s: ACT %s \"%s\"\n", name_table[e->npc_kind], action_strings[it->npc_action_type], it->npc_dialog.data);
+   printf_buff(into, "The NPC, %s: ACT %s \"%s\"\n", name_table[e->npc_kind], action_strings[it->npc_action_type], it->npc_dialog.data);
   }
   else if(it->type == PlayerHeldItemChanged)
   {
@@ -347,7 +347,7 @@ void generate_prompt(Entity *it, PromptBuff *into)
   }
  }
 
- printf_buff(into, "%s: ACT_INDEX", name_table[e->npc_kind]);
+ printf_buff(into, "The NPC, %s: ACT_INDEX", name_table[e->npc_kind]);
 }
 
 // returns if the response was well formatted

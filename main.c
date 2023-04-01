@@ -1,5 +1,5 @@
 // you will die someday
-#define CURRENT_VERSION 5 // wehenver you change Entity increment this boz
+#define CURRENT_VERSION 6 // wehenver you change Entity increment this boz
 
 #define SOKOL_IMPL
 #if defined(WIN32) || defined(_WIN32)
@@ -345,7 +345,7 @@ Vec2 entity_aabb_size(Entity *e)
  }
  else if(e->is_npc)
  {
-  if(e->npc_kind == NPC_Hunter || e->npc_kind == NPC_Max || e->npc_kind == NPC_John)
+  if(npc_is_knight_sprite(e))
   {
    return V2(TILE_SIZE*0.5f, TILE_SIZE*0.5f);
   }
@@ -2607,6 +2607,9 @@ void frame(void)
        else if(it->npc_kind == NPC_GodRock)
        {
        }
+       else if(it->npc_kind == NPC_Edeline)
+       {
+       }
        else if(it->npc_kind == NPC_Blocky)
        {
         if(it->moved)
@@ -3093,6 +3096,10 @@ void frame(void)
      else if(it->npc_kind == NPC_John)
      {
       tint = colhex(0x16c7a1);
+     }
+     else if(it->npc_kind == NPC_Edeline)
+     {
+      tint = colhex(0x8c34eb);
      }
      else
      {
