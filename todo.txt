@@ -16,7 +16,6 @@ DONE - nockin git thing
 DONE - Make TREE1 prop work
  - Instead of roll animation, 5 sprite long trail of past moves for juice
  - Enemy hitting NPC is enemy perception not player peception of player hitting them
- - GodRock spawns skeletons like a boss when he fights you
  - Sword combat for sword npcs 
  - Third button for dialog/item stuff, not roll button. E on desktop. Touchscreen button only visible when appropriate to let player know what it's for
 DON'T NEED, SET BACKGROUND COLOR - Clamp camera to boundaries of level
@@ -35,6 +34,7 @@ SHIP BETA
 Later:
  - Respond to cancel with stripe, redirect to ?cancelled=true that clears day pass ticket cookie and ui value
  - Strange ring item from braid that slows down time?
+ - GodRock spawns skeletons like a boss when he fights you
  - Put playgpt.io in twitch title
  - Portal at end, exit level
  - Keep people away from skeletons, make aggroed/chase state where you can't talk to people

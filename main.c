@@ -41,13 +41,20 @@
 
 #define ENTITIES_ITER(ents) for(Entity *it = ents; it < ents + ARRLEN(ents); it++) if(it->exists)
 
-double clamp(double d, double min, double max) {
+double clamp(double d, double min, double max)
+{
   const double t = d < min ? min : d;
   return t > max ? max : t;
 }
-float clampf(float d, float min, float max) {
+float clampf(float d, float min, float max)
+{
   const float t = d < min ? min : d;
   return t > max ? max : t;
+}
+
+float clamp01(float f)
+{
+ return clampf(f, 0.0f, 1.0f);
 }
 
 // so can be grep'd and removed
@@ -1101,8 +1108,10 @@ bool maybe_deactivate(TouchMemory *memory, uintptr_t ended_identifier)
 TouchMemory movement_touch = {0};
 TouchMemory roll_pressed_by = {0};
 TouchMemory attack_pressed_by = {0};
+TouchMemory interact_pressed_by = {0};
 bool mobile_roll_pressed = false;
 bool mobile_attack_pressed = false;
+bool mobile_interact_pressed = false;
 
 float thumbstick_base_size()
 {
@@ -1133,6 +1142,10 @@ Vec2 roll_button_pos()
  return V2(screen_size().x - mobile_button_size(), screen_size().y * 0.4f);
 }
 
+Vec2 interact_button_pos()
+{
+ return V2(screen_size().x - mobile_button_size()*2.0f, screen_size().y * (0.4f + (0.4f - 0.25f)));
+}
 Vec2 attack_button_pos()
 {
  return V2(screen_size().x - mobile_button_size()*2.0f, screen_size().y * 0.25f);
@@ -1777,7 +1790,7 @@ float y_coord_sorting_at(Vec2 pos)
  y_coord_sorting = 1.0f - y_coord_sorting;
 
  // debug draw the y cord sorting value
-#if 1
+#if 0
  char *to_draw = tprint("%f", y_coord_sorting);
  draw_text((TextParams){true, false, to_draw, pos, BLACK, 1.0f});
 #endif
@@ -2176,9 +2189,10 @@ double elapsed_time = 0.0;
 double last_frame_processing_time = 0.0;
 uint64_t last_frame_time;
 Vec2 mouse_pos = {0}; // in screen space
-bool roll_just_pressed = false; // to use to initiate dialog, shouldn't initiate dialog if the button is simply held down
+bool interact_just_pressed = false;
 float learned_shift = 0.0;
 float learned_space = 0.0;
+float learned_e = 0.0;
 #ifdef DEVTOOLS
 bool mouse_frozen = false;
 #endif
@@ -2230,7 +2244,7 @@ void frame(void)
   // better for vertical aspect ratios
   if(screen_size().x < 0.7f*screen_size().y)
   {
-   cam.scale = 2.5f;
+   cam.scale = 2.2f;
   }
   else
   {
@@ -2243,6 +2257,7 @@ void frame(void)
   Vec2 movement = {0};
   bool attack = false;
   bool roll = false;
+  bool interact = false;
   if(mobile_controls)
   {
    movement = SubV2(thumbstick_nub_pos, thumbstick_base_pos);
@@ -2252,6 +2267,7 @@ void frame(void)
    }
    attack = mobile_attack_pressed;
    roll = mobile_roll_pressed;
+   interact = interact_just_pressed;
   }
   else
   {
@@ -2264,6 +2280,7 @@ void frame(void)
    attack = attack || keydown[SAPP_KEYCODE_LEFT_CONTROL]; 
 #endif
    roll = keydown[ROLL_KEY];
+   interact = interact_just_pressed;
   }
   if(LenV2(movement) > 1.0)
   {
@@ -2814,44 +2831,45 @@ void frame(void)
        }
       }
 
-      // roll input management, sometimes means talk to the npc
-      if(player->state != CHARACTER_TALKING && roll_just_pressed && closest_interact_with)
+      if(interact)
       {
-       if(closest_interact_with->is_npc)
+       if(closest_interact_with)
        {
-        // begin dialog with closest npc
-        player->state = CHARACTER_TALKING;
-        player->talking_to = frome(closest_interact_with);
-       }
-       else if(closest_interact_with->is_item)
-       {
-        // pick up item
-        closest_interact_with->held_by_player = true;
-        player->holding_item = frome(closest_interact_with);
+        if(closest_interact_with->is_npc)
+        {
+         // begin dialog with closest npc
+         player->state = CHARACTER_TALKING;
+         player->talking_to = frome(closest_interact_with);
+        }
+        else if(closest_interact_with->is_item)
+        {
+         // pick up item
+         closest_interact_with->held_by_player = true;
+         player->holding_item = frome(closest_interact_with);
+        }
+        else
+        {
+         assert(false);
+        }
+
        }
        else
        {
-        assert(false);
+        if(gete(player->holding_item))
+        {
+         // throw item if not talking to somebody with item
+         Entity *thrown = gete(player->holding_item);
+         assert(thrown);
+         thrown->vel = MulV2F(player->to_throw_direction, 20.0f);
+         thrown->held_by_player = false;
+         player->holding_item = (EntityRef){0};
+        }
        }
       }
-      else
+      if(roll && !player->is_rolling && player->time_not_rolling > 0.3f && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
       {
-       // in this branch, we know that no interacting with npcs or items is going to happen.
-       // but we still have to process roll input
-       if(roll_just_pressed && gete(player->holding_item))
-       {
-        // throw item
-        Entity *thrown = gete(player->holding_item);
-        assert(thrown);
-        thrown->vel = MulV2F(player->to_throw_direction, 20.0f);
-        thrown->held_by_player = false;
-        player->holding_item = (EntityRef){0};
-       }
-       else if(roll_just_pressed && !player->is_rolling && player->time_not_rolling > 0.3f && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
-       {
-        player->is_rolling = true;
-        player->roll_progress = 0.0;
-       }
+       player->is_rolling = true;
+       player->roll_progress = 0.0;
       }
 
       if(attack && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
@@ -2940,8 +2958,7 @@ void frame(void)
        reset_level();
       }
      }
-
-     roll_just_pressed = false;
+     interact_just_pressed = false;
     } // while loop
    }
 
@@ -2951,6 +2968,14 @@ void frame(void)
    // if somebody, show their dialog panel
    if(interacting_with) 
    {
+    // interaction keyboard hint
+    if(!mobile_controls)
+    {
+     float size = 100.0f;
+     Vec2 midpoint = MulV2F(AddV2(interacting_with->pos, player->pos), 0.5f);
+     draw_quad((DrawParams){true, quad_centered(AddV2(midpoint, V2(0.0, 5.0f + sinf((float)elapsed_time*3.0f)*5.0f)), V2(size, size)), IMG(image_e_icon), blendalpha(WHITE, clamp01(1.0f - learned_e)), .y_coord_sorting = Y_COORD_IN_FRONT, .queue_for_translucent = true});
+    }
+
     // interaction circle
     draw_quad((DrawParams){true, quad_centered(interacting_with->pos, V2(TILE_SIZE, TILE_SIZE)), image_dialog_circle, full_region(image_dialog_circle), WHITE});
     if(interacting_with->is_npc)
@@ -3221,6 +3246,10 @@ void frame(void)
    draw_quad((DrawParams){false, quad_centered(thumbstick_base_pos, V2(thumbstick_base_size(), thumbstick_base_size())), IMG(image_mobile_thumbstick_base), WHITE, .y_coord_sorting = Y_COORD_IN_FRONT});
    draw_quad((DrawParams){false, quad_centered(thumbstick_nub_pos, V2(thumbstick_nub_size, thumbstick_nub_size)), IMG(image_mobile_thumbstick_nub), WHITE, .y_coord_sorting = Y_COORD_IN_FRONT});
 
+   if(interacting_with)
+   {
+    draw_quad((DrawParams){false, quad_centered(interact_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .y_coord_sorting = Y_COORD_IN_FRONT});
+   }
    draw_quad((DrawParams){false, quad_centered(roll_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .y_coord_sorting = Y_COORD_IN_FRONT});
    draw_quad((DrawParams){false, quad_centered(attack_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .y_coord_sorting = Y_COORD_IN_FRONT});
   }
@@ -3353,12 +3382,17 @@ void event(const sapp_event *e)
     {
      roll_pressed_by = activate(point.identifier);
      mobile_roll_pressed = true;
-     roll_just_pressed = true;
+    }
+    if(LenV2(SubV2(touchpoint_screen_pos, interact_button_pos())) < mobile_button_size()*0.5f)
+    {
+     interact_pressed_by = activate(point.identifier);
+     mobile_interact_pressed = true;
+     interact_just_pressed = true;
     }
     if(LenV2(SubV2(touchpoint_screen_pos, attack_button_pos())) < mobile_button_size()*0.5f)
     {
-     mobile_attack_pressed = true;
      attack_pressed_by = activate(point.identifier);
+     mobile_attack_pressed = true;
     }
    }
   }
@@ -3386,6 +3420,10 @@ void event(const sapp_event *e)
    for(int i = 0; i < e->num_touches; i++)
    if(e->touches[i].changed) // only some of the touch events are released
    {
+    if(maybe_deactivate(&interact_pressed_by, e->touches[i].identifier))
+    {
+     mobile_interact_pressed = false;
+    }
     if(maybe_deactivate(&roll_pressed_by, e->touches[i].identifier))
     {
      mobile_roll_pressed = false;
@@ -3408,9 +3446,9 @@ void event(const sapp_event *e)
   assert(e->key_code < sizeof(keydown)/sizeof(*keydown));
   keydown[e->key_code] = true;
   
-  if(e->key_code == ROLL_KEY)
+  if(e->key_code == SAPP_KEYCODE_E)
   {
-   roll_just_pressed = true;
+   interact_just_pressed = true;
   }
 
   if(e->key_code == SAPP_KEYCODE_LEFT_SHIFT)
@@ -3420,6 +3458,10 @@ void event(const sapp_event *e)
   if(e->key_code == SAPP_KEYCODE_SPACE)
   {
    learned_space += 0.15f;
+  }
+  if(e->key_code == SAPP_KEYCODE_E)
+  {
+   learned_e += 0.15f;
   }
 #ifdef DESKTOP // very nice for my run from cmdline workflow, escape to quit
   if(e->key_code == SAPP_KEYCODE_ESCAPE)

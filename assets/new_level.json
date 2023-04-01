@@ -370,8 +370,8 @@
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":551.333333333333,
-                 "y":458
+                 "x":520.833333333333,
+                 "y":577.5
                 }, 
                 {
                  "class":"",
@@ -493,6 +493,17 @@
                  "width":32,
                  "x":482.666666666667,
                  "y":433.333333333333
+                }, 
+                {
+                 "class":"",
+                 "height":32,
+                 "id":15,
+                 "name":"OldMan",
+                 "rotation":0,
+                 "visible":true,
+                 "width":32,
+                 "x":581,
+                 "y":584
                 }],
          "opacity":1,
          "type":"objectgroup",
@@ -501,7 +512,7 @@
          "y":0
         }],
  "nextlayerid":5,
- "nextobjectid":15,
+ "nextobjectid":16,
  "orientation":"orthogonal",
  "renderorder":"right-down",
  "tiledversion":"1.9.2",

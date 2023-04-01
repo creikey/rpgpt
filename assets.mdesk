@@ -96,6 +96,10 @@
 {
  filepath: "shift_icon.png",
 }
+@image e_icon:
+{
+ filepath: "e_icon.png",
+}
 @image space_icon:
 {
  filepath: "space_icon.png",
