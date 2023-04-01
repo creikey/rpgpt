@@ -22,6 +22,10 @@
 {
  filepath: "_Roll.png",
 }
+@image boots:
+{
+ filepath: "boots.png",
+}
 @image new_knight_idle:
 {
  filepath: "copyrighted/knight_idle.png",

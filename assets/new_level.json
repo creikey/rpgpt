@@ -359,8 +359,8 @@
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":529.333333333333,
-                 "y":566.333333333333
+                 "x":510.333333333333,
+                 "y":604.333333333333
                 }, 
                 {
                  "class":"",
@@ -399,12 +399,12 @@
                  "class":"ITEM",
                  "height":32,
                  "id":6,
-                 "name":"Tripod",
+                 "name":"Boots",
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":600,
-                 "y":324
+                 "x":1109,
+                 "y":847
                 }, 
                 {
                  "class":"",
@@ -471,6 +471,17 @@
                  "width":32,
                  "x":2229.33333333333,
                  "y":1462.66666666667
+                }, 
+                {
+                 "class":"ITEM",
+                 "height":32,
+                 "id":13,
+                 "name":"Tripod",
+                 "rotation":0,
+                 "visible":true,
+                 "width":32,
+                 "x":599,
+                 "y":322
                 }],
          "opacity":1,
          "type":"objectgroup",
@@ -479,7 +490,7 @@
          "y":0
         }],
  "nextlayerid":5,
- "nextobjectid":13,
+ "nextobjectid":14,
  "orientation":"orthogonal",
  "renderorder":"right-down",
  "tiledversion":"1.9.2",

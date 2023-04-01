@@ -131,7 +131,6 @@ typedef struct Entity
  bool is_character;
  EntityRef holding_item;
  Vec2 to_throw_direction;
- int boots_modifier;
  CharacterState state;
  EntityRef talking_to; // Maybe should be generational index, but I dunno. No death yet
  bool is_rolling; // can only roll in idle or walk states

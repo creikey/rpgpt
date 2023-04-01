@@ -72,6 +72,13 @@ actions:
  discard_message: "The player is no longer holding the white square.",
 }
 
+@item Boots:
+{
+ global_prompt_message: "The player is holding the boots of speed. He is a force to be recogned with in this state, he has great speed while holding the boots.",
+ possess_message: "The player is now holding the boots of speed",
+ discard_message: "The player is no longer holding the boots of speed",
+}
+
 @item Tripod:
 {
  global_prompt_message: "The player is holding a tripod used for holding things up. It's got an odd construction, but Block really likes it for some reason.",

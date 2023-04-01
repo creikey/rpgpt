@@ -2847,14 +2847,11 @@ void frame(void)
        speed = PLAYER_SPEED;
        if(player->is_rolling) speed = PLAYER_ROLL_SPEED;
 
-       if(player->boots_modifier < 0)
+       if(gete(player->holding_item) && gete(player->holding_item)->item_kind == ITEM_Boots)
        {
-        speed *= 1.0f / (1.0f + -(float)player->boots_modifier * 0.1f);
+        speed *= 2.0f;
        }
-       if(player->boots_modifier > 0)
-       {
-        speed *= 1.0f + ((float)player->boots_modifier * 0.1f);
-       }
+
        if(LenV2(movement) == 0.0)
        {
         player->state = CHARACTER_IDLE;
@@ -3093,6 +3090,10 @@ void frame(void)
     if(it->item_kind == ITEM_Tripod)
     {
      draw_quad((DrawParams){true, drawn, IMG(image_tripod), WHITE});
+    }
+    else if(it->item_kind == ITEM_Boots)
+    {
+     draw_quad((DrawParams){true, drawn, IMG(image_boots), WHITE});
     }
     else if(it->item_kind == ITEM_WhiteSquare)
     {
