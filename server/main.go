@@ -256,7 +256,7 @@ func completion(w http.ResponseWriter, req *http.Request) {
 
   if len(splitBody) != 2 {
    w.WriteHeader(http.StatusBadRequest)
-   log.Println("Weird body length %d not 2\n", len(splitBody))
+   log.Printf("Weird body length %d not 2\n", len(splitBody))
    return
   }
   var promptString string = splitBody[1]

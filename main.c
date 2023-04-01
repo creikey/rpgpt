@@ -2755,7 +2755,7 @@ void frame(void)
         printf_buff(&completion_server_url, "%s/completion", SERVER_URL);
         int req_id = EM_ASM_INT({
           return make_generation_request(UTF8ToString($1), UTF8ToString($0));
-          }, completion_server_url, prompt.data);
+          }, completion_server_url.data, prompt.data);
         it->gen_request_id = req_id;
 #endif
 
