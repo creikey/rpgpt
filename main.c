@@ -2707,7 +2707,7 @@ void frame(void)
         }
         else
         {
-         SAY(ACT_none, "I am an NPC");
+         SAY(ACT_fights_player, "I am an NPC");
         }
         Perception p = {0};
         assert(parse_ai_response(it, mocked_ai_response.data, &p));
@@ -2960,7 +2960,7 @@ void frame(void)
    // hurt vignette
    if(player->damage > 0.0)
    {
-    draw_quad((DrawParams){false, (Quad){.ul=V2(0.0f, screen_size().Y), .ur = screen_size(), .lr = V2(screen_size().X, 0.0f)}, image_hurt_vignette, full_region(image_hurt_vignette), (Color){1.0f, 1.0f, 1.0f, player->damage}});
+    draw_quad((DrawParams){false, (Quad){.ul=V2(0.0f, screen_size().Y), .ur = screen_size(), .lr = V2(screen_size().X, 0.0f)}, image_hurt_vignette, full_region(image_hurt_vignette), (Color){1.0f, 1.0f, 1.0f, player->damage}, .y_coord_sorting = 1.0f, .queue_for_translucent = true});
    }
   }
 

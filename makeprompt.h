@@ -188,32 +188,34 @@ void fill_available_actions(Entity *it, AvailableActions *a)
 
 void process_perception(Entity *it, Perception p)
 {
- assert(it->is_npc);
- if(p.type != NPCDialog) it->perceptions_dirty = true;
- if(!BUFF_HAS_SPACE(&it->remembered_perceptions)) BUFF_REMOVE_FRONT(&it->remembered_perceptions);
- BUFF_APPEND(&it->remembered_perceptions, p);
- if(p.type == PlayerHeldItemChanged)
+ if(it->is_npc)
  {
-  it->last_seen_holding_kind = p.holding;
- }
- else if(p.type == NPCDialog)
- {
-  if(p.npc_action_type == ACT_allows_player_to_pass)
+  if(p.type != NPCDialog) it->perceptions_dirty = true;
+  if(!BUFF_HAS_SPACE(&it->remembered_perceptions)) BUFF_REMOVE_FRONT(&it->remembered_perceptions);
+  BUFF_APPEND(&it->remembered_perceptions, p);
+  if(p.type == PlayerHeldItemChanged)
   {
-   it->target_goto = AddV2(it->pos, V2(-50.0, 0.0));
-   it->moved = true;
+   it->last_seen_holding_kind = p.holding;
   }
-  else if(p.npc_action_type == ACT_fights_player)
+  else if(p.type == NPCDialog)
   {
-   it->standing = STANDING_FIGHTING;
-  }
-  else if(p.npc_action_type == ACT_leaves_player)
-  {
-   it->standing = STANDING_INDIFFERENT;
-  }
-  else if(p.npc_action_type == ACT_joins_player)
-  {
-   it->standing = STANDING_JOINED;
+   if(p.npc_action_type == ACT_allows_player_to_pass)
+   {
+    it->target_goto = AddV2(it->pos, V2(-50.0, 0.0));
+    it->moved = true;
+   }
+   else if(p.npc_action_type == ACT_fights_player)
+   {
+    it->standing = STANDING_FIGHTING;
+   }
+   else if(p.npc_action_type == ACT_leaves_player)
+   {
+    it->standing = STANDING_INDIFFERENT;
+   }
+   else if(p.npc_action_type == ACT_joins_player)
+   {
+    it->standing = STANDING_JOINED;
+   }
   }
  }
 }

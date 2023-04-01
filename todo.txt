@@ -13,7 +13,7 @@ DON'T NEED - Old man in beginning is invincible
  - Style buttons
  - Make map better
 DONE - Fade dialog with distance
- - Make vignette in front
+DONE - Make vignette in front
  - Ignore keyrepeat events
  - Remove control attack key as devtools
  - Particle fx and sound fx for when hit
