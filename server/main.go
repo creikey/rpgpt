@@ -38,7 +38,7 @@ const (
 type User struct {
  CreatedAt time.Time
  UpdatedAt time.Time
- DeletedAt gorm.DeletedAt `gorm:"completion"`
+ DeletedAt gorm.DeletedAt `gorm:"index"`
 
  Code  codes.UserCode `gorm:"primaryKey"` // of maximum value max codes, incremented one by one. These are converted to 4 digit alphanumeric code users can remember/use
  BoughtTime int64 // unix time. Used to figure out if the pass is still valid
