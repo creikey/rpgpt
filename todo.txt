@@ -10,12 +10,11 @@ DON'T NEED - Old man in beginning is invincible
  - Make new openai key (it was leaked)
 DONE - Add cancel button
 DONE - Style buttons
- - Make map better, add new characters/items from fate
 DONE - nockin git thing 
  - Animate text characters coming in
 DONE - Make TREE1 prop work
  - Instead of roll animation, 5 sprite long trail of past moves for juice
- - Enemy hitting NPC is enemy perception not player peception of player hitting them
+DONE - Enemy hitting NPC is enemy perception not player peception of player hitting them
  - Sword combat for sword npcs 
 DONE - Third button for dialog/item stuff, not roll button. E on desktop. Touchscreen button only visible when appropriate to let player know what it's for
 DON'T NEED, SET BACKGROUND COLOR - Clamp camera to boundaries of level
@@ -23,13 +22,13 @@ DONE - Ignore keyrepeat events
 DONE - Remove control attack key as devtools
  - Cells interlinked (interlinked)
 DONE - Tune fade popping at dist when you go too far awy
- - 
  - Particle fx and sound fx for when hit
  - Max text length on text input
 DONE - Fade dialog with distance
 DONE - Make vignette in front
 SHIP BETA
  - Make ANOTHER tiktok if you can. Por favor
+ - Make map better, add new characters/items from fate
 
 Later:
  - Respond to cancel with stripe, redirect to ?cancelled=true that clears day pass ticket cookie and ui value

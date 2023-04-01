@@ -4,15 +4,25 @@
 
 typedef struct
 {
+ bool is_take_damage;
+
+ Perception p;
+ float damage; // only valid when is take damage
+} TrainingElement;
+
+typedef struct
+{
  NpcKind npc_kind;
- Perception perceptions[32];
+ TrainingElement elems[32];
 } TrainingSample;
 
-#define PlayerAct(act) { .type = PlayerAction, .player_action_type = act, }
-#define PlayerSay(txt) { .type = PlayerDialog, .player_dialog = SENTENCE_CONST(txt), }
-#define NPCDoSay(d, txt) { .type = NPCDialog, .npc_action_type = d, .npc_dialog = SENTENCE_CONST(txt) }
+#define PlayerAct(act) { .p = { .type = PlayerAction, .player_action_type = act, } }
+#define PlayerSay(txt) { .p = { .type = PlayerDialog, .player_dialog = SENTENCE_CONST(txt), } }
+#define NPCDoSay(d, txt) { .p = { .type = NPCDialog, .npc_action_type = d, .npc_dialog = SENTENCE_CONST(txt) } }
 #define NPCSay(txt) NPCDoSay(ACT_none, txt)
-#define PlayerItemChange(new_item) { .type = PlayerHeldItemChanged, .holding = new_item, }
+#define PlayerItemChange(new_item) { .p = { .type = PlayerHeldItemChanged, .holding = new_item, } }
+#define EnemyAct(act) { .p = { .type = EnemyAction, .enemy_action_type = act, } }
+#define NPCTakeDamage(amount) { .is_take_damage = true, .damage = amount, }
 
 TrainingSample samples[] = {
  // Vim regexes to be ran in order to automatically convert debug print versions of conversations
@@ -20,7 +30,7 @@ TrainingSample samples[] = {
  // s/[A-Z_a-z ]*: ACT \([a-zA-Z_]*\) \(.*\)/NPCDoSay(ACT_\1, \2),
  {
   .npc_kind = NPC_OldMan,
-  .perceptions = {
+  .elems = {
    PlayerAct(ACT_walks_up),
    NPCSay("Young warrior! You must stop Death, there isn't much time."),
    PlayerAct(ACT_leaves),
@@ -32,12 +42,13 @@ TrainingSample samples[] = {
    PlayerSay("Nah"),
    NPCSay("PLEASE!"),
    PlayerAct(ACT_hits_npc),
+   NPCTakeDamage(0.2f),
    NPCDoSay(ACT_fights_player, "Ready your sword!"),
   },
  },
  {
   .npc_kind = NPC_Blocky,
-  .perceptions = {
+  .elems = {
    PlayerAct(ACT_walks_up),
    PlayerSay("Do you think I should use webgl1 or webgl2?"),
    NPCSay("What are either of those things?"),
@@ -56,7 +67,7 @@ TrainingSample samples[] = {
  },
  {
   .npc_kind = NPC_Blocky,
-  .perceptions = {
+  .elems = {
    PlayerItemChange(ITEM_Tripod),
    PlayerSay("hey"),
    NPCSay("I'm just standing here, what are you doing? That is...A beautiful tripod"),
@@ -78,7 +89,7 @@ TrainingSample samples[] = {
  },
  {
   .npc_kind = NPC_GodRock,
-  .perceptions = {
+  .elems = {
    PlayerAct(ACT_walks_up),
    NPCSay("I am"),
    PlayerSay("Whaddup?"),
@@ -91,7 +102,7 @@ TrainingSample samples[] = {
  },
  {
   .npc_kind = NPC_GodRock,
-  .perceptions = {
+  .elems = {
    PlayerAct(ACT_walks_up),
    NPCSay("I am"),
    PlayerSay("Who are you?"),
@@ -102,7 +113,7 @@ TrainingSample samples[] = {
  },
  {
   .npc_kind = NPC_OldMan,
-  .perceptions = {
+  .elems = {
    PlayerSay("Join me"),
    NPCDoSay(ACT_none, "I can"),
    PlayerSay("Please"),
@@ -113,11 +124,13 @@ TrainingSample samples[] = {
    NPCDoSay(ACT_none, "I don't know that I can make it, kid. I'm feeling old and weary."),
    PlayerSay("So?"),
    NPCDoSay(ACT_joins_player, "You know what...You're right. Let's kick Death's ass"),
+   EnemyAct(ACT_hits_npc),
+   NPCDoSay(ACT_none, "Man things are really heating up... I don't know how much more I can take"),
   },
  },
  {
   .npc_kind = NPC_Blocky,
-  .perceptions = {
+  .elems = {
    PlayerItemChange(ITEM_Tripod),
    PlayerSay("Move"),
    NPCDoSay(ACT_none, "I'm just standing here."),
@@ -127,18 +140,20 @@ TrainingSample samples[] = {
  },
  {
   .npc_kind = NPC_OldMan,
-  .perceptions = {
+  .elems = {
    PlayerSay("Hey"),
    NPCDoSay(ACT_none, "I'm just sitting here, what are you doing?"),
    PlayerAct(ACT_hits_npc),
+   NPCTakeDamage(0.2f),
    NPCDoSay(ACT_none, "Looks like you're ready to do what needs to be done."),
    PlayerAct(ACT_hits_npc),
+   NPCTakeDamage(0.2f),
    NPCDoSay(ACT_fights_player, "I won't stand for this assault."),
   },
  },
  {
   .npc_kind = NPC_Blocky,
-  .perceptions = {
+  .elems = {
    PlayerSay("This crazy old man is circling me"),
    NPCDoSay(ACT_none, "Sounds like a problem."),
    PlayerSay("Yes, tell him to go away."),
@@ -146,6 +161,7 @@ TrainingSample samples[] = {
    PlayerSay("No it won't"),
    NPCDoSay(ACT_none, "Nahhhh"),
    PlayerAct(ACT_hits_npc),
+   NPCTakeDamage(0.2f),
    NPCDoSay(ACT_fights_player, "You don't have a tripod."),
    PlayerItemChange(ITEM_Tripod),
    PlayerSay("Look! I have the tripod! Please stop fighting me!"),
@@ -154,31 +170,36 @@ TrainingSample samples[] = {
  },
  {
   .npc_kind = NPC_OldMan,
-  .perceptions = {
+  .elems = {
    PlayerAct(ACT_hits_npc),
+   NPCTakeDamage(0.2f),
    NPCDoSay(ACT_none, "Young man! You must stop death, do not harm me further I'm warning you!"),
    PlayerAct(ACT_hits_npc),
+   NPCTakeDamage(0.2f),
    NPCDoSay(ACT_fights_player, "That's it! No holds barred, to the death!"),
   },
  },
  {
   .npc_kind = NPC_Blocky,
-  .perceptions = {
+  .elems = {
    PlayerAct(ACT_hits_npc),
+   NPCTakeDamage(0.2f),
    NPCSay("I'm warning you, one more hit and it's curtains for you"),
    PlayerAct(ACT_hits_npc),
+   NPCTakeDamage(0.2f),
    NPCDoSay(ACT_fights_player, "Although I stood here before, today I move and FIGHT!"),
   },
  },
  {
   .npc_kind = NPC_Blocky,
-  .perceptions = {
+  .elems = {
    PlayerItemChange(ITEM_Tripod),
    PlayerSay("Move out of the way"),
    NPCDoSay(ACT_allows_player_to_pass, "The tripod...Of course my liege."),
    PlayerSay("Thanks"),
    NPCDoSay(ACT_none, "My pleasure"),
    PlayerAct(ACT_hits_npc),
+   NPCTakeDamage(0.2f),
    NPCSay("How could you do such a thing? After the tripod as well"),
    PlayerItemChange(ITEM_none),
    PlayerSay("You suck"),
@@ -187,7 +208,7 @@ TrainingSample samples[] = {
  },
  {
   .npc_kind = NPC_OldMan,
-  .perceptions = {
+  .elems = {
    PlayerSay("joins_player index"),
    NPCSay("What does that even mean? Are you crazy?"),
    PlayerSay("Please join my party"),
@@ -196,7 +217,7 @@ TrainingSample samples[] = {
  },
  {
   .npc_kind = NPC_Blocky,
-  .perceptions = {
+  .elems = {
    PlayerItemChange(ITEM_Tripod),
    PlayerSay("Please move"),
    NPCDoSay(ACT_allows_player_to_pass, "Of course, with that tripod of yours the world is your oyster."),
@@ -206,7 +227,7 @@ TrainingSample samples[] = {
  },
  {
   .npc_kind = NPC_OldMan,
-  .perceptions = {
+  .elems = {
    PlayerSay("Hey"),
    NPCDoSay(ACT_none, "Hello"),
    PlayerSay("Hey"),
@@ -217,18 +238,20 @@ TrainingSample samples[] = {
  },
  {
   .npc_kind = NPC_OldMan,
-  .perceptions = {
+  .elems = {
    PlayerSay("Join me"),
    NPCDoSay(ACT_joins_player, "I would be honored"),
    PlayerAct(ACT_hits_npc),
+   NPCTakeDamage(0.2f),
    NPCDoSay(ACT_none, "Hey! Watch it!"),
    PlayerAct(ACT_hits_npc),
+   NPCTakeDamage(0.2f),
    NPCDoSay(ACT_fights_player, "That's it!"),
   },
  },
  {
   .npc_kind = NPC_OldMan,
-  .perceptions = {
+  .elems = {
    PlayerItemChange(ITEM_WhiteSquare),
    PlayerSay("What am I holding?"),
    NPCDoSay(ACT_none, "I don't know, you're holding something."),
@@ -242,7 +265,7 @@ TrainingSample samples[] = {
  },
  {
   .npc_kind = NPC_Edeline,
-  .perceptions = {
+  .elems = {
    NPCDoSay(ACT_none, "What?"),
    PlayerSay("My knight armor"),
    NPCDoSay(ACT_joins_player, "That is...highly unusual. You shouldn't be wearing armor like that, you'll get hurt."),
@@ -261,9 +284,31 @@ TrainingSample samples[] = {
    PlayerSay("DIE"),
    NPCDoSay(ACT_none, "I wasn't going to do that."),
    PlayerAct(ACT_hits_npc),
+   NPCTakeDamage(0.2f),
    NPCDoSay(ACT_leaves_player, "You shouldn't do that."),
    PlayerAct(ACT_hits_npc),
+   NPCTakeDamage(0.2f),
    NPCDoSay(ACT_fights_player, "You won't last a minute against me!"),
+  },
+ },
+ {
+  .npc_kind = NPC_Blocky,
+  .elems = {
+   PlayerItemChange(ITEM_Tripod),
+   PlayerSay("Hey what's up"),
+   NPCDoSay(ACT_none, "I'm just standing here, what are you doing? That's a tripod, you look like you could use it."),
+   PlayerSay("Can you move out of the way?"),
+   NPCDoSay(ACT_allows_player_to_pass, "Of course, let's go"),
+   PlayerSay("Join me"),
+   NPCDoSay(ACT_joins_player, "Of course, anything for the tripod"),
+   PlayerSay("Join me"),
+   NPCDoSay(ACT_none, "But I've already joined you?"),
+   PlayerSay("Join me"),
+   NPCDoSay(ACT_strikes_air, "You act crazy!"),
+   PlayerSay("Join me"),
+   NPCDoSay(ACT_leaves_player, "I will take no part in such lunacy"),
+   PlayerSay("Join me"),
+   NPCDoSay(ACT_fights_player, "You must perish for your wildness!"),
   },
  },
 };
@@ -306,23 +351,31 @@ int main(int argc, char ** argv)
   TrainingSample s = samples[i];
   Entity this_entity = (Entity){.is_npc = true, .npc_kind = s.npc_kind};
   PromptBuff cur_prompt = {0};
-  for(int i = 0; i < ARRLEN(s.perceptions); i++)
+  for(int i = 0; i < ARRLEN(s.elems); i++)
   {
-   if(s.perceptions[i].type == Invalid) break;
-   if(s.perceptions[i].type == NPCDialog)
+   if(s.elems[i].is_take_damage)
    {
-    Log("Generating sample of length %d for NPC %s...\n", i, name_table[s.npc_kind]);
-    total_samples++;
-    generate_prompt(&this_entity, &cur_prompt);
-    BUFF(char, 1024) completion = {0};
-
-    // get index from action
-    int index = action_to_index(&this_entity, s.perceptions[i].npc_action_type);
-    printf_buff(&completion, " %d \"%s\"\n", index, s.perceptions[i].npc_dialog.data);
-
-    fprintf(out, "{\"prompt\": \"%s\", \"completion\": \"%s\"}\n", escape_for_json(cur_prompt.data).data, escape_for_json(completion.data).data);
+    this_entity.damage += s.elems[i].damage;
    }
-   process_perception(&this_entity, s.perceptions[i]);
+   else
+   {
+    Perception p = s.elems[i].p;
+    if(p.type == Invalid) break;
+    if(p.type == NPCDialog)
+    {
+     Log("Generating sample of length %d for NPC %s...\n", i, name_table[s.npc_kind]);
+     total_samples++;
+     generate_prompt(&this_entity, &cur_prompt);
+     BUFF(char, 1024) completion = {0};
+
+     // get index from action
+     int index = action_to_index(&this_entity, p.npc_action_type);
+     printf_buff(&completion, " %d \"%s\"\n", index, p.npc_dialog.data);
+
+     fprintf(out, "{\"prompt\": \"%s\", \"completion\": \"%s\"}\n", escape_for_json(cur_prompt.data).data, escape_for_json(completion.data).data);
+    }
+    process_perception(&this_entity, p);
+   }
   }
  }
 

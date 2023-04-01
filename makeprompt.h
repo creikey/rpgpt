@@ -281,6 +281,27 @@ void generate_prompt(Entity *it, PromptBuff *into)
  printf_buff(into, "%s", prompt_table[it->npc_kind]);
  printf_buff(into, "%s", "\n");
 
+ // npc stats prompt
+ const char *health_string = 0;
+ if(it->damage <= 0.2f)
+ {
+  health_string = "The NPC hasn't taken much damage, they're healthy.";
+ }
+ else if(it->damage <= 0.5f)
+ {
+  health_string = "The NPC has taken quite a chunk of damage, they're soon gonna be ready to call it quits.";
+ }
+ else if(it->damage <= 0.8f)
+ {
+  health_string = "The NPC is close to dying! They want to leave the player's party ASAP";
+ }
+ else
+ {
+  health_string = "It's over for the NPC, they're basically dead they've taken so much damage. They should get their affairs in order.";
+ }
+ assert(health_string);
+ printf_buff(into, "NPC Health Status: %s\n", health_string);
+ 
  // item prompt
  if(it->last_seen_holding_kind != ITEM_none)
  {

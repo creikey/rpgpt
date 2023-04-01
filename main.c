@@ -1657,8 +1657,9 @@ void dbgrect(AABB rect)
 }
 
 // from_point is for knockback
-void request_do_damage(Entity *to, Vec2 from_point, float damage)
+void request_do_damage(Entity *to, Entity *from, float damage)
 {
+ Vec2 from_point = from->pos;
  if(to == NULL) return;
  if(to->is_bullet)
  {
@@ -1670,7 +1671,14 @@ void request_do_damage(Entity *to, Vec2 from_point, float damage)
  else if(true)
  {
   to->damage += damage;
-  process_perception(to, (Perception){.type = PlayerAction, .player_action_type = ACT_hits_npc});
+  if(from->is_character)
+  {
+   process_perception(to, (Perception){.type = PlayerAction, .player_action_type = ACT_hits_npc});
+  }
+  else
+  {
+   process_perception(to, (Perception){.type = EnemyAction, .enemy_action_type = ACT_hits_npc});
+  }
   to->vel = MulV2F(NormV2(SubV2(to->pos, from_point)), 15.0f);
  }
  else
@@ -2581,7 +2589,7 @@ void frame(void)
            Entity *from = it;
            BUFF_ITER(Entity *, &to_damage)
            {
-            request_do_damage(*it, from->pos, 0.2f);
+            request_do_damage(*it, from, 0.2f);
            }
           }
          }
@@ -2701,7 +2709,7 @@ void frame(void)
         if(!it->is_tile && !(it->e->is_bullet))
         {
          // knockback and damage
-         request_do_damage(it->e, from_bullet->pos, 0.2f);
+         request_do_damage(it->e, from_bullet, 0.2f);
          destroy_bullet = true;
         }
        }
@@ -2930,7 +2938,7 @@ void frame(void)
        SwordToDamage to_damage = entity_sword_to_do_damage(player, get_overlapping(cur_level, weapon_aabb));
        BUFF_ITER(Entity*, &to_damage)
        {
-        request_do_damage(*it, player->pos, 0.2f);
+        request_do_damage(*it, player, 0.2f);
        }
        player->swing_progress += dt;
        if(player->swing_progress > anim_sprite_duration(&knight_attack))
