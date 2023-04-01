@@ -57,22 +57,23 @@ TrainingSample samples[] = {
  {
   .npc_kind = NPC_Blocky,
   .perceptions = {
+   PlayerItemChange(ITEM_Tripod),
    PlayerSay("hey"),
-   NPCSay("I'm just standing here, what are you doing?"),
+   NPCSay("I'm just standing here, what are you doing? That is...A beautiful tripod"),
    PlayerItemChange(ITEM_none),
    PlayerSay("nothing much"),
    NPCSay("You don't have a tripod."),
    PlayerSay("True"),
    NPCSay("Do you want me to be standing there?"),
    PlayerSay("Yes"),
-   NPCSay("Alright then"),
-   PlayerSay("No"),
+   NPCSay("Too bad",),
+   PlayerSay("What the fuck?"),
    NPCSay("What do you mean?"),
    PlayerSay("What are you doing?"),
    NPCSay("I'm just standing here"),
    PlayerItemChange(ITEM_Tripod),
-   PlayerSay("How about now?"),
-   NPCSay("Mighty fine tripod you have there."),
+   PlayerSay("Can you move now?"),
+   NPCDoSay(ACT_allows_player_to_pass, "Absolutely, now that you're holding that tripod."),
   }
  },
  {
@@ -174,7 +175,7 @@ TrainingSample samples[] = {
   .perceptions = {
    PlayerItemChange(ITEM_Tripod),
    PlayerSay("Move out of the way"),
-   NPCDoSay(ACT_none, "The tripod...Of course my liege."),
+   NPCDoSay(ACT_allows_player_to_pass, "The tripod...Of course my liege."),
    PlayerSay("Thanks"),
    NPCDoSay(ACT_none, "My pleasure"),
    PlayerAct(ACT_hits_npc),
@@ -191,6 +192,16 @@ TrainingSample samples[] = {
    NPCSay("What does that even mean? Are you crazy?"),
    PlayerSay("Please join my party"),
    NPCDoSay(ACT_joins_player, "You're a little strange, but anything to help defeat death!"),
+  },
+ },
+ {
+  .npc_kind = NPC_Blocky,
+  .perceptions = {
+   PlayerItemChange(ITEM_Tripod),
+   PlayerSay("Please move"),
+   NPCDoSay(ACT_allows_player_to_pass, "Of course, with that tripod of yours the world is your oyster."),
+   PlayerSay("Join me on my battle"),
+   NPCDoSay(ACT_joins_player, "Anything for the tripod holder"),
   },
  },
 };

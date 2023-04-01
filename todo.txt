@@ -8,8 +8,8 @@ DONE - Do not use webhooks (shitty, bad idea propagated by bad docs) query strip
 DONE - New art in
 DON'T NEED - Old man in beginning is invincible
  - Make new openai key (it was leaked)
- - Add cancel button
- - Style buttons
+DONE - Add cancel button
+DONE - Style buttons
  - Make map better, add new characters/items from fate
  - Animate text characters coming in
  - Instead of roll animation, 5 sprite long trail of past moves for juice
