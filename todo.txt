@@ -17,7 +17,7 @@ DONE - Make TREE1 prop work
  - Instead of roll animation, 5 sprite long trail of past moves for juice
  - Enemy hitting NPC is enemy perception not player peception of player hitting them
  - Sword combat for sword npcs 
- - Third button for dialog/item stuff, not roll button. E on desktop. Touchscreen button only visible when appropriate to let player know what it's for
+DONE - Third button for dialog/item stuff, not roll button. E on desktop. Touchscreen button only visible when appropriate to let player know what it's for
 DON'T NEED, SET BACKGROUND COLOR - Clamp camera to boundaries of level
 DONE - Ignore keyrepeat events
 DONE - Remove control attack key as devtools
