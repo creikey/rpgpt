@@ -2353,9 +2353,17 @@ void frame(void)
          }
          else if(status == 2)
          {
-          Log("Failed to generate dialog! Fuck!");
+          Log("Failed to generate dialog! Fuck!\n");
           // need somethin better here. Maybe each sentence has to know if it's player or NPC, that way I can remove the player's dialog
           process_perception(it, (Perception){.type = NPCDialog, .npc_action_type = ACT_none, .npc_dialog = SENTENCE_CONST("I'm not sure...")});
+         }
+         else if(status == -1)
+         {
+          Log("Generation request doesn't exist anymore, that's fine...\n");
+         }
+         else
+         {
+          Log("Unknown generation request status: %d\n", status);
          }
          it->gen_request_id = 0;
         }
