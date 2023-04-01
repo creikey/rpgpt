@@ -13,17 +13,17 @@ DONE - Style buttons
  - Make map better, add new characters/items from fate
 DONE - nockin git thing 
  - Animate text characters coming in
- - Make TREE1 prop work
+DONE - Make TREE1 prop work
  - Instead of roll animation, 5 sprite long trail of past moves for juice
  - Enemy hitting NPC is enemy perception not player peception of player hitting them
  - GodRock spawns skeletons like a boss when he fights you
  - Sword combat for sword npcs 
  - Third button for dialog/item stuff, not roll button. E on desktop. Touchscreen button only visible when appropriate to let player know what it's for
- - Clamp camera to boundaries of level
+DON'T NEED, SET BACKGROUND COLOR - Clamp camera to boundaries of level
 DONE - Ignore keyrepeat events
 DONE - Remove control attack key as devtools
  - Cells interlinked (interlinked)
- - Tune fade popping at dist when you go too far awy
+DONE - Tune fade popping at dist when you go too far awy
  - 
  - Particle fx and sound fx for when hit
  - Max text length on text input

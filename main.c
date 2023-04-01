@@ -902,6 +902,31 @@ SwordToDamage entity_sword_to_do_damage(Entity *from, Overlapping o)
  return to_return;
 }
 
+typedef Vec4 Color;
+
+#define WHITE (Color){1.0f, 1.0f, 1.0f, 1.0f}
+#define BLACK (Color){0.0f, 0.0f, 0.0f, 1.0f}
+#define RED   (Color){1.0f, 0.0f, 0.0f, 1.0f}
+#define GREEN (Color){0.0f, 1.0f, 0.0f, 1.0f}
+
+Color colhex(uint32_t hex)
+{
+ int r = (hex & 0xff0000) >> 16;
+ int g = (hex & 0x00ff00) >> 8;
+ int b = (hex & 0x0000ff) >> 0;
+
+ return (Color){ (float)r / 255.0f, (float)g / 255.0f, (float)b / 255.0f, 1.0f };
+}
+
+Color blendalpha(Color c, float alpha)
+{
+ Color to_return = c;
+ to_return.a = alpha;
+ return to_return;
+}
+
+
+
 void init(void)
 {
 #ifdef WEB
@@ -993,6 +1018,7 @@ void init(void)
  assert(desc);
  sg_shader shd = sg_make_shader(desc);
 
+ Color clearcol = colhex(0x98734c);
  state.pip = sg_make_pipeline(&(sg_pipeline_desc)
    {
     .shader = shd,
@@ -1025,32 +1051,8 @@ void init(void)
   //.colors[0] = { .action=SG_ACTION_CLEAR, .value={255.5f/255.0f, 255.5f/255.0f, 255.5f/255.0f, 1.0f } }
   // 0x898989 is the color in tiled
   .colors[0] =
-  { .action=SG_ACTION_CLEAR, .value={137.0f/255.0f, 137.0f/255.0f, 137.0f/255.0f, 1.0f } }
+  { .action=SG_ACTION_CLEAR, .value={clearcol.r, clearcol.g, clearcol.b, 1.0f } }
  };
-}
-
-typedef Vec4 Color;
-
-
-#define WHITE (Color){1.0f, 1.0f, 1.0f, 1.0f}
-#define BLACK (Color){0.0f, 0.0f, 0.0f, 1.0f}
-#define RED   (Color){1.0f, 0.0f, 0.0f, 1.0f}
-#define GREEN (Color){0.0f, 1.0f, 0.0f, 1.0f}
-
-Color colhex(uint32_t hex)
-{
- int r = (hex & 0xff0000) >> 16;
- int g = (hex & 0x00ff00) >> 8;
- int b = (hex & 0x0000ff) >> 0;
-
- return (Color){ (float)r / 255.0f, (float)g / 255.0f, (float)b / 255.0f, 1.0f };
-}
-
-Color blendalpha(Color c, float alpha)
-{
- Color to_return = c;
- to_return.a = alpha;
- return to_return;
 }
 
 Vec2 screen_size()
@@ -1358,6 +1360,8 @@ void flush_quad_batch()
 }
 
 
+#define Y_COORD_IN_BACK (-1.0f)
+#define Y_COORD_IN_FRONT (3.0f)
 typedef struct DrawParams
 {
  bool world_space;
@@ -1367,7 +1371,7 @@ typedef struct DrawParams
  Color tint;
 
  AABB clip_to; // if world space is in world space, if screen space is in screen space - Lao Tzu
- float y_coord_sorting; // 0.0 is all the way in the back, 1.0 is in the front
+ float y_coord_sorting; // Y_COORD_IN_BACK, or the smallest value, is all the way in the back, Y_COORD_IN_FRONT is in the front
  float alpha_clip_threshold;
  bool queue_for_translucent;
 } DrawParams;
@@ -1484,7 +1488,10 @@ void draw_quad(DrawParams d)
   Vec2 in_clip_space = into_clip_space(points[i]);
   new_vertices[i*FLOATS_PER_VERTEX + 0] = in_clip_space.X;
   new_vertices[i*FLOATS_PER_VERTEX + 1] = in_clip_space.Y;
-  new_vertices[i*FLOATS_PER_VERTEX + 2] = 1.0f - clampf(d.y_coord_sorting, 0.0f, 1.0f);
+  // update Y_COORD_IN_BACK, Y_COORD_IN_FRONT when this changes
+  float unmapped = (clampf(d.y_coord_sorting, -1.0f, 2.0f));
+  float mapped = (unmapped + 1.0f)/3.0f;
+  new_vertices[i*FLOATS_PER_VERTEX + 2] = 1.0f - (float)clamp(mapped, 0.0, 1.0);
   new_vertices[i*FLOATS_PER_VERTEX + 3] = tex_coords[i].X;
   new_vertices[i*FLOATS_PER_VERTEX + 4] = tex_coords[i].Y;
  }
@@ -1564,7 +1571,7 @@ void colorquad(bool world_space, Quad q, Color col)
   queue = true;
  }
  // y coord sorting for colorquad puts it below text for dialog panel
- draw_quad((DrawParams){world_space, q, image_white_square, full_region(image_white_square), col, .y_coord_sorting = 0.95f, .queue_for_translucent = queue});
+ draw_quad((DrawParams){world_space, q, image_white_square, full_region(image_white_square), col, .y_coord_sorting = Y_COORD_IN_FRONT - 0.05f, .queue_for_translucent = queue});
 }
 
 
@@ -1751,9 +1758,9 @@ AABB draw_text(TextParams t)
      {
       shadow_quad.points[i] = AddV2(shadow_quad.points[i], V2(0.0, -1.0));
      }
-     draw_quad((DrawParams){t.world_space, shadow_quad, image_font, font_atlas_region, (Color){0.0f,0.0f,0.0f,0.4f}, t.clip_to, .y_coord_sorting = 1.0f, .queue_for_translucent = true});
+     draw_quad((DrawParams){t.world_space, shadow_quad, image_font, font_atlas_region, (Color){0.0f,0.0f,0.0f,0.4f}, t.clip_to, .y_coord_sorting = Y_COORD_IN_FRONT, .queue_for_translucent = true});
     }
-    draw_quad((DrawParams){t.world_space, to_draw, image_font, font_atlas_region, col, t.clip_to, .y_coord_sorting = 1.0f, .queue_for_translucent = true});
+    draw_quad((DrawParams){t.world_space, to_draw, image_font, font_atlas_region, col, t.clip_to, .y_coord_sorting = Y_COORD_IN_FRONT, .queue_for_translucent = true});
    }
   }
  }
@@ -1767,13 +1774,15 @@ float y_coord_sorting_at(Vec2 pos)
 {
  float y_coord_sorting = world_to_screen(pos).y / screen_size().y;
 
+ y_coord_sorting = 1.0f - y_coord_sorting;
+
  // debug draw the y cord sorting value
-#if 0
+#if 1
  char *to_draw = tprint("%f", y_coord_sorting);
  draw_text((TextParams){true, false, to_draw, pos, BLACK, 1.0f});
 #endif
  
- return 1.0f - y_coord_sorting;
+ return y_coord_sorting;
 }
 
 void draw_shadow_for(DrawParams d)
@@ -2266,7 +2275,7 @@ void frame(void)
 
   Level *cur_level = &level_level0;
 
-  // tilemap drawing
+  // Draw Tilemap draw tilemap tilemap drawing
 #if 1
   PROFILE_SCOPE("tilemap")
   {
@@ -2333,7 +2342,7 @@ void frame(void)
        region.upper_left = tile_image_coord;
        region.lower_right = AddV2(region.upper_left, tile_size);
 
-       draw_quad((DrawParams){true, tile_quad(cur_coord), tileset_image, region, WHITE});
+       draw_quad((DrawParams){true, tile_quad(cur_coord), tileset_image, region, WHITE, .y_coord_sorting = Y_COORD_IN_BACK});
       }
      }
     }
@@ -2345,6 +2354,7 @@ void frame(void)
 
   // gameplay processing loop, do multiple if lagging
   static Entity *interacting_with = 0; // used by rendering to figure out who to draw dialog box on
+  const float dialog_interact_size = 2.5f * TILE_SIZE;
   int num_timestep_loops = 0;
   {
    unprocessed_gameplay_time += dt;
@@ -2757,7 +2767,7 @@ void frame(void)
       {
        // find closest to talk to
        {
-        AABB dialog_rect = centered_aabb(player->pos, V2(TILE_SIZE*2.5f, TILE_SIZE*2.5f));
+        AABB dialog_rect = centered_aabb(player->pos, V2(dialog_interact_size , dialog_interact_size));
         dbgrect(dialog_rect);
         Overlapping possible_dialogs = get_overlapping(cur_level, dialog_rect);
         float closest_interact_with_dist = INFINITY;
@@ -2945,8 +2955,11 @@ void frame(void)
     draw_quad((DrawParams){true, quad_centered(interacting_with->pos, V2(TILE_SIZE, TILE_SIZE)), image_dialog_circle, full_region(image_dialog_circle), WHITE});
     if(interacting_with->is_npc)
     {
-     float how_far_away = (float)clamp(LenV2(SubV2(interacting_with->pos, player->pos))/40.0f - 0.5f, 0.0, 1.0);
-     draw_dialog_panel(interacting_with, 1.0f - how_far_away);
+     float dist = LenV2(SubV2(interacting_with->pos, player->pos));
+     dist -= 10.0f; // radius around point where dialog is completely opaque
+     float max_dist = dialog_interact_size/2.0f;
+     float alpha = 1.0f - (float)clamp(dist/max_dist, 0.0, 1.0);
+     draw_dialog_panel(interacting_with, alpha);
     }
    }
 
@@ -2988,7 +3001,7 @@ void frame(void)
    // hurt vignette
    if(player->damage > 0.0)
    {
-    draw_quad((DrawParams){false, (Quad){.ul=V2(0.0f, screen_size().Y), .ur = screen_size(), .lr = V2(screen_size().X, 0.0f)}, image_hurt_vignette, full_region(image_hurt_vignette), (Color){1.0f, 1.0f, 1.0f, player->damage}, .y_coord_sorting = 1.0f, .queue_for_translucent = true});
+    draw_quad((DrawParams){false, (Quad){.ul=V2(0.0f, screen_size().Y), .ur = screen_size(), .lr = V2(screen_size().X, 0.0f)}, image_hurt_vignette, full_region(image_hurt_vignette), (Color){1.0f, 1.0f, 1.0f, player->damage}, .y_coord_sorting = Y_COORD_IN_FRONT, .queue_for_translucent = true});
    }
   }
 
@@ -3196,20 +3209,20 @@ void frame(void)
    total_height -= (total_height - (vertical_spacing + HELPER_SIZE));
    const float padding = 50.0f;
    float y = screen_size().y/2.0f + total_height/2.0f;
-   draw_quad((DrawParams){false, quad_at(V2(padding, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_shift_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_shift)}, .y_coord_sorting = 1.0f});
+   draw_quad((DrawParams){false, quad_at(V2(padding, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_shift_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_shift)}, .y_coord_sorting = Y_COORD_IN_FRONT});
    y -= vertical_spacing;
-   draw_quad((DrawParams){false, quad_at(V2(padding, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_space_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_space)}, .y_coord_sorting = 1.0f});
+   draw_quad((DrawParams){false, quad_at(V2(padding, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_space_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_space)}, .y_coord_sorting = Y_COORD_IN_FRONT});
   }
 
 
   if(mobile_controls)
   {
    float thumbstick_nub_size = (img_size(image_mobile_thumbstick_nub).x / img_size(image_mobile_thumbstick_base).x) * thumbstick_base_size();
-   draw_quad((DrawParams){false, quad_centered(thumbstick_base_pos, V2(thumbstick_base_size(), thumbstick_base_size())), IMG(image_mobile_thumbstick_base), WHITE, .y_coord_sorting = 1.0f});
-   draw_quad((DrawParams){false, quad_centered(thumbstick_nub_pos, V2(thumbstick_nub_size, thumbstick_nub_size)), IMG(image_mobile_thumbstick_nub), WHITE, .y_coord_sorting = 1.0f});
+   draw_quad((DrawParams){false, quad_centered(thumbstick_base_pos, V2(thumbstick_base_size(), thumbstick_base_size())), IMG(image_mobile_thumbstick_base), WHITE, .y_coord_sorting = Y_COORD_IN_FRONT});
+   draw_quad((DrawParams){false, quad_centered(thumbstick_nub_pos, V2(thumbstick_nub_size, thumbstick_nub_size)), IMG(image_mobile_thumbstick_nub), WHITE, .y_coord_sorting = Y_COORD_IN_FRONT});
 
-   draw_quad((DrawParams){false, quad_centered(roll_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .y_coord_sorting = 1.0f});
-   draw_quad((DrawParams){false, quad_centered(attack_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .y_coord_sorting = 1.0f});
+   draw_quad((DrawParams){false, quad_centered(roll_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .y_coord_sorting = Y_COORD_IN_FRONT});
+   draw_quad((DrawParams){false, quad_centered(attack_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .y_coord_sorting = Y_COORD_IN_FRONT});
   }
 
 #ifdef DEVTOOLS
