@@ -542,8 +542,8 @@ typedef struct GameState {
  Entity entities[MAX_ENTITIES];
 } GameState;
 GameState gs = {0};
-double unprocessed_fixed_timestep_time = 0.0;
-#define FIXED_TIMESTEP (1.0/60.0)
+double unprocessed_gameplay_time = 0.0;
+#define MINIMUM_TIMESTEP (1.0/7.0)
 
 EntityRef frome(Entity *e)
 {
@@ -1040,6 +1040,13 @@ Color colhex(uint32_t hex)
  return (Color){ (float)r / 255.0f, (float)g / 255.0f, (float)b / 255.0f, 1.0f };
 }
 
+Color blendalpha(Color c, float alpha)
+{
+ Color to_return = c;
+ to_return.a = alpha;
+ return to_return;
+}
+
 Vec2 screen_size()
 {
  return V2((float)sapp_width(), (float)sapp_height());
@@ -1499,8 +1506,17 @@ void draw_quad(DrawParams d)
 }
 }
 
+int translucent_compare(const void *a, const void *b)
+{
+ DrawParams *a_draw = (DrawParams*)a;
+ DrawParams *b_draw = (DrawParams*)b;
+
+ return (int)((a_draw->y_coord_sorting - b_draw->y_coord_sorting)*1000.0f);
+}
+
 void draw_all_translucent()
 {
+ qsort(&translucent_queue.data[0], translucent_queue.cur_index, sizeof(translucent_queue.data[0]), translucent_compare);
  BUFF_ITER(DrawParams, &translucent_queue)
  {
   it->queue_for_translucent = false;
@@ -1541,7 +1557,8 @@ void colorquad(bool world_space, Quad q, Color col)
  {
   queue = true;
  }
- draw_quad((DrawParams){world_space, q, image_white_square, full_region(image_white_square), col, .y_coord_sorting = 1.0f, .queue_for_translucent = queue});
+ // y coord sorting for colorquad puts it below text for dialog panel
+ draw_quad((DrawParams){world_space, q, image_white_square, full_region(image_white_square), col, .y_coord_sorting = 0.95f, .queue_for_translucent = queue});
 }
 
 
@@ -2043,7 +2060,7 @@ float draw_wrapped_text(bool dry_run, Vec2 at_point, float max_width, char *text
  return cursor.Y;
 }
 
-void draw_dialog_panel(Entity *talking_to)
+void draw_dialog_panel(Entity *talking_to, float alpha)
 {
  float panel_width = 250.0f;
  float panel_height = 150.0f;
@@ -2070,11 +2087,12 @@ void draw_dialog_panel(Entity *talking_to)
    panel_quad.lr = AddV2(panel_quad.lr, V2(-inset,  inset));
    panel_quad.ur = AddV2(panel_quad.ur, V2(-inset, -inset));
   }
-  colorquad(true, panel_quad, (Color){1.0f, 1.0f, 1.0f, 0.7f});
-  line(AddV2(dialog_quad.ul, V2(-line_width,0.0)), AddV2(dialog_quad.ur, V2(line_width,0.0)), line_width, BLACK);
-  line(dialog_quad.ur, dialog_quad.lr, line_width, BLACK);
-  line(AddV2(dialog_quad.lr, V2(line_width,0.0)), AddV2(dialog_quad.ll, V2(-line_width,0.0)), line_width, BLACK);
-  line(dialog_quad.ll, dialog_quad.ul, line_width, BLACK);
+  colorquad(true, panel_quad, (Color){1.0f, 1.0f, 1.0f, 0.7f*alpha});
+  Color line_color  = (Color){0,0,0,alpha};
+  line(AddV2(dialog_quad.ul, V2(-line_width,0.0)), AddV2(dialog_quad.ur, V2(line_width,0.0)), line_width, line_color);
+  line(dialog_quad.ur, dialog_quad.lr, line_width, line_color);
+  line(AddV2(dialog_quad.lr, V2(line_width,0.0)), AddV2(dialog_quad.ll, V2(-line_width,0.0)), line_width, line_color);
+  line(dialog_quad.ll, dialog_quad.ul, line_width, line_color);
 
   float padding = 5.0f;
   dialog_panel.upper_left = AddV2(dialog_panel.upper_left, V2(padding, -padding));
@@ -2119,6 +2137,7 @@ void draw_dialog_panel(Entity *talking_to)
        {
         colors[char_i] = colhex(0x345e22);
        }
+       colors[char_i] = blendalpha(colors[char_i], alpha);
       }
       float measured_line_height = draw_wrapped_text(true, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->s.data, colors, 0.5f, true, dialog_panel);
       new_line_height += (new_line_height - measured_line_height);
@@ -2311,16 +2330,17 @@ void frame(void)
 
   assert(player != NULL);
 
-  // fixed timestep loop
+  // gameplay processing loop, do multiple if lagging
   static Entity *interacting_with = 0; // used by rendering to figure out who to draw dialog box on
   int num_timestep_loops = 0;
   {
-   unprocessed_fixed_timestep_time += dt;
-   while(unprocessed_fixed_timestep_time > FIXED_TIMESTEP)
+   unprocessed_gameplay_time += dt;
+   float timestep = fminf(dt, (float)MINIMUM_TIMESTEP);
+   while(unprocessed_gameplay_time >= timestep)
    {
     num_timestep_loops++;
-    unprocessed_fixed_timestep_time -= FIXED_TIMESTEP;
-    float dt = (float)FIXED_TIMESTEP;
+    unprocessed_gameplay_time -= timestep;
+    float dt = timestep;
 
     // process gs.entities
     PROFILE_SCOPE("entity processing")
@@ -2706,7 +2726,7 @@ void frame(void)
       {
        // find closest to talk to
        {
-        AABB dialog_rect = centered_aabb(player->pos, V2(TILE_SIZE*2.0f, TILE_SIZE*2.0f));
+        AABB dialog_rect = centered_aabb(player->pos, V2(TILE_SIZE*2.5f, TILE_SIZE*2.5f));
         dbgrect(dialog_rect);
         Overlapping possible_dialogs = get_overlapping(cur_level, dialog_rect);
         float closest_interact_with_dist = INFINITY;
@@ -2897,7 +2917,8 @@ void frame(void)
     draw_quad((DrawParams){true, quad_centered(interacting_with->pos, V2(TILE_SIZE, TILE_SIZE)), image_dialog_circle, full_region(image_dialog_circle), WHITE});
     if(interacting_with->is_npc)
     {
-     draw_dialog_panel(interacting_with);
+     float how_far_away = (float)clamp(LenV2(SubV2(interacting_with->pos, player->pos))/40.0f - 0.5f, 0.0, 1.0);
+     draw_dialog_panel(interacting_with, 1.0f - how_far_away);
     }
    }
 
@@ -3175,7 +3196,7 @@ void frame(void)
    Vec2 pos = V2(0.0, screen_size().Y);
    int num_entities = 0;
    ENTITIES_ITER(gs.entities) num_entities++;
-   char *stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nEntities: %d\nDraw calls: %d\nProfiling: %s\nNumber fixed timestep loops: %d\n", dt*1000.0, last_frame_processing_time*1000.0, num_entities, num_draw_calls, profiling ? "yes" : "no", num_timestep_loops);
+   char *stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nEntities: %d\nDraw calls: %d\nProfiling: %s\nNumber gameplay processing loops: %d\n", dt*1000.0, last_frame_processing_time*1000.0, num_entities, num_draw_calls, profiling ? "yes" : "no", num_timestep_loops);
    AABB bounds = draw_text((TextParams){false, true, stats, pos, BLACK, 1.0f});
    pos.Y -= bounds.upper_left.Y - screen_size().Y;
    bounds = draw_text((TextParams){false, true, stats, pos, BLACK, 1.0f});

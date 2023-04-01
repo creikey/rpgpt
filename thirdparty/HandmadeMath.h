@@ -334,6 +334,19 @@ typedef union Vec4
 
         float A;
     };
+    struct
+    {
+        union
+        {
+            Vec3 rgb;
+            struct
+            {
+                float r, g, b;
+            };
+        };
+
+        float a;
+    };
 
     struct
     {

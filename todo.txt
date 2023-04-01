@@ -7,12 +7,12 @@ DONE - Help you fight and fight you actions
 DONE - Do not use webhooks (shitty, bad idea propagated by bad docs) query stripe for if the payment went through on request if not fulfilled yet
  - New characters/items from fate
 DONE - New art in
- - Old man in beginning is invincible
+DON'T NEED - Old man in beginning is invincible
  - Make new openai key (it was leaked)
  - Add cancel button
  - Style buttons
  - Make map better
- - Fade dialog with distance
+DONE - Fade dialog with distance
  - Make vignette in front
  - Ignore keyrepeat events
  - Remove control attack key as devtools
