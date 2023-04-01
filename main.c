@@ -692,26 +692,24 @@ void end_text_input(char *what_player_said)
  }
 }
 
-
-
 AnimatedSprite knight_idle =
 {
- .img = &image_knight_idle,
- .time_per_frame = 0.3,
- .num_frames = 10,
- .start = {16.0f, 0.0f},
- .horizontal_diff_btwn_frames = 120.0,
- .region_size = {80.0f, 80.0f},
+ .img = &image_new_knight_idle,
+ .time_per_frame = 0.4,
+ .num_frames = 6,
+ .start = {0.0f, 0.0f},
+ .horizontal_diff_btwn_frames = 64.0,
+ .region_size = {64.0f, 64.0f},
 };
 
 AnimatedSprite knight_running =
 {
- .img = &image_knight_run,
- .time_per_frame = 0.06,
- .num_frames = 10,
- .start = {19.0f, 0.0f},
- .horizontal_diff_btwn_frames = 120.0,
- .region_size = {80.0f, 80.0f},
+ .img = &image_new_knight_run,
+ .time_per_frame = 0.1,
+ .num_frames = 7,
+ .start = {64.0f*10, 0.0f},
+ .horizontal_diff_btwn_frames = 64.0,
+ .region_size = {64.0f, 64.0f},
 };
 
 AnimatedSprite knight_rolling =
@@ -728,12 +726,12 @@ AnimatedSprite knight_rolling =
 
 AnimatedSprite knight_attack = 
 {
- .img = &image_knight_attack,
+ .img = &image_new_knight_attack,
  .time_per_frame = 0.06,
- .num_frames = 4,
- .start = {37.0f, 0.0f},
- .horizontal_diff_btwn_frames = 120.0,
- .region_size = {80.0f, 80.0f},
+ .num_frames = 7,
+ .start = {0.0f, 0.0f},
+ .horizontal_diff_btwn_frames = 64.0,
+ .region_size = {64.0f, 64.0f},
  .no_wrap = true,
 };
 
@@ -1755,6 +1753,25 @@ float y_coord_sorting_at(Vec2 pos)
  return 1.0f - y_coord_sorting;
 }
 
+void draw_shadow_for(DrawParams d)
+{
+ Quad sheared_quad = d.quad;
+ float height = d.quad.ur.y - d.quad.lr.y;
+ Vec2 shear_addition = V2(-height*0.35f, -height*0.2f);
+ sheared_quad.ul = AddV2(sheared_quad.ul, shear_addition);
+ sheared_quad.ur = AddV2(sheared_quad.ur, shear_addition);
+ d.quad = sheared_quad;
+ d.tint = (Color){0,0,0,0.2f};
+ d.y_coord_sorting -= 0.05f;
+ d.alpha_clip_threshold = 0.0f;
+ d.queue_for_translucent = true;
+ dbgline(sheared_quad.ul, sheared_quad.ur);
+ dbgline(sheared_quad.ur, sheared_quad.lr);
+ dbgline(sheared_quad.lr, sheared_quad.ll);
+ dbgline(sheared_quad.ll, sheared_quad.ul);
+ draw_quad(d);
+}
+
 void draw_animated_sprite(AnimatedSprite *s, double elapsed_time, bool flipped, Vec2 pos, Color tint)
 {
  float y_sort_pos = y_coord_sorting_at(pos);
@@ -1785,7 +1802,9 @@ void draw_animated_sprite(AnimatedSprite *s, double elapsed_time, bool flipped, 
  }
  region.lower_right = AddV2(region.upper_left, s->region_size);
 
- draw_quad((DrawParams){true, q, spritesheet_img, region, tint, .y_coord_sorting = y_sort_pos, .alpha_clip_threshold = 0.2f});
+ DrawParams d = (DrawParams){true, q, spritesheet_img, region, tint, .y_coord_sorting = y_sort_pos, .alpha_clip_threshold = 0.2f};
+ draw_shadow_for(d);
+ draw_quad(d);
 }
 
 // gets aabbs overlapping the input aabb, including gs.entities and tiles
@@ -2579,7 +2598,8 @@ void frame(void)
       {
        if(it->held_by_player)
        {
-        it->pos = AddV2(player->pos, V2(5.0f * (player->facing_left ? -1.0f : 1.0f), 0.0f));
+        Vec2 held_spot = V2(15.0f * (player->facing_left ? -1.0f : 1.0f), 7.0f);
+        it->pos = AddV2(player->pos, held_spot);
        }
        else
        {
@@ -2632,6 +2652,10 @@ void frame(void)
         int gen = it->generation;
         *it = (Entity){0};
         it->generation = gen;
+       }
+       if(it->perceptions_dirty && !npc_does_dialog(it))
+       {
+        it->perceptions_dirty = false;
        }
        if(it->perceptions_dirty)
        {
@@ -2931,7 +2955,8 @@ void frame(void)
 #endif
 
    // draw drop shadow
-   if(it->is_character || it->is_npc || it->is_prop)
+   //if(it->is_character || it->is_npc || it->is_prop)
+   if(false)
    {
     //if(it->npc_kind != DEATH)
     {
@@ -3003,7 +3028,9 @@ void frame(void)
     else if(it->npc_kind == NPC_GodRock)
     {
      Vec2 prop_size = V2(46.0f, 40.0f);
-     draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, V2(-0.0f, 0.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(15.0f, 219.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.7f});
+     DrawParams d = (DrawParams){true, quad_centered(AddV2(it->pos, V2(-0.0f, 0.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(15.0f, 219.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.7f};
+     draw_shadow_for(d);
+     draw_quad(d);
     }
     else if(npc_is_knight_sprite(it))
     {
@@ -3066,22 +3093,28 @@ void frame(void)
    }
    else if(it->is_prop)
    {
+    DrawParams d = {0};
     if(it->prop_kind == TREE0)
     {
-     Vec2 prop_size = V2(74.0f, 137.0f);
-     draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, V2(-5.0f, 45.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(2.0f, 4.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.7f});
+     Vec2 prop_size = V2(74.0f, 122.0f);
+     d = (DrawParams){true, quad_centered(AddV2(it->pos, V2(-5.0f, 45.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(2.0f, 4.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.7f};
     }
-     
-    if(it->prop_kind == TREE1)
+    else if(it->prop_kind == TREE1)
     {
      Vec2 prop_size = V2(102.0f, 145.0f);
-     draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, V2(-4.0f, 55.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(5.0f, 684.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f});
+     d = ((DrawParams){true, quad_centered(AddV2(it->pos, V2(-4.0f, 55.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(5.0f, 684.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f});
     }
-    if(it->prop_kind == TREE2)
+    else if(it->prop_kind == TREE2)
     {
      Vec2 prop_size = V2(128.0f, 192.0f);
-     draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, V2(-2.5f, 70.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(385.0f, 479.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f});
+     d = ((DrawParams){true, quad_centered(AddV2(it->pos, V2(-2.5f, 70.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(385.0f, 479.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f});
     }
+    else
+    {
+     assert(false);
+    }
+    draw_shadow_for(d);
+    draw_quad(d);
    }
    else
    {

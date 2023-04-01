@@ -255,6 +255,10 @@ int action_to_index(Entity *it, Action a)
  return index;
 }
 
+bool npc_does_dialog(Entity *it)
+{
+ return it->npc_kind < ARRLEN(prompt_table);
+}
 
 void generate_prompt(Entity *it, PromptBuff *into)
 {

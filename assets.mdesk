@@ -22,6 +22,18 @@
 {
  filepath: "_Roll.png",
 }
+@image new_knight_idle:
+{
+ filepath: "copyrighted/knight_idle.png",
+}
+@image new_knight_run:
+{
+ filepath: "copyrighted/knight_run_start.png",
+}
+@image new_knight_attack:
+{
+ filepath: "copyrighted/knight_attack.png",
+}
 @image death:
 {
  filepath: "copyrighted/wraith.png",
