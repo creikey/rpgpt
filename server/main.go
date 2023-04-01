@@ -14,6 +14,7 @@ import (
  "math/rand"
  gogpt "github.com/sashabaranov/go-gpt3"
  "github.com/stripe/stripe-go/v74"
+ "github.com/stripe/stripe-go/v74/event"
  "github.com/stripe/stripe-go/v74/webhook"
  "github.com/stripe/stripe-go/v74/checkout/session"
 
@@ -97,6 +98,51 @@ func clearOld(db *gorm.DB) {
  }
 }
 
+func handleEvent(event stripe.Event) error {
+ if event.Type == "checkout.session.completed" {
+  var session stripe.CheckoutSession
+  err := json.Unmarshal(event.Data.Raw, &session)
+  if err != nil {
+   return fmt.Errorf("Error parsing webhook JSON %s", err)
+  }
+
+  params := &stripe.CheckoutSessionParams{}
+  params.AddExpand("line_items")
+
+  // Retrieve the session. If you require line items in the response, you may include them by expanding line_items.
+  // Fulfill the purchase...
+
+  var toFulfill User
+  found := false
+  for trial := 0; trial < 5; trial++ {
+   if db.Where("checkout_session_id = ?", session.ID).First(&toFulfill).Error != nil {
+    log.Println("Failed to fulfill user with ID " + session.ID)
+   } else {
+    found = true
+    break
+   }
+  }
+  if !found {
+   return fmt.Errorf("Error Failed to find user in database to fulfill: very bad! ID: " + session.ID)
+  } else {
+   userString, err := codes.CodeToString(toFulfill.Code)
+   if err != nil {
+    return fmt.Errorf("Error strange thing, saved user's code was unable to be converted to a string %s", err)
+   }
+   log.Printf("Fulfilling user with code %s number %d\n", userString, toFulfill.Code)
+   if(toFulfill.IsFulfilled) {
+    log.Printf("User with code %s is already fulfilled, strange\n", userString)
+   }
+   toFulfill.IsFulfilled = true
+   err = db.Save(&toFulfill).Error
+   if err != nil {
+    return fmt.Errorf("Failed to save fulfilled flag status to database: %s", err)
+   }
+  }
+ }
+ return nil
+}
+
 func webhookResponse(w http.ResponseWriter, req *http.Request) {
  const MaxBodyBytes = int64(65536)
  req.Body = http.MaxBytesReader(w, req.Body, MaxBodyBytes)
@@ -117,45 +163,11 @@ func webhookResponse(w http.ResponseWriter, req *http.Request) {
   return
  }
 
- if event.Type == "checkout.session.completed" {
-  var session stripe.CheckoutSession
-  err := json.Unmarshal(event.Data.Raw, &session)
-  if err != nil {
-   log.Printf("Error parsing webhook JSON %s", err)
-   w.WriteHeader(http.StatusBadRequest)
-   return
-  }
-
-  params := &stripe.CheckoutSessionParams{}
-  params.AddExpand("line_items")
-
-  // Retrieve the session. If you require line items in the response, you may include them by expanding line_items.
-  // Fulfill the purchase...
-
-  
-  var toFulfill User
-  found := false
-  for trial := 0; trial < 5; trial++ {
-   if db.Where("checkout_session_id = ?", session.ID).First(&toFulfill).Error != nil {
-    log.Println("Failed to fulfill user with ID " + session.ID)
-   } else {
-    found = true
-    break
-   }
-  }
-  if !found {
-   log.Println("Error Failed to find user in database to fulfill: very bad! ID: " + session.ID)
-  } else {
-   userString, err := codes.CodeToString(toFulfill.Code)
-   if err != nil {
-    log.Printf("Error strange thing, saved user's code was unable to be converted to a string %s", err)
-   }
-   log.Printf("Fulfilling user with code %s number %d\n", userString, toFulfill.Code)
-   toFulfill.IsFulfilled = true
-   db.Save(&toFulfill)
-  }
+ err = handleEvent(event)
+ if err != nil {
+  w.WriteHeader(http.StatusBadRequest)
  }
-
+ 
  w.WriteHeader(http.StatusOK)
 }
 
@@ -285,12 +297,30 @@ func index(w http.ResponseWriter, req *http.Request) {
       } else {
        // now have valid user, in the database, to be rate limit checked
        // rate limiting based on user token
-       _, exists := daypassTimedOut[thisUserCode]
-       if exists {
-        rejected = true
+       if !thisUser.IsFulfilled {
+        log.Println("Unfulfilled user trying to play, might've been unresponded to event. Retrieving backlog of unfulfilled events...\n")
+        params := &stripe.EventListParams{}
+        params.Filters.AddFilter("delivery_success", "", "false")
+        i := event.List(params)
+        for i.Next() {
+         e := i.Event()
+         log.Println("Unfulfilled event! Of type %s. Handling...\n", e.Type)
+         err := handleEvent(*e)
+         if err != nil {
+          log.Println("Failed to fulfill unfulfilled event: %s\n", err)
+         }
+        }
+       }
+       if thisUser.IsFulfilled {
+        _, exists := daypassTimedOut[thisUserCode]
+        if exists {
+         rejected = true
+        } else {
+         rejected = false
+         daypassTimedOut[thisUserCode] = currentTime()
+        }
        } else {
-        rejected = false
-        daypassTimedOut[thisUserCode] = currentTime()
+        log.Println("User with code and existing entry in database was not fulfilled, and wanted to play... Very bad. Usercode: %s\n", thisUserCode)
        }
       }
      }

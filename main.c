@@ -658,8 +658,6 @@ void end_text_input(char *what_player_said)
   return;
  }
  player->state = CHARACTER_IDLE;
-#ifdef WEB // hacky
-#endif
 
  size_t player_said_len = strlen(what_player_said);
  int actual_len = 0;
