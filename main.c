@@ -2250,7 +2250,10 @@ void frame(void)
      (float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A],
      (float)keydown[SAPP_KEYCODE_W] - (float)keydown[SAPP_KEYCODE_S]
      );
-   attack = keydown[SAPP_KEYCODE_SPACE] || keydown[SAPP_KEYCODE_LEFT_CONTROL];
+   attack = keydown[SAPP_KEYCODE_SPACE];
+#ifdef DEVTOOLS
+   attack = attack || keydown[SAPP_KEYCODE_LEFT_CONTROL]; 
+#endif
    roll = keydown[ROLL_KEY];
   }
   if(LenV2(movement) > 1.0)
@@ -3155,8 +3158,8 @@ void frame(void)
     }
     else if(it->prop_kind == TREE1)
     {
-     Vec2 prop_size = V2(102.0f, 145.0f);
-     d = ((DrawParams){true, quad_centered(AddV2(it->pos, V2(-4.0f, 55.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(5.0f, 684.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f});
+     Vec2 prop_size = V2(94.0f, 120.0f);
+     d = ((DrawParams){true, quad_centered(AddV2(it->pos, V2(-4.0f, 55.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(105.0f, 4.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f});
     }
     else if(it->prop_kind == TREE2)
     {
@@ -3280,6 +3283,7 @@ void cleanup(void)
 
 void event(const sapp_event *e)
 {
+ if(e->key_repeat) return;
  if(e->type == SAPP_EVENTTYPE_TOUCHES_BEGAN)
  {
   if(!mobile_controls)

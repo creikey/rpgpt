@@ -13,22 +13,81 @@ if &shortmess =~ 'A'
 else
   set shortmess=aoO
 endif
-badd +0 codegen.c
+badd +1 codegen.c
 badd +0 main.c
+badd +0 maketraining.c
+badd +0 thirdparty/md.c
+badd +0 assets.mdesk
+badd +0 elements.mdesk
+badd +0 gen/assets.gen.c
+badd +0 gen/training_data.jsonl
+badd +0 server/main.go
+badd +0 server/codes/codes.go
+badd +0 server/codes/codes_test.go
+badd +0 server/rpgpt.service
+badd +0 server/install_service.sh
+badd +0 API_KEY.bat
+badd +0 build_desktop_debug.bat
+badd +0 build_web_debug.bat
+badd +0 build_web_release.bat
+badd +0 run_codegen.bat
 badd +0 buff.h
 badd +0 makeprompt.h
 badd +0 profiling.h
-badd +0 term://~/Documents/rpgpt//42668:C:/Windows/system32/cmd.exe
+badd +0 thirdparty/dr_wav.h
+badd +0 thirdparty/HandmadeMath.h
+badd +0 thirdparty/md.h
+badd +0 thirdparty/md_stb_sprintf.h
+badd +0 thirdparty/sokol_app.h
+badd +0 thirdparty/sokol_audio.h
+badd +0 thirdparty/sokol_gfx.h
+badd +0 thirdparty/sokol_glue.h
+badd +0 thirdparty/sokol_log.h
+badd +0 thirdparty/sokol_time.h
+badd +0 thirdparty/spall.h
+badd +0 thirdparty/stb_image.h
+badd +0 thirdparty/stb_truetype.h
+badd +0 gen/characters.gen.h
+badd +0 gen/quad-sapp.glsl.h
 argglobal
 %argdel
 $argadd codegen.c
 $argadd main.c
+$argadd maketraining.c
+$argadd thirdparty/md.c
+$argadd assets.mdesk
+$argadd elements.mdesk
+$argadd gen/assets.gen.c
+$argadd gen/training_data.jsonl
+$argadd server/main.go
+$argadd server/codes/codes.go
+$argadd server/codes/codes_test.go
+$argadd server/rpgpt.service
+$argadd server/install_service.sh
+$argadd API_KEY.bat
+$argadd build_desktop_debug.bat
+$argadd build_web_debug.bat
+$argadd build_web_release.bat
+$argadd run_codegen.bat
 $argadd buff.h
 $argadd makeprompt.h
 $argadd profiling.h
-set stal=2
-tabnew +setlocal\ bufhidden=wipe
-tabrewind
+$argadd thirdparty/dr_wav.h
+$argadd thirdparty/HandmadeMath.h
+$argadd thirdparty/md.h
+$argadd thirdparty/md_stb_sprintf.h
+$argadd thirdparty/sokol_app.h
+$argadd thirdparty/sokol_audio.h
+$argadd thirdparty/sokol_gfx.h
+$argadd thirdparty/sokol_glue.h
+$argadd thirdparty/sokol_log.h
+$argadd thirdparty/sokol_time.h
+$argadd thirdparty/spall.h
+$argadd thirdparty/stb_image.h
+$argadd thirdparty/stb_truetype.h
+$argadd gen/characters.gen.h
+$argadd gen/quad-sapp.glsl.h
+edit main.c
 let s:save_splitbelow = &splitbelow
 let s:save_splitright = &splitright
 set splitbelow splitright
@@ -45,24 +104,14 @@ set winminheight=0
 set winheight=1
 set winminwidth=0
 set winwidth=1
-exe 'vert 1resize ' . ((&columns * 124 + 104) / 209)
-exe 'vert 2resize ' . ((&columns * 84 + 104) / 209)
+exe 'vert 1resize ' . ((&columns * 104 + 104) / 209)
+exe 'vert 2resize ' . ((&columns * 104 + 104) / 209)
 argglobal
-enew
-setlocal fdm=manual
-setlocal fde=0
-setlocal fmr={{{,}}}
-setlocal fdi=#
-setlocal fdl=0
-setlocal fml=1
-setlocal fdn=20
-setlocal fen
-wincmd w
-argglobal
-if bufexists(fnamemodify("term://~/Documents/rpgpt//42668:C:/Windows/system32/cmd.exe", ":p")) | buffer term://~/Documents/rpgpt//42668:C:/Windows/system32/cmd.exe | else | edit term://~/Documents/rpgpt//42668:C:/Windows/system32/cmd.exe | endif
+if bufexists(fnamemodify("main.c", ":p")) | buffer main.c | else | edit main.c | endif
 if &buftype ==# 'terminal'
-  silent file term://~/Documents/rpgpt//42668:C:/Windows/system32/cmd.exe
+  silent file main.c
 endif
+balt codegen.c
 setlocal fdm=manual
 setlocal fde=0
 setlocal fmr={{{,}}}
@@ -71,6 +120,8 @@ setlocal fdl=0
 setlocal fml=1
 setlocal fdn=20
 setlocal fen
+silent! normal! zE
+let &fdl = &fdl
 let s:l = 1 - ((0 * winheight(0) + 24) / 49)
 if s:l < 1 | let s:l = 1 | endif
 keepjumps exe s:l
@@ -78,30 +129,12 @@ normal! zt
 keepjumps 1
 normal! 0
 wincmd w
-exe 'vert 1resize ' . ((&columns * 124 + 104) / 209)
-exe 'vert 2resize ' . ((&columns * 84 + 104) / 209)
-tabnext
-let s:save_splitbelow = &splitbelow
-let s:save_splitright = &splitright
-set splitbelow splitright
-wincmd _ | wincmd |
-vsplit
-1wincmd h
-wincmd w
-let &splitbelow = s:save_splitbelow
-let &splitright = s:save_splitright
-wincmd t
-let s:save_winminheight = &winminheight
-let s:save_winminwidth = &winminwidth
-set winminheight=0
-set winheight=1
-set winminwidth=0
-set winwidth=1
-exe 'vert 1resize ' . ((&columns * 104 + 104) / 209)
-exe 'vert 2resize ' . ((&columns * 104 + 104) / 209)
 argglobal
-enew
-balt term://~/Documents/rpgpt//42668:C:/Windows/system32/cmd.exe
+if bufexists(fnamemodify("makeprompt.h", ":p")) | buffer makeprompt.h | else | edit makeprompt.h | endif
+if &buftype ==# 'terminal'
+  silent file makeprompt.h
+endif
+balt codegen.c
 setlocal fdm=manual
 setlocal fde=0
 setlocal fmr={{{,}}}
@@ -110,23 +143,19 @@ setlocal fdl=0
 setlocal fml=1
 setlocal fdn=20
 setlocal fen
+silent! normal! zE
+let &fdl = &fdl
+let s:l = 1 - ((0 * winheight(0) + 24) / 49)
+if s:l < 1 | let s:l = 1 | endif
+keepjumps exe s:l
+normal! zt
+keepjumps 1
+normal! 0
 wincmd w
-argglobal
-enew
-balt term://~/Documents/rpgpt//42668:C:/Windows/system32/cmd.exe
-setlocal fdm=manual
-setlocal fde=0
-setlocal fmr={{{,}}}
-setlocal fdi=#
-setlocal fdl=0
-setlocal fml=1
-setlocal fdn=20
-setlocal fen
-wincmd w
+2wincmd w
 exe 'vert 1resize ' . ((&columns * 104 + 104) / 209)
 exe 'vert 2resize ' . ((&columns * 104 + 104) / 209)
-tabnext 2
-set stal=1
+tabnext 1
 if exists('s:wipebuf') && len(win_findbuf(s:wipebuf)) == 0 && getbufvar(s:wipebuf, '&buftype') isnot# 'terminal'
   silent exe 'bwipe ' . s:wipebuf
 endif
