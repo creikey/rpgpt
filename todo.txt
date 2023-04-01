@@ -13,10 +13,13 @@ DON'T NEED - Old man in beginning is invincible
  - Make map better, add new characters/items from fate
  - Animate text characters coming in
  - Instead of roll animation, 5 sprite long trail of past moves for juice
+ - Enemy hitting NPC is enemy perception not player peception of player hitting them
+ - GodRock spawns skeletons like a boss when he fights you
  - Sword combat for sword npcs 
  - Third button for dialog/item stuff, not roll button. E on desktop. Touchscreen button only visible when appropriate to let player know what it's for
 DONE - Fade dialog with distance
 DONE - Make vignette in front
+ - Clamp camera to boundaries of level
  - Ignore keyrepeat events
  - Remove control attack key as devtools
  - Particle fx and sound fx for when hit

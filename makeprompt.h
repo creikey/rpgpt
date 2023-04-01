@@ -26,6 +26,7 @@ typedef enum PerceptionType
  PlayerAction,
  PlayerDialog,
  NPCDialog, // includes an npc action in every npc dialog. So it's often nothing
+ EnemyAction, // An enemy performed an action against the NPC
  PlayerHeldItemChanged,
 } PerceptionType;
 
@@ -48,6 +49,9 @@ typedef struct Perception
    Sentence npc_dialog;
   };
 
+  // enemy action
+  Action enemy_action_type;
+
   // player holding item. MUST precede any perceptions which come after the player is holding the item
   ItemKind holding;
  };
@@ -58,6 +62,7 @@ typedef enum PropKind
  TREE0,
  TREE1,
  TREE2,
+ ROCK0,
 } PropKind;
 
 typedef struct EntityRef
@@ -112,6 +117,7 @@ typedef struct Entity
  bool is_npc;
  bool perceptions_dirty;
  BUFF(Perception, REMEMBERED_PERCEPTIONS) remembered_perceptions;
+ bool direction_of_spiral_pattern;
  double character_say_timer;
  int characters_said;
  NPCPlayerStanding standing;
@@ -276,7 +282,7 @@ void generate_prompt(Entity *it, PromptBuff *into)
  printf_buff(into, "%s", "\n");
 
  // item prompt
- if(it->last_seen_holding_kind != ITEM_nothing)
+ if(it->last_seen_holding_kind != ITEM_none)
  {
   assert(it->last_seen_holding_kind < ARRLEN(item_prompt_table));
   printf_buff(into, "%s", item_prompt_table[it->last_seen_holding_kind]);
@@ -295,13 +301,18 @@ void generate_prompt(Entity *it, PromptBuff *into)
  printf_buff(into, "%s", "]\n");
 
  Entity *e = it;
- ItemKind last_holding = ITEM_nothing;
+ ItemKind last_holding = ITEM_none;
  BUFF_ITER(Perception, &e->remembered_perceptions)
  {
   if(it->type == PlayerAction)
   {
    assert(it->player_action_type < ARRLEN(action_strings));
    printf_buff(into, "Player: ACT %s \n", action_strings[it->player_action_type]);
+  }
+  else if(it->type == EnemyAction)
+  {
+   assert(it->enemy_action_type < ARRLEN(action_strings));
+   printf_buff(into, "An Enemy: ACT %s \n", action_strings[it->player_action_type]);
   }
   else if(it->type == PlayerDialog)
   {
@@ -317,12 +328,12 @@ void generate_prompt(Entity *it, PromptBuff *into)
   {
    if(last_holding != it->holding)
    {
-    if(last_holding != ITEM_nothing)
+    if(last_holding != ITEM_none)
     {
      printf_buff(into, "%s", item_discard_message_table[last_holding]);
      printf_buff(into, "%s", "\n");
     }
-    if(it->holding != ITEM_nothing)
+    if(it->holding != ITEM_none)
     {
      printf_buff(into, "%s", item_possess_message_table[it->holding]);
      printf_buff(into, "%s", "\n");

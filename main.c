@@ -454,6 +454,12 @@ Vec2 rotate_counter_clockwise(Vec2 v)
  return V2(-v.Y, v.X);
 }
 
+Vec2 rotate_clockwise(Vec2 v)
+{
+ return V2(v.y, -v.x);
+}
+
+
 Vec2 aabb_center(AABB aabb)
 {
  return MulV2F(AddV2(aabb.upper_left, aabb.lower_right), 0.5f);
@@ -543,7 +549,7 @@ typedef struct GameState {
 } GameState;
 GameState gs = {0};
 double unprocessed_gameplay_time = 0.0;
-#define MINIMUM_TIMESTEP (1.0/7.0)
+#define MINIMUM_TIMESTEP (1.0/60.0)
 
 EntityRef frome(Entity *e)
 {
@@ -679,7 +685,7 @@ void end_text_input(char *what_player_said)
 
   Entity *talking = gete(player->talking_to);
   assert(talking);
-  ItemKind player_holding = ITEM_nothing;
+  ItemKind player_holding = ITEM_none;
   if(gete(player->holding_item) != 0)
   {
    player_holding = gete(player->holding_item)->item_kind;
@@ -2169,27 +2175,40 @@ bool mouse_frozen = false;
 #endif
 void frame(void)
 {
+ // elapsed_time
+ double dt_double = 0.0;
+ {
+  dt_double = stm_sec(stm_diff(stm_now(), last_frame_time));
+  dt_double = fmin(dt_double, 5.0 / 60.0); // clamp dt at maximum 5 frames, avoid super huge dt
+  elapsed_time += dt_double;
+  last_frame_time = stm_now();
+ }
+ float dt = (float)dt_double;
+
+
+#if 0
+ {
+  printf("Frametime: %.1f ms\n", dt*1000.0);
+  sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
+  sg_apply_pipeline(state.pip);
+
+  //colorquad(false, quad_at(V2(0.0, 100.0), V2(100.0f, 100.0f)), RED);
+  sg_image img = image_white_square;
+  AABB region = full_region(img);
+  //region.lower_right.X *= 0.5f;
+  draw_quad((DrawParams){false,quad_at(V2(0.0, 100.0), V2(100.0f, 100.0f)), img, region, WHITE});
+
+
+  flush_quad_batch();
+  sg_end_pass();
+  sg_commit();
+  reset(&scratch);
+ }
+ return;
+#endif
+
  PROFILE_SCOPE("frame")
  {
-#if 0
-  {
-   sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
-   sg_apply_pipeline(state.pip);
-
-   //colorquad(false, quad_at(V2(0.0, 100.0), V2(100.0f, 100.0f)), RED);
-   sg_image img = image_white_square;
-   AABB region = full_region(img);
-   //region.lower_right.X *= 0.5f;
-   draw_quad((DrawParams){false,quad_at(V2(0.0, 100.0), V2(100.0f, 100.0f)), img, region, WHITE});
-
-
-   flush_quad_batch();
-   sg_end_pass();
-   sg_commit();
-   reset(&scratch);
-  }
-  return;
-#endif
 
 #ifdef DESKTOP
   if(!receiving_text_input && in_dialog())
@@ -2211,15 +2230,6 @@ void frame(void)
 
 
   uint64_t time_start_frame = stm_now();
-  // elapsed_time
-  double dt_double = 0.0;
-  {
-   dt_double = stm_sec(stm_diff(stm_now(), last_frame_time));
-   dt_double = fmin(dt_double, 5.0 / 60.0); // clamp dt at maximum 5 frames, avoid super huge dt
-   elapsed_time += dt_double;
-   last_frame_time = stm_now();
-  }
-  float dt = (float)dt_double;
 
   Vec2 movement = {0};
   bool attack = false;
@@ -2433,11 +2443,26 @@ void frame(void)
        if(it->standing == STANDING_FIGHTING || it->standing == STANDING_JOINED)
        {
         Entity *targeting = player;
+
         Vec2 to_player = NormV2(SubV2(targeting->pos, it->pos));
-        Vec2 target_vel = NormV2(AddV2(rotate_counter_clockwise(to_player), MulV2F(to_player, 0.5f)));
+        Vec2 rotate_direction;
+        if(it->direction_of_spiral_pattern)
+        {
+         rotate_direction = rotate_counter_clockwise(to_player);
+        }
+        else
+        {
+         rotate_direction = rotate_clockwise(to_player);
+        }
+        Vec2 target_vel = NormV2(AddV2(rotate_direction, MulV2F(to_player, 0.5f)));
         target_vel = MulV2F(target_vel, 3.0f);
         it->vel = LerpV2(it->vel, 15.0f * dt, target_vel);
-        it->pos = move_and_slide((MoveSlideParams){it, it->pos, MulV2F(it->vel, pixels_per_meter * dt)});
+        CollisionInfo col = {0};
+        it->pos = move_and_slide((MoveSlideParams){it, it->pos, MulV2F(it->vel, pixels_per_meter * dt), .col_info_out = &col});
+        if(col.happened)
+        {
+         it->direction_of_spiral_pattern = !it->direction_of_spiral_pattern;
+        }
 
         if(it->standing == STANDING_FIGHTING)
         {
@@ -2707,7 +2732,7 @@ void frame(void)
         }
         else
         {
-         SAY(ACT_fights_player, "I am an NPC");
+         SAY(ACT_joins_player, "I am an NPC");
         }
         Perception p = {0};
         assert(parse_ai_response(it, mocked_ai_response.data, &p));
@@ -3130,6 +3155,11 @@ void frame(void)
     {
      Vec2 prop_size = V2(128.0f, 192.0f);
      d = ((DrawParams){true, quad_centered(AddV2(it->pos, V2(-2.5f, 70.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(385.0f, 479.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f});
+    }
+    else if(it->prop_kind == ROCK0)
+    {
+     Vec2 prop_size = V2(30.0f, 22.0f);
+     d = (DrawParams){true, quad_centered(AddV2(it->pos, V2(0.0f, 25.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(66.0f, 235.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 0.0f))), .alpha_clip_threshold = 0.7f};
     }
     else
     {

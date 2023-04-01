@@ -404,7 +404,7 @@ int main(int argc, char **argv) {
  }
  fprintf(output, "}; // prompt table\n");
 
- fprintf(output, "typedef enum ItemKind {\nITEM_nothing,\n");
+ fprintf(output, "typedef enum ItemKind {\nITEM_none,\n");
  BUFF_ITER(MD_Node*, &items)
  {
   fprintf(output, "ITEM_%.*s,\n", MD_S8VArg((*it)->string));

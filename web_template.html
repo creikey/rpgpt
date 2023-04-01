@@ -72,10 +72,13 @@ body {
  outline: none;
 }
 
-#inputbutton {
+#inputbuttondiv {
  bottom: 0;
  margin-bottom: 10%;
  position: absolute;
+}
+
+#inputbutton {
  font-family: Arial;
  font-size: 3em;
 }
@@ -171,7 +174,10 @@ body {
  <div id="inputdiv" class="inputdiv">
   <textarea onkeyup='on_textarea_key(event);' id="inputtext">
   </textarea>
+  <div id="inputbuttondiv">
   <button id="inputbutton" onclick="end_dialog()"> Submit </button>
+  <button id="inputbutton" onclick="end_without_saying()"> Cancel </button>
+  </div>
  </div>
   <canvas class="game" id="canvas" oncontextmenu="event.preventDefault()" width="1504" height="864"></canvas>
 
@@ -353,6 +359,12 @@ function load_all() {
  }
 }
 
+function end_without_saying()
+{
+ document.getElementById("inputtext").value = "";
+ end_dialog();
+}
+
 function on_textarea_key(event) {
  let final_textarea_string = "";
  let cur_textarea_string = document.getElementById("inputtext").value;
@@ -374,6 +386,7 @@ function on_textarea_key(event) {
   document.getElementById("inputtext").value = "";
   should_end = true;
  }
+ // have a boolean flag here and call it once so the game's end dialog function isn't called twice
  if(should_end) end_dialog();
 }
 

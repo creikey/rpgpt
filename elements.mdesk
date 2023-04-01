@@ -21,8 +21,8 @@ actions:
 
 @character OldMan:
 {
- name: "Fredrick the Wise",
- prompt: "Fredrick is the NPC. An old man, he's lived around these parts for decades. He's wise in the art of life, and knows what's going on in the game: general death is in town, in the wrong, and must be stopped."
+ name: "Fredrick",
+ prompt: "Fredrick is the NPC. Fredrick, an ancient geezer passed his prime, has lived in the town of Worchen for as long as he can remember. His many adventures brought him great wisdom about the beauties of life. Now his precious town is under threat, General Death is leading the charge and he's out for blood.",
 }
 
 @character Blocky:

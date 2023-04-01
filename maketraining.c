@@ -59,7 +59,7 @@ TrainingSample samples[] = {
   .perceptions = {
    PlayerSay("hey"),
    NPCSay("I'm just standing here, what are you doing?"),
-   PlayerItemChange(ITEM_nothing),
+   PlayerItemChange(ITEM_none),
    PlayerSay("nothing much"),
    NPCSay("You don't have a tripod."),
    PlayerSay("True"),
@@ -167,6 +167,30 @@ TrainingSample samples[] = {
    NPCSay("I'm warning you, one more hit and it's curtains for you"),
    PlayerAct(ACT_hits_npc),
    NPCDoSay(ACT_fights_player, "Although I stood here before, today I move and FIGHT!"),
+  },
+ },
+ {
+  .npc_kind = NPC_Blocky,
+  .perceptions = {
+   PlayerItemChange(ITEM_Tripod),
+   PlayerSay("Move out of the way"),
+   NPCDoSay(ACT_none, "The tripod...Of course my liege."),
+   PlayerSay("Thanks"),
+   NPCDoSay(ACT_none, "My pleasure"),
+   PlayerAct(ACT_hits_npc),
+   NPCSay("How could you do such a thing? After the tripod as well"),
+   PlayerItemChange(ITEM_none),
+   PlayerSay("You suck"),
+   NPCDoSay(ACT_fights_player, "That's it"),
+  },
+ },
+ {
+  .npc_kind = NPC_OldMan,
+  .perceptions = {
+   PlayerSay("joins_player index"),
+   NPCSay("What does that even mean? Are you crazy?"),
+   PlayerSay("Please join my party"),
+   NPCDoSay(ACT_joins_player, "You're a little strange, but anything to help defeat death!"),
   },
  },
 };
