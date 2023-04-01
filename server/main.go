@@ -270,6 +270,9 @@ func completion(w http.ResponseWriter, req *http.Request) {
     // where I do the IP rate limiting
 
     userKey := req.RemoteAddr
+    if req.Header.Get("X-Forwarded-For") != "" {
+     userKey = req.Header.Get("X-Forwarded-For")
+    }
     createdTime, ok := ipAddyTenFree[userKey]
     if !ok {
      ipAddyTenFree[userKey] = currentTime()
