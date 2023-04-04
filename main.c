@@ -241,7 +241,7 @@ void play_audio(AudioSample *sample)
  assert(to_use);
  *to_use = (AudioPlayer){0};
  to_use->sample = sample;
- to_use->volume = -0.5f;
+ to_use->volume = 0.3f;
  to_use->pitch = float_rand(0.9f, 1.1f);
 }
 // keydown needs to be referenced when begin text input,
@@ -543,11 +543,6 @@ sg_image load_image(const char *path)
 
 #include "quad-sapp.glsl.h"
 #include "assets.gen.c"
-
-void say_characters(Entity *npc, int num_characters)
-{
- play_audio(&sound_simple_talk);
-}
 
 AABB level_aabb = { .upper_left = {0.0f, 0.0f}, .lower_right = {TILE_SIZE * LEVEL_TILES, -(TILE_SIZE * LEVEL_TILES)} };
 typedef struct GameState {
@@ -2097,6 +2092,22 @@ float draw_wrapped_text(bool dry_run, Vec2 at_point, float max_width, char *text
  return cursor.Y;
 }
 
+Sentence *last_said_sentence(Entity *npc)
+{
+ int i = 0;
+ BUFF_ITER(Perception, &npc->remembered_perceptions)
+ {
+  bool is_last_said = i == npc->remembered_perceptions.cur_index - 1;
+  if(is_last_said && it->type == NPCDialog)
+  {
+   return &it->npc_dialog;
+  }
+  i += 1;
+ }
+ return 0;
+}
+
+
 void draw_dialog_panel(Entity *talking_to, float alpha)
 {
  float panel_width = 250.0f;
@@ -2146,11 +2157,22 @@ void draw_dialog_panel(Entity *talking_to, float alpha)
    } DialogElement;
 
    BUFF(DialogElement, 32) dialog = {0};
+   int i = 0;
    BUFF_ITER(Perception, &talking_to->remembered_perceptions)
    {
     if(it->type == NPCDialog)
     {
-     BUFF_APPEND(&dialog, ((DialogElement){ .s = it->npc_dialog, .is_player = false }) );
+     Sentence to_say = it->npc_dialog;
+     Sentence *last_said = last_said_sentence(talking_to);
+     if(last_said == &it->npc_dialog)
+     {
+      to_say = (Sentence){0};
+      for(int i = 0; i < min(it->npc_dialog.cur_index, (int)talking_to->characters_said); i++)
+      {
+       BUFF_APPEND(&to_say, it->npc_dialog.data[i]);
+      }
+     }
+     BUFF_APPEND(&dialog, ((DialogElement){ .s = to_say, .is_player = false }) );
     }
     else if(it->type == PlayerDialog)
     {
@@ -2190,8 +2212,6 @@ void draw_dialog_panel(Entity *talking_to, float alpha)
  }
 
 }
-
-
 
 #define ROLL_KEY SAPP_KEYCODE_LEFT_SHIFT
 double elapsed_time = 0.0;
@@ -2469,14 +2489,25 @@ void frame(void)
       if(it->is_npc)
       {
        // character speech animation text input
-       if(false)
+       if(true)
        {
-        it->character_say_timer += dt;
-        const float character_say_time = 0.02f;
-        while(it->character_say_timer > character_say_time)
+        const float characters_per_sec = 35.0f;
+        double before = it->characters_said;
+        
+        int length = 0;
+        if(last_said_sentence(it)) length = last_said_sentence(it)->cur_index;
+        if((int)before < length)
         {
-         say_characters(it, 1);
-         it->character_say_timer -= character_say_time;
+         it->characters_said += characters_per_sec*dt;
+        }
+        else
+        {
+         it->characters_said = (double)length;
+        }
+        
+        if( (int)it->characters_said > (int)before )
+        {
+         play_audio(&sound_simple_talk);
         }
        }
        if(it->standing == STANDING_FIGHTING || it->standing == STANDING_JOINED)
@@ -2776,7 +2807,8 @@ void frame(void)
         }
         else
         {
-         SAY(ACT_joins_player, "I am an NPC");
+         //SAY(ACT_joins_player, "I am an NPC");
+         SAY(ACT_none, "I am an NPC. Bla bla bl alb djsfklalfkdsaj. Did you know shortcake?");
         }
         Perception p = {0};
         assert(parse_ai_response(it, mocked_ai_response.data, &p));

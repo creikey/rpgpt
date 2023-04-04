@@ -125,8 +125,7 @@ typedef struct Entity
  bool perceptions_dirty;
  BUFF(Perception, REMEMBERED_PERCEPTIONS) remembered_perceptions;
  bool direction_of_spiral_pattern;
- double character_say_timer;
- int characters_said;
+ double characters_said;
  NPCPlayerStanding standing;
  NpcKind npc_kind;
  ItemKind last_seen_holding_kind;
