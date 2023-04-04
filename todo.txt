@@ -7,25 +7,27 @@ DONE - Help you fight and fight you actions
 DONE - Do not use webhooks (shitty, bad idea propagated by bad docs) query stripe for if the payment went through on request if not fulfilled yet
 DONE - New art in
 DON'T NEED - Old man in beginning is invincible
- - Make new openai key (it was leaked)
 DONE - Add cancel button
 DONE - Style buttons
 DONE - nockin git thing 
- - Animate text characters coming in
 DONE - Make TREE1 prop work
- - Instead of roll animation, 5 sprite long trail of past moves for juice
 DONE - Enemy hitting NPC is enemy perception not player peception of player hitting them
- - Sword combat for sword npcs 
 DONE - Third button for dialog/item stuff, not roll button. E on desktop. Touchscreen button only visible when appropriate to let player know what it's for
 DON'T NEED, SET BACKGROUND COLOR - Clamp camera to boundaries of level
 DONE - Ignore keyrepeat events
 DONE - Remove control attack key as devtools
- - Cells interlinked (interlinked)
 DONE - Tune fade popping at dist when you go too far awy
- - Particle fx and sound fx for when hit
- - Max text length on text input
 DONE - Fade dialog with distance
 DONE - Make vignette in front
+ - Make new openai key (it was leaked)
+ - Animate text characters coming in
+ - Instead of roll animation, 5 sprite long trail of past moves for juice
+ - Cells interlinked (interlinked)
+ - Particle fx and sound fx for when hit
+ - Max text length on text input
+ - Sword combat for sword npcs 
+ - Fade for dialog not tied to interacting, starts when outside of interacting range, when begin conversation fades completely in
+
 SHIP BETA
  - Make ANOTHER tiktok if you can. Por favor
  - Make map better, add new characters/items from fate

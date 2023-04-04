@@ -9,6 +9,8 @@ github.com/mattn/go-sqlite3 v1.14.15/go.mod h1:2eHXhiwb8IkHr+BDWZGa96P6+rkvnG63S
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/sashabaranov/go-gpt3 v1.2.1 h1:kfU+vQ1ThI7p+xfwwJC8olEEEWjK3smgKZ3FcYbaLRQ=
 github.com/sashabaranov/go-gpt3 v1.2.1/go.mod h1:BIZdbwdzxZbCrcKGMGH6u2eyGe1xFuX9Anmh3tCP8lQ=
+github.com/sashabaranov/go-openai v1.5.8 h1:EfNEmc+Ue+CuRy7iSpNdxfHyiOv2vQsQ2Y0kZRA/z5w=
+github.com/sashabaranov/go-openai v1.5.8/go.mod h1:lj5b/K+zjTSFxVLijLSTDZuP7adOgerWeFyZLUhAKRg=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/testify v1.5.1/go.mod h1:5W2xD1RspED5o8YsWQXVCued0rvSQ+mT+I5cxcmMvtA=
 github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=

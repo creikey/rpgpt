@@ -1,5 +1,5 @@
 // you will die someday
-#define CURRENT_VERSION 6 // wehenver you change Entity increment this boz
+#define CURRENT_VERSION 7 // wehenver you change Entity increment this boz
 
 #define SOKOL_IMPL
 #if defined(WIN32) || defined(_WIN32)
@@ -1670,14 +1670,15 @@ void request_do_damage(Entity *to, Entity *from, float damage)
  }
  else if(true)
  {
-  to->damage += damage;
+  // damage processing is done in process perception so in training, has accurate values for
+  // NPC health
   if(from->is_character)
   {
-   process_perception(to, (Perception){.type = PlayerAction, .player_action_type = ACT_hits_npc});
+   process_perception(to, (Perception){.type = PlayerAction, .player_action_type = ACT_hits_npc, .damage_done = damage,});
   }
   else
   {
-   process_perception(to, (Perception){.type = EnemyAction, .enemy_action_type = ACT_hits_npc});
+   process_perception(to, (Perception){.type = EnemyAction, .enemy_action_type = ACT_hits_npc, .damage_done = damage,});
   }
   to->vel = MulV2F(NormV2(SubV2(to->pos, from_point)), 15.0f);
  }
@@ -2589,7 +2590,7 @@ void frame(void)
            Entity *from = it;
            BUFF_ITER(Entity *, &to_damage)
            {
-            request_do_damage(*it, from, 0.2f);
+            request_do_damage(*it, from, DAMAGE_SWORD);
            }
           }
          }
@@ -2709,7 +2710,7 @@ void frame(void)
         if(!it->is_tile && !(it->e->is_bullet))
         {
          // knockback and damage
-         request_do_damage(it->e, from_bullet, 0.2f);
+         request_do_damage(it->e, from_bullet, DAMAGE_BULLET);
          destroy_bullet = true;
         }
        }
@@ -2940,7 +2941,7 @@ void frame(void)
        SwordToDamage to_damage = entity_sword_to_do_damage(player, get_overlapping(cur_level, weapon_aabb));
        BUFF_ITER(Entity*, &to_damage)
        {
-        request_do_damage(*it, player, 0.2f);
+        request_do_damage(*it, player, DAMAGE_SWORD);
        }
        player->swing_progress += dt;
        if(player->swing_progress > anim_sprite_duration(&knight_attack))

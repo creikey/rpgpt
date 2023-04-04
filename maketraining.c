@@ -16,7 +16,8 @@ typedef struct
  TrainingElement elems[32];
 } TrainingSample;
 
-#define PlayerAct(act) { .p = { .type = PlayerAction, .player_action_type = act, } }
+#define PlayerActDamage(act, dmg) { .p = { .type = PlayerAction, .player_action_type = act, .damage_done = dmg, } }
+#define PlayerAct(act) PlayerActDamage(act, 0.0f)
 #define PlayerSay(txt) { .p = { .type = PlayerDialog, .player_dialog = SENTENCE_CONST(txt), } }
 #define NPCDoSay(d, txt) { .p = { .type = NPCDialog, .npc_action_type = d, .npc_dialog = SENTENCE_CONST(txt) } }
 #define NPCSay(txt) NPCDoSay(ACT_none, txt)
@@ -41,8 +42,7 @@ TrainingSample samples[] = {
    NPCSay("You must stop death in his tracks and let the village live on!"),
    PlayerSay("Nah"),
    NPCSay("PLEASE!"),
-   PlayerAct(ACT_hits_npc),
-   NPCTakeDamage(0.2f),
+   PlayerActDamage(ACT_hits_npc, DAMAGE_SWORD),
    NPCDoSay(ACT_fights_player, "Ready your sword!"),
   },
  },
@@ -143,11 +143,9 @@ TrainingSample samples[] = {
   .elems = {
    PlayerSay("Hey"),
    NPCDoSay(ACT_none, "I'm just sitting here, what are you doing?"),
-   PlayerAct(ACT_hits_npc),
-   NPCTakeDamage(0.2f),
+   PlayerActDamage(ACT_hits_npc, DAMAGE_SWORD),
    NPCDoSay(ACT_none, "Looks like you're ready to do what needs to be done."),
-   PlayerAct(ACT_hits_npc),
-   NPCTakeDamage(0.2f),
+   PlayerActDamage(ACT_hits_npc, DAMAGE_SWORD),
    NPCDoSay(ACT_fights_player, "I won't stand for this assault."),
   },
  },
@@ -160,8 +158,7 @@ TrainingSample samples[] = {
    NPCDoSay(ACT_none, "I'm sure it'll be fine"),
    PlayerSay("No it won't"),
    NPCDoSay(ACT_none, "Nahhhh"),
-   PlayerAct(ACT_hits_npc),
-   NPCTakeDamage(0.2f),
+   PlayerActDamage(ACT_hits_npc, DAMAGE_SWORD),
    NPCDoSay(ACT_fights_player, "You don't have a tripod."),
    PlayerItemChange(ITEM_Tripod),
    PlayerSay("Look! I have the tripod! Please stop fighting me!"),
@@ -171,22 +168,18 @@ TrainingSample samples[] = {
  {
   .npc_kind = NPC_OldMan,
   .elems = {
-   PlayerAct(ACT_hits_npc),
-   NPCTakeDamage(0.2f),
+   PlayerActDamage(ACT_hits_npc, DAMAGE_SWORD),
    NPCDoSay(ACT_none, "Young man! You must stop death, do not harm me further I'm warning you!"),
-   PlayerAct(ACT_hits_npc),
-   NPCTakeDamage(0.2f),
+   PlayerActDamage(ACT_hits_npc, DAMAGE_SWORD),
    NPCDoSay(ACT_fights_player, "That's it! No holds barred, to the death!"),
   },
  },
  {
   .npc_kind = NPC_Blocky,
   .elems = {
-   PlayerAct(ACT_hits_npc),
-   NPCTakeDamage(0.2f),
+   PlayerActDamage(ACT_hits_npc, DAMAGE_SWORD),
    NPCSay("I'm warning you, one more hit and it's curtains for you"),
-   PlayerAct(ACT_hits_npc),
-   NPCTakeDamage(0.2f),
+   PlayerActDamage(ACT_hits_npc, DAMAGE_SWORD),
    NPCDoSay(ACT_fights_player, "Although I stood here before, today I move and FIGHT!"),
   },
  },
@@ -198,8 +191,7 @@ TrainingSample samples[] = {
    NPCDoSay(ACT_allows_player_to_pass, "The tripod...Of course my liege."),
    PlayerSay("Thanks"),
    NPCDoSay(ACT_none, "My pleasure"),
-   PlayerAct(ACT_hits_npc),
-   NPCTakeDamage(0.2f),
+   PlayerActDamage(ACT_hits_npc, DAMAGE_SWORD),
    NPCSay("How could you do such a thing? After the tripod as well"),
    PlayerItemChange(ITEM_none),
    PlayerSay("You suck"),
@@ -241,11 +233,9 @@ TrainingSample samples[] = {
   .elems = {
    PlayerSay("Join me"),
    NPCDoSay(ACT_joins_player, "I would be honored"),
-   PlayerAct(ACT_hits_npc),
-   NPCTakeDamage(0.2f),
+   PlayerActDamage(ACT_hits_npc, DAMAGE_SWORD),
    NPCDoSay(ACT_none, "Hey! Watch it!"),
-   PlayerAct(ACT_hits_npc),
-   NPCTakeDamage(0.2f),
+   PlayerActDamage(ACT_hits_npc, DAMAGE_SWORD),
    NPCDoSay(ACT_fights_player, "That's it!"),
   },
  },
@@ -283,11 +273,9 @@ TrainingSample samples[] = {
    NPCDoSay(ACT_none, "You don't care...fine."),
    PlayerSay("DIE"),
    NPCDoSay(ACT_none, "I wasn't going to do that."),
-   PlayerAct(ACT_hits_npc),
-   NPCTakeDamage(0.2f),
+   PlayerActDamage(ACT_hits_npc, DAMAGE_SWORD),
    NPCDoSay(ACT_leaves_player, "You shouldn't do that."),
-   PlayerAct(ACT_hits_npc),
-   NPCTakeDamage(0.2f),
+   PlayerActDamage(ACT_hits_npc, DAMAGE_SWORD),
    NPCDoSay(ACT_fights_player, "You won't last a minute against me!"),
   },
  },
@@ -309,6 +297,31 @@ TrainingSample samples[] = {
    NPCDoSay(ACT_leaves_player, "I will take no part in such lunacy"),
    PlayerSay("Join me"),
    NPCDoSay(ACT_fights_player, "You must perish for your wildness!"),
+  },
+ },
+ {
+  .npc_kind = NPC_OldMan,
+  .elems = {
+   PlayerSay("Who are you?"),
+   NPCSay("I'm the old man fredrick, you have to stop the general!"),
+   PlayerSay("What do you do?"),
+   NPCSay("I mostly just stand here in my old age, but I've been through a lot in my youth...tales to tell!"),
+   PlayerSay("What's an example?"),
+   NPCSay("I've killed a man"),
+  },
+ },
+ {
+  .npc_kind = NPC_Blocky,
+  .elems = {
+   PlayerSay("If you don't move out of the way I'll kill you"),
+   NPCDoSay(ACT_none, "I'm just standing here, what are you doing?"),
+   PlayerActDamage(ACT_hits_npc, DAMAGE_SWORD),
+   NPCDoSay(ACT_none, "Looks like you're ready to do what needs to be done."),
+   PlayerActDamage(ACT_hits_npc, DAMAGE_SWORD),
+   NPCDoSay(ACT_none, "I'm not sure what you're thinking, but that doesn't sound like a good idea."),
+   PlayerActDamage(ACT_hits_npc, DAMAGE_SWORD),
+   NPCDoSay(ACT_allows_player_to_pass, "Fine! Please spare me!"),
+   PlayerSay("That's more like it"),
   },
  },
 };

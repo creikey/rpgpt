@@ -34,10 +34,14 @@ typedef struct Perception
 {
  PerceptionType type;
 
+ float damage_done; // Valid in player action and enemy action
  union 
  {
   // player action
-  Action player_action_type;
+  struct
+  {
+   Action player_action_type;
+  };
 
   // player dialog
   Sentence player_dialog;
@@ -85,6 +89,9 @@ typedef enum
  STANDING_JOINED,
  STANDING_FIGHTING,
 } NPCPlayerStanding;
+
+#define DAMAGE_SWORD 0.2f
+#define DAMAGE_BULLET 0.2f
 
 typedef struct Entity
 {
@@ -198,6 +205,10 @@ void process_perception(Entity *it, Perception p)
   if(p.type != NPCDialog) it->perceptions_dirty = true;
   if(!BUFF_HAS_SPACE(&it->remembered_perceptions)) BUFF_REMOVE_FRONT(&it->remembered_perceptions);
   BUFF_APPEND(&it->remembered_perceptions, p);
+  if(p.type == PlayerAction && p.player_action_type == ACT_hits_npc)
+  {
+   it->damage += p.damage_done;
+  }
   if(p.type == PlayerHeldItemChanged)
   {
    it->last_seen_holding_kind = p.holding;

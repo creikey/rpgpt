@@ -12,7 +12,7 @@ import (
  "strings"
  "encoding/json"
  "math/rand"
- gogpt "github.com/sashabaranov/go-gpt3"
+ openai "github.com/sashabaranov/go-openai"
  "github.com/stripe/stripe-go/v74"
  "github.com/stripe/stripe-go/v74/event"
  "github.com/stripe/stripe-go/v74/webhook"
@@ -48,7 +48,7 @@ type User struct {
  CheckoutSessionID string
 }
 
-var c *gogpt.Client
+var c *openai.Client
 var logResponses = false
 var doCors = false
 var checkoutRedirectTo string
@@ -340,24 +340,66 @@ func completion(w http.ResponseWriter, req *http.Request) {
   }
 
   ctx := context.Background()
-  req := gogpt.CompletionRequest {
-   Model:     "curie:ft-alnar-games-2023-04-01-21-23-38",
-   MaxTokens: 80,
-   Prompt:    promptString,
-   Temperature: 0.9,
-   FrequencyPenalty: 0.0,
-   PresencePenalty: 0.6,
-   TopP: 1.0,
-   Stop: []string{"\n"},
-   N: 1,
+  var response string = ""
+  if true {
+   req := openai.CompletionRequest {
+    Model:     "davinci:ft-alnar-games-2023-04-03-10-06-45",
+    MaxTokens: 80,
+    Prompt:    promptString,
+    Temperature: 0.9,
+    FrequencyPenalty: 0.0,
+    PresencePenalty: 0.6,
+    TopP: 1.0,
+    Stop: []string{"\n"},
+    N: 1,
+   }
+   resp, err := c.CreateCompletion(ctx, req)
+   if err != nil {
+    log.Println("Error Failed to generate: ", err)
+    w.WriteHeader(http.StatusInternalServerError)
+    return
+   }
+   response = resp.Choices[0].Text
+  } else {
+   messages := make([]openai.ChatCompletionMessage, 0)
+   inSystem := true
+   for _, line := range strings.Split(promptString, "\n") {
+    if inSystem {
+     messages = append(messages, openai.ChatCompletionMessage {
+      Role: "system",
+      Content: line,
+     })
+    } else {
+     newMessage := openai.ChatCompletionMessage {
+      Role: "assistant",
+      Content: line,
+     }
+     if strings.HasPrefix(line, "Player") {
+      newMessage.Role = "user"
+     }
+     messages = append(messages, newMessage)
+    }
+    // this is the last prompt string
+    if strings.HasPrefix(line, "The NPC possible actions array") {
+     inSystem = false
+    }
+   }
+   clippedOfEndPrompt := messages[:len(messages)-1]
+   resp, err := c.CreateChatCompletion(
+    context.Background(),
+    openai.ChatCompletionRequest{
+     Model: openai.GPT3Dot5Turbo,
+     Messages: clippedOfEndPrompt,
+    },
+   )
+   if err != nil {
+    log.Println("Error Failed to generate: ", err)
+    w.WriteHeader(http.StatusInternalServerError)
+    return
+   }
+   response = resp.Choices[0].Message.Content
+
   }
-  resp, err := c.CreateCompletion(ctx, req)
-  if err != nil {
-   log.Println("Error Failed to generate: ", err)
-   w.WriteHeader(http.StatusInternalServerError)
-   return
-  }
-  response := resp.Choices[0].Text
   if logResponses {
    log.Println("Println response: `", response + "`")
    log.Println()
@@ -377,6 +419,7 @@ func main() {
  if err != nil {
   log.Fatal(err)
  }
+ 
  db.AutoMigrate(&User{})
 
  clearOld(db)
@@ -405,7 +448,7 @@ func main() {
 
  logResponses = os.Getenv("LOG_RESPONSES") != ""
  doCors = os.Getenv("CORS") != ""
- c = gogpt.NewClient(api_key)
+ c = openai.NewClient(api_key)
 
  http.HandleFunc("/completion", completion)
  http.HandleFunc("/webhook", webhookResponse)
