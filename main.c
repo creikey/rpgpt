@@ -227,7 +227,7 @@ float float_rand( float min, float max )
  float scale = rand() / (float) RAND_MAX; /* [0, 1.0] */
  return min + scale * ( max - min );      /* [min, max] */
 }
-void play_audio(AudioSample *sample)
+void play_audio(AudioSample *sample, float volume)
 {
  AudioPlayer *to_use = 0;
  for(int i = 0; i < ARRLEN(playing_audio); i++)
@@ -241,7 +241,7 @@ void play_audio(AudioSample *sample)
  assert(to_use);
  *to_use = (AudioPlayer){0};
  to_use->sample = sample;
- to_use->volume = 0.3f;
+ to_use->volume = volume;
  to_use->pitch = float_rand(0.9f, 1.1f);
 }
 // keydown needs to be referenced when begin text input,
@@ -2507,7 +2507,9 @@ void frame(void)
         
         if( (int)it->characters_said > (int)before )
         {
-         play_audio(&sound_simple_talk);
+         float dist = LenV2(SubV2(it->pos, player->pos));
+         float volume = Lerp(-0.6f, clamp01(dist/70.0f), -1.0f);
+         play_audio(&sound_simple_talk, volume);
         }
        }
        if(it->standing == STANDING_FIGHTING || it->standing == STANDING_JOINED)
@@ -3021,14 +3023,6 @@ void frame(void)
 
     // interaction circle
     draw_quad((DrawParams){true, quad_centered(interacting_with->pos, V2(TILE_SIZE, TILE_SIZE)), image_dialog_circle, full_region(image_dialog_circle), WHITE});
-    if(interacting_with->is_npc)
-    {
-     float dist = LenV2(SubV2(interacting_with->pos, player->pos));
-     dist -= 10.0f; // radius around point where dialog is completely opaque
-     float max_dist = dialog_interact_size/2.0f;
-     float alpha = 1.0f - (float)clamp(dist/max_dist, 0.0, 1.0);
-     draw_dialog_panel(interacting_with, alpha);
-    }
    }
 
    if(player->state == CHARACTER_WALKING)
@@ -3073,7 +3067,7 @@ void frame(void)
    }
   }
 
-  // render gs.entities
+  // render gs.entities render entities
   PROFILE_SCOPE("entity rendering")
   ENTITIES_ITER(gs.entities)
   {
@@ -3119,6 +3113,16 @@ void frame(void)
    Color col = LerpV4(WHITE, it->damage, RED);
    if(it->is_npc)
    {
+    if(it->is_npc)
+    {
+     float dist = LenV2(SubV2(it->pos, player->pos));
+     dist -= 10.0f; // radius around point where dialog is completely opaque
+     float max_dist = dialog_interact_size/2.0f;
+     float alpha = 1.0f - (float)clamp(dist/max_dist, 0.0, 1.0);
+     if(gete(player->talking_to) == it && player->state == CHARACTER_TALKING) alpha = 1.0f;
+     draw_dialog_panel(it, alpha);
+    }
+
     if(it->npc_kind == NPC_OldMan)
     {
      bool face_left =SubV2(player->pos, it->pos).x < 0.0f;
