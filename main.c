@@ -906,10 +906,12 @@ SwordToDamage entity_sword_to_do_damage(Entity *from, Overlapping o)
 
 typedef Vec4 Color;
 
-#define WHITE (Color){1.0f, 1.0f, 1.0f, 1.0f}
-#define BLACK (Color){0.0f, 0.0f, 0.0f, 1.0f}
-#define RED   (Color){1.0f, 0.0f, 0.0f, 1.0f}
-#define GREEN (Color){0.0f, 1.0f, 0.0f, 1.0f}
+#define WHITE ((Color){1.0f, 1.0f, 1.0f, 1.0f})
+#define BLACK ((Color){0.0f, 0.0f, 0.0f, 1.0f})
+#define RED   ((Color){1.0f, 0.0f, 0.0f, 1.0f})
+#define PINK  ((Color){1.0f, 0.0f, 1.0f, 1.0f})
+#define BLUE  ((Color){0.0f, 0.0f, 1.0f, 1.0f})
+#define GREEN ((Color){0.0f, 1.0f, 0.0f, 1.0f})
 
 Color colhex(uint32_t hex)
 {
@@ -1607,11 +1609,15 @@ bool profiling;
 #endif
 #endif
 
+Color debug_color = {1.0f, 0.0f, 0.0f, 0.0f};
+
+#define dbgcol(col) DeferLoop(debug_color = col, debug_color = RED)
+
 void dbgsquare(Vec2 at)
 {
 #ifdef DEVTOOLS
  if(!show_devtools) return;
- colorquad(true, quad_centered(at, V2(10.0, 10.0)), RED);
+ colorquad(true, quad_centered(at, V2(10.0, 10.0)), debug_color);
 #else
  (void)at;
 #endif
@@ -1621,7 +1627,7 @@ void dbgline(Vec2 from, Vec2 to)
 {
 #ifdef DEVTOOLS
  if(!show_devtools) return;
- line(from, to, 0.5f, RED);
+ line(from, to, 0.5f, debug_color);
 #else
  (void)from;
  (void)to;
@@ -1640,7 +1646,7 @@ void dbgrect(AABB rect)
 #ifdef DEVTOOLS
  if(!show_devtools) return;
  const float line_width = 0.5;
- const Color col = RED;
+ Color col = debug_color;
  Quad q = quad_aabb(rect);
  line(q.ul, q.ur, line_width, col);
  line(q.ur, q.lr, line_width, col);
@@ -1912,7 +1918,6 @@ Vec2 move_and_slide(MoveSlideParams p)
  assert(collision_aabb_size.x > 0.0f);
  assert(collision_aabb_size.y > 0.0f);
  AABB at_new = centered_aabb(new_pos, collision_aabb_size);
- dbgrect(at_new);
  BUFF(AABB, 256) to_check = {0};
 
  // add tilemap boxes
@@ -1930,8 +1935,10 @@ Vec2 move_and_slide(MoveSlideParams p)
    TileCoord tilecoord_to_check = world_to_tilecoord(*it);
 
    if(is_tile_solid(get_tile_layer(&level_level0, 2, tilecoord_to_check)))
-   
-    BUFF_APPEND(&to_check, tile_aabb(tilecoord_to_check));
+   {
+    AABB t = tile_aabb(tilecoord_to_check);
+    BUFF_APPEND(&to_check, t);
+   }
   }
  }
 
@@ -1951,7 +1958,11 @@ Vec2 move_and_slide(MoveSlideParams p)
  // box first, because doing so is a simple heuristic to avoid depenetrating and losing
  // sideways velocity. It's visual and I can't put diagrams in code so uh oh!
 
- BUFF(AABB, 32) actually_overlapping = {0};
+ typedef BUFF(AABB, 32) OverlapBuff;
+ OverlapBuff actually_overlapping = {0};
+
+ dbgcol(PINK)
+  dbgrect(at_new);
  BUFF_ITER(AABB, &to_check)
  {
   if(overlapping(at_new, *it))
@@ -1959,6 +1970,7 @@ Vec2 move_and_slide(MoveSlideParams p)
    BUFF_APPEND(&actually_overlapping, *it);
   }
  }
+
 
  float smallest_distance = FLT_MAX;
  int smallest_aabb_index = 0;
@@ -1975,7 +1987,7 @@ Vec2 move_and_slide(MoveSlideParams p)
  
 
  i = 0;
- BUFF(AABB, 32) overlapping_smallest_first = {0};
+ OverlapBuff overlapping_smallest_first = {0};
  if(actually_overlapping.cur_index > 0)
  {
   BUFF_APPEND(&overlapping_smallest_first, actually_overlapping.data[smallest_aabb_index]);
@@ -1984,7 +1996,6 @@ Vec2 move_and_slide(MoveSlideParams p)
  {
   if(i == smallest_aabb_index)
   {
-   continue;
   }
   else
   {
@@ -1993,18 +2004,34 @@ Vec2 move_and_slide(MoveSlideParams p)
   i++;
  }
 
+ // overlapping
+ BUFF_ITER(AABB, &overlapping_smallest_first)
+ {
+  dbgcol(GREEN)
+  {
+   dbgrect(*it);
+  }
+ }
+
+ //overlapping_smallest_first = actually_overlapping;
+
+ BUFF_ITER(AABB, &actually_overlapping)
+  dbgcol(WHITE)
+   dbgrect(*it);
+
+ BUFF_ITER(AABB, &overlapping_smallest_first)
+  dbgcol(WHITE)
+   dbgsquare(aabb_center(*it));
+
  CollisionInfo info = {0};
  for(int col_iter_i = 0; col_iter_i < 1; col_iter_i++)
  BUFF_ITER(AABB, &overlapping_smallest_first)
  {
   AABB to_depenetrate_from = *it;
-  dbgrect(to_depenetrate_from);
   int iters_tried_to_push_apart = 0;
   while(overlapping(to_depenetrate_from, at_new) && iters_tried_to_push_apart < 500)
   { 
-   //dbgsquare(to_depenetrate_from.upper_left);
-   //dbgsquare(to_depenetrate_from.lower_right);
-   const float move_dist = 0.05f;
+   const float move_dist = 0.1f;
 
    info.happened = true;
    Vec2 from_point = aabb_center(to_depenetrate_from);
@@ -2070,7 +2097,6 @@ float draw_wrapped_text(bool dry_run, Vec2 at_point, float max_width, char *text
     chars_from_sentence -= 1;
     break;
    }
-
    chars_from_sentence += 1;
   }
   if(chars_from_sentence > sentence_len) chars_from_sentence--;
