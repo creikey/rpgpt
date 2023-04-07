@@ -324,6 +324,17 @@ TrainingSample samples[] = {
    PlayerSay("That's more like it"),
   },
  },
+ {
+  .npc_kind = NPC_OldMan,
+  .elems = {
+   PlayerSay("WJFldskla"),
+   NPCSay("You speak of gibberish young traveler"),
+   PlayerSay("Fuck bitch"),
+   NPCSay("Crude!"),
+   PlayerSay("Give me gold or I'll kill you"),
+   NPCSay("I have nothing to give! Besides, I'll never give into tyrrany"),
+  },
+ }
 };
 
 

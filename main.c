@@ -2087,6 +2087,12 @@ float draw_wrapped_text(bool dry_run, Vec2 at_point, float max_width, char *text
   sentence_to_draw += chars_from_sentence;
   colors += chars_from_sentence;
   cursor = V2(drawn_bounds.upper_left.X, drawn_bounds.lower_right.Y);
+ 
+  // caught a random infinite loop in the debugger, maybe this will stop it. Need to test and make sure it doesn't early out on valid text cases
+  if(!has_point(clip_to, cursor))
+  {
+   break;
+  }
  }
 
  return cursor.Y;

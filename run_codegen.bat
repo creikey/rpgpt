@@ -3,11 +3,13 @@
 echo Asset packs which must be bought and unzipped into root directory before running this script:
 echo https://rafaelmatos.itch.io/epic-rpg-world-pack-ancient-ruins
 echo https://sventhole.itch.io/undead-pixel-art-characters
+echo https://immunitys.itch.io/fm32x32
 echo You must also get access to the rpgpt_private_assets megasync folder from creikey, and put it in this repo under that exact filename. Contact him for access
 
 
 rmdir /S /q assets\copyrighted
 mkdir assets\copyrighted
+@echo on
 copy "EPIC RPG World Pack - Ancient Ruins V 1.7\EPIC RPG World Pack - Ancient Ruins V 1.7\Characters\NPC Merchant-idle.png" "assets\copyrighted\merchant.png" || goto :error
 copy "EPIC RPG World Pack - Ancient Ruins V 1.7\EPIC RPG World Pack - Ancient Ruins V 1.7\Tilesets\wall-1 - 3 tiles tall.png" "assets\copyrighted\wall-1 - 3 tiles tall.png" || goto :error
 copy "EPIC RPG World Pack - Ancient Ruins V 1.7\EPIC RPG World Pack - Ancient Ruins V 1.7\Tilesets\Tileset-Animated Terrains-16 frames.png" "assets\copyrighted\animated_terrain.png" || goto :error
@@ -25,6 +27,7 @@ copy "ForgottenMemories\WaterTiles-6frames.png" "assets\copyrighted\WaterTiles-6
 copy "rpgpt_private_assets\knight_idle.png" "assets\copyrighted\knight_idle.png" || goto :error
 copy "rpgpt_private_assets\knight_attack.png" "assets\copyrighted\knight_attack.png" || goto :error
 copy "rpgpt_private_assets\knight_run_start.png" "assets\copyrighted\knight_run_start.png" || goto :error
+@echo off
 
 rmdir /S /q gen
 mkdir gen
