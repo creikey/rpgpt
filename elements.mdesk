@@ -38,30 +38,10 @@ actions:
  actions_str: "ACT@[ALLOW_PASS]",
 }
 
-@character Hunter:
-{
- name: "Hunter the Soldier",
- prompt: "Hunter, the NPC, is a nervous guy who trusts authority more than himself. He doesn't believe in the white square's powers.",
-}
-
 @character GodRock:
 {
  name: "God",
  prompt: "The NPC is God. God, in a rock.",
-}
-
-@character Max:
-{
- name: "Max the Soldier",
- prompt: "Max, the NPC, is a Gung-ho guy who masks his fear of failure with bravado and a need for blood.",
- actions_str: "",
-}
-
-@character John:
-{
- name: "John the Soldier",
- prompt: "John, the NPC, is a critical guy who cares about others way too much.",
- actions_str: "*gives WhiteSquare*",
 }
 
 @character Death:
@@ -69,6 +49,12 @@ actions:
  name: "General Death",
  prompt: "Death, the NPC, is a general who leads without remorse, and is planning on leading his soldiers into certain victory, without them alive.",
  actions_str: "",
+}
+
+@character Geoff:
+{
+ name: "Geoff, the Knight",
+ prompt: "A Knight named Geoff acts as the moral judge to everyone he meets. He has the power to know each person’s darkest deeds as if he can feel their soul being tainted. At times, the Knight is known to execute those he deems the lowest of scum, mainly murderers and betrayers. The Great Dragon is a monster the Knight believes to be a god of evil and wishes for its death."
 }
 
 @item WhiteSquare:

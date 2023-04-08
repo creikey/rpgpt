@@ -334,7 +334,24 @@ TrainingSample samples[] = {
    PlayerSay("Give me gold or I'll kill you"),
    NPCSay("I have nothing to give! Besides, I'll never give into tyrrany"),
   },
- }
+ },
+ {
+  {
+   .npc_kind = NPC_Edeline,
+   .elems = {
+    PlayerSay("Edeline, what do you see in my future?"),
+    NPCDoSay(ACT_none, "I see the stars aligning, but the path is unclear."),
+    PlayerSay("What does that mean?"),
+    NPCDoSay(ACT_none, "It means you have a choice to make, and your actions will determine the outcome."),
+    PlayerSay("Can you give me more details?"),
+    NPCDoSay(ACT_none, "I'm sorry, that's all I can see for now."),
+    PlayerSay("That's not very helpful."),
+    NPCDoSay(ACT_none, "I understand, but the future is ever-changing."),
+    PlayerSay("Can you at least tell me if I'll be successful?"),
+    NPCDoSay(ACT_none, "Success is not defined by a single outcome. You must find your own path."),
+   },
+  },
+ },
 };
 
 

@@ -387,6 +387,7 @@ func completion(w http.ResponseWriter, req *http.Request) {
      inSystem = false
     }
    }
+   log.Println("Messages array: ", messages)
    clippedOfEndPrompt := messages[:len(messages)-1]
    resp, err := c.CreateChatCompletion(
     context.Background(),

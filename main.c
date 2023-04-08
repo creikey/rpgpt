@@ -57,6 +57,16 @@ float clamp01(float f)
  return clampf(f, 0.0f, 1.0f);
 }
 
+#ifdef min
+#undef min
+#endif
+
+int min(int a, int b)
+{
+	if(a < b) return a;
+	else return b;
+}
+
 // so can be grep'd and removed
 #define dbgprint(...) { printf("Debug | %s:%d | ", __FILE__, __LINE__); printf(__VA_ARGS__); }
 Vec2 RotateV2(Vec2 v, float theta)
@@ -1645,13 +1655,20 @@ void dbgrect(AABB rect)
 {
 #ifdef DEVTOOLS
  if(!show_devtools) return;
- const float line_width = 0.5;
- Color col = debug_color;
- Quad q = quad_aabb(rect);
- line(q.ul, q.ur, line_width, col);
- line(q.ur, q.lr, line_width, col);
- line(q.lr, q.ll, line_width, col);
- line(q.ll, q.ul, line_width, col);
+ if(!aabb_is_valid(rect))
+ {
+  dbgsquare(rect.upper_left);
+ }
+ else
+ {
+  const float line_width = 0.5;
+  Color col = debug_color;
+  Quad q = quad_aabb(rect);
+  line(q.ul, q.ur, line_width, col);
+  line(q.ur, q.lr, line_width, col);
+  line(q.lr, q.ll, line_width, col);
+  line(q.ll, q.ul, line_width, col);
+ }
 #else
  (void)rect;
 #endif
@@ -2126,15 +2143,13 @@ float draw_wrapped_text(bool dry_run, Vec2 at_point, float max_width, char *text
 
 Sentence *last_said_sentence(Entity *npc)
 {
- int i = 0;
- BUFF_ITER(Perception, &npc->remembered_perceptions)
+ BUFF_ITER_I(Perception, &npc->remembered_perceptions, i)
  {
   bool is_last_said = i == npc->remembered_perceptions.cur_index - 1;
   if(is_last_said && it->type == NPCDialog)
   {
    return &it->npc_dialog;
   }
-  i += 1;
  }
  return 0;
 }
@@ -2189,7 +2204,6 @@ void draw_dialog_panel(Entity *talking_to, float alpha)
    } DialogElement;
 
    BUFF(DialogElement, 32) dialog = {0};
-   int i = 0;
    BUFF_ITER(Perception, &talking_to->remembered_perceptions)
    {
     if(it->type == NPCDialog)
