@@ -42,7 +42,7 @@ The NPC you will be acting as, Fredrick, is a soldier in death's cohort.
   text, _ := reader.ReadString('\n')
   messages = append(messages, openai.ChatCompletionMessage {
    Role: "user",
-   Content: text + "Fredrick: ",
+   Content: text + "Fredrick: ACT_",
   })
 
   toGenerate := make([]openai.ChatCompletionMessage, len(messages))

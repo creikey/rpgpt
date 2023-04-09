@@ -449,6 +449,28 @@
                  "width":32,
                  "x":1108,
                  "y":842.666666666667
+                }, 
+                {
+                 "class":"",
+                 "height":32,
+                 "id":17,
+                 "name":"Blocky",
+                 "rotation":0,
+                 "visible":true,
+                 "width":32,
+                 "x":1091,
+                 "y":593
+                }, 
+                {
+                 "class":"",
+                 "height":32,
+                 "id":18,
+                 "name":"Edeline",
+                 "rotation":0,
+                 "visible":true,
+                 "width":32,
+                 "x":1969,
+                 "y":1462
                 }],
          "opacity":1,
          "type":"objectgroup",
@@ -457,7 +479,7 @@
          "y":0
         }],
  "nextlayerid":5,
- "nextobjectid":17,
+ "nextobjectid":19,
  "orientation":"orthogonal",
  "renderorder":"right-down",
  "tiledversion":"1.9.2",

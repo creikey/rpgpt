@@ -1396,7 +1396,7 @@ typedef struct DrawParams
  bool queue_for_translucent;
 } DrawParams;
 
-BUFF(DrawParams, 1024) translucent_queue = {0};
+BUFF(DrawParams, 1024*2) translucent_queue = {0};
 
 Vec2 into_clip_space(Vec2 screen_space_point)
 {
@@ -1690,13 +1690,20 @@ void request_do_damage(Entity *to, Entity *from, float damage)
  {
   // damage processing is done in process perception so in training, has accurate values for
   // NPC health
-  if(from->is_character)
+  if(to->is_character)
   {
-   process_perception(to, (Perception){.type = PlayerAction, .player_action_type = ACT_hits_npc, .damage_done = damage,});
+   to->damage += damage;
   }
   else
   {
-   process_perception(to, (Perception){.type = EnemyAction, .enemy_action_type = ACT_hits_npc, .damage_done = damage,});
+   if(from->is_character)
+   {
+    process_perception(to, (Perception){.type = PlayerAction, .player_action_type = ACT_hits_npc, .damage_done = damage,});
+   }
+   else
+   {
+    process_perception(to, (Perception){.type = EnemyAction, .enemy_action_type = ACT_hits_npc, .damage_done = damage,});
+   }
   }
   to->vel = MulV2F(NormV2(SubV2(to->pos, from_point)), 15.0f);
  }
@@ -2854,7 +2861,7 @@ void frame(void)
         else
         {
          //SAY(ACT_joins_player, "I am an NPC");
-         SAY(ACT_none, "I am an NPC. Bla bla bl alb djsfklalfkdsaj. Did you know shortcake?");
+         SAY(ACT_fights_player, "I am an NPC. Bla bla bl alb djsfklalfkdsaj. Did you know shortcake?");
         }
         Perception p = {0};
         assert(parse_chatgpt_response(it, mocked_ai_response.data, &p));

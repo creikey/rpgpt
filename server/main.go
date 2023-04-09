@@ -48,6 +48,11 @@ type User struct {
  CheckoutSessionID string
 }
 
+type ChatGPTElem struct {
+ ElemType string `json:"type"`
+ Content string `json:"Content"`
+}
+
 var c *openai.Client
 var logResponses = false
 var doCors = false
@@ -344,7 +349,7 @@ func completion(w http.ResponseWriter, req *http.Request) {
 
   ctx := context.Background()
   var response string = ""
-  if true {
+  if false {
    req := openai.CompletionRequest {
     Model:     "davinci:ft-alnar-games-2023-04-03-10-06-45",
     MaxTokens: 80,
@@ -364,36 +369,31 @@ func completion(w http.ResponseWriter, req *http.Request) {
    }
    response = resp.Choices[0].Text
   } else {
-   messages := make([]openai.ChatCompletionMessage, 0)
-   inSystem := true
-   for _, line := range strings.Split(promptString, "\n") {
-    if inSystem {
-     messages = append(messages, openai.ChatCompletionMessage {
-      Role: "system",
-      Content: line,
-     })
-    } else {
-     newMessage := openai.ChatCompletionMessage {
-      Role: "assistant",
-      Content: line,
-     }
-     if strings.HasPrefix(line, "Player") {
-      newMessage.Role = "user"
-     }
-     messages = append(messages, newMessage)
-    }
-    // this is the last prompt string
-    if strings.HasPrefix(line, "The NPC possible actions array") {
-     inSystem = false
-    }
+   // parse the json walter
+   var parsed []ChatGPTElem
+   log.Printf("Parsing prompt string `%s`\n", promptString)
+   err = json.Unmarshal([]byte(promptString), &parsed)
+   if err != nil {
+    log.Println("Error bad json given for prompt: ", err)
+    w.WriteHeader(http.StatusBadRequest)
+    return
    }
-   log.Println("Messages array: ", messages)
-   clippedOfEndPrompt := messages[:len(messages)-1]
+
+   messages := make([]openai.ChatCompletionMessage, 0)
+   for _, elem := range parsed {
+    log.Printf("Making message with role %s and Content `%s`...\n", elem.ElemType, elem.Content)
+    messages = append(messages, openai.ChatCompletionMessage {
+     Role: elem.ElemType,
+     Content: elem.Content,
+    })
+   }
+
    resp, err := c.CreateChatCompletion(
     context.Background(),
     openai.ChatCompletionRequest{
      Model: openai.GPT3Dot5Turbo,
-     Messages: clippedOfEndPrompt,
+     Messages: messages,
+     Stop: []string{"\n"},
     },
    )
    if err != nil {
@@ -403,6 +403,21 @@ func completion(w http.ResponseWriter, req *http.Request) {
    }
    response = resp.Choices[0].Message.Content
 
+   with_action := strings.SplitAfter(response, "ACT_")
+   if len(with_action) != 2 {
+    log.Printf("Could not find action in response string `%s`\n", response)
+    w.WriteHeader(http.StatusInternalServerError)
+    return
+   }
+   response = with_action[1]
+   
+   // trim ending quotation mark
+   if !strings.HasSuffix(response, "\"") {
+    log.Printf("Could not find ending quotation in response string `%s`\n", response)
+    w.WriteHeader(http.StatusInternalServerError)
+    return
+   }
+   response = response[:len(response)-1]
   }
   if logResponses {
    log.Println("Println response: `", response + "`")

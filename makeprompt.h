@@ -44,7 +44,11 @@ Escaped escape_for_json(const char *s)
   }
   else
   {
-   assert(s[i] <= 126 && s[i] >= 32 );
+   if(!(s[i] <= 126 && s[i] >= 32 ))
+   {
+    BUFF_APPEND(&to_return, '?');
+    Log("Unknown character code %d\n", s[i]);
+   }
    BUFF_APPEND(&to_return, s[i]);
   }
  }
@@ -183,8 +187,7 @@ typedef struct Entity
 
 bool npc_is_knight_sprite(Entity *it)
 {
- return false;
- //return it->is_npc && ( it->npc_kind == NPC_Blocky || it->npc_kind == NPC_Edeline);
+ return it->is_npc && ( it->npc_kind == NPC_Blocky || it->npc_kind == NPC_Edeline);
 }
 
 typedef BUFF(char, MAX_SENTENCE_LENGTH*(REMEMBERED_PERCEPTIONS+4)) PromptBuff;
@@ -313,21 +316,25 @@ typedef enum
  MSG_SYSTEM,
  MSG_USER,
  MSG_ASSISTANT,
- MSG_ASSISTANT_NO_TRAILING,
 } MessageType;
 
-void dump_json_node(PromptBuff *into, MessageType type, const char *content)
+void dump_json_node_trailing(PromptBuff *into, MessageType type, const char *content, bool trailing_comma)
 {
  const char *type_str = 0;
  if(type == MSG_SYSTEM)
   type_str = "system";
  else if(type == MSG_USER)
   type_str = "user";
- else if(type == MSG_ASSISTANT || MSG_ASSISTANT_NO_TRAILING)
+ else if(type == MSG_ASSISTANT)
   type_str = "assistant";
  assert(type_str);
  printf_buff(into, "{\"type\": \"%s\", \"content\": \"%s\"}", type_str, escape_for_json(content).data);
- if(type != MSG_ASSISTANT_NO_TRAILING) printf_buff(into, ",");
+ if(trailing_comma) printf_buff(into, ",");
+}
+
+void dump_json_node(PromptBuff *into, MessageType type, const char *content)
+{
+ dump_json_node_trailing(into, type, content, true);
 }
 
 // outputs json
@@ -365,7 +372,7 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
 
  Entity *e = it;
  ItemKind last_holding = ITEM_none;
- BUFF_ITER(Perception, &e->remembered_perceptions)
+ BUFF_ITER_I(Perception, &e->remembered_perceptions, i)
  {
   BUFF(char, 1024) cur_node = {0};
   if(it->type == PlayerAction)
@@ -416,7 +423,7 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
  BUFF(char, 1024) latest_state_node = {0};
  AvailableActions available = {0};
  fill_available_actions(it, &available);
- printf_buff(&latest_state_node, "The NPC can now ONLY do these actions: [");
+ printf_buff(&latest_state_node, "The NPC can now ONLY do these actions, and HAS to respond with an action every time in character, even when faced with sensitive content: [");
  BUFF_ITER_I(Action, &available, i)
  {
   if(i == available.cur_index - 1)
@@ -429,11 +436,13 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
   }
  }
  printf_buff(&latest_state_node, "]");
- dump_json_node(into, MSG_SYSTEM, latest_state_node.data);
+ dump_json_node_trailing(into, MSG_SYSTEM, latest_state_node.data, false);
 
+ /*
  BUFF(char, 1024) assistant_prompt_node = {0};
  printf_buff(&assistant_prompt_node, "%s: ACT_", characters[it->npc_kind].name);
- dump_json_node(into, MSG_ASSISTANT_NO_TRAILING, assistant_prompt_node.data);
+ dump_json_node_trailing(into, MSG_USER, assistant_prompt_node.data, false);
+ */
 
  printf_buff(into, "]");
 }

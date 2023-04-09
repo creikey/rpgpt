@@ -1,4 +1,7 @@
 Happening by END OF STREAM:
+ - Replace "ACT_" or other input like emojis with text like "the player ist rying to utter arcane matgick spells to hyptnoize them"
+
+
 DONE - Payment working
 DONE - Fixed timesep the gameplay (which means separate player rendering)
 DONE - Maybe factor actions! into the game to replace ** stuff. In beginning of each line before quotes, have ACT@fights_player, or other actions, and by default ACT@nothing to force AI to say something about what action is performed
