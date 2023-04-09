@@ -2003,13 +2003,12 @@ Vec2 move_and_slide(MoveSlideParams p)
  }
  
 
- i = 0;
  OverlapBuff overlapping_smallest_first = {0};
  if(actually_overlapping.cur_index > 0)
  {
   BUFF_APPEND(&overlapping_smallest_first, actually_overlapping.data[smallest_aabb_index]);
  }
- BUFF_ITER(AABB, &actually_overlapping)
+ BUFF_ITER_I(AABB, &actually_overlapping, i)
  {
   if(i == smallest_aabb_index)
   {
@@ -2018,7 +2017,6 @@ Vec2 move_and_slide(MoveSlideParams p)
   {
    BUFF_APPEND(&overlapping_smallest_first, *it);
   }
-  i++;
  }
 
  // overlapping
