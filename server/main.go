@@ -408,7 +408,7 @@ func completion(w http.ResponseWriter, req *http.Request) {
    log.Println("Println response: `", response + "`")
    log.Println()
   }
-  fmt.Fprintf(w, "1%s", response)
+  fmt.Fprintf(w, "1%s", response + "\n")
  }
 }
 

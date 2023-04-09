@@ -5,10 +5,13 @@
 #include <stdbool.h>
 #include <string.h>
 #include <stdlib.h> // atoi
+#include "character_info.h"
 #include "characters.gen.h"
  NPC_Skeleton,
  NPC_MOOSE,
 } NpcKind;
+
+#define DO_CHATGPT_PARSING
 
 #define Log(...) { printf("%s Log %d | ", __FILE__, __LINE__); printf(__VA_ARGS__); }
 
@@ -20,6 +23,33 @@ typedef BUFF(char, MAX_SENTENCE_LENGTH) Sentence;
 
 #define REMEMBERED_PERCEPTIONS 24
 
+// Never expected such a stupid stuff from such a great director. If there is 0 stari can give that or -200 to this movie. Its worst to see and unnecessary loss of money
+
+typedef BUFF(char, 1024*10) Escaped;
+Escaped escape_for_json(const char *s)
+{
+ Escaped to_return = {0};
+ size_t len = strlen(s);
+ for(int i = 0; i < len; i++)
+ {
+  if(s[i] == '\n')
+  {
+  BUFF_APPEND(&to_return, '\\');
+  BUFF_APPEND(&to_return, 'n');
+  }
+  else if(s[i] == '"')
+  {
+  BUFF_APPEND(&to_return, '\\');
+  BUFF_APPEND(&to_return, '"');
+  }
+  else
+  {
+   assert(s[i] <= 126 && s[i] >= 32 );
+   BUFF_APPEND(&to_return, s[i]);
+  }
+ }
+ return to_return;
+}
 typedef enum PerceptionType
 {
  Invalid, // so that zero value in training structs means end of perception
@@ -153,7 +183,8 @@ typedef struct Entity
 
 bool npc_is_knight_sprite(Entity *it)
 {
- return it->is_npc && ( it->npc_kind == NPC_Max || it->npc_kind == NPC_Hunter || it->npc_kind == NPC_John || it->npc_kind == NPC_Blocky || it->npc_kind == NPC_Edeline);
+ return false;
+ //return it->is_npc && ( it->npc_kind == NPC_Blocky || it->npc_kind == NPC_Edeline);
 }
 
 typedef BUFF(char, MAX_SENTENCE_LENGTH*(REMEMBERED_PERCEPTIONS+4)) PromptBuff;
@@ -197,6 +228,41 @@ void fill_available_actions(Entity *it, AvailableActions *a)
  }
 }
 
+// returns if action index was valid
+bool action_from_index(Entity *it, Action *out, int action_index)
+{
+ AvailableActions available = {0};
+ fill_available_actions(it, &available);
+ if(action_index < 0 || action_index >= available.cur_index)
+ {
+  return false;
+ }
+ else
+ {
+  *out = available.data[action_index];
+  return true;
+ }
+}
+
+// don't call on untrusted action, doesn't return error
+int action_to_index(Entity *it, Action a)
+{
+ AvailableActions available = {0};
+ fill_available_actions(it, &available);
+ Action target_action = a;
+ int index = -1;
+ for(int i = 0; i < available.cur_index; i++)
+ {
+  if(available.data[i] == target_action)
+  {
+   index = i;
+   break;
+  }
+ }
+ assert(index != -1);
+ return index;
+}
+
 void process_perception(Entity *it, Perception p)
 {
  if(it->is_npc)
@@ -235,46 +301,141 @@ void process_perception(Entity *it, Perception p)
  }
 }
 
-#define printf_buff(buff_ptr, ...) { int written = snprintf((buff_ptr)->data+(buff_ptr)->cur_index, ARRLEN((buff_ptr)->data) - (buff_ptr)->cur_index, __VA_ARGS__); assert(written >= 0); (buff_ptr)->cur_index += written; };
-
-// returns if action index was valid
-bool action_from_index(Entity *it, Action *out, int action_index)
-{
- AvailableActions available = {0};
- fill_available_actions(it, &available);
- if(action_index < 0 || action_index >= available.cur_index)
- {
-  return false;
- }
- else
- {
-  *out = available.data[action_index];
-  return true;
- }
-}
-
-// don't call on untrusted action, doesn't return error
-int action_to_index(Entity *it, Action a)
-{
- AvailableActions available = {0};
- fill_available_actions(it, &available);
- Action target_action = a;
- int index = -1;
- for(int i = 0; i < available.cur_index; i++)
- {
-  if(available.data[i] == target_action)
-  {
-   index = i;
-   break;
-  }
- }
- assert(index != -1);
- return index;
-}
+#define printf_buff(buff_ptr, ...) { BUFF_VALID(buff_ptr); int written = snprintf((buff_ptr)->data+(buff_ptr)->cur_index, ARRLEN((buff_ptr)->data) - (buff_ptr)->cur_index, __VA_ARGS__); assert(written >= 0); (buff_ptr)->cur_index += written; };
 
 bool npc_does_dialog(Entity *it)
 {
- return it->npc_kind < ARRLEN(prompt_table);
+ return it->npc_kind < ARRLEN(characters);
+}
+
+typedef enum
+{
+ MSG_SYSTEM,
+ MSG_USER,
+ MSG_ASSISTANT,
+ MSG_ASSISTANT_NO_TRAILING,
+} MessageType;
+
+void dump_json_node(PromptBuff *into, MessageType type, const char *content)
+{
+ const char *type_str = 0;
+ if(type == MSG_SYSTEM)
+  type_str = "system";
+ else if(type == MSG_USER)
+  type_str = "user";
+ else if(type == MSG_ASSISTANT || MSG_ASSISTANT_NO_TRAILING)
+  type_str = "assistant";
+ assert(type_str);
+ printf_buff(into, "{\"type\": \"%s\", \"content\": \"%s\"}", type_str, escape_for_json(content).data);
+ if(type != MSG_ASSISTANT_NO_TRAILING) printf_buff(into, ",");
+}
+
+// outputs json
+void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
+{
+ assert(it->is_npc);
+ assert(it->npc_kind < ARRLEN(characters));
+
+ *into = (PromptBuff){0};
+
+ printf_buff(into, "[");
+
+ BUFF(char, 1024) initial_system_msg = {0};
+ const char *health_string = 0;
+ if(it->damage <= 0.2f)
+ {
+  health_string = "the NPC hasn't taken much damage, they're healthy.";
+ }
+ else if(it->damage <= 0.5f)
+ {
+  health_string = "the NPC has taken quite a chunk of damage, they're soon gonna be ready to call it quits.";
+ }
+ else if(it->damage <= 0.8f)
+ {
+  health_string = "the NPC is close to dying! They want to leave the player's party ASAP";
+ }
+ else
+ {
+  health_string = "it's over for the NPC, they're basically dead they've taken so much damage. They should get their affairs in order.";
+ }
+ assert(health_string);
+
+ printf_buff(&initial_system_msg, "%s\n%s\nNPC health status: Right now, %s\n%s", global_prompt, characters[it->npc_kind].prompt, health_string, items[it->last_seen_holding_kind].global_prompt);
+ dump_json_node(into, MSG_SYSTEM, initial_system_msg.data);
+
+ Entity *e = it;
+ ItemKind last_holding = ITEM_none;
+ BUFF_ITER(Perception, &e->remembered_perceptions)
+ {
+  BUFF(char, 1024) cur_node = {0};
+  if(it->type == PlayerAction)
+  {
+   assert(it->player_action_type < ARRLEN(actions));
+   printf_buff(&cur_node, "Player: ACT_%s", actions[it->player_action_type]);
+   dump_json_node(into, MSG_USER, cur_node.data);
+  }
+  else if(it->type == EnemyAction)
+  {
+   assert(it->enemy_action_type < ARRLEN(actions));
+   printf_buff(&cur_node, "An Enemy: ACT_%s", actions[it->player_action_type]);
+   dump_json_node(into, MSG_USER, cur_node.data);
+  }
+  else if(it->type == PlayerDialog)
+  {
+   printf_buff(&cur_node, "Player: \"%s\"", it->player_dialog.data);
+   dump_json_node(into, MSG_USER, cur_node.data);
+  }
+  else if(it->type == NPCDialog)
+  {
+   assert(it->npc_action_type < ARRLEN(actions));
+   printf_buff(&cur_node, "%s: ACT_%s \"%s\"", characters[e->npc_kind].name, actions[it->npc_action_type], it->npc_dialog.data);
+   dump_json_node(into, MSG_ASSISTANT, cur_node.data);
+  }
+  else if(it->type == PlayerHeldItemChanged)
+  {
+   if(last_holding != it->holding)
+   {
+    if(last_holding != ITEM_none)
+    {
+     printf_buff(&cur_node, "%s\n", items[last_holding].discard);
+    }
+    if(it->holding != ITEM_none)
+    {
+     printf_buff(&cur_node, "%s\n", items[it->holding].possess);
+    }
+    last_holding = it->holding;
+   }
+   dump_json_node(into, MSG_SYSTEM, cur_node.data);
+  }
+  else
+  {
+   assert(false);
+  }
+ }
+
+ BUFF(char, 1024) latest_state_node = {0};
+ AvailableActions available = {0};
+ fill_available_actions(it, &available);
+ printf_buff(&latest_state_node, "The NPC can now ONLY do these actions: [");
+ BUFF_ITER_I(Action, &available, i)
+ {
+  if(i == available.cur_index - 1)
+  {
+   printf_buff(&latest_state_node, "ACT_%s", actions[*it]);
+  }
+  else
+  {
+   printf_buff(&latest_state_node, "ACT_%s, ", actions[*it]);
+  }
+ }
+ printf_buff(&latest_state_node, "]");
+ dump_json_node(into, MSG_SYSTEM, latest_state_node.data);
+
+ BUFF(char, 1024) assistant_prompt_node = {0};
+ printf_buff(&assistant_prompt_node, "%s: ACT_", characters[it->npc_kind].name);
+ dump_json_node(into, MSG_ASSISTANT_NO_TRAILING, assistant_prompt_node.data);
+
+ printf_buff(into, "]");
 }
 
 void generate_prompt(Entity *it, PromptBuff *into)
@@ -287,8 +448,8 @@ void generate_prompt(Entity *it, PromptBuff *into)
  printf_buff(into, "%s", "\n");
 
  // npc description prompt
- assert(it->npc_kind < ARRLEN(prompt_table));
- printf_buff(into, "%s", prompt_table[it->npc_kind]);
+ assert(it->npc_kind < ARRLEN(characters));
+ printf_buff(into, "%s", characters[it->npc_kind].prompt);
  printf_buff(into, "%s", "\n");
 
  // npc stats prompt
@@ -315,8 +476,8 @@ void generate_prompt(Entity *it, PromptBuff *into)
  // item prompt
  if(it->last_seen_holding_kind != ITEM_none)
  {
-  assert(it->last_seen_holding_kind < ARRLEN(item_prompt_table));
-  printf_buff(into, "%s", item_prompt_table[it->last_seen_holding_kind]);
+  assert(it->last_seen_holding_kind < ARRLEN(items));
+  printf_buff(into, "%s", items[it->last_seen_holding_kind].global_prompt);
   printf_buff(into, "%s", "\n");
  }
 
@@ -326,7 +487,7 @@ void generate_prompt(Entity *it, PromptBuff *into)
  printf_buff(into, "%s", "The NPC possible actions array, indexed by ACT_INDEX: [");
  BUFF_ITER(Action, &available)
  {
-  printf_buff(into, "%s", action_strings[*it]);
+  printf_buff(into, "%s", actions[*it]);
   printf_buff(into, "%s", ", ");
  }
  printf_buff(into, "%s", "]\n");
@@ -337,13 +498,13 @@ void generate_prompt(Entity *it, PromptBuff *into)
  {
   if(it->type == PlayerAction)
   {
-   assert(it->player_action_type < ARRLEN(action_strings));
-   printf_buff(into, "Player: ACT %s \n", action_strings[it->player_action_type]);
+   assert(it->player_action_type < ARRLEN(actions));
+   printf_buff(into, "Player: ACT %s \n", actions[it->player_action_type]);
   }
   else if(it->type == EnemyAction)
   {
-   assert(it->enemy_action_type < ARRLEN(action_strings));
-   printf_buff(into, "An Enemy: ACT %s \n", action_strings[it->player_action_type]);
+   assert(it->enemy_action_type < ARRLEN(actions));
+   printf_buff(into, "An Enemy: ACT %s \n", actions[it->player_action_type]);
   }
   else if(it->type == PlayerDialog)
   {
@@ -353,7 +514,7 @@ void generate_prompt(Entity *it, PromptBuff *into)
   }
   else if(it->type == NPCDialog)
   {
-   printf_buff(into, "The NPC, %s: ACT %s \"%s\"\n", name_table[e->npc_kind], action_strings[it->npc_action_type], it->npc_dialog.data);
+   printf_buff(into, "The NPC, %s: ACT %s \"%s\"\n", characters[e->npc_kind].name, actions[it->npc_action_type], it->npc_dialog.data);
   }
   else if(it->type == PlayerHeldItemChanged)
   {
@@ -361,12 +522,12 @@ void generate_prompt(Entity *it, PromptBuff *into)
    {
     if(last_holding != ITEM_none)
     {
-     printf_buff(into, "%s", item_discard_message_table[last_holding]);
+     printf_buff(into, "%s", items[last_holding].discard);
      printf_buff(into, "%s", "\n");
     }
     if(it->holding != ITEM_none)
     {
-     printf_buff(into, "%s", item_possess_message_table[it->holding]);
+     printf_buff(into, "%s", items[it->holding].possess);
      printf_buff(into, "%s", "\n");
     }
     last_holding = it->holding;
@@ -378,7 +539,53 @@ void generate_prompt(Entity *it, PromptBuff *into)
   }
  }
 
- printf_buff(into, "The NPC, %s: ACT_INDEX", name_table[e->npc_kind]);
+ printf_buff(into, "The NPC, %s: ACT_INDEX", characters[e->npc_kind].name);
+}
+
+bool parse_chatgpt_response(Entity *it, char *sentence_str, Perception *out)
+{
+ *out = (Perception){0};
+ out->type = NPCDialog;
+ 
+ size_t sentence_length = strlen(sentence_str);
+
+ char action_string[512] = {0};
+ char dialog_string[512] = {0};
+ int variables_filled = sscanf(sentence_str, "%511s \"%511[^\n]\"", action_string, dialog_string);
+
+ if(strlen(action_string) == 0 || strlen(dialog_string) == 0 || variables_filled != 2)
+ {
+  Log("sscanf failed to parse chatgpt string `%s`, variables unfilled. Action string: `%s` dialog string `%s`\n", sentence_str, action_string, dialog_string);
+  return false;
+ }
+
+ AvailableActions available = {0};
+ fill_available_actions(it, &available);
+ bool found_action = false;
+ BUFF_ITER(Action, &available)
+ {
+  if(strcmp(actions[*it], action_string) == 0)
+  {
+   found_action = true;
+   out->npc_action_type = *it;
+  }
+ }
+ if(!found_action)
+ {
+  Log("Could not find action associated with string `%s`\n", action_string);
+  out->npc_action_type = ACT_none;
+ }
+
+ if(strlen(dialog_string) >= ARRLEN(out->npc_dialog.data))
+ {
+  Log("Dialog string `%s` too big to fit in sentence size %d\n", dialog_string, (int)ARRLEN(out->npc_dialog.data));
+  return false;
+ }
+ 
+ memcpy(out->npc_dialog.data, dialog_string, strlen(dialog_string));
+ out->npc_dialog.cur_index = (int)strlen(dialog_string);
+
+ return true;
 }
 
 // returns if the response was well formatted

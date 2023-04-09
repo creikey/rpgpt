@@ -1,5 +1,7 @@
 @echo off
 
+echo Running codegen...
+
 echo Asset packs which must be bought and unzipped into root directory before running this script:
 echo https://rafaelmatos.itch.io/epic-rpg-world-pack-ancient-ruins
 echo https://sventhole.itch.io/undead-pixel-art-characters
@@ -39,8 +41,8 @@ thirdparty\sokol-shdc.exe --input quad.glsl --output gen\quad-sapp.glsl.h --slan
 cl /Ithirdparty /W3 /Zi /WX codegen.c || goto :error
 codegen || goto :error
 
-cl /Ithirdparty /Igen /W3 /Zi /WX maketraining.c || goto :error
-maketraining || goto :error
+@REM cl /Ithirdparty /Igen /W3 /Zi /WX maketraining.c || goto :error
+@REM maketraining || goto :error
 
 goto :EOF
 

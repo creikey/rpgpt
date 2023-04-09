@@ -2124,16 +2124,17 @@ float draw_wrapped_text(bool dry_run, Vec2 at_point, float max_width, char *text
   AABB drawn_bounds = draw_text((TextParams){true, dry_run, line_to_draw, AddV2(cursor, V2(0.0f, -line_height)), BLACK, text_scale, clip_to, colors_to_draw});
   if(!dry_run) dbgrect(drawn_bounds);
 
+  // caught a random infinite loop in the debugger, this will stop it
+  assert(chars_from_sentence >= 0); // defensive programming
+  if(chars_from_sentence == 0)
+  {
+   break;
+  }
+
   sentence_len -= chars_from_sentence;
   sentence_to_draw += chars_from_sentence;
   colors += chars_from_sentence;
   cursor = V2(drawn_bounds.upper_left.X, drawn_bounds.lower_right.Y);
- 
-  // caught a random infinite loop in the debugger, maybe this will stop it. Need to test and make sure it doesn't early out on valid text cases
-  if(!has_point(clip_to, cursor))
-  {
-   break;
-  }
  }
 
  return cursor.Y;
@@ -2488,7 +2489,11 @@ void frame(void)
 
           // parse out from the sentence NPC action and dialog
           Perception out = {0};
+#ifdef DO_CHATGPT_PARSING
+          bool text_was_well_formatted = parse_chatgpt_response(it, sentence_str, &out);
+#else
           bool text_was_well_formatted = parse_ai_response(it, sentence_str, &out);
+#endif
 
           if(text_was_well_formatted)
           {
@@ -2708,15 +2713,6 @@ void frame(void)
         draw_animated_sprite(&merchant_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
        }
 #endif
-       else if(it->npc_kind == NPC_Max)
-       {
-       }
-       else if(it->npc_kind == NPC_Hunter)
-       {
-       }
-       else if(it->npc_kind == NPC_John)
-       {
-       }
        else if(it->npc_kind == NPC_MOOSE)
        {
        }
@@ -2824,7 +2820,11 @@ void frame(void)
        if(it->perceptions_dirty)
        {
         PromptBuff prompt = {0};
+#ifdef DO_CHATGPT_PARSING
+        generate_chatgpt_prompt(it, &prompt);
+#else
         generate_prompt(it, &prompt);
+#endif
         Log("Sending request with prompt `%s`\n", prompt.data);
 
 #ifdef WEB
@@ -2839,7 +2839,7 @@ void frame(void)
 
 #ifdef DESKTOP
         BUFF(char, 1024) mocked_ai_response = {0};
-#define SAY(act, txt) { int index = action_to_index(it, act); printf_buff(&mocked_ai_response, " %d \"%s\"", index, txt); }
+#define SAY(act, txt) { printf_buff(&mocked_ai_response, "%s \"%s\"", actions[act], txt); }
         if(it->npc_kind == NPC_Blocky)
         {
          if(it->last_seen_holding_kind == ITEM_Tripod && !it->moved)
@@ -2857,7 +2857,7 @@ void frame(void)
          SAY(ACT_none, "I am an NPC. Bla bla bl alb djsfklalfkdsaj. Did you know shortcake?");
         }
         Perception p = {0};
-        assert(parse_ai_response(it, mocked_ai_response.data, &p));
+        assert(parse_chatgpt_response(it, mocked_ai_response.data, &p));
         process_perception(it, p);
 #undef SAY
 #endif
@@ -3048,8 +3048,10 @@ void frame(void)
       }
      }
      interact_just_pressed = false;
+     interact = false;
     } // while loop
    }
+
 
   PROFILE_SCOPE("render player")
   {
@@ -3213,21 +3215,9 @@ void frame(void)
     else if(npc_is_knight_sprite(it))
     {
      Color tint = WHITE;
-     if(it->npc_kind == NPC_Max)
-     {
-      tint = colhex(0xfc8803);
-     }
-     else if(it->npc_kind == NPC_Hunter)
-     {
-      tint = colhex(0x4ac918);
-     }
-     else if(it->npc_kind == NPC_Blocky)
+     if(it->npc_kind == NPC_Blocky)
      {
       tint = colhex(0xa84032);
-     }
-     else if(it->npc_kind == NPC_John)
-     {
-      tint = colhex(0x16c7a1);
      }
      else if(it->npc_kind == NPC_Edeline)
      {

@@ -1,22 +1,7 @@
-@global_prompt "This is a conversation between a player and an NPC in a video game. The player is wearing a full suit of knight armor. The general, Death, is leading some troops on a crusade they have mixed opinions about. Nobody is racist."
+@global_prompt "You are a wise dungeonmaster who carefully crafts interesting dialog and actions for an NPC in an action-rpg video game. The NPC performs actions by prefixing their dialog with the action they perform at that time, and they ONLY perform actions listed in the [] brackets farther down in this text."
 
 actions:
 {
- none,
-
- // mostly player actions
- walks_up,
- hits_npc,
- leaves,
-
- // mostly npc actions
- allows_player_to_pass,
- gives_tripod,
- heals_player,
- fights_player,
- strikes_air,
- joins_player,
- leaves_player,
 }
 
 @character OldMan:

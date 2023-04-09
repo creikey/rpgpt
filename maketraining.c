@@ -355,31 +355,7 @@ TrainingSample samples[] = {
 };
 
 
-typedef BUFF(char, 1024*10) Escaped;
-Escaped escape_for_json(char *s)
-{
- Escaped to_return = {0};
- size_t len = strlen(s);
- for(int i = 0; i < len; i++)
- {
-  if(s[i] == '\n')
-  {
-  BUFF_APPEND(&to_return, '\\');
-  BUFF_APPEND(&to_return, 'n');
-  }
-  else if(s[i] == '"')
-  {
-  BUFF_APPEND(&to_return, '\\');
-  BUFF_APPEND(&to_return, '"');
-  }
-  else
-  {
-   assert(s[i] <= 126 && s[i] >= 32 );
-   BUFF_APPEND(&to_return, s[i]);
-  }
- }
- return to_return;
-}
+
 
 int main(int argc, char ** argv)
 {

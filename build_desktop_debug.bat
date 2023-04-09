@@ -8,7 +8,7 @@ FOR /F "tokens=*" %%g IN ('rg -g *.c -g !thirdparty break') do (SET VAR=%%g)
 echo %g%
 
 remedybg.exe stop-debugging
-if "%1" == "codegen" ( call run_codegen.bat || goto :error )
+if "%1" == "codegen" ( call run_codegen.bat || goto :error ) else ( echo NOT RUNNING CODEGEN )
 cl /diagnostics:caret /DDEVTOOLS /Igen /Ithirdparty /W3 /Zi /WX main.c || goto :error
 @REM cl /Igen /Ithirdparty /W3 /Zi /WX main.c || goto :error
 remedybg.exe start-debugging

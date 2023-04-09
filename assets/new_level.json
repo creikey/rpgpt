@@ -359,8 +359,8 @@
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":1324.48484848485,
-                 "y":749.75757575758
+                 "x":547.151515151517,
+                 "y":539.090909090913
                 }, 
                 {
                  "class":"",
@@ -409,17 +409,6 @@
                 {
                  "class":"",
                  "height":32,
-                 "id":7,
-                 "name":"Blocky",
-                 "rotation":0,
-                 "visible":true,
-                 "width":32,
-                 "x":1104,
-                 "y":588
-                }, 
-                {
-                 "class":"",
-                 "height":32,
                  "id":8,
                  "name":"Skeleton",
                  "rotation":0,
@@ -438,50 +427,6 @@
                  "width":32,
                  "x":2537.33333333333,
                  "y":786.666666666667
-                }, 
-                {
-                 "class":"",
-                 "height":32,
-                 "id":10,
-                 "name":"Max",
-                 "rotation":0,
-                 "visible":true,
-                 "width":32,
-                 "x":2481.33333333333,
-                 "y":893.333333333333
-                }, 
-                {
-                 "class":"",
-                 "height":32,
-                 "id":11,
-                 "name":"Hunter",
-                 "rotation":0,
-                 "visible":true,
-                 "width":32,
-                 "x":1838.66666666667,
-                 "y":849.333333333333
-                }, 
-                {
-                 "class":"",
-                 "height":32,
-                 "id":12,
-                 "name":"GodRock",
-                 "rotation":0,
-                 "visible":true,
-                 "width":32,
-                 "x":2222.66666666666,
-                 "y":1461
-                }, 
-                {
-                 "class":"",
-                 "height":32,
-                 "id":13,
-                 "name":"Edeline",
-                 "rotation":0,
-                 "visible":true,
-                 "width":32,
-                 "x":1942.25,
-                 "y":1487.75
                 }, 
                 {
                  "class":"PROP",
