@@ -904,7 +904,6 @@ SwordToDamage entity_sword_to_do_damage(Entity *from, Overlapping o)
  return to_return;
 }
 
-typedef Vec4 Color;
 
 #define WHITE (Color){1.0f, 1.0f, 1.0f, 1.0f}
 #define BLACK (Color){0.0f, 0.0f, 0.0f, 1.0f}
@@ -1821,21 +1820,25 @@ void draw_shadow_for(DrawParams d)
  draw_quad(d);
 }
 
-void draw_animated_sprite(AnimatedSprite *s, double elapsed_time, bool flipped, Vec2 pos, Color tint)
+
+//void draw_animated_sprite(AnimatedSprite *s, double elapsed_time, bool flipped, Vec2 pos, Color tint)
+void draw_animated_sprite(DrawnAnimatedSprite d)
 {
- float y_sort_pos = y_coord_sorting_at(pos);
- pos = AddV2(pos, s->offset);
+ AnimatedSprite *s = d.anim;
+
+ float y_sort_pos = y_coord_sorting_at(d.pos);
+ d.pos = AddV2(d.pos, s->offset);
  sg_image spritesheet_img = *s->img;
- int index = (int)floor(elapsed_time/s->time_per_frame) % s->num_frames;
+ int index = (int)floor(d.elapsed_time/s->time_per_frame) % s->num_frames;
  if(s->no_wrap)
  {
-  index = (int)floor(elapsed_time/s->time_per_frame);
+  index = (int)floor(d.elapsed_time/s->time_per_frame);
   if(index >= s->num_frames) index = s->num_frames - 1;
  }
 
- Quad q = quad_centered(pos, s->region_size);
+ Quad q = quad_centered(d.pos, s->region_size);
 
- if(flipped)
+ if(d.flipped)
  {
   swap(&q.points[0], &q.points[1]);
   swap(&q.points[3], &q.points[2]);
@@ -1851,9 +1854,9 @@ void draw_animated_sprite(AnimatedSprite *s, double elapsed_time, bool flipped, 
  }
  region.lower_right = AddV2(region.upper_left, s->region_size);
 
- DrawParams d = (DrawParams){true, q, spritesheet_img, region, tint, .y_coord_sorting = y_sort_pos, .alpha_clip_threshold = 0.2f};
- draw_shadow_for(d);
- draw_quad(d);
+ DrawParams drawn = (DrawParams){true, q, spritesheet_img, region, d.tint, .y_coord_sorting = y_sort_pos, .queue_for_translucent = true};
+ if(!d.no_shadow) draw_shadow_for(drawn);
+ draw_quad(drawn);
 }
 
 // gets aabbs overlapping the input aabb, including gs.entities and tiles
@@ -2929,6 +2932,16 @@ void frame(void)
        BUFF_CLEAR(&player->done_damage_to_this_swing); 
        player->swing_progress = 0.0;
       }
+      // after images
+      BUFF_ITER(PlayerAfterImage, &player->after_images)
+      {
+       it->alive_for += dt;
+      }
+      if(player->after_images.data[0].alive_for >= AFTERIMAGE_LIFETIME)
+      {
+       BUFF_REMOVE_FRONT(&player->after_images);
+      }
+
       // roll processing
       {
        if(player->state != CHARACTER_IDLE && player->state != CHARACTER_WALKING)
@@ -2938,6 +2951,7 @@ void frame(void)
        }
        if(player->is_rolling)
        {
+        player->after_image_timer += dt;
         player->time_not_rolling = 0.0f;
         player->roll_progress += dt;
         if(player->roll_progress > anim_sprite_duration(&knight_rolling))
@@ -3015,6 +3029,7 @@ void frame(void)
 
   PROFILE_SCOPE("render player")
   {
+   DrawnAnimatedSprite to_draw = {0};
    Vec2 character_sprite_pos = AddV2(player->pos, V2(0.0, 20.0f));
    // if somebody, show their dialog panel
    if(interacting_with) 
@@ -3035,31 +3050,31 @@ void frame(void)
    {
     if(player->is_rolling)
     {
-     draw_animated_sprite(&knight_rolling, player->roll_progress, player->facing_left, character_sprite_pos, WHITE);
+     to_draw = (DrawnAnimatedSprite){&knight_running, player->roll_progress, player->facing_left, character_sprite_pos, WHITE};
     }
     else
     {
-     draw_animated_sprite(&knight_running, elapsed_time, player->facing_left, character_sprite_pos, WHITE);
+     to_draw = (DrawnAnimatedSprite){&knight_running, elapsed_time, player->facing_left, character_sprite_pos, WHITE};
     }
    }
    else if(player->state == CHARACTER_IDLE)
    {
     if(player->is_rolling)
     {
-     draw_animated_sprite(&knight_rolling, player->roll_progress, player->facing_left, character_sprite_pos, WHITE);
+     to_draw = (DrawnAnimatedSprite){&knight_running, player->roll_progress, player->facing_left, character_sprite_pos, WHITE};
     }
     else
     {
-     draw_animated_sprite(&knight_idle, elapsed_time, player->facing_left, character_sprite_pos, WHITE);
+     to_draw = (DrawnAnimatedSprite){&knight_idle, elapsed_time, player->facing_left, character_sprite_pos, WHITE};
     }
    }
    else if(player->state == CHARACTER_ATTACK)
    {
-    draw_animated_sprite(&knight_attack, player->swing_progress, player->facing_left, character_sprite_pos, WHITE);
+    to_draw = (DrawnAnimatedSprite){&knight_attack, player->swing_progress, player->facing_left, character_sprite_pos, WHITE};
    }
    else if(player->state == CHARACTER_TALKING)
    {
-    draw_animated_sprite(&knight_idle, elapsed_time, player->facing_left, character_sprite_pos, WHITE);
+    to_draw = (DrawnAnimatedSprite){&knight_idle, elapsed_time, player->facing_left, character_sprite_pos, WHITE};
    }
    else
    {
@@ -3070,6 +3085,40 @@ void frame(void)
    if(player->damage > 0.0)
    {
     draw_quad((DrawParams){false, (Quad){.ul=V2(0.0f, screen_size().Y), .ur = screen_size(), .lr = V2(screen_size().X, 0.0f)}, image_hurt_vignette, full_region(image_hurt_vignette), (Color){1.0f, 1.0f, 1.0f, player->damage}, .y_coord_sorting = Y_COORD_IN_FRONT, .queue_for_translucent = true});
+   }
+
+   Vec2 target_sprite_pos  = to_draw.pos;
+   BUFF_ITER(PlayerAfterImage, &player->after_images)
+   {
+    {
+     DrawnAnimatedSprite to_draw = it->drawn;
+     to_draw.tint.a = 1.0f;
+     float progress_through_life = it->alive_for / AFTERIMAGE_LIFETIME;
+
+     if(progress_through_life > 0.5f)
+     {
+      float fade_amount = (progress_through_life - 0.5f)/0.5f;
+
+      to_draw.tint.a = Lerp(0.8f, fade_amount, 0.0f);
+      to_draw.pos = LerpV2(to_draw.pos, fade_amount, target_sprite_pos);
+     }
+     to_draw.no_shadow = true;
+     draw_animated_sprite(to_draw);
+    }
+   }
+
+   if(player->is_rolling) to_draw.tint.a = 0.5f;
+
+   if(to_draw.anim)
+   {
+    draw_animated_sprite(to_draw);
+
+    if(player->after_image_timer >= TIME_TO_GEN_AFTERIMAGE)
+    {
+     player->after_image_timer = 0.0;
+     if(BUFF_HAS_SPACE(&player->after_images))
+      BUFF_APPEND(&player->after_images, (PlayerAfterImage){.drawn = to_draw});
+    }
    }
   }
 
@@ -3132,38 +3181,38 @@ void frame(void)
     if(it->npc_kind == NPC_OldMan)
     {
      bool face_left =SubV2(player->pos, it->pos).x < 0.0f;
-     draw_animated_sprite(&old_man_idle, elapsed_time, face_left, it->pos, col);
+     draw_animated_sprite((DrawnAnimatedSprite){&old_man_idle, elapsed_time, face_left, it->pos, col});
     }
     else if(it->npc_kind == NPC_Skeleton)
     {
      Color col = WHITE;
      if(it->dead)
      {
-      draw_animated_sprite(&skeleton_die, it->dead_time, it->facing_left, it->pos, col);
+      draw_animated_sprite((DrawnAnimatedSprite){&skeleton_die, it->dead_time, it->facing_left, it->pos, col});
      }
      else
      {
       if(it->swing_timer > 0.0)
       {
        // swinging sword
-       draw_animated_sprite(&skeleton_swing_sword, it->swing_timer, it->facing_left, it->pos, col);
+       draw_animated_sprite((DrawnAnimatedSprite){&skeleton_swing_sword, it->swing_timer, it->facing_left, it->pos, col});
       }
       else
       {
        if(it->walking)
        {
-        draw_animated_sprite(&skeleton_run, elapsed_time, it->facing_left, it->pos, col);
+        draw_animated_sprite((DrawnAnimatedSprite){&skeleton_run, elapsed_time, it->facing_left, it->pos, col});
        }
        else
        {
-        draw_animated_sprite(&skeleton_idle, elapsed_time, it->facing_left, it->pos, col);
+        draw_animated_sprite((DrawnAnimatedSprite){&skeleton_idle, elapsed_time, it->facing_left, it->pos, col});
        }
       }
      }
     }
     else if(it->npc_kind == NPC_Death)
     {
-     draw_animated_sprite(&death_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
+     draw_animated_sprite((DrawnAnimatedSprite){&death_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col});
     }
     else if(it->npc_kind == NPC_GodRock)
     {
@@ -3199,7 +3248,7 @@ void frame(void)
      {
       assert(false);
      }
-     draw_animated_sprite(&knight_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), tint);
+     draw_animated_sprite((DrawnAnimatedSprite){&knight_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), tint});
     }
     else if(it->npc_kind == NPC_MOOSE)
     {

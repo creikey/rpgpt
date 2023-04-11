@@ -20,6 +20,13 @@ typedef BUFF(char, MAX_SENTENCE_LENGTH) Sentence;
 
 #define REMEMBERED_PERCEPTIONS 24
 
+#define MAX_AFTERIMAGES 6
+#define TIME_TO_GEN_AFTERIMAGE (0.09f)
+#define AFTERIMAGE_LIFETIME (0.5f)
+
+#define DAMAGE_SWORD 0.2f
+#define DAMAGE_BULLET 0.2f
+
 typedef enum PerceptionType
 {
  Invalid, // so that zero value in training structs means end of perception
@@ -90,8 +97,25 @@ typedef enum
  STANDING_FIGHTING,
 } NPCPlayerStanding;
 
-#define DAMAGE_SWORD 0.2f
-#define DAMAGE_BULLET 0.2f
+
+typedef Vec4 Color;
+
+#error "to make this serializable, need to make 'animated sprite enum', not pointer to global variable. Do this in codegen?"
+typedef struct
+{
+ void *anim; // is an AnimatedSprite but can't get the decl here
+ double elapsed_time;
+ bool flipped;
+ Vec2 pos;
+ Color tint;
+ bool no_shadow;
+} DrawnAnimatedSprite;
+
+typedef struct
+{
+ DrawnAnimatedSprite drawn;
+ float alive_for;
+} PlayerAfterImage;
 
 typedef struct Entity
 {
@@ -147,6 +171,8 @@ typedef struct Entity
  EntityRef talking_to; // Maybe should be generational index, but I dunno. No death yet
  bool is_rolling; // can only roll in idle or walk states
  double time_not_rolling; // for cooldown for roll, so you can't just hold it and be invincible
+ BUFF(PlayerAfterImage, MAX_AFTERIMAGES) after_images;
+ double after_image_timer;
  double roll_progress;
  double swing_progress;
 } Entity;
