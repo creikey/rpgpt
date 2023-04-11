@@ -57,6 +57,16 @@ float clamp01(float f)
  return clampf(f, 0.0f, 1.0f);
 }
 
+#ifdef min
+#undef min
+#endif
+
+int min(int a, int b)
+{
+	if(a < b) return a;
+	else return b;
+}
+
 // so can be grep'd and removed
 #define dbgprint(...) { printf("Debug | %s:%d | ", __FILE__, __LINE__); printf(__VA_ARGS__); }
 Vec2 RotateV2(Vec2 v, float theta)
@@ -905,10 +915,12 @@ SwordToDamage entity_sword_to_do_damage(Entity *from, Overlapping o)
 }
 
 
-#define WHITE (Color){1.0f, 1.0f, 1.0f, 1.0f}
-#define BLACK (Color){0.0f, 0.0f, 0.0f, 1.0f}
-#define RED   (Color){1.0f, 0.0f, 0.0f, 1.0f}
-#define GREEN (Color){0.0f, 1.0f, 0.0f, 1.0f}
+#define WHITE ((Color){1.0f, 1.0f, 1.0f, 1.0f})
+#define BLACK ((Color){0.0f, 0.0f, 0.0f, 1.0f})
+#define RED   ((Color){1.0f, 0.0f, 0.0f, 1.0f})
+#define PINK  ((Color){1.0f, 0.0f, 1.0f, 1.0f})
+#define BLUE  ((Color){0.0f, 0.0f, 1.0f, 1.0f})
+#define GREEN ((Color){0.0f, 1.0f, 0.0f, 1.0f})
 
 Color colhex(uint32_t hex)
 {
@@ -1383,7 +1395,7 @@ typedef struct DrawParams
  bool queue_for_translucent;
 } DrawParams;
 
-BUFF(DrawParams, 1024) translucent_queue = {0};
+BUFF(DrawParams, 1024*2) translucent_queue = {0};
 
 Vec2 into_clip_space(Vec2 screen_space_point)
 {
@@ -1606,11 +1618,15 @@ bool profiling;
 #endif
 #endif
 
+Color debug_color = {1.0f, 0.0f, 0.0f, 0.0f};
+
+#define dbgcol(col) DeferLoop(debug_color = col, debug_color = RED)
+
 void dbgsquare(Vec2 at)
 {
 #ifdef DEVTOOLS
  if(!show_devtools) return;
- colorquad(true, quad_centered(at, V2(10.0, 10.0)), RED);
+ colorquad(true, quad_centered(at, V2(10.0, 10.0)), debug_color);
 #else
  (void)at;
 #endif
@@ -1620,7 +1636,7 @@ void dbgline(Vec2 from, Vec2 to)
 {
 #ifdef DEVTOOLS
  if(!show_devtools) return;
- line(from, to, 0.5f, RED);
+ line(from, to, 0.5f, debug_color);
 #else
  (void)from;
  (void)to;
@@ -1638,13 +1654,20 @@ void dbgrect(AABB rect)
 {
 #ifdef DEVTOOLS
  if(!show_devtools) return;
- const float line_width = 0.5;
- const Color col = RED;
- Quad q = quad_aabb(rect);
- line(q.ul, q.ur, line_width, col);
- line(q.ur, q.lr, line_width, col);
- line(q.lr, q.ll, line_width, col);
- line(q.ll, q.ul, line_width, col);
+ if(!aabb_is_valid(rect))
+ {
+  dbgsquare(rect.upper_left);
+ }
+ else
+ {
+  const float line_width = 0.5;
+  Color col = debug_color;
+  Quad q = quad_aabb(rect);
+  line(q.ul, q.ur, line_width, col);
+  line(q.ur, q.lr, line_width, col);
+  line(q.lr, q.ll, line_width, col);
+  line(q.ll, q.ul, line_width, col);
+ }
 #else
  (void)rect;
 #endif
@@ -1666,13 +1689,20 @@ void request_do_damage(Entity *to, Entity *from, float damage)
  {
   // damage processing is done in process perception so in training, has accurate values for
   // NPC health
-  if(from->is_character)
+  if(to->is_character)
   {
-   process_perception(to, (Perception){.type = PlayerAction, .player_action_type = ACT_hits_npc, .damage_done = damage,});
+   to->damage += damage;
   }
   else
   {
-   process_perception(to, (Perception){.type = EnemyAction, .enemy_action_type = ACT_hits_npc, .damage_done = damage,});
+   if(from->is_character)
+   {
+    process_perception(to, (Perception){.type = PlayerAction, .player_action_type = ACT_hits_npc, .damage_done = damage,});
+   }
+   else
+   {
+    process_perception(to, (Perception){.type = EnemyAction, .enemy_action_type = ACT_hits_npc, .damage_done = damage,});
+   }
   }
   to->vel = MulV2F(NormV2(SubV2(to->pos, from_point)), 15.0f);
  }
@@ -1915,7 +1945,6 @@ Vec2 move_and_slide(MoveSlideParams p)
  assert(collision_aabb_size.x > 0.0f);
  assert(collision_aabb_size.y > 0.0f);
  AABB at_new = centered_aabb(new_pos, collision_aabb_size);
- dbgrect(at_new);
  BUFF(AABB, 256) to_check = {0};
 
  // add tilemap boxes
@@ -1933,8 +1962,10 @@ Vec2 move_and_slide(MoveSlideParams p)
    TileCoord tilecoord_to_check = world_to_tilecoord(*it);
 
    if(is_tile_solid(get_tile_layer(&level_level0, 2, tilecoord_to_check)))
-   
-    BUFF_APPEND(&to_check, tile_aabb(tilecoord_to_check));
+   {
+    AABB t = tile_aabb(tilecoord_to_check);
+    BUFF_APPEND(&to_check, t);
+   }
   }
  }
 
@@ -1954,7 +1985,11 @@ Vec2 move_and_slide(MoveSlideParams p)
  // box first, because doing so is a simple heuristic to avoid depenetrating and losing
  // sideways velocity. It's visual and I can't put diagrams in code so uh oh!
 
- BUFF(AABB, 32) actually_overlapping = {0};
+ typedef BUFF(AABB, 32) OverlapBuff;
+ OverlapBuff actually_overlapping = {0};
+
+ dbgcol(PINK)
+  dbgrect(at_new);
  BUFF_ITER(AABB, &to_check)
  {
   if(overlapping(at_new, *it))
@@ -1962,6 +1997,7 @@ Vec2 move_and_slide(MoveSlideParams p)
    BUFF_APPEND(&actually_overlapping, *it);
   }
  }
+
 
  float smallest_distance = FLT_MAX;
  int smallest_aabb_index = 0;
@@ -1977,37 +2013,50 @@ Vec2 move_and_slide(MoveSlideParams p)
  }
  
 
- i = 0;
- BUFF(AABB, 32) overlapping_smallest_first = {0};
+ OverlapBuff overlapping_smallest_first = {0};
  if(actually_overlapping.cur_index > 0)
  {
   BUFF_APPEND(&overlapping_smallest_first, actually_overlapping.data[smallest_aabb_index]);
  }
- BUFF_ITER(AABB, &actually_overlapping)
+ BUFF_ITER_I(AABB, &actually_overlapping, i)
  {
   if(i == smallest_aabb_index)
   {
-   continue;
   }
   else
   {
    BUFF_APPEND(&overlapping_smallest_first, *it);
   }
-  i++;
  }
+
+ // overlapping
+ BUFF_ITER(AABB, &overlapping_smallest_first)
+ {
+  dbgcol(GREEN)
+  {
+   dbgrect(*it);
+  }
+ }
+
+ //overlapping_smallest_first = actually_overlapping;
+
+ BUFF_ITER(AABB, &actually_overlapping)
+  dbgcol(WHITE)
+   dbgrect(*it);
+
+ BUFF_ITER(AABB, &overlapping_smallest_first)
+  dbgcol(WHITE)
+   dbgsquare(aabb_center(*it));
 
  CollisionInfo info = {0};
  for(int col_iter_i = 0; col_iter_i < 1; col_iter_i++)
  BUFF_ITER(AABB, &overlapping_smallest_first)
  {
   AABB to_depenetrate_from = *it;
-  dbgrect(to_depenetrate_from);
   int iters_tried_to_push_apart = 0;
   while(overlapping(to_depenetrate_from, at_new) && iters_tried_to_push_apart < 500)
   { 
-   //dbgsquare(to_depenetrate_from.upper_left);
-   //dbgsquare(to_depenetrate_from.lower_right);
-   const float move_dist = 0.05f;
+   const float move_dist = 0.1f;
 
    info.happened = true;
    Vec2 from_point = aabb_center(to_depenetrate_from);
@@ -2073,7 +2122,6 @@ float draw_wrapped_text(bool dry_run, Vec2 at_point, float max_width, char *text
     chars_from_sentence -= 1;
     break;
    }
-
    chars_from_sentence += 1;
   }
   if(chars_from_sentence > sentence_len) chars_from_sentence--;
@@ -2086,16 +2134,17 @@ float draw_wrapped_text(bool dry_run, Vec2 at_point, float max_width, char *text
   AABB drawn_bounds = draw_text((TextParams){true, dry_run, line_to_draw, AddV2(cursor, V2(0.0f, -line_height)), BLACK, text_scale, clip_to, colors_to_draw});
   if(!dry_run) dbgrect(drawn_bounds);
 
+  // caught a random infinite loop in the debugger, this will stop it
+  assert(chars_from_sentence >= 0); // defensive programming
+  if(chars_from_sentence == 0)
+  {
+   break;
+  }
+
   sentence_len -= chars_from_sentence;
   sentence_to_draw += chars_from_sentence;
   colors += chars_from_sentence;
   cursor = V2(drawn_bounds.upper_left.X, drawn_bounds.lower_right.Y);
- 
-  // caught a random infinite loop in the debugger, maybe this will stop it. Need to test and make sure it doesn't early out on valid text cases
-  if(!has_point(clip_to, cursor))
-  {
-   break;
-  }
  }
 
  return cursor.Y;
@@ -2103,15 +2152,13 @@ float draw_wrapped_text(bool dry_run, Vec2 at_point, float max_width, char *text
 
 Sentence *last_said_sentence(Entity *npc)
 {
- int i = 0;
- BUFF_ITER(Perception, &npc->remembered_perceptions)
+ BUFF_ITER_I(Perception, &npc->remembered_perceptions, i)
  {
   bool is_last_said = i == npc->remembered_perceptions.cur_index - 1;
   if(is_last_said && it->type == NPCDialog)
   {
    return &it->npc_dialog;
   }
-  i += 1;
  }
  return 0;
 }
@@ -2166,7 +2213,6 @@ void draw_dialog_panel(Entity *talking_to, float alpha)
    } DialogElement;
 
    BUFF(DialogElement, 32) dialog = {0};
-   int i = 0;
    BUFF_ITER(Perception, &talking_to->remembered_perceptions)
    {
     if(it->type == NPCDialog)
@@ -2453,7 +2499,11 @@ void frame(void)
 
           // parse out from the sentence NPC action and dialog
           Perception out = {0};
+#ifdef DO_CHATGPT_PARSING
+          bool text_was_well_formatted = parse_chatgpt_response(it, sentence_str, &out);
+#else
           bool text_was_well_formatted = parse_ai_response(it, sentence_str, &out);
+#endif
 
           if(text_was_well_formatted)
           {
@@ -2673,15 +2723,6 @@ void frame(void)
         draw_animated_sprite(&merchant_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
        }
 #endif
-       else if(it->npc_kind == NPC_Max)
-       {
-       }
-       else if(it->npc_kind == NPC_Hunter)
-       {
-       }
-       else if(it->npc_kind == NPC_John)
-       {
-       }
        else if(it->npc_kind == NPC_MOOSE)
        {
        }
@@ -2789,7 +2830,11 @@ void frame(void)
        if(it->perceptions_dirty)
        {
         PromptBuff prompt = {0};
+#ifdef DO_CHATGPT_PARSING
+        generate_chatgpt_prompt(it, &prompt);
+#else
         generate_prompt(it, &prompt);
+#endif
         Log("Sending request with prompt `%s`\n", prompt.data);
 
 #ifdef WEB
@@ -2804,7 +2849,7 @@ void frame(void)
 
 #ifdef DESKTOP
         BUFF(char, 1024) mocked_ai_response = {0};
-#define SAY(act, txt) { int index = action_to_index(it, act); printf_buff(&mocked_ai_response, " %d \"%s\"", index, txt); }
+#define SAY(act, txt) { printf_buff(&mocked_ai_response, "%s \"%s\"", actions[act], txt); }
         if(it->npc_kind == NPC_Blocky)
         {
          if(it->last_seen_holding_kind == ITEM_Tripod && !it->moved)
@@ -2819,10 +2864,10 @@ void frame(void)
         else
         {
          //SAY(ACT_joins_player, "I am an NPC");
-         SAY(ACT_none, "I am an NPC. Bla bla bl alb djsfklalfkdsaj. Did you know shortcake?");
+         SAY(ACT_fights_player, "I am an NPC. Bla bla bl alb djsfklalfkdsaj. Did you know shortcake?");
         }
         Perception p = {0};
-        assert(parse_ai_response(it, mocked_ai_response.data, &p));
+        assert(parse_chatgpt_response(it, mocked_ai_response.data, &p));
         process_perception(it, p);
 #undef SAY
 #endif
@@ -3024,8 +3069,10 @@ void frame(void)
       }
      }
      interact_just_pressed = false;
+     interact = false;
     } // while loop
    }
+
 
   PROFILE_SCOPE("render player")
   {
@@ -3224,21 +3271,9 @@ void frame(void)
     else if(npc_is_knight_sprite(it))
     {
      Color tint = WHITE;
-     if(it->npc_kind == NPC_Max)
-     {
-      tint = colhex(0xfc8803);
-     }
-     else if(it->npc_kind == NPC_Hunter)
-     {
-      tint = colhex(0x4ac918);
-     }
-     else if(it->npc_kind == NPC_Blocky)
+     if(it->npc_kind == NPC_Blocky)
      {
       tint = colhex(0xa84032);
-     }
-     else if(it->npc_kind == NPC_John)
-     {
-      tint = colhex(0x16c7a1);
      }
      else if(it->npc_kind == NPC_Edeline)
      {

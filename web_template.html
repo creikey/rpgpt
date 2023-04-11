@@ -388,6 +388,7 @@ function on_textarea_key(event) {
    continue;
   }
   if(cur.charCodeAt(0) >= 255) continue; // non ascii gtfo
+  if(cur === "|") continue; // used for splitting
   final_textarea_string += cur_textarea_string[i];
  }
  document.getElementById("inputtext").value = final_textarea_string;
