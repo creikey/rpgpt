@@ -199,6 +199,7 @@ typedef struct Entity
  // character
  bool is_character;
  EntityRef holding_item;
+ bool has_paused_time;
  Vec2 to_throw_direction;
  CharacterState state;
  EntityRef talking_to; // Maybe should be generational index, but I dunno. No death yet

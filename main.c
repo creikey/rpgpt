@@ -2153,12 +2153,13 @@ bool mouse_frozen = false;
 #endif
 void frame(void)
 {
+ static float speed_factor = 1.0f;
  // elapsed_time
  double dt_double = 0.0;
  {
   dt_double = stm_sec(stm_diff(stm_now(), last_frame_time));
   dt_double = fmin(dt_double, 5.0 / 60.0); // clamp dt at maximum 5 frames, avoid super huge dt
-  elapsed_time += dt_double;
+  elapsed_time += dt_double*speed_factor;
   last_frame_time = stm_now();
  }
  float dt = (float)dt_double;
@@ -2329,6 +2330,14 @@ void frame(void)
   static Entity *interacting_with = 0; // used by rendering to figure out who to draw dialog box on
   static bool player_in_combat = false;
   const float dialog_interact_size = 2.5f * TILE_SIZE;
+  if(player->has_paused_time)
+  {
+   speed_factor = Lerp(speed_factor, dt*10.0f, 0.0f);
+  }
+  else
+  {
+   speed_factor = Lerp(speed_factor, dt*10.0f, 1.0f);
+  }
   int num_timestep_loops = 0;
   {
    unprocessed_gameplay_time += dt;
@@ -2337,7 +2346,7 @@ void frame(void)
    {
     num_timestep_loops++;
     unprocessed_gameplay_time -= timestep;
-    float dt = timestep;
+    float dt = timestep*speed_factor;
 
     // process gs.entities
     player_in_combat = false; // in combat set by various enemies when they fight the player
@@ -2567,7 +2576,7 @@ void frame(void)
           it->walking = LenV2(SubV2(player->pos, it->pos)) < 250.0f;
           if(it->walking)
           {
-           player_in_combat  = true;
+           player_in_combat = true;
            Entity *skele = it;
            BUFF_ITER(Overlap, &overlapping_weapon)
            {
@@ -2839,6 +2848,10 @@ void frame(void)
          thrown->held_by_player = false;
          player->holding_item = (EntityRef){0};
         }
+        else
+        {
+         player->has_paused_time = !player->has_paused_time;
+        }
        }
       }
       if(roll && !player->is_rolling && player->time_not_rolling > 0.3f && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
@@ -2934,9 +2947,9 @@ void frame(void)
 
       // velocity processing
       {
-       Vec2 target_vel = MulV2F(movement, dt * pixels_per_meter * speed);
+       Vec2 target_vel = MulV2F(movement, pixels_per_meter * speed);
        player->vel = LerpV2(player->vel, dt * 15.0f, target_vel);
-       player->pos = move_and_slide((MoveSlideParams){player, player->pos, player->vel});
+       player->pos = move_and_slide((MoveSlideParams){player, player->pos, MulV2F(player->vel, dt)});
       }
       // health
       if(player->damage >= 1.0)
