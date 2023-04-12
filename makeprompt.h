@@ -213,7 +213,7 @@ typedef struct Entity
 
 bool npc_is_knight_sprite(Entity *it)
 {
- return it->is_npc && ( it->npc_kind == NPC_Blocky || it->npc_kind == NPC_Edeline);
+ return it->is_npc && ( it->npc_kind == NPC_TheGuard || it->npc_kind == NPC_Edeline);
 }
 
 typedef BUFF(char, MAX_SENTENCE_LENGTH*(REMEMBERED_PERCEPTIONS+4)) PromptBuff;
@@ -247,7 +247,7 @@ void fill_available_actions(Entity *it, AvailableActions *a)
   {
    BUFF_APPEND(a, ACT_strikes_air);
   }
-  if(it->npc_kind == NPC_Blocky)
+  if(it->npc_kind == NPC_TheGuard)
   {
    if(!it->moved)
    {
@@ -373,7 +373,7 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
 
  printf_buff(into, "[");
 
- BUFF(char, 1024) initial_system_msg = {0};
+ BUFF(char, 1024*10) initial_system_msg = {0};
  const char *health_string = 0;
  if(it->damage <= 0.2f)
  {

@@ -401,6 +401,8 @@ func completion(w http.ResponseWriter, req *http.Request) {
     w.WriteHeader(http.StatusInternalServerError)
     return
    }
+
+   log.Printf("Full response: \n````\n%s\n````\n", resp)
    response = resp.Choices[0].Message.Content
 
    with_action := strings.SplitAfter(response, "ACT_")

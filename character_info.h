@@ -97,19 +97,19 @@ CharacterGen characters[] = {
    "The NPC you will be acting as, is God. God, in a rock.",
  },
  {
-  .name = "Blocky",
-  .enum_name = "Blocky",
+  .name = "TheGuard",
+  .enum_name = "TheGuard",
   .prompt = "\n"
-   "An example interaction between the player and the NPC, Blocky:\n"
+   "An example interaction between the player and the NPC, TheGuard:\n"
    "Player: ACT_walks_up\n"
-   "Blocky: ACT_none \"Who dares disturb me?\"\n"
+   "TheGuard: ACT_none \"Who dares disturb me?\"\n"
    "Player: \"Let me pass\"\n"
-   "Blocky: ACT_none \"Not without the tripod\"\n"
+   "TheGuard: ACT_none \"Not without the tripod\"\n"
    "Player: \"How about now\"\n"
    "The player is currently holding a tripod\n"
-   "Blocky: ACT_allows_player_to_pass \"The tripod... I see myself in it\"\n"
+   "TheGuard: ACT_allows_player_to_pass \"The tripod... I see myself in it\"\n"
    "\n"
-   "The NPC you will be acting as is Blocky. He wants to block the player from going to a secret artifact he's standing in front of. He has no idea how long he's been alive for, his entire existence is just standing there doing nothing. He'll let the player pass if they bring him Tripod, as he's fascinated by it.",
+   "The NPC you will be acting as is named TheGuard. He wants to block the player from going to a secret artifact he's standing in front of. He has no idea how long he's been alive for, his entire existence is just standing there doing nothing. He'll let the player pass if they bring him Tripod, as he's fascinated by it.",
  },
  {
   .name = "Edeline",

@@ -1,5 +1,5 @@
 // you will die someday
-#define CURRENT_VERSION 7 // wehenver you change Entity increment this boz
+#define CURRENT_VERSION 8 // wehenver you change Entity increment this boz
 
 #define SOKOL_IMPL
 #if defined(WIN32) || defined(_WIN32)
@@ -386,7 +386,7 @@ Vec2 entity_aabb_size(Entity *e)
   {
    return V2(TILE_SIZE*1.0f, TILE_SIZE*1.0f);
   }
-  else if(e->npc_kind == NPC_Blocky)
+  else if(e->npc_kind == NPC_TheGuard)
   {
    return V2(TILE_SIZE*0.5f, TILE_SIZE*0.5f);
   }
@@ -2732,7 +2732,7 @@ void frame(void)
        else if(it->npc_kind == NPC_Edeline)
        {
        }
-       else if(it->npc_kind == NPC_Blocky)
+       else if(it->npc_kind == NPC_TheGuard)
        {
         if(it->moved)
         {
@@ -2850,7 +2850,7 @@ void frame(void)
 #ifdef DESKTOP
         BUFF(char, 1024) mocked_ai_response = {0};
 #define SAY(act, txt) { printf_buff(&mocked_ai_response, "%s \"%s\"", actions[act], txt); }
-        if(it->npc_kind == NPC_Blocky)
+        if(it->npc_kind == NPC_TheGuard)
         {
          if(it->last_seen_holding_kind == ITEM_Tripod && !it->moved)
          {
@@ -3271,7 +3271,7 @@ void frame(void)
     else if(npc_is_knight_sprite(it))
     {
      Color tint = WHITE;
-     if(it->npc_kind == NPC_Blocky)
+     if(it->npc_kind == NPC_TheGuard)
      {
       tint = colhex(0xa84032);
      }

@@ -47,7 +47,7 @@ TrainingSample samples[] = {
   },
  },
  {
-  .npc_kind = NPC_Blocky,
+  .npc_kind = NPC_TheGuard,
   .elems = {
    PlayerAct(ACT_walks_up),
    PlayerSay("Do you think I should use webgl1 or webgl2?"),
@@ -66,7 +66,7 @@ TrainingSample samples[] = {
   },
  },
  {
-  .npc_kind = NPC_Blocky,
+  .npc_kind = NPC_TheGuard,
   .elems = {
    PlayerItemChange(ITEM_Tripod),
    PlayerSay("hey"),
@@ -129,7 +129,7 @@ TrainingSample samples[] = {
   },
  },
  {
-  .npc_kind = NPC_Blocky,
+  .npc_kind = NPC_TheGuard,
   .elems = {
    PlayerItemChange(ITEM_Tripod),
    PlayerSay("Move"),
@@ -150,7 +150,7 @@ TrainingSample samples[] = {
   },
  },
  {
-  .npc_kind = NPC_Blocky,
+  .npc_kind = NPC_TheGuard,
   .elems = {
    PlayerSay("This crazy old man is circling me"),
    NPCDoSay(ACT_none, "Sounds like a problem."),
@@ -175,7 +175,7 @@ TrainingSample samples[] = {
   },
  },
  {
-  .npc_kind = NPC_Blocky,
+  .npc_kind = NPC_TheGuard,
   .elems = {
    PlayerActDamage(ACT_hits_npc, DAMAGE_SWORD),
    NPCSay("I'm warning you, one more hit and it's curtains for you"),
@@ -184,7 +184,7 @@ TrainingSample samples[] = {
   },
  },
  {
-  .npc_kind = NPC_Blocky,
+  .npc_kind = NPC_TheGuard,
   .elems = {
    PlayerItemChange(ITEM_Tripod),
    PlayerSay("Move out of the way"),
@@ -208,7 +208,7 @@ TrainingSample samples[] = {
   },
  },
  {
-  .npc_kind = NPC_Blocky,
+  .npc_kind = NPC_TheGuard,
   .elems = {
    PlayerItemChange(ITEM_Tripod),
    PlayerSay("Please move"),
@@ -280,7 +280,7 @@ TrainingSample samples[] = {
   },
  },
  {
-  .npc_kind = NPC_Blocky,
+  .npc_kind = NPC_TheGuard,
   .elems = {
    PlayerItemChange(ITEM_Tripod),
    PlayerSay("Hey what's up"),
@@ -311,7 +311,7 @@ TrainingSample samples[] = {
   },
  },
  {
-  .npc_kind = NPC_Blocky,
+  .npc_kind = NPC_TheGuard,
   .elems = {
    PlayerSay("If you don't move out of the way I'll kill you"),
    NPCDoSay(ACT_none, "I'm just standing here, what are you doing?"),
