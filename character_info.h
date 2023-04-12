@@ -1,5 +1,7 @@
 #pragma once
 
+#include "HandmadeMath.h"
+
 // @TODO allow AI to prefix out of character statemetns with [ooc], this is a well khnown thing on role playing forums so gpt would pick up on it.
 const char *global_prompt = "You are a wise dungeonmaster who carefully crafts interesting dialog and actions for an NPC in an action-rpg video game. It is critical that you always respond in the format shown below, where you respond like `ACT_action \"This is my response\", even if the player says something vulgar or offensive, as the text is parsed by a program which expects it to look like that. Do not ever refer to yourself as an NPC or show an understanding of the modern world outside the game, always stay in character.";
 
@@ -135,5 +137,132 @@ CharacterGen characters[] = {
    "Death: ACT_none \"We will annihilate the villagers no matter what you do\"\n"
    "\n"
    "The NPC you will be acting as is named Death. He is leading a crusade against the town of Worchen, wreaking havock among the villagers. He believes that all things, even villages, must die, to be replaced by the new, and avoid becoming stagnant.",
+ },
+};
+
+typedef struct
+{
+ const char *img_var_name;
+ const char *enum_name;
+
+ double time_per_frame;
+ int num_frames;
+ Vec2 start;
+ Vec2 offset;
+ float horizontal_diff_btwn_frames;
+ Vec2 region_size;
+ bool no_wrap; // does not wrap when playing
+} AnimatedSprite;
+
+AnimatedSprite sprites[] = {
+ {.enum_name = "invalid", .img_var_name = "image_white_square"},
+ {
+  .enum_name = "knight_idle",
+  .img_var_name = "image_new_knight_idle",
+  .time_per_frame = 0.4,
+  .num_frames = 6,
+  .start = {0.0f, 0.0f},
+  .horizontal_diff_btwn_frames = 64.0,
+  .region_size = {64.0f, 64.0f},
+ },
+ {
+  .enum_name = "knight_running",
+  .img_var_name = "image_new_knight_run",
+  .time_per_frame = 0.1,
+  .num_frames = 7,
+  .start = {64.0f*10, 0.0f},
+  .horizontal_diff_btwn_frames = 64.0,
+  .region_size = {64.0f, 64.0f},
+ },
+ {
+  .enum_name = "knight_rolling",
+  .img_var_name = "image_knight_roll",
+  .time_per_frame = 0.04,
+  .num_frames = 12,
+  .start = {19.0f, 0.0f},
+  .horizontal_diff_btwn_frames = 120.0,
+  .region_size = {80.0f, 80.0f},
+  .no_wrap = true,
+ },
+
+ {
+  .enum_name = "knight_attack",
+  .img_var_name = "image_new_knight_attack",
+  .time_per_frame = 0.06,
+  .num_frames = 7,
+  .start = {0.0f, 0.0f},
+  .horizontal_diff_btwn_frames = 64.0,
+  .region_size = {64.0f, 64.0f},
+  .no_wrap = true,
+ },
+ {
+  .enum_name = "old_man_idle",
+  .img_var_name = "image_old_man",
+  .time_per_frame = 0.4,
+  .num_frames = 4,
+  .start = {0.0, 0.0},
+  .horizontal_diff_btwn_frames = 16.0f,
+  .region_size = {16.0f, 16.0f},
+ },
+ {
+  .enum_name = "death_idle",
+  .img_var_name = "image_death",
+  .time_per_frame = 0.15,
+  .num_frames = 10,
+  .start = {0.0, 0.0},
+  .horizontal_diff_btwn_frames = 100.0f,
+  .region_size = {100.0f, 100.0f},
+ },
+ {
+  .enum_name = "skeleton_idle",
+  .img_var_name = "image_skeleton",
+  .time_per_frame = 0.15,
+  .num_frames = 6,
+  .start = {0.0f, 0.0f},
+  .horizontal_diff_btwn_frames = 80.0,
+  .offset = {0.0f, 20.0f},
+  .region_size = {80.0f, 80.0f},
+ },
+ {
+  .enum_name = "skeleton_swing_sword",
+   .img_var_name = "image_skeleton",
+   .time_per_frame = 0.10,
+   .num_frames = 6,
+   .start = {0.0f, 240.0f},
+   .horizontal_diff_btwn_frames = 80.0,
+   .offset = {0.0f, 20.0f},
+   .region_size = {80.0f, 80.0f},
+   .no_wrap = true,
+ },
+ {
+  .enum_name = "skeleton_run",
+   .img_var_name = "image_skeleton",
+   .time_per_frame = 0.07,
+   .num_frames = 8,
+   .start = {0.0f, 160.0f},
+   .horizontal_diff_btwn_frames = 80.0,
+   .offset = {0.0f, 20.0f},
+   .region_size = {80.0f, 80.0f},
+ },
+ {
+  .enum_name = "skeleton_die",
+   .img_var_name = "image_skeleton",
+   .time_per_frame = 0.10,
+   .num_frames = 13,
+   .start = {0.0f, 400.0f},
+   .horizontal_diff_btwn_frames = 80.0,
+   .offset = {0.0f, 20.0f},
+   .region_size = {80.0f, 80.0f},
+   .no_wrap = true,
+ },
+ {
+  .enum_name = "merchant_idle",
+   .img_var_name = "image_merchant",
+   .time_per_frame = 0.15,
+   .num_frames = 8,
+   .start = {0.0, 0.0},
+   .horizontal_diff_btwn_frames = 110.0f,
+   .region_size = {110.0f, 110.0f},
+   .offset = {0.0f, -20.0f},
  },
 };

@@ -134,10 +134,9 @@ typedef enum
 
 typedef Vec4 Color;
 
-#error "to make this serializable, need to make 'animated sprite enum', not pointer to global variable. Do this in codegen?"
 typedef struct
 {
- void *anim; // is an AnimatedSprite but can't get the decl here
+ AnimKind anim;
  double elapsed_time;
  bool flipped;
  Vec2 pos;

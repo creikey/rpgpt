@@ -130,8 +130,9 @@ int main(int argc, char **argv)
 #define GEN_ENUM(arr_elem_type, arr, enum_type_name, enum_name_access, fmt_str) { fprintf(char_header, "typedef enum\n{\n"); ARR_ITER(arr_elem_type, arr) fprintf(char_header, fmt_str, enum_name_access); fprintf(char_header, "} %s;\n", enum_type_name); GEN_TABLE(arr_elem_type, enum_type_name "_names", arr, enum_name_access); } 
  GEN_ENUM(char *, actions, "Action", *it, "ACT_%s,\n");
  GEN_ENUM(ItemInfo, items, "ItemKind", it->enum_name, "ITEM_%s,\n");
+ GEN_ENUM(AnimatedSprite, sprites, "AnimKind", it->enum_name, "ANIM_%s,\n");
+
  
- // escape multiline strings in C
  fprintf(char_header, "typedef enum\n{\n");
  ARR_ITER(CharacterGen, characters)
  {
@@ -319,6 +320,13 @@ int main(int argc, char **argv)
  fprintf(output, "%.*s\nvoid load_assets() {\n%.*s\n}\n", MD_S8VArg(declarations), MD_S8VArg(loads));
 
  fprintf(output, "TileSet tilesets[] = { %.*s\n };\n", MD_S8VArg(MD_S8ListJoin(cg_arena, tileset_decls, &join)));
+
+ fprintf(output, "sg_image * anim_img_table[] = {\n");
+ ARR_ITER(AnimatedSprite, sprites)
+ {
+  fprintf(output, "&%s,\n", it->img_var_name);
+ }
+ fprintf(output, "}; // anim_img_table \n");
 
  fclose(output);
 

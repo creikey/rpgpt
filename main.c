@@ -128,18 +128,6 @@ typedef struct TileSet
  AnimatedTile animated[128];
 } TileSet;
 
-typedef struct AnimatedSprite
-{
- sg_image *img;
- double time_per_frame;
- int num_frames;
- Vec2 start;
- Vec2 offset;
- float horizontal_diff_btwn_frames;
- Vec2 region_size;
- bool no_wrap; // does not wrap when playing
-} AnimatedSprite;
-
 #ifdef DEVTOOLS
 #define SERVER_URL "http://localhost:8090"
 #else
@@ -551,8 +539,8 @@ sg_image load_image(const char *path)
  return to_return;
 }
 
-#include "quad-sapp.glsl.h"
 #include "assets.gen.c"
+#include "quad-sapp.glsl.h"
 
 AABB level_aabb = { .upper_left = {0.0f, 0.0f}, .lower_right = {TILE_SIZE * LEVEL_TILES, -(TILE_SIZE * LEVEL_TILES)} };
 typedef struct GameState {
@@ -709,120 +697,6 @@ void end_text_input(char *what_player_said)
   process_perception(talking, (Perception){.type = PlayerDialog, .player_dialog = what_player_said_sentence,});
  }
 }
-
-AnimatedSprite knight_idle =
-{
- .img = &image_new_knight_idle,
- .time_per_frame = 0.4,
- .num_frames = 6,
- .start = {0.0f, 0.0f},
- .horizontal_diff_btwn_frames = 64.0,
- .region_size = {64.0f, 64.0f},
-};
-
-AnimatedSprite knight_running =
-{
- .img = &image_new_knight_run,
- .time_per_frame = 0.1,
- .num_frames = 7,
- .start = {64.0f*10, 0.0f},
- .horizontal_diff_btwn_frames = 64.0,
- .region_size = {64.0f, 64.0f},
-};
-
-AnimatedSprite knight_rolling =
-{
- .img = &image_knight_roll,
- .time_per_frame = 0.04,
- .num_frames = 12,
- .start = {19.0f, 0.0f},
- .horizontal_diff_btwn_frames = 120.0,
- .region_size = {80.0f, 80.0f},
- .no_wrap = true,
-};
-
-
-AnimatedSprite knight_attack = 
-{
- .img = &image_new_knight_attack,
- .time_per_frame = 0.06,
- .num_frames = 7,
- .start = {0.0f, 0.0f},
- .horizontal_diff_btwn_frames = 64.0,
- .region_size = {64.0f, 64.0f},
- .no_wrap = true,
-};
-
-AnimatedSprite old_man_idle = 
-{
- .img = &image_old_man,
- .time_per_frame = 0.4,
- .num_frames = 4,
- .start = {0.0, 0.0},
- .horizontal_diff_btwn_frames = 16.0f,
- .region_size = {16.0f, 16.0f},
-};
-AnimatedSprite death_idle = 
-{
- .img = &image_death,
- .time_per_frame = 0.15,
- .num_frames = 10,
- .start = {0.0, 0.0},
- .horizontal_diff_btwn_frames = 100.0f,
- .region_size = {100.0f, 100.0f},
-};
-AnimatedSprite skeleton_idle =
-{
- .img = &image_skeleton,
- .time_per_frame = 0.15,
- .num_frames = 6,
- .start = {0.0f, 0.0f},
- .horizontal_diff_btwn_frames = 80.0,
- .offset = {0.0f, 20.0f},
- .region_size = {80.0f, 80.0f},
-};
-AnimatedSprite skeleton_swing_sword =
-{
- .img = &image_skeleton,
- .time_per_frame = 0.10,
- .num_frames = 6,
- .start = {0.0f, 240.0f},
- .horizontal_diff_btwn_frames = 80.0,
- .offset = {0.0f, 20.0f},
- .region_size = {80.0f, 80.0f},
- .no_wrap = true,
-};
-AnimatedSprite skeleton_run =
-{
- .img = &image_skeleton,
- .time_per_frame = 0.07,
- .num_frames = 8,
- .start = {0.0f, 160.0f},
- .horizontal_diff_btwn_frames = 80.0,
- .offset = {0.0f, 20.0f},
- .region_size = {80.0f, 80.0f},
-};
-AnimatedSprite skeleton_die =
-{
- .img = &image_skeleton,
- .time_per_frame = 0.10,
- .num_frames = 13,
- .start = {0.0f, 400.0f},
- .horizontal_diff_btwn_frames = 80.0,
- .offset = {0.0f, 20.0f},
- .region_size = {80.0f, 80.0f},
- .no_wrap = true,
-};
-AnimatedSprite merchant_idle = 
-{
- .img = &image_merchant,
- .time_per_frame = 0.15,
- .num_frames = 8,
- .start = {0.0, 0.0},
- .horizontal_diff_btwn_frames = 110.0f,
- .region_size = {110.0f, 110.0f},
- .offset = {0.0f, -20.0f},
-};
 /*
 AnimatedSprite moose_idle = 
 {
@@ -1564,13 +1438,11 @@ void swap(Vec2 *p1, Vec2 *p2)
  *p2 = tmp;
 }
 
-double anim_sprite_duration(AnimatedSprite *s)
+double anim_sprite_duration(AnimKind anim)
 {
+ AnimatedSprite *s = GET_TABLE_PTR(sprites, anim);
  return s->num_frames * s->time_per_frame;
 }
-
-
-
 
 Vec2 tile_id_to_coord(sg_image tileset_image, Vec2 tile_size, uint16_t tile_id)
 {
@@ -1850,15 +1722,14 @@ void draw_shadow_for(DrawParams d)
  draw_quad(d);
 }
 
-
 //void draw_animated_sprite(AnimatedSprite *s, double elapsed_time, bool flipped, Vec2 pos, Color tint)
 void draw_animated_sprite(DrawnAnimatedSprite d)
 {
- AnimatedSprite *s = d.anim;
+ AnimatedSprite *s = GET_TABLE_PTR(sprites, d.anim);
+ sg_image spritesheet_img = *GET_TABLE(anim_img_table, d.anim);
 
  float y_sort_pos = y_coord_sorting_at(d.pos);
  d.pos = AddV2(d.pos, s->offset);
- sg_image spritesheet_img = *s->img;
  int index = (int)floor(d.elapsed_time/s->time_per_frame) % s->num_frames;
  if(s->no_wrap)
  {
@@ -2454,7 +2325,9 @@ void frame(void)
   assert(player != NULL);
 
   // gameplay processing loop, do multiple if lagging
+  // these are static so that, on frames where no gameplay processing is necessary and just rendering, the rendering uses values from last frame
   static Entity *interacting_with = 0; // used by rendering to figure out who to draw dialog box on
+  static bool player_in_combat = false;
   const float dialog_interact_size = 2.5f * TILE_SIZE;
   int num_timestep_loops = 0;
   {
@@ -2467,6 +2340,7 @@ void frame(void)
     float dt = timestep;
 
     // process gs.entities
+    player_in_combat = false; // in combat set by various enemies when they fight the player
     PROFILE_SCOPE("entity processing")
     {
      ENTITIES_ITER(gs.entities)
@@ -2671,8 +2545,9 @@ void frame(void)
          Overlapping overlapping_weapon = get_overlapping(cur_level, weapon_aabb);
          if(it->swing_timer > 0.0)
          {
+          player_in_combat = true;
           it->swing_timer += dt;
-          if(it->swing_timer >= anim_sprite_duration(&skeleton_swing_sword))
+          if(it->swing_timer >= anim_sprite_duration(ANIM_skeleton_swing_sword))
           {
            it->swing_timer = 0.0;
           }
@@ -2692,6 +2567,7 @@ void frame(void)
           it->walking = LenV2(SubV2(player->pos, it->pos)) < 250.0f;
           if(it->walking)
           {
+           player_in_combat  = true;
            Entity *skele = it;
            BUFF_ITER(Overlap, &overlapping_weapon)
            {
@@ -2999,7 +2875,7 @@ void frame(void)
         player->after_image_timer += dt;
         player->time_not_rolling = 0.0f;
         player->roll_progress += dt;
-        if(player->roll_progress > anim_sprite_duration(&knight_rolling))
+        if(player->roll_progress > anim_sprite_duration(ANIM_knight_rolling))
         {
          player->is_rolling = false;
         }
@@ -3043,7 +2919,7 @@ void frame(void)
         request_do_damage(*it, player, DAMAGE_SWORD);
        }
        player->swing_progress += dt;
-       if(player->swing_progress > anim_sprite_duration(&knight_attack))
+       if(player->swing_progress > anim_sprite_duration(ANIM_knight_attack))
        {
         player->state = CHARACTER_IDLE;
        }
@@ -3090,38 +2966,38 @@ void frame(void)
     }
 
     // interaction circle
-    draw_quad((DrawParams){true, quad_centered(interacting_with->pos, V2(TILE_SIZE, TILE_SIZE)), image_dialog_circle, full_region(image_dialog_circle), WHITE});
+    draw_quad((DrawParams){true, quad_centered(interacting_with->pos, V2(TILE_SIZE, TILE_SIZE)), image_hovering_circle, full_region(image_hovering_circle), WHITE});
    }
 
    if(player->state == CHARACTER_WALKING)
    {
     if(player->is_rolling)
     {
-     to_draw = (DrawnAnimatedSprite){&knight_running, player->roll_progress, player->facing_left, character_sprite_pos, WHITE};
+     to_draw = (DrawnAnimatedSprite){ANIM_knight_running, player->roll_progress, player->facing_left, character_sprite_pos, WHITE};
     }
     else
     {
-     to_draw = (DrawnAnimatedSprite){&knight_running, elapsed_time, player->facing_left, character_sprite_pos, WHITE};
+     to_draw = (DrawnAnimatedSprite){ANIM_knight_running, elapsed_time, player->facing_left, character_sprite_pos, WHITE};
     }
    }
    else if(player->state == CHARACTER_IDLE)
    {
     if(player->is_rolling)
     {
-     to_draw = (DrawnAnimatedSprite){&knight_running, player->roll_progress, player->facing_left, character_sprite_pos, WHITE};
+     to_draw = (DrawnAnimatedSprite){ANIM_knight_running, player->roll_progress, player->facing_left, character_sprite_pos, WHITE};
     }
     else
     {
-     to_draw = (DrawnAnimatedSprite){&knight_idle, elapsed_time, player->facing_left, character_sprite_pos, WHITE};
+     to_draw = (DrawnAnimatedSprite){ANIM_knight_idle, elapsed_time, player->facing_left, character_sprite_pos, WHITE};
     }
    }
    else if(player->state == CHARACTER_ATTACK)
    {
-    to_draw = (DrawnAnimatedSprite){&knight_attack, player->swing_progress, player->facing_left, character_sprite_pos, WHITE};
+    to_draw = (DrawnAnimatedSprite){ANIM_knight_attack, player->swing_progress, player->facing_left, character_sprite_pos, WHITE};
    }
    else if(player->state == CHARACTER_TALKING)
    {
-    to_draw = (DrawnAnimatedSprite){&knight_idle, elapsed_time, player->facing_left, character_sprite_pos, WHITE};
+    to_draw = (DrawnAnimatedSprite){ANIM_knight_idle, elapsed_time, player->facing_left, character_sprite_pos, WHITE};
    }
    else
    {
@@ -3186,7 +3062,7 @@ void frame(void)
    {
     //if(it->npc_kind != DEATH)
     {
-     float shadow_size = knight_rolling.region_size.x * 0.5f;
+     float shadow_size = GET_TABLE(sprites, ANIM_knight_rolling).region_size.x * 0.5f;
      Vec2 shadow_offset = V2(0.0f, -20.0f);
      if(npc_is_knight_sprite(it))
      {
@@ -3228,38 +3104,38 @@ void frame(void)
     if(it->npc_kind == NPC_OldMan)
     {
      bool face_left =SubV2(player->pos, it->pos).x < 0.0f;
-     draw_animated_sprite((DrawnAnimatedSprite){&old_man_idle, elapsed_time, face_left, it->pos, col});
+     draw_animated_sprite((DrawnAnimatedSprite){ANIM_old_man_idle, elapsed_time, face_left, it->pos, col});
     }
     else if(it->npc_kind == NPC_Skeleton)
     {
      Color col = WHITE;
      if(it->dead)
      {
-      draw_animated_sprite((DrawnAnimatedSprite){&skeleton_die, it->dead_time, it->facing_left, it->pos, col});
+      draw_animated_sprite((DrawnAnimatedSprite){ANIM_skeleton_die, it->dead_time, it->facing_left, it->pos, col});
      }
      else
      {
       if(it->swing_timer > 0.0)
       {
        // swinging sword
-       draw_animated_sprite((DrawnAnimatedSprite){&skeleton_swing_sword, it->swing_timer, it->facing_left, it->pos, col});
+       draw_animated_sprite((DrawnAnimatedSprite){ANIM_skeleton_swing_sword, it->swing_timer, it->facing_left, it->pos, col});
       }
       else
       {
        if(it->walking)
        {
-        draw_animated_sprite((DrawnAnimatedSprite){&skeleton_run, elapsed_time, it->facing_left, it->pos, col});
+        draw_animated_sprite((DrawnAnimatedSprite){ANIM_skeleton_run, elapsed_time, it->facing_left, it->pos, col});
        }
        else
        {
-        draw_animated_sprite((DrawnAnimatedSprite){&skeleton_idle, elapsed_time, it->facing_left, it->pos, col});
+        draw_animated_sprite((DrawnAnimatedSprite){ANIM_skeleton_idle, elapsed_time, it->facing_left, it->pos, col});
        }
       }
      }
     }
     else if(it->npc_kind == NPC_Death)
     {
-     draw_animated_sprite((DrawnAnimatedSprite){&death_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col});
+     draw_animated_sprite((DrawnAnimatedSprite){ANIM_death_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col});
     }
     else if(it->npc_kind == NPC_GodRock)
     {
@@ -3283,7 +3159,7 @@ void frame(void)
      {
       assert(false);
      }
-     draw_animated_sprite((DrawnAnimatedSprite){&knight_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), tint});
+     draw_animated_sprite((DrawnAnimatedSprite){ANIM_knight_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), tint});
     }
     else if(it->npc_kind == NPC_MOOSE)
     {

@@ -62,9 +62,9 @@
 {
  filepath: "hurt_vignette.png",
 }
-@image dialog_circle:
+@image hovering_circle:
 {
- filepath: "dialog_circle.png",
+ filepath: "hovering_circle.png",
 }
 @image white_square:
 {
