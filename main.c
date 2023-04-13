@@ -43,13 +43,13 @@
 
 double clamp(double d, double min, double max)
 {
-  const double t = d < min ? min : d;
-  return t > max ? max : t;
+ const double t = d < min ? min : d;
+ return t > max ? max : t;
 }
 float clampf(float d, float min, float max)
 {
-  const float t = d < min ? min : d;
-  return t > max ? max : t;
+ const float t = d < min ? min : d;
+ return t > max ? max : t;
 }
 
 float clamp01(float f)
@@ -63,18 +63,18 @@ float clamp01(float f)
 
 int min(int a, int b)
 {
-	if(a < b) return a;
-	else return b;
+ if(a < b) return a;
+ else return b;
 }
 
 // so can be grep'd and removed
 #define dbgprint(...) { printf("Debug | %s:%d | ", __FILE__, __LINE__); printf(__VA_ARGS__); }
 Vec2 RotateV2(Vec2 v, float theta)
 {
-  return V2( 
-      v.X * cosf(theta) - v.Y * sinf(theta),
-      v.X * sinf(theta) + v.Y * cosf(theta)
-    );
+ return V2( 
+   v.X * cosf(theta) - v.Y * sinf(theta),
+   v.X * sinf(theta) + v.Y * cosf(theta)
+   );
 }
 
 Vec2 ReflectV2(Vec2 v, Vec2 normal)
@@ -257,13 +257,13 @@ bool receiving_text_input = false;
 Sentence text_input_buffer = {0};
 #else
 #ifdef WEB
-EMSCRIPTEN_KEEPALIVE
+ EMSCRIPTEN_KEEPALIVE
 void stop_controlling_input()
 {
  _sapp_emsc_unregister_eventhandlers(); // stop getting input, hand it off to text input
 }
 
-EMSCRIPTEN_KEEPALIVE
+ EMSCRIPTEN_KEEPALIVE
 void start_controlling_input()
 {
  memset(keydown, 0, ARRLEN(keydown));
@@ -287,8 +287,8 @@ Arena make_arena(size_t max_size)
  return (Arena)
  {
   .data = calloc(max_size, 1),
-  .data_size = max_size,
-  .cur = 0,
+   .data_size = max_size,
+   .cur = 0,
  };
 }
 void reset(Arena *a)
@@ -318,9 +318,9 @@ char *tprint(const char *format, ...)
 
  vsnprintf(to_return, size, format, argptr);
 
-  va_end(argptr);
+ va_end(argptr);
 
-  return to_return;
+ return to_return;
 }
 
 AABB entity_sword_aabb(Entity *e, float width, float height)
@@ -328,14 +328,14 @@ AABB entity_sword_aabb(Entity *e, float width, float height)
  if(e->facing_left)
  {
   return (AABB){
-    .upper_left = AddV2(e->pos, V2(-width, height)),
+   .upper_left = AddV2(e->pos, V2(-width, height)),
     .lower_right = AddV2(e->pos, V2(0.0, -height)),
   };
  }
  else
  {
   return (AABB){
-    .upper_left = AddV2(e->pos, V2(0.0, height)),
+   .upper_left = AddV2(e->pos, V2(0.0, height)),
     .lower_right = AddV2(e->pos, V2(width, -height)),
   };
  }
@@ -481,12 +481,12 @@ AABB centered_aabb(Vec2 at, Vec2 size)
 AABB entity_aabb(Entity *e)
 {
  Vec2 at = e->pos;
-/* following doesn't work because in move_and_slide I'm not using this function
- if(e->is_character) // aabb near feet
- {
-  at = AddV2(at, V2(0.0f, -50.0f));
- }
-*/
+ /* following doesn't work because in move_and_slide I'm not using this function
+    if(e->is_character) // aabb near feet
+    {
+    at = AddV2(at, V2(0.0f, -50.0f));
+    }
+    */
  return centered_aabb(at, entity_aabb_size(e));
 }
 
@@ -631,14 +631,14 @@ void reset_level()
 
 
 #ifdef WEB
-EMSCRIPTEN_KEEPALIVE
+ EMSCRIPTEN_KEEPALIVE
 void dump_save_data()
 {
  EM_ASM({
    save_game_data = new Int8Array(Module.HEAP8.buffer, $0, $1);
- }, (char*)(&gs), sizeof(gs));
+   }, (char*)(&gs), sizeof(gs));
 }
-EMSCRIPTEN_KEEPALIVE
+ EMSCRIPTEN_KEEPALIVE
 void read_from_save_data(char *data, size_t length)
 {
  GameState read_data = {0};
@@ -698,17 +698,17 @@ void end_text_input(char *what_player_said)
  }
 }
 /*
-AnimatedSprite moose_idle = 
-{
- .img = &image_moose,
- .time_per_frame = 0.15,
- .num_frames = 8,
- .start = {0.0, 0.0},
- .horizontal_diff_btwn_frames = 347.0f,
- .region_size = {347.0f, 160.0f},
- .offset = {-1.5f, -10.0f},
-};
-*/
+   AnimatedSprite moose_idle = 
+   {
+   .img = &image_moose,
+   .time_per_frame = 0.15,
+   .num_frames = 8,
+   .start = {0.0, 0.0},
+   .horizontal_diff_btwn_frames = 347.0f,
+   .region_size = {347.0f, 160.0f},
+   .offset = {-1.5f, -10.0f},
+   };
+   */
 
 
 sg_image image_font = {0};
@@ -819,18 +819,18 @@ void init(void)
 #ifdef WEB
  EM_ASM({
    set_server_url(UTF8ToString($0));
- }, SERVER_URL);
+   }, SERVER_URL);
 #endif
  Log("Size of entity struct: %zu\n", sizeof(Entity));
  Log("Size of %d gs.entities: %zu kb\n", (int)ARRLEN(gs.entities), sizeof(gs.entities)/1024);
  sg_setup(&(sg_desc){
    .context = sapp_sgcontext(),
- });
+   });
  stm_setup();
  saudio_setup(&(saudio_desc){
    .stream_cb = audio_stream_callback,
-  .logger.func = slog_func,
- });
+   .logger.func = slog_func,
+   });
 
  scratch = make_arena(1024 * 10);
 
@@ -840,7 +840,7 @@ void init(void)
 #ifdef WEB
  EM_ASM({
    load_all();
- });
+   });
 #endif
 
  // load font
@@ -878,7 +878,7 @@ void init(void)
     .ptr = font_bitmap_rgba,
     .size = (size_t)(512 * 512 * 4),
     }
-  } );
+    } );
 
   stbtt_fontinfo font;
   stbtt_InitFont(&font, fontBuffer, 0);
@@ -895,10 +895,10 @@ void init(void)
 
  state.bind.vertex_buffers[0] = sg_make_buffer(&(sg_buffer_desc)
    {
-    .usage = SG_USAGE_STREAM,
-    //.data = SG_RANGE(vertices),
-    .size = 1024*500,
-    .label = "quad-vertices"
+   .usage = SG_USAGE_STREAM,
+   //.data = SG_RANGE(vertices),
+   .size = 1024*900,
+   .label = "quad-vertices"
    });
 
  const sg_shader_desc *desc = quad_program_shader_desc(sg_query_backend());
@@ -908,28 +908,28 @@ void init(void)
  Color clearcol = colhex(0x98734c);
  state.pip = sg_make_pipeline(&(sg_pipeline_desc)
    {
-    .shader = shd,
-    .depth = {
-     .compare = SG_COMPAREFUNC_LESS_EQUAL,
-     .write_enabled = true
-    },
-    .layout = {
-     .attrs =
-     {
-      [ATTR_quad_vs_position].format = SG_VERTEXFORMAT_FLOAT3,
-      [ATTR_quad_vs_texcoord0].format   = SG_VERTEXFORMAT_FLOAT2,
-     }
-    },
-    .colors[0].blend = (sg_blend_state) { // allow transparency
-     .enabled = true,
-     .src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
-     .dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
-     .op_rgb = SG_BLENDOP_ADD,
-     .src_factor_alpha = SG_BLENDFACTOR_ONE,
-     .dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
-     .op_alpha = SG_BLENDOP_ADD,
-    },
-    .label = "quad-pipeline",
+   .shader = shd,
+   .depth = {
+   .compare = SG_COMPAREFUNC_LESS_EQUAL,
+   .write_enabled = true
+   },
+   .layout = {
+   .attrs =
+   {
+   [ATTR_quad_vs_position].format = SG_VERTEXFORMAT_FLOAT3,
+   [ATTR_quad_vs_texcoord0].format   = SG_VERTEXFORMAT_FLOAT2,
+   }
+   },
+   .colors[0].blend = (sg_blend_state) { // allow transparency
+   .enabled = true,
+   .src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
+   .dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+   .op_rgb = SG_BLENDOP_ADD,
+   .src_factor_alpha = SG_BLENDFACTOR_ONE,
+   .dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+   .op_alpha = SG_BLENDOP_ADD,
+   },
+   .label = "quad-pipeline",
    });
 
  state.pass_action = (sg_pass_action)
@@ -1083,7 +1083,7 @@ AABB aabb_at(Vec2 at, Vec2 size)
 {
  return (AABB){
   .upper_left = at,
-  .lower_right = AddV2(at, V2(size.x, -size.y)),
+   .lower_right = AddV2(at, V2(size.x, -size.y)),
  };
 }
 
@@ -1091,7 +1091,7 @@ AABB aabb_at_yplusdown(Vec2 at, Vec2 size)
 {
  return (AABB){
   .upper_left = at,
-  .lower_right = AddV2(at, V2(size.x, size.y)),
+   .lower_right = AddV2(at, V2(size.x, size.y)),
  };
 }
 
@@ -1151,9 +1151,9 @@ Quad quad_aabb(AABB aabb)
  assert(aabb_is_valid(aabb));
  return (Quad) {
   .ul = aabb.upper_left,
-  .ur = AddV2(aabb.upper_left, V2(size_vec.X, 0.0f)),
-  .lr = AddV2(aabb.upper_left, size_vec),
-  .ll = AddV2(aabb.upper_left, V2(0.0f, size_vec.Y)),
+   .ur = AddV2(aabb.upper_left, V2(size_vec.X, 0.0f)),
+   .lr = AddV2(aabb.upper_left, size_vec),
+   .ll = AddV2(aabb.upper_left, V2(0.0f, size_vec.Y)),
  };
 }
 
@@ -2136,7 +2136,6 @@ void draw_dialog_panel(Entity *talking_to, float alpha)
    dbgrect(dialog_panel);
   }
  }
-
 }
 
 #define ROLL_KEY SAPP_KEYCODE_LEFT_SHIFT
@@ -2145,6 +2144,7 @@ double last_frame_processing_time = 0.0;
 uint64_t last_frame_time;
 Vec2 mouse_pos = {0}; // in screen space
 bool interact_just_pressed = false;
+bool mouse_just_clicked = false;
 float learned_shift = 0.0;
 float learned_space = 0.0;
 float learned_e = 0.0;
@@ -2155,15 +2155,16 @@ void frame(void)
 {
  static float speed_factor = 1.0f;
  // elapsed_time
- double dt_double = 0.0;
+ double unwarped_dt_double = 0.0;
  {
-  dt_double = stm_sec(stm_diff(stm_now(), last_frame_time));
-  dt_double = fmin(dt_double, 5.0 / 60.0); // clamp dt at maximum 5 frames, avoid super huge dt
-  elapsed_time += dt_double*speed_factor;
+  unwarped_dt_double = stm_sec(stm_diff(stm_now(), last_frame_time));
+  unwarped_dt_double = fmin(unwarped_dt_double, MINIMUM_TIMESTEP * 5.0); // clamp dt at maximum 5 frames, avoid super huge dt
+  elapsed_time += unwarped_dt_double*speed_factor;
   last_frame_time = stm_now();
  }
+ double dt_double = unwarped_dt_double*speed_factor;
+ float unwarped_dt = (float)unwarped_dt_double;
  float dt = (float)dt_double;
-
 
 #if 0
  {
@@ -2330,23 +2331,31 @@ void frame(void)
   static Entity *interacting_with = 0; // used by rendering to figure out who to draw dialog box on
   static bool player_in_combat = false;
   const float dialog_interact_size = 2.5f * TILE_SIZE;
-  if(player->has_paused_time)
+
+  float speed_target;
+  if(player->in_conversation_mode)
   {
-   speed_factor = Lerp(speed_factor, dt*10.0f, 0.0f);
+   speed_target = 0.0f;
   }
   else
   {
-   speed_factor = Lerp(speed_factor, dt*10.0f, 1.0f);
+   speed_target = 1.0f;
+  }
+  speed_factor = Lerp(speed_factor, unwarped_dt*15.0f, speed_target);
+  if(fabsf(speed_factor - speed_target) <= 0.05f)
+  {
+   speed_factor = speed_target;
   }
   int num_timestep_loops = 0;
   {
-   unprocessed_gameplay_time += dt;
-   float timestep = fminf(dt, (float)MINIMUM_TIMESTEP);
+   unprocessed_gameplay_time += unwarped_dt;
+   float timestep = fminf(unwarped_dt, (float)MINIMUM_TIMESTEP);
    while(unprocessed_gameplay_time >= timestep)
    {
     num_timestep_loops++;
     unprocessed_gameplay_time -= timestep;
-    float dt = timestep*speed_factor;
+    float unwarped_dt = timestep;
+    float dt = unwarped_dt*speed_factor;
 
     // process gs.entities
     player_in_combat = false; // in combat set by various enemies when they fight the player
@@ -2420,12 +2429,29 @@ void frame(void)
        }
       }
 #endif
+
+
       if(fabsf(it->vel.x) > 0.01f)
        it->facing_left = it->vel.x < 0.0f;
 
       if(it->dead)
       {
        it->dead_time += dt;
+      }
+
+      it->being_hovered = false;
+      if(player->in_conversation_mode)
+      {
+
+       if(has_point(entity_aabb(it), screen_to_world(mouse_pos)))
+       {
+        it->being_hovered = true;
+        if(mouse_just_clicked)
+        {
+         player->talking_to = frome(it);
+         player->state = CHARACTER_TALKING;
+        }
+       }
       }
 
       if(it->is_npc)
@@ -2440,7 +2466,7 @@ void frame(void)
         if(last_said_sentence(it)) length = last_said_sentence(it)->cur_index;
         if((int)before < length)
         {
-         it->characters_said += characters_per_sec*dt;
+         it->characters_said += characters_per_sec*unwarped_dt;
         }
         else
         {
@@ -2763,6 +2789,7 @@ void frame(void)
 
      PROFILE_SCOPE("process player")
      {
+
       // do dialog
       Entity *closest_interact_with = 0;
       {
@@ -2817,7 +2844,11 @@ void frame(void)
 
       if(interact)
       {
-       if(closest_interact_with)
+       if(player->in_conversation_mode)
+       {
+        player->in_conversation_mode = false;
+       }
+       else if(closest_interact_with)
        {
         if(closest_interact_with->is_npc)
         {
@@ -2835,7 +2866,6 @@ void frame(void)
         {
          assert(false);
         }
-
        }
        else
        {
@@ -2850,100 +2880,102 @@ void frame(void)
         }
         else
         {
-         player->has_paused_time = !player->has_paused_time;
+         player->in_conversation_mode = true;
         }
        }
       }
-      if(roll && !player->is_rolling && player->time_not_rolling > 0.3f && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
-      {
-       player->is_rolling = true;
-       player->roll_progress = 0.0;
-      }
 
-      if(attack && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
+      float speed = 0.0f;
       {
-       player->state = CHARACTER_ATTACK;
-       BUFF_CLEAR(&player->done_damage_to_this_swing); 
-       player->swing_progress = 0.0;
-      }
-      // after images
-      BUFF_ITER(PlayerAfterImage, &player->after_images)
-      {
-       it->alive_for += dt;
-      }
-      if(player->after_images.data[0].alive_for >= AFTERIMAGE_LIFETIME)
-      {
-       BUFF_REMOVE_FRONT(&player->after_images);
-      }
-
-      // roll processing
-      {
-       if(player->state != CHARACTER_IDLE && player->state != CHARACTER_WALKING)
+       if(roll && !player->is_rolling && player->time_not_rolling > 0.3f && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
        {
+        player->is_rolling = true;
         player->roll_progress = 0.0;
-        player->is_rolling = false;
        }
-       if(player->is_rolling)
+       if(attack && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
        {
-        player->after_image_timer += dt;
-        player->time_not_rolling = 0.0f;
-        player->roll_progress += dt;
-        if(player->roll_progress > anim_sprite_duration(ANIM_knight_rolling))
+        player->state = CHARACTER_ATTACK;
+        BUFF_CLEAR(&player->done_damage_to_this_swing); 
+        player->swing_progress = 0.0;
+       }
+       // after images
+       BUFF_ITER(PlayerAfterImage, &player->after_images)
+       {
+        it->alive_for += dt;
+       }
+       if(player->after_images.data[0].alive_for >= AFTERIMAGE_LIFETIME)
+       {
+        BUFF_REMOVE_FRONT(&player->after_images);
+       }
+
+       // roll processing
+       {
+        if(player->state != CHARACTER_IDLE && player->state != CHARACTER_WALKING)
         {
+         player->roll_progress = 0.0;
          player->is_rolling = false;
         }
-       }
-       if(!player->is_rolling) player->time_not_rolling += dt;
-      }
-
-      Vec2 target_vel = {0};
-      float speed = 0.0f;
-
-      if(LenV2(movement) > 0.01f) player->to_throw_direction = NormV2(movement);
-      if(player->state == CHARACTER_WALKING)
-      {
-       speed = PLAYER_SPEED;
-       if(player->is_rolling) speed = PLAYER_ROLL_SPEED;
-
-       if(gete(player->holding_item) && gete(player->holding_item)->item_kind == ITEM_Boots)
-       {
-        speed *= 2.0f;
+        if(player->is_rolling)
+        {
+         player->after_image_timer += dt;
+         player->time_not_rolling = 0.0f;
+         player->roll_progress += dt;
+         if(player->roll_progress > anim_sprite_duration(ANIM_knight_rolling))
+         {
+          player->is_rolling = false;
+         }
+        }
+        if(!player->is_rolling) player->time_not_rolling += dt;
        }
 
-       if(LenV2(movement) == 0.0)
+       Vec2 target_vel = {0};
+
+       if(LenV2(movement) > 0.01f) player->to_throw_direction = NormV2(movement);
+       if(player->state == CHARACTER_WALKING)
        {
-        player->state = CHARACTER_IDLE;
+        speed = PLAYER_SPEED;
+        if(player->is_rolling) speed = PLAYER_ROLL_SPEED;
+
+        if(gete(player->holding_item) && gete(player->holding_item)->item_kind == ITEM_Boots)
+        {
+         speed *= 2.0f;
+        }
+
+        if(LenV2(movement) == 0.0)
+        {
+         player->state = CHARACTER_IDLE;
+        }
+        else
+        {
+        }
+       }
+       else if(player->state == CHARACTER_IDLE)
+       {
+        if(LenV2(movement) > 0.01) player->state = CHARACTER_WALKING;
+       }
+       else if(player->state == CHARACTER_ATTACK)
+       {
+        AABB weapon_aabb = entity_sword_aabb(player, 40.0f, 25.0f);
+        dbgrect(weapon_aabb);
+        SwordToDamage to_damage = entity_sword_to_do_damage(player, get_overlapping(cur_level, weapon_aabb));
+        BUFF_ITER(Entity*, &to_damage)
+        {
+         request_do_damage(*it, player, DAMAGE_SWORD);
+        }
+        player->swing_progress += dt;
+        if(player->swing_progress > anim_sprite_duration(ANIM_knight_attack))
+        {
+         player->state = CHARACTER_IDLE;
+        }
+       }
+       else if(player->state == CHARACTER_TALKING)
+       {
        }
        else
        {
+        assert(false); // unknown character state? not defined how to process
        }
-      }
-      else if(player->state == CHARACTER_IDLE)
-      {
-       if(LenV2(movement) > 0.01) player->state = CHARACTER_WALKING;
-      }
-      else if(player->state == CHARACTER_ATTACK)
-      {
-       AABB weapon_aabb = entity_sword_aabb(player, 40.0f, 25.0f);
-       dbgrect(weapon_aabb);
-       SwordToDamage to_damage = entity_sword_to_do_damage(player, get_overlapping(cur_level, weapon_aabb));
-       BUFF_ITER(Entity*, &to_damage)
-       {
-        request_do_damage(*it, player, DAMAGE_SWORD);
-       }
-       player->swing_progress += dt;
-       if(player->swing_progress > anim_sprite_duration(ANIM_knight_attack))
-       {
-        player->state = CHARACTER_IDLE;
-       }
-      }
-      else if(player->state == CHARACTER_TALKING)
-      {
-      }
-      else
-      {
-       assert(false); // unknown character state? not defined how to process
-      }
+      } // not time stopped
 
       // velocity processing
       {
@@ -2958,13 +2990,14 @@ void frame(void)
       }
      }
      interact_just_pressed = false;
+     mouse_just_clicked = false;
      interact = false;
     } // while loop
    }
 
 
-  PROFILE_SCOPE("render player")
-  {
+   PROFILE_SCOPE("render player")
+   {
    DrawnAnimatedSprite to_draw = {0};
    Vec2 character_sprite_pos = AddV2(player->pos, V2(0.0, 20.0f));
    // if somebody, show their dialog panel
@@ -3023,6 +3056,14 @@ void frame(void)
     draw_quad((DrawParams){false, (Quad){.ul=V2(0.0f, screen_size().Y), .ur = screen_size(), .lr = V2(screen_size().X, 0.0f)}, image_hurt_vignette, full_region(image_hurt_vignette), (Color){1.0f, 1.0f, 1.0f, player->damage}, .y_coord_sorting = Y_COORD_IN_FRONT, .queue_for_translucent = true});
    }
 
+   player->anim_change_timer += dt;
+   if(player->anim_change_timer >= 0.05f)
+   {
+    player->anim_change_timer = 0.0f;
+    player->cur_animation = to_draw.anim;
+   }
+   to_draw.anim = player->cur_animation;
+
    Vec2 target_sprite_pos  = to_draw.pos;
    BUFF_ITER(PlayerAfterImage, &player->after_images)
    {
@@ -3069,38 +3110,6 @@ void frame(void)
    }
 #endif
 
-   // draw drop shadow
-   //if(it->is_character || it->is_npc || it->is_prop)
-   if(false)
-   {
-    //if(it->npc_kind != DEATH)
-    {
-     float shadow_size = GET_TABLE(sprites, ANIM_knight_rolling).region_size.x * 0.5f;
-     Vec2 shadow_offset = V2(0.0f, -20.0f);
-     if(npc_is_knight_sprite(it))
-     {
-      shadow_offset = V2(0.5f, -10.0f);
-     }
-#if 0
-     if(it->npc_kind == MERCHANT)
-     {
-      shadow_offset = V2(-4.5f, -15.0f);
-     }
-     else if(it->npc_kind == OLD_MAN)
-     {
-      shadow_offset = V2(-1.5f, -8.0f);
-      shadow_size *= 0.5f;
-     }
-#endif
-     if(it->is_prop)
-     {
-      shadow_size *= 2.5f;
-      shadow_offset = V2(-5.0f, -8.0f);
-     }
-     draw_quad((DrawParams){true, quad_centered(AddV2(it->pos, shadow_offset), V2(shadow_size, shadow_size)),IMG(image_drop_shadow), (Color){1.0f,1.0f,1.0f,0.5f}});
-    }
-   }
-
    Color col = LerpV4(WHITE, it->damage, RED);
    if(it->is_npc)
    {
@@ -3111,7 +3120,14 @@ void frame(void)
      float max_dist = dialog_interact_size/2.0f;
      float alpha = 1.0f - (float)clamp(dist/max_dist, 0.0, 1.0);
      if(gete(player->talking_to) == it && player->state == CHARACTER_TALKING) alpha = 1.0f;
-     draw_dialog_panel(it, alpha);
+     if(it->being_hovered)
+     {
+      draw_quad((DrawParams){true, quad_centered(it->pos, V2(TILE_SIZE, TILE_SIZE)), IMG(image_hovering_circle), WHITE});
+      alpha = 1.0f;
+     }
+
+     it->dialog_panel_opacity = Lerp(it->dialog_panel_opacity, unwarped_dt*10.0f, alpha);
+     draw_dialog_panel(it, it->dialog_panel_opacity);
     }
 
     if(it->npc_kind == NPC_OldMan)
@@ -3326,7 +3342,7 @@ void frame(void)
    }
    else
    {
-    cam.pos = LerpV2(cam.pos, dt*8.0f, target);
+    cam.pos = LerpV2(cam.pos, unwarped_dt*8.0f, target);
    }
   }
 
@@ -3466,7 +3482,18 @@ void event(const sapp_event *e)
   }
  }
 
+ if(e->type == SAPP_EVENTTYPE_MOUSE_DOWN)
+ {
+  if(e->mouse_button == SAPP_MOUSEBUTTON_LEFT)
+  {
+   mouse_just_clicked = true;
+  }
+ }
+
  if(e->type == SAPP_EVENTTYPE_KEY_DOWN)
+#ifdef DESKTOP
+  if(!receiving_text_input)
+#endif
  {
   mobile_controls = false;
   assert(e->key_code < sizeof(keydown)/sizeof(*keydown));

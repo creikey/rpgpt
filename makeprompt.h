@@ -179,9 +179,11 @@ typedef struct Entity
 
  // npcs
  bool is_npc;
+ bool being_hovered;
  bool perceptions_dirty;
  BUFF(Perception, REMEMBERED_PERCEPTIONS) remembered_perceptions;
  bool direction_of_spiral_pattern;
+ float dialog_panel_opacity;
  double characters_said;
  NPCPlayerStanding standing;
  NpcKind npc_kind;
@@ -199,12 +201,18 @@ typedef struct Entity
  // character
  bool is_character;
  EntityRef holding_item;
- bool has_paused_time;
+ bool in_conversation_mode;
  Vec2 to_throw_direction;
+
  CharacterState state;
  EntityRef talking_to; // Maybe should be generational index, but I dunno. No death yet
  bool is_rolling; // can only roll in idle or walk states
  double time_not_rolling; // for cooldown for roll, so you can't just hold it and be invincible
+
+ // so doesn't change animations while time is stopped
+ AnimKind cur_animation;
+ float anim_change_timer;
+
  BUFF(PlayerAfterImage, MAX_AFTERIMAGES) after_images;
  double after_image_timer;
  double roll_progress;
