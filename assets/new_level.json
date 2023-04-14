@@ -377,12 +377,18 @@
                  "class":"",
                  "height":32,
                  "id":4,
-                 "name":"Skeleton",
+                 "name":"MikeSkeleton",
+                 "properties":[
+                        {
+                         "name":"standing",
+                         "type":"string",
+                         "value":"STANDING_FIGHTING"
+                        }],
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":1632.66666666667,
-                 "y":479.666666666667
+                 "x":1038.33333333334,
+                 "y":488
                 }, 
                 {
                  "class":"ITEM",
@@ -405,28 +411,6 @@
                  "width":32,
                  "x":948,
                  "y":192
-                }, 
-                {
-                 "class":"",
-                 "height":32,
-                 "id":8,
-                 "name":"Skeleton",
-                 "rotation":0,
-                 "visible":true,
-                 "width":32,
-                 "x":2465.33333333333,
-                 "y":718.666666666667
-                }, 
-                {
-                 "class":"",
-                 "height":32,
-                 "id":9,
-                 "name":"Skeleton",
-                 "rotation":0,
-                 "visible":true,
-                 "width":32,
-                 "x":2537.33333333333,
-                 "y":786.666666666667
                 }, 
                 {
                  "class":"PROP",

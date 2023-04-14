@@ -7,7 +7,6 @@
 #include <stdlib.h> // atoi
 #include "character_info.h"
 #include "characters.gen.h"
- NPC_Skeleton,
  NPC_MOOSE,
 } NpcKind;
 
@@ -224,6 +223,22 @@ bool npc_is_knight_sprite(Entity *it)
  return it->is_npc && ( it->npc_kind == NPC_TheGuard || it->npc_kind == NPC_Edeline);
 }
 
+bool npc_is_skeleton(Entity *it)
+{
+ return it->is_npc && ( it->npc_kind == NPC_MikeSkeleton );
+}
+
+bool npc_attacks_with_sword(Entity *it)
+{
+ return npc_is_skeleton(it);
+}
+
+bool npc_attacks_with_shotgun(Entity *it)
+{
+ return it->is_npc && ( it->npc_kind == NPC_OldMan );
+}
+
+
 typedef BUFF(char, MAX_SENTENCE_LENGTH*(REMEMBERED_PERCEPTIONS+4)) PromptBuff;
 typedef BUFF(Action, 8) AvailableActions;
 
@@ -249,7 +264,7 @@ void fill_available_actions(Entity *it, AvailableActions *a)
   }
   else if(it->standing == STANDING_FIGHTING)
   {
-   BUFF_APPEND(a, ACT_leaves_player);
+   BUFF_APPEND(a, ACT_stops_fighting_player);
   }
   if(npc_is_knight_sprite(it))
   {
@@ -326,6 +341,10 @@ void process_perception(Entity *it, Perception p)
    {
     it->standing = STANDING_FIGHTING;
    }
+   else if(p.npc_action_type == ACT_stops_fighting_player)
+   {
+    it->standing = STANDING_INDIFFERENT;
+   }
    else if(p.npc_action_type == ACT_leaves_player)
    {
     it->standing = STANDING_INDIFFERENT;
@@ -381,7 +400,7 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
 
  printf_buff(into, "[");
 
- BUFF(char, 1024*10) initial_system_msg = {0};
+ BUFF(char, 1024*15) initial_system_msg = {0};
  const char *health_string = 0;
  if(it->damage <= 0.2f)
  {
@@ -401,7 +420,25 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
  }
  assert(health_string);
 
- printf_buff(&initial_system_msg, "%s\n%s\nNPC health status: Right now, %s\n%s", global_prompt, characters[it->npc_kind].prompt, health_string, items[it->last_seen_holding_kind].global_prompt);
+ printf_buff(&initial_system_msg, "%s\n%s\nNPC health status: Right now, %s\n%s\n", global_prompt, characters[it->npc_kind].prompt, health_string, items[it->last_seen_holding_kind].global_prompt);
+
+ if(it->standing == STANDING_INDIFFERENT)
+ {
+  printf_buff(&initial_system_msg, "The NPC is indifferent towards the player.");
+ }
+ else if(it->standing == STANDING_JOINED)
+ {
+  printf_buff(&initial_system_msg, "The NPC has joined the player and is with them!");
+ }
+ else if(it->standing == STANDING_FIGHTING)
+ {
+  printf_buff(&initial_system_msg, "The NPC is fighting the player and HATES them.");
+ }
+ else
+ {
+  assert(false);
+ }
+
  dump_json_node(into, MSG_SYSTEM, initial_system_msg.data);
 
  Entity *e = it;

@@ -366,7 +366,7 @@ Vec2 entity_aabb_size(Entity *e)
   {
    return V2(TILE_SIZE*1.10f, TILE_SIZE*1.10f);
   }
-  else if(e->npc_kind == NPC_Skeleton)
+  else if(npc_is_skeleton(e))
   {
    return V2(TILE_SIZE*1.0f, TILE_SIZE*1.0f);
   }
@@ -2341,7 +2341,7 @@ void frame(void)
   {
    speed_target = 1.0f;
   }
-  speed_factor = Lerp(speed_factor, unwarped_dt*15.0f, speed_target);
+  speed_factor = Lerp(speed_factor, unwarped_dt*10.0f, speed_target);
   if(fabsf(speed_factor - speed_target) <= 0.05f)
   {
    speed_factor = speed_target;
@@ -2461,7 +2461,7 @@ void frame(void)
        {
         const float characters_per_sec = 35.0f;
         double before = it->characters_said;
-        
+
         int length = 0;
         if(last_said_sentence(it)) length = last_said_sentence(it)->cur_index;
         if((int)before < length)
@@ -2472,7 +2472,7 @@ void frame(void)
         {
          it->characters_said = (double)length;
         }
-        
+
         if( (int)it->characters_said > (int)before )
         {
          float dist = LenV2(SubV2(it->pos, player->pos));
@@ -2480,53 +2480,113 @@ void frame(void)
          play_audio(&sound_simple_talk, volume);
         }
        }
+
        if(it->standing == STANDING_FIGHTING || it->standing == STANDING_JOINED)
        {
         Entity *targeting = player;
-
-        Vec2 to_player = NormV2(SubV2(targeting->pos, it->pos));
-        Vec2 rotate_direction;
-        if(it->direction_of_spiral_pattern)
         {
-         rotate_direction = rotate_counter_clockwise(to_player);
-        }
-        else
-        {
-         rotate_direction = rotate_clockwise(to_player);
-        }
-        Vec2 target_vel = NormV2(AddV2(rotate_direction, MulV2F(to_player, 0.5f)));
-        target_vel = MulV2F(target_vel, 3.0f);
-        it->vel = LerpV2(it->vel, 15.0f * dt, target_vel);
-        CollisionInfo col = {0};
-        it->pos = move_and_slide((MoveSlideParams){it, it->pos, MulV2F(it->vel, pixels_per_meter * dt), .col_info_out = &col});
-        if(col.happened)
-        {
-         it->direction_of_spiral_pattern = !it->direction_of_spiral_pattern;
-        }
-
-        if(it->standing == STANDING_FIGHTING)
-        {
-         it->shotgun_timer += dt;
-         Vec2 to_player = NormV2(SubV2(targeting->pos, it->pos));
-         if(it->shotgun_timer >= 1.0f)
+         if(npc_attacks_with_sword(it))
          {
-          it->shotgun_timer = 0.0f;
-          const float spread = (float)PI/4.0f;
-          // shoot shotgun
-          int num_bullets = 5;
-          for(int i = 0; i < num_bullets; i++)
+          if(fabsf(it->vel.x) > 0.01f)
+           it->facing_left = it->vel.x < 0.0f;
+
+          it->pos = move_and_slide((MoveSlideParams){it, it->pos, MulV2F(it->vel, pixels_per_meter * dt)});
+          AABB weapon_aabb = entity_sword_aabb(it, 30.0f, 18.0f);
+          dbgrect(weapon_aabb);
+          Vec2 target_vel = {0};
+          it->pos = AddV2(it->pos, MulV2F(it->vel, dt));
+          Overlapping overlapping_weapon = get_overlapping(cur_level, weapon_aabb);
+          if(it->swing_timer > 0.0)
           {
-           Vec2 dir = to_player;
-           float theta = Lerp(-spread/2.0f, ((float)i / (float)(num_bullets - 1)), spread/2.0f);
-           dir = RotateV2(dir, theta);
-           Entity *new_bullet = new_entity();
-           new_bullet->is_bullet = true;
-           new_bullet->pos = AddV2(it->pos, MulV2F(dir, 20.0f));
-           new_bullet->vel = MulV2F(dir, 15.0f);
-           it->vel = AddV2(it->vel, MulV2F(dir, -3.0f));
+           player_in_combat = true;
+           it->swing_timer += dt;
+           if(it->swing_timer >= anim_sprite_duration(ANIM_skeleton_swing_sword))
+           {
+            it->swing_timer = 0.0;
+           }
+           if(it->swing_timer >= 0.4f)
+           {
+            SwordToDamage to_damage = entity_sword_to_do_damage(it, overlapping_weapon);
+            Entity *from = it;
+            BUFF_ITER(Entity *, &to_damage)
+            {
+             request_do_damage(*it, from, DAMAGE_SWORD);
+            }
+           }
           }
+          else
+          {
+           // in huntin' range
+           it->walking = LenV2(SubV2(player->pos, it->pos)) < 250.0f;
+           if(it->walking)
+           {
+            player_in_combat = true;
+            Entity *skele = it;
+            BUFF_ITER(Overlap, &overlapping_weapon)
+            {
+             if(it->e && it->e->is_character)
+             {
+              skele->swing_timer += dt;
+              BUFF_CLEAR(&skele->done_damage_to_this_swing);
+             }
+            }
+            target_vel = MulV2F(NormV2(SubV2(player->pos, it->pos)), 4.0f);
+           }
+           else
+           {
+           }
+          }
+          it->vel = LerpV2(it->vel, dt*8.0f, target_vel);
+
          }
 
+         if(npc_attacks_with_shotgun(it))
+         {
+          Vec2 to_player = NormV2(SubV2(targeting->pos, it->pos));
+          Vec2 rotate_direction;
+          if(it->direction_of_spiral_pattern)
+          {
+           rotate_direction = rotate_counter_clockwise(to_player);
+          }
+          else
+          {
+           rotate_direction = rotate_clockwise(to_player);
+          }
+          Vec2 target_vel = NormV2(AddV2(rotate_direction, MulV2F(to_player, 0.5f)));
+          target_vel = MulV2F(target_vel, 3.0f);
+          it->vel = LerpV2(it->vel, 15.0f * dt, target_vel);
+          CollisionInfo col = {0};
+          it->pos = move_and_slide((MoveSlideParams){it, it->pos, MulV2F(it->vel, pixels_per_meter * dt), .col_info_out = &col});
+          if(col.happened)
+          {
+           it->direction_of_spiral_pattern = !it->direction_of_spiral_pattern;
+          }
+
+          if(it->standing == STANDING_FIGHTING)
+          {
+           it->shotgun_timer += dt;
+           Vec2 to_player = NormV2(SubV2(targeting->pos, it->pos));
+           if(it->shotgun_timer >= 1.0f)
+           {
+            it->shotgun_timer = 0.0f;
+            const float spread = (float)PI/4.0f;
+            // shoot shotgun
+            int num_bullets = 5;
+            for(int i = 0; i < num_bullets; i++)
+            {
+             Vec2 dir = to_player;
+             float theta = Lerp(-spread/2.0f, ((float)i / (float)(num_bullets - 1)), spread/2.0f);
+             dir = RotateV2(dir, theta);
+             Entity *new_bullet = new_entity();
+             new_bullet->is_bullet = true;
+             new_bullet->pos = AddV2(it->pos, MulV2F(dir, 20.0f));
+             new_bullet->vel = MulV2F(dir, 15.0f);
+             it->vel = AddV2(it->vel, MulV2F(dir, -3.0f));
+            }
+           }
+          }
+
+         }
         }
        }
        if(it->npc_kind == NPC_OldMan)
@@ -2561,65 +2621,14 @@ void frame(void)
         it->pos = move_and_slide((MoveSlideParams){it, it->pos, MulV2F(it->vel, pixels_per_meter * dt)});
         */
        }
-
-       else if(it->npc_kind == NPC_Skeleton)
+       else if(npc_is_skeleton(it))
        {
         if(it->dead)
         {
         }
         else
         {
-         if(fabsf(it->vel.x) > 0.01f)
-          it->facing_left = it->vel.x < 0.0f;
-
-         it->pos = move_and_slide((MoveSlideParams){it, it->pos, MulV2F(it->vel, pixels_per_meter * dt)});
-         AABB weapon_aabb = entity_sword_aabb(it, 30.0f, 18.0f);
-         dbgrect(weapon_aabb);
-         Vec2 target_vel = {0};
-         it->pos = AddV2(it->pos, MulV2F(it->vel, dt));
-         Overlapping overlapping_weapon = get_overlapping(cur_level, weapon_aabb);
-         if(it->swing_timer > 0.0)
-         {
-          player_in_combat = true;
-          it->swing_timer += dt;
-          if(it->swing_timer >= anim_sprite_duration(ANIM_skeleton_swing_sword))
-          {
-           it->swing_timer = 0.0;
-          }
-          if(it->swing_timer >= 0.4f)
-          {
-           SwordToDamage to_damage = entity_sword_to_do_damage(it, overlapping_weapon);
-           Entity *from = it;
-           BUFF_ITER(Entity *, &to_damage)
-           {
-            request_do_damage(*it, from, DAMAGE_SWORD);
-           }
-          }
-         }
-         else
-         {
-          // in huntin' range
-          it->walking = LenV2(SubV2(player->pos, it->pos)) < 250.0f;
-          if(it->walking)
-          {
-           player_in_combat = true;
-           Entity *skele = it;
-           BUFF_ITER(Overlap, &overlapping_weapon)
-           {
-            if(it->e && it->e->is_character)
-            {
-             skele->swing_timer += dt;
-             BUFF_CLEAR(&skele->done_damage_to_this_swing);
-            }
-           }
-           target_vel = MulV2F(NormV2(SubV2(player->pos, it->pos)), 4.0f);
-          }
-          else
-          {
-          }
-         }
-         it->vel = LerpV2(it->vel, dt*8.0f, target_vel);
-        }
+        } // skelton combat and movement
        }
        else if(it->npc_kind == NPC_Death)
        {
@@ -2665,7 +2674,7 @@ void frame(void)
        }
        if(it->damage >= 1.0)
        {
-        if(it->npc_kind == NPC_Skeleton)
+        if(npc_is_skeleton(it))
         {
          it->dead = true;
         }
@@ -2804,7 +2813,7 @@ void frame(void)
          bool entity_talkable = true;
          if(entity_talkable) entity_talkable = entity_talkable && !it->is_tile;
          if(entity_talkable) entity_talkable = entity_talkable && it->e->is_npc;
-         if(entity_talkable) entity_talkable = entity_talkable && !(it->e->npc_kind == NPC_Skeleton);
+         //if(entity_talkable) entity_talkable = entity_talkable && !(it->e->npc_kind == NPC_Skeleton);
 #ifdef WEB
          if(entity_talkable) entity_talkable = entity_talkable && it->e->gen_request_id == 0;
 #endif
@@ -3065,11 +3074,12 @@ void frame(void)
    to_draw.anim = player->cur_animation;
 
    Vec2 target_sprite_pos  = to_draw.pos;
-   BUFF_ITER(PlayerAfterImage, &player->after_images)
+
+   BUFF_ITER_I(PlayerAfterImage, &player->after_images, i)
    {
     {
      DrawnAnimatedSprite to_draw = it->drawn;
-     to_draw.tint.a = 1.0f;
+     to_draw.tint.a = 0.5f;
      float progress_through_life = it->alive_for / AFTERIMAGE_LIFETIME;
 
      if(progress_through_life > 0.5f)
@@ -3077,14 +3087,17 @@ void frame(void)
       float fade_amount = (progress_through_life - 0.5f)/0.5f;
 
       to_draw.tint.a = Lerp(0.8f, fade_amount, 0.0f);
-      to_draw.pos = LerpV2(to_draw.pos, fade_amount, target_sprite_pos);
+      Vec2 target;
+      if(i != player->after_images.cur_index-1) target = player->after_images.data[i+1].drawn.pos;
+      else target = target_sprite_pos;
+      to_draw.pos = LerpV2(to_draw.pos, fade_amount, target);
      }
      to_draw.no_shadow = true;
      draw_animated_sprite(to_draw);
     }
    }
 
-   if(player->is_rolling) to_draw.tint.a = 0.5f;
+   //if(player->is_rolling^) to_draw.tint.a = 0.5f;
 
    if(to_draw.anim)
    {
@@ -3135,7 +3148,7 @@ void frame(void)
      bool face_left =SubV2(player->pos, it->pos).x < 0.0f;
      draw_animated_sprite((DrawnAnimatedSprite){ANIM_old_man_idle, elapsed_time, face_left, it->pos, col});
     }
-    else if(it->npc_kind == NPC_Skeleton)
+    else if(npc_is_skeleton(it))
     {
      Color col = WHITE;
      if(it->dead)

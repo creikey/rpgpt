@@ -246,25 +246,33 @@ int main(int argc, char **argv)
       MD_String8 y_string = MD_ChildFromString(object, MD_S8Lit("y"), 0)->first_child->string;
       y_string = MD_S8Fmt(cg_arena, "-%.*s", MD_S8VArg(y_string));
 
+      MD_String8List props = {0};
+      for(MD_EachNode(prop_object, MD_ChildFromString(object, S8("properties"), 0)->first_child))
+      {
+       list_printf(&props, ".%.*s = %.*s, ", S8V(ChildValue(prop_object, S8("name"))), S8V(ChildValue(prop_object, S8("value"))));
+      }
+      MD_StringJoin join = (MD_StringJoin){0};
+      MD_String8 props_string = MD_S8ListJoin(cg_arena, props, &join);
+
       if(has_decimal(x_string)) x_string = MD_S8Fmt(cg_arena, "%.*sf", MD_S8VArg(x_string));
       if(has_decimal(y_string)) y_string = MD_S8Fmt(cg_arena, "%.*sf", MD_S8VArg(y_string));
 
       MD_String8 class = MD_ChildFromString(object, MD_S8Lit("class"), 0)->first_child->string;
       if(MD_S8Match(class, MD_S8Lit("PROP"), 0))
       {
-       fprintf(output, "{ .exists = true, .is_prop = true, .prop_kind = %.*s, .pos = { .X=%.*s, .Y=%.*s }, }, ", MD_S8VArg(name), MD_S8VArg(x_string), MD_S8VArg(y_string));
+       fprintf(output, "{ .exists = true, .is_prop = true, .prop_kind = %.*s, .pos = { .X=%.*s, .Y=%.*s }, %.*s }, ", MD_S8VArg(name), MD_S8VArg(x_string), MD_S8VArg(y_string), MD_S8VArg(props_string));
       }
       else if(MD_S8Match(class, MD_S8Lit("ITEM"), 0))
       {
-       fprintf(output, "{ .exists = true, .is_item = true, .item_kind = ITEM_%.*s, .pos = { .X=%.*s, .Y=%.*s }, }, ", MD_S8VArg(name), MD_S8VArg(x_string), MD_S8VArg(y_string));
+       fprintf(output, "{ .exists = true, .is_item = true, .item_kind = ITEM_%.*s, .pos = { .X=%.*s, .Y=%.*s }, %.*s }, ", MD_S8VArg(name), MD_S8VArg(x_string), MD_S8VArg(y_string), MD_S8VArg(props_string));
       }
       else if(MD_S8Match(name, MD_S8Lit("PLAYER"), 0))
       {
-       fprintf(output, "{ .exists = true, .is_character = true, .pos = { .X=%.*s, .Y=%.*s }, }, ", MD_S8VArg(x_string), MD_S8VArg(y_string));
+       fprintf(output, "{ .exists = true, .is_character = true, .pos = { .X=%.*s, .Y=%.*s }, %.*s }, ", MD_S8VArg(x_string), MD_S8VArg(y_string), MD_S8VArg(props_string));
       }
       else
       {
-       fprintf(output, "{ .exists = true, .is_npc = true, .npc_kind = NPC_%.*s, .pos = { .X=%.*s, .Y=%.*s }, }, ", MD_S8VArg(name), MD_S8VArg(x_string), MD_S8VArg(y_string));
+       fprintf(output, "{ .exists = true, .is_npc = true, .npc_kind = NPC_%.*s, .pos = { .X=%.*s, .Y=%.*s }, %.*s }, ", MD_S8VArg(name), MD_S8VArg(x_string), MD_S8VArg(y_string), MD_S8VArg(props_string));
       }
      }
      fprintf(output, "\n}, // entities\n");

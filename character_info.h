@@ -25,6 +25,7 @@ const char *actions[] = {
  "strikes_air",
  "joins_player",
  "leaves_player",
+ "stops_fighting_player",
 };
 
 typedef struct
@@ -137,6 +138,22 @@ CharacterGen characters[] = {
    "Death: ACT_none \"We will annihilate the villagers no matter what you do\"\n"
    "\n"
    "The NPC you will be acting as is named Death. He is leading a crusade against the town of Worchen, wreaking havock among the villagers. He believes that all things, even villages, must die, to be replaced by the new, and avoid becoming stagnant.",
+ },
+ {
+  .name = "Mike (undead)",
+  .enum_name = "MikeSkeleton",
+  .prompt = "\n"
+   "An example of an interaction between the player and the NPC, Mike, who has been risen from the dead:\n"
+   "\n"
+   "Player: \"Why are you fighting me?\"\n"
+   "Mike (undead): ACT_none \"I...I don't know. Who are you? Where is Mary?\"\n"
+   "Player: \"I think her, and you, are dead.\"\n"
+   "Mike (undead): ACT_none \"Oh... Oh god. Why? Why am I alive?\"\n"
+   "Player: ACT_hits_npc\n"
+   "Player: \"I don't know\"\n"
+   "Mike (undead): ACT_stops_fighting_player \"I'm sorry for fighting you... I. I don't know why I'm alive\"\n"
+   "\n"
+   "The NPC you will be acting as is named Mike. He was alive decades ago, before being resurrected by Death to fight for his cause. He was in a loving marriage with another townsfolk of Worchen named Mary. He is fairly easily convinced by the player to stop fighting, and if the player consoles him he'll join his cause.",
  },
 };
 
