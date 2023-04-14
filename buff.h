@@ -16,6 +16,7 @@
 #define BUFF_ITER(type, buff_ptr) for(type *it = &((buff_ptr)->data[0]); it < &((buff_ptr)->data[(buff_ptr)->cur_index]); it++)
 #define BUFF_ITER_I(type, buff_ptr, i_var) BUFF_ITER(type, buff_ptr) for(int i_var = (int)(it - &((buff_ptr)->data[0])); i_var != -1; i_var = -1)
 #define BUFF_PUSH_FRONT(buff_ptr, value) { (buff_ptr)->cur_index++; BUFF_VALID(buff_ptr); for(int i = (buff_ptr)->cur_index - 1; i > 0; i--) { (buff_ptr)->data[i] = (buff_ptr)->data[i - 1]; }; (buff_ptr)->data[0] = value; }
+#define BUFF_REMOVE_BACK(buff_ptr) {assert( (buff_ptr)->cur_index > 0); (buff_ptr)->cur_index--;}
 #define BUFF_REMOVE_FRONT(buff_ptr) {if((buff_ptr)->cur_index > 0) {for(int i = 0; i < (buff_ptr)->cur_index - 1; i++) { (buff_ptr)->data[i] = (buff_ptr)->data[i+1]; }; (buff_ptr)->cur_index--;}}
 #define BUFF_CLEAR(buff_ptr) {memset((buff_ptr), 0, sizeof(*(buff_ptr)));  ((buff_ptr)->cur_index = 0);}
 

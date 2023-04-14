@@ -155,8 +155,8 @@ typedef struct Overlap
  Entity *e;
 } Overlap;
 
-
 typedef BUFF(Overlap, 16) Overlapping;
+
 
 #define LEVEL_TILES 150
 #define LAYERS 3
@@ -323,6 +323,11 @@ char *tprint(const char *format, ...)
  return to_return;
 }
 
+bool V2ApproxEq(Vec2 a, Vec2 b)
+{
+ return LenV2(SubV2(a, b)) <= 0.01f;
+}
+
 AABB entity_sword_aabb(Entity *e, float width, float height)
 {
  if(e->facing_left)
@@ -421,6 +426,21 @@ bool is_tile_solid(TileInstance t)
  return false;
  //return tile_id == 53 || tile_id == 0 || tile_id == 367 || tile_id == 317 || tile_id == 313 || tile_id == 366 || tile_id == 368;
 }
+
+bool is_overlap_collision(Overlap o)
+{
+ if(o.is_tile)
+ {
+  return is_tile_solid(o.t);
+ }
+ else
+ {
+  assert(o.e);
+  return !o.e->is_item;
+ }
+}
+
+
 // tilecoord is integer tile position, not like tile coord
 Vec2 tilecoord_to_world(TileCoord t)
 {
@@ -478,6 +498,11 @@ AABB centered_aabb(Vec2 at, Vec2 size)
  };
 }
 
+AABB entity_aabb_at(Entity *e, Vec2 at)
+{
+ return centered_aabb(at, entity_aabb_size(e));
+}
+
 AABB entity_aabb(Entity *e)
 {
  Vec2 at = e->pos;
@@ -487,7 +512,7 @@ AABB entity_aabb(Entity *e)
     at = AddV2(at, V2(0.0f, -50.0f));
     }
     */
- return centered_aabb(at, entity_aabb_size(e));
+ return entity_aabb_at(e, at);
 }
 
 TileInstance get_tile_layer(Level *l, int layer, TileCoord t)
@@ -1769,7 +1794,8 @@ Overlapping get_overlapping(Level *l, AABB aabb)
  // the corners, jessie
  for(int i = 0; i < 4; i++)
  {
-  TileInstance t = get_tile(l, world_to_tilecoord(q.points[i]));
+  TileCoord to_check = world_to_tilecoord(q.points[i]);
+  TileInstance t = get_tile_layer(l, 2, to_check);
   if(is_tile_solid(t))
   {
    Overlap element = ((Overlap){.is_tile = true, .t = t});
@@ -2481,9 +2507,126 @@ void frame(void)
         }
        }
 
+
        if(it->standing == STANDING_FIGHTING || it->standing == STANDING_JOINED)
        {
         Entity *targeting = player;
+
+        // something kinda like A* pathfind to targeting, idk I just made it all up in like 10 minutes so it's probably broken
+        BUFF(Vec2, 1024) visited = {0};
+        BUFF(Vec2, 128) path = {0};
+        Vec2 from = it->pos;
+        Vec2 to = targeting->pos;
+        const float jump_size = TILE_SIZE/4.0f;
+
+        BUFF_APPEND(&path, from);
+        BUFF_APPEND(&visited, from);
+
+        bool pathfinding_failed = false;
+        while(LenV2(SubV2(path.data[path.cur_index-1], to)) > jump_size*3.0)
+        {
+         Vec2 compass[] = {
+          V2(-jump_size, 0.0f),
+          V2( jump_size, 0.0f),
+          V2( 0.0f     , jump_size),
+          V2( 0.0f     ,-jump_size),
+         };
+         // compass is relative to the current head of the path
+         ARR_ITER(Vec2, compass) *it = AddV2(*it, path.data[path.cur_index-1]);
+
+         BUFF(Vec2, 4) possible_to_explore = {0};
+         Entity *e = it;
+         ARR_ITER(Vec2, compass)
+         {
+          Vec2 want = *it;
+
+          bool in_visited = false;
+          BUFF_ITER(Vec2, &visited)
+          {
+           if(V2ApproxEq(want, *it))
+           {
+            in_visited = true;
+            break;
+           }
+          }
+
+          bool would_block_me = false;
+          Overlapping overlapping_at_want = get_overlapping(&level_level0, entity_aabb_at(e, want));
+          BUFF_ITER(Overlap, &overlapping_at_want) if(is_overlap_collision(*it) && !(it->e && it->e == e)) would_block_me = true;
+
+          if(!in_visited && !would_block_me) BUFF_APPEND(&possible_to_explore, want);
+         }
+
+         if(possible_to_explore.cur_index == 0)
+         {
+          if(path.cur_index == 0)
+          {
+           pathfinding_failed = true;
+           break;
+          }
+          BUFF_REMOVE_BACK(&path);
+          if(path.cur_index == 0)
+          {
+           pathfinding_failed = true;
+           break;
+          }
+         }
+         else
+         {
+          int lowest_dist_index = -1;
+          float lowest_dist = INFINITY;
+          BUFF_ITER_I(Vec2, &possible_to_explore, i)
+          {
+           float dist = LenV2(SubV2(to, *it));
+           if(dist < lowest_dist)
+           {
+            lowest_dist = dist;
+            lowest_dist_index = i;
+           }
+          }
+          assert(lowest_dist_index >= 0);
+
+          Vec2 new_point = possible_to_explore.data[lowest_dist_index];
+
+          if(!BUFF_HAS_SPACE(&visited) || !BUFF_HAS_SPACE(&path))
+          {
+           pathfinding_failed = true;
+           break;
+          }
+          else
+          {
+           BUFF_APPEND(&visited, new_point);
+           BUFF_APPEND(&path, new_point);
+          }
+         }
+        }
+
+        Vec2 next_point_on_path = {0};
+        if(!pathfinding_failed)
+        {
+         assert(path.cur_index > 0);
+         if(path.cur_index == 1)
+         {
+          next_point_on_path = to;
+         }
+         else
+         {
+          next_point_on_path = path.data[1];
+         }
+        }
+
+
+        BUFF_ITER_I(Vec2, &path, i)
+        {
+         if(i == 0)
+         {
+         }
+         else
+         {
+          dbgcol(BLUE) dbgline(*it, path.data[i-1]);
+         }
+        }
+
         {
          if(npc_attacks_with_sword(it))
          {
@@ -2494,7 +2637,6 @@ void frame(void)
           AABB weapon_aabb = entity_sword_aabb(it, 30.0f, 18.0f);
           dbgrect(weapon_aabb);
           Vec2 target_vel = {0};
-          it->pos = AddV2(it->pos, MulV2F(it->vel, dt));
           Overlapping overlapping_weapon = get_overlapping(cur_level, weapon_aabb);
           if(it->swing_timer > 0.0)
           {
@@ -2537,10 +2679,10 @@ void frame(void)
            }
           }
           it->vel = LerpV2(it->vel, dt*8.0f, target_vel);
-
          }
 
          if(npc_attacks_with_shotgun(it))
+          if(!pathfinding_failed)
          {
           Vec2 to_player = NormV2(SubV2(targeting->pos, it->pos));
           Vec2 rotate_direction;
@@ -2552,7 +2694,8 @@ void frame(void)
           {
            rotate_direction = rotate_clockwise(to_player);
           }
-          Vec2 target_vel = NormV2(AddV2(rotate_direction, MulV2F(to_player, 0.5f)));
+          //Vec2 target_vel = NormV2(AddV2(rotate_direction, MulV2F(to_player, 0.5f)));
+          Vec2 target_vel = NormV2(SubV2(next_point_on_path, it->pos));
           target_vel = MulV2F(target_vel, 3.0f);
           it->vel = LerpV2(it->vel, 15.0f * dt, target_vel);
           CollisionInfo col = {0};

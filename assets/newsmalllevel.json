@@ -46,10 +46,10 @@
          "data":[0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 60, 60, 0, 0, 0, 0, 0,
             0, 0, 0, 60, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 60, 0, 0, 0, 0, 0,
+            0, 0, 0, 60, 0, 0, 0, 0, 0,
+            0, 0, 0, 60, 0, 0, 0, 0, 0,
+            0, 0, 60, 60, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0],
          "height":9,
@@ -75,8 +75,25 @@
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":72.4621212121228,
-                 "y":85.727272727277
+                 "x":41.7954545454561,
+                 "y":110.393939393944
+                }, 
+                {
+                 "class":"",
+                 "height":32,
+                 "id":17,
+                 "name":"OldMan",
+                 "properties":[
+                        {
+                         "name":"standing",
+                         "type":"string",
+                         "value":"STANDING_JOINED"
+                        }],
+                 "rotation":0,
+                 "visible":true,
+                 "width":32,
+                 "x":233.333333333333,
+                 "y":82
                 }],
          "opacity":1,
          "type":"objectgroup",
@@ -85,7 +102,7 @@
          "y":0
         }],
  "nextlayerid":5,
- "nextobjectid":17,
+ "nextobjectid":18,
  "orientation":"orthogonal",
  "renderorder":"right-down",
  "tiledversion":"1.9.2",
