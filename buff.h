@@ -19,5 +19,3 @@
 #define BUFF_REMOVE_BACK(buff_ptr) {assert( (buff_ptr)->cur_index > 0); (buff_ptr)->cur_index--;}
 #define BUFF_REMOVE_FRONT(buff_ptr) {if((buff_ptr)->cur_index > 0) {for(int i = 0; i < (buff_ptr)->cur_index - 1; i++) { (buff_ptr)->data[i] = (buff_ptr)->data[i+1]; }; (buff_ptr)->cur_index--;}}
 #define BUFF_CLEAR(buff_ptr) {memset((buff_ptr), 0, sizeof(*(buff_ptr)));  ((buff_ptr)->cur_index = 0);}
-
-

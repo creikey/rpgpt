@@ -23,6 +23,8 @@
 #include "stb_image.h"
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
+#define STB_DS_IMPLEMENTATION
+#include "stb_ds.h"
 #include "HandmadeMath.h"
 #define DR_WAV_IMPLEMENTATION
 #include "dr_wav.h"
@@ -344,6 +346,11 @@ AABB entity_sword_aabb(Entity *e, float width, float height)
     .lower_right = AddV2(e->pos, V2(width, -height)),
   };
  }
+}
+
+float max_coord(Vec2 v)
+{
+ return v.x > v.y ? v.x : v.y;
 }
 
 // aabb advice by iRadEntertainment
@@ -922,7 +929,11 @@ void init(void)
    {
    .usage = SG_USAGE_STREAM,
    //.data = SG_RANGE(vertices),
-   .size = 1024*900,
+#ifdef DEVTOOLS
+   .size = 1024*2500,
+#else
+   .size = 1024*700,
+#endif
    .label = "quad-vertices"
    });
 
@@ -1277,7 +1288,6 @@ void flush_quad_batch()
  cur_batch_data_index = 0;
 }
 
-
 #define Y_COORD_IN_BACK (-1.0f)
 #define Y_COORD_IN_FRONT (3.0f)
 typedef struct DrawParams
@@ -1523,7 +1533,7 @@ void dbgsquare(Vec2 at)
 {
 #ifdef DEVTOOLS
  if(!show_devtools) return;
- colorquad(true, quad_centered(at, V2(10.0, 10.0)), debug_color);
+ colorquad(true, quad_centered(at, V2(3.0, 3.0)), debug_color);
 #else
  (void)at;
 #endif
@@ -1885,8 +1895,6 @@ Vec2 move_and_slide(MoveSlideParams p)
  typedef BUFF(AABB, 32) OverlapBuff;
  OverlapBuff actually_overlapping = {0};
 
- dbgcol(PINK)
-  dbgrect(at_new);
  BUFF_ITER(AABB, &to_check)
  {
   if(overlapping(at_new, *it))
@@ -2512,97 +2520,198 @@ void frame(void)
        {
         Entity *targeting = player;
 
-        // something kinda like A* pathfind to targeting, idk I just made it all up in like 10 minutes so it's probably broken
-        BUFF(Vec2, 1024) visited = {0};
-        BUFF(Vec2, 128) path = {0};
+        /*
+G cost: distance from the current node to the start node
+H cost: distance from the current node to the target node
+
+G     H
+  SUM
+F cost: G + H
+*/
         Vec2 from = it->pos;
         Vec2 to = targeting->pos;
-        const float jump_size = TILE_SIZE/4.0f;
+        typedef struct AStarNode {
+         bool exists;
+         struct AStarNode * parent;
+         bool in_closed_set;
+         bool in_open_set;
+         float f_score; // total of g score and h score
+         float g_score; // distance from the node to the start node
+         Vec2 pos;
+        } AStarNode;
 
-        BUFF_APPEND(&path, from);
-        BUFF_APPEND(&visited, from);
+        BUFF(AStarNode, 1024) nodes = {0};
+        struct { Vec2 key; AStarNode *value;  } *node_cache = 0;
+#define V2_HASH(v) (FloorV2(v))
+        const float jump_size = TILE_SIZE/2.0f;
+        BUFF_APPEND(&nodes, ((AStarNode){.in_open_set = true, .pos = from}));
+        Vec2 from_hash = V2_HASH(from);
+        float got_there_tolerance = max_coord(entity_aabb_size(player))*1.5f;
+        hmput(node_cache, from_hash, &nodes.data[0]);
 
-        bool pathfinding_failed = false;
-        while(LenV2(SubV2(path.data[path.cur_index-1], to)) > jump_size*3.0)
+        bool should_quit = false;
+        bool succeeded = false;
+        AStarNode *last_node = 0;
+        PROFILE_SCOPE("A* Pathfinding") // astar pathfinding a star 
+        while(!should_quit)
         {
-         Vec2 compass[] = {
-          V2(-jump_size, 0.0f),
-          V2( jump_size, 0.0f),
-          V2( 0.0f     , jump_size),
-          V2( 0.0f     ,-jump_size),
-         };
-         // compass is relative to the current head of the path
-         ARR_ITER(Vec2, compass) *it = AddV2(*it, path.data[path.cur_index-1]);
-
-         BUFF(Vec2, 4) possible_to_explore = {0};
-         Entity *e = it;
-         ARR_ITER(Vec2, compass)
+         int openset_size = 0;
+         BUFF_ITER(AStarNode, &nodes) if(it->in_open_set) openset_size += 1;
+         if(openset_size == 0)
          {
-          Vec2 want = *it;
-
-          bool in_visited = false;
-          BUFF_ITER(Vec2, &visited)
-          {
-           if(V2ApproxEq(want, *it))
-           {
-            in_visited = true;
-            break;
-           }
-          }
-
-          bool would_block_me = false;
-          Overlapping overlapping_at_want = get_overlapping(&level_level0, entity_aabb_at(e, want));
-          BUFF_ITER(Overlap, &overlapping_at_want) if(is_overlap_collision(*it) && !(it->e && it->e == e)) would_block_me = true;
-
-          if(!in_visited && !would_block_me) BUFF_APPEND(&possible_to_explore, want);
-         }
-
-         if(possible_to_explore.cur_index == 0)
-         {
-          if(path.cur_index == 0)
-          {
-           pathfinding_failed = true;
-           break;
-          }
-          BUFF_REMOVE_BACK(&path);
-          if(path.cur_index == 0)
-          {
-           pathfinding_failed = true;
-           break;
-          }
+          should_quit = true;
          }
          else
          {
-          int lowest_dist_index = -1;
-          float lowest_dist = INFINITY;
-          BUFF_ITER_I(Vec2, &possible_to_explore, i)
+          AStarNode *current = 0;
+          PROFILE_SCOPE("Get lowest fscore astar node in open set")
           {
-           float dist = LenV2(SubV2(to, *it));
-           if(dist < lowest_dist)
-           {
-            lowest_dist = dist;
-            lowest_dist_index = i;
-           }
+           float min_fscore = INFINITY;
+           int min_fscore_index = -1;
+           BUFF_ITER_I(AStarNode, &nodes, i)
+            if(it->in_open_set)
+            {
+             if(it->f_score < min_fscore)
+             {
+              min_fscore = it->f_score;
+              min_fscore_index = i;
+             }
+            }
+           assert(min_fscore_index >= 0);
+           current = &nodes.data[min_fscore_index];
+           assert(current);
           }
-          assert(lowest_dist_index >= 0);
 
-          Vec2 new_point = possible_to_explore.data[lowest_dist_index];
+          float length_to_goal = 0.0f;
+          PROFILE_SCOPE("get length to goal") length_to_goal  = LenV2(SubV2(to, current->pos));
 
-          if(!BUFF_HAS_SPACE(&visited) || !BUFF_HAS_SPACE(&path))
+          if(length_to_goal <= got_there_tolerance)
           {
-           pathfinding_failed = true;
-           break;
+           succeeded = true;
+           should_quit = true;
+           last_node = current;
           }
           else
           {
-           BUFF_APPEND(&visited, new_point);
-           BUFF_APPEND(&path, new_point);
+           current->in_open_set = false;
+           Vec2 neighbor_positions[] = {
+            V2(-jump_size, 0.0f),
+            V2( jump_size, 0.0f),
+            V2(0.0f, jump_size),
+            V2(0.0f, -jump_size),
+
+            V2(-jump_size, jump_size),
+            V2( jump_size, jump_size),
+            V2( jump_size, -jump_size),
+            V2(-jump_size, -jump_size),
+           };
+           ARR_ITER(Vec2, neighbor_positions) *it = AddV2(*it, current->pos);
+
+           Entity *e = it;
+           PROFILE_SCOPE("Checking neighbor positions")
+           ARR_ITER(Vec2, neighbor_positions)
+           {
+            Vec2 cur_pos = *it;
+
+            dbgsquare(cur_pos);
+
+            bool would_block_me = false;
+
+
+            PROFILE_SCOPE("Checking for overlap")
+            {
+             Overlapping overlapping_at_want = get_overlapping(&level_level0, entity_aabb_at(e, cur_pos));
+             BUFF_ITER(Overlap, &overlapping_at_want) if(is_overlap_collision(*it) && !(it->e && it->e == e)) would_block_me = true;
+            }
+
+            if(would_block_me)
+            {
+            }
+            else
+            {
+             AStarNode *existing = 0;
+             Vec2 hash = V2_HASH(cur_pos);
+             existing = hmget(node_cache, hash);
+
+             if(false)
+             PROFILE_SCOPE("look for existing A* node")
+             BUFF_ITER(AStarNode, &nodes)
+             {
+              if(V2ApproxEq(it->pos, cur_pos))
+              {
+               existing = it;
+               break;
+              }
+             }
+
+             float tentative_gscore = current->g_score + jump_size;
+             if(tentative_gscore < (existing ? existing->g_score : INFINITY))
+             {
+              if(!existing)
+              {
+               if(!BUFF_HAS_SPACE(&nodes))
+               {
+                should_quit = true;
+                succeeded = false;
+               }
+               else
+               {
+                BUFF_APPEND(&nodes, (AStarNode){0});
+                existing = &nodes.data[nodes.cur_index-1];
+                existing->pos = cur_pos;
+                Vec2 pos_hash = V2_HASH(cur_pos);
+                hmput(node_cache, pos_hash, existing);
+               }
+              }
+
+              if(existing)
+              PROFILE_SCOPE("estimate heuristic")
+              {
+               existing->parent = current;
+               existing->g_score = tentative_gscore;
+               float h_score = 0.0f;
+               {
+                // diagonal movement heuristic from some article
+                Vec2 curr_cell = *it;
+                Vec2 goal = to;
+                float D = jump_size;
+                float D2 = LenV2(V2(jump_size, jump_size));
+                float dx = fabsf(curr_cell.x - goal.x);
+                float dy = fabsf(curr_cell.y - goal.y);
+                float h = D * (dx + dy) + (D2 - 2 * D) * fminf(dx, dy);
+
+                h_score += h;
+                // approx distance with manhattan distance
+                //h_score += fabsf(existing->pos.x - to.x) + fabsf(existing->pos.y - to.y);
+               }
+               existing->f_score = tentative_gscore + h_score;
+               existing->in_open_set = true;
+              }
+             }
+            }
+           }
           }
          }
         }
 
+        hmfree(node_cache);
+        node_cache = 0;
+
+        // reconstruct path
+        BUFF(Vec2, ARRLEN(nodes.data)) path = {0};
+        if(succeeded)
+        {
+         assert(last_node);
+         AStarNode *cur = last_node;
+         while(cur)
+         {
+          BUFF_PUSH_FRONT(&path, cur->pos);
+          cur = cur->parent;
+         }
+        }
+
         Vec2 next_point_on_path = {0};
-        if(!pathfinding_failed)
+        if(succeeded)
         {
          assert(path.cur_index > 0);
          if(path.cur_index == 1)
@@ -2614,7 +2723,6 @@ void frame(void)
           next_point_on_path = path.data[1];
          }
         }
-
 
         BUFF_ITER_I(Vec2, &path, i)
         {
@@ -2635,7 +2743,6 @@ void frame(void)
 
           it->pos = move_and_slide((MoveSlideParams){it, it->pos, MulV2F(it->vel, pixels_per_meter * dt)});
           AABB weapon_aabb = entity_sword_aabb(it, 30.0f, 18.0f);
-          dbgrect(weapon_aabb);
           Vec2 target_vel = {0};
           Overlapping overlapping_weapon = get_overlapping(cur_level, weapon_aabb);
           if(it->swing_timer > 0.0)
@@ -2682,7 +2789,7 @@ void frame(void)
          }
 
          if(npc_attacks_with_shotgun(it))
-          if(!pathfinding_failed)
+          if(succeeded)
          {
           Vec2 to_player = NormV2(SubV2(targeting->pos, it->pos));
           Vec2 rotate_direction;
