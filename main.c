@@ -1,5 +1,5 @@
 // you will die someday
-#define CURRENT_VERSION 8 // wehenver you change Entity increment this boz
+#define CURRENT_VERSION 9 // wehenver you change Entity increment this boz
 
 #define SOKOL_IMPL
 #if defined(WIN32) || defined(_WIN32)
@@ -580,6 +580,75 @@ typedef struct GameState {
  Entity entities[MAX_ENTITIES];
 } GameState;
 GameState gs = {0};
+
+PathCache cached_paths[32] = {0};
+
+bool is_path_cache_old(double elapsed_time, PathCache *cache)
+{
+ double time_delta = elapsed_time - cache->elapsed_time;
+ if(time_delta < 0.0)
+ {
+  // path was cached in the future... likely from old save or something. Always invalidate
+  return true;
+ }
+ else
+ {
+  return time_delta >= TIME_BETWEEN_PATH_GENS;
+ }
+}
+
+PathCacheHandle cache_path(double elapsed_time, AStarPath *path)
+{
+ ARR_ITER_I(PathCache, cached_paths, i)
+ {
+  if(!it->exists || is_path_cache_old(elapsed_time, it))
+  {
+   int gen = it->generation;
+   *it = (PathCache){0};
+   it->generation = gen + 1;
+
+   it->path = *path;
+   it->elapsed_time = elapsed_time;
+   it->exists = true;
+   return (PathCacheHandle){.generation = it->generation, .index = i};
+  }
+ }
+ return (PathCacheHandle){0};
+}
+
+// passes in the time to return 0 and invalidate if too old
+PathCache *get_path_cache(double elapsed_time, PathCacheHandle handle)
+{
+ if(handle.generation == 0)
+ {
+  return 0;
+ }
+ else
+ {
+  assert(handle.index >= 0);
+  assert(handle.index < ARRLEN(cached_paths));
+  PathCache *to_return = &cached_paths[handle.index];
+  if(to_return->exists && to_return->generation == handle.generation)
+  {
+   if(is_path_cache_old(elapsed_time, to_return))
+   {
+    to_return->exists = false;
+    return 0;
+   }
+   else
+   {
+    return to_return;
+   }
+  }
+  else
+  {
+   return 0;
+  }
+ }
+}
+
+
+
 double unprocessed_gameplay_time = 0.0;
 #define MINIMUM_TIMESTEP (1.0/60.0)
 
@@ -2528,199 +2597,226 @@ G     H
   SUM
 F cost: G + H
 */
-        Vec2 from = it->pos;
         Vec2 to = targeting->pos;
-        typedef struct AStarNode {
-         bool exists;
-         struct AStarNode * parent;
-         bool in_closed_set;
-         bool in_open_set;
-         float f_score; // total of g score and h score
-         float g_score; // distance from the node to the start node
-         Vec2 pos;
-        } AStarNode;
 
-        BUFF(AStarNode, 1024) nodes = {0};
-        struct { Vec2 key; AStarNode *value;  } *node_cache = 0;
-#define V2_HASH(v) (FloorV2(v))
-        const float jump_size = TILE_SIZE/2.0f;
-        BUFF_APPEND(&nodes, ((AStarNode){.in_open_set = true, .pos = from}));
-        Vec2 from_hash = V2_HASH(from);
-        float got_there_tolerance = max_coord(entity_aabb_size(player))*1.5f;
-        hmput(node_cache, from_hash, &nodes.data[0]);
-
-        bool should_quit = false;
+        PathCache *cached = get_path_cache(elapsed_time, it->cached_path);
+        AStarPath path = {0};
         bool succeeded = false;
-        AStarNode *last_node = 0;
-        PROFILE_SCOPE("A* Pathfinding") // astar pathfinding a star 
-        while(!should_quit)
+        if(cached)
         {
-         int openset_size = 0;
-         BUFF_ITER(AStarNode, &nodes) if(it->in_open_set) openset_size += 1;
-         if(openset_size == 0)
-         {
-          should_quit = true;
-         }
-         else
-         {
-          AStarNode *current = 0;
-          PROFILE_SCOPE("Get lowest fscore astar node in open set")
+         path = cached->path;
+         succeeded = true;
+        }
+        else
+        {
+         Vec2 from = it->pos;
+         typedef struct AStarNode {
+          bool exists;
+          struct AStarNode * parent;
+          bool in_closed_set;
+          bool in_open_set;
+          float f_score; // total of g score and h score
+          float g_score; // distance from the node to the start node
+          Vec2 pos;
+         } AStarNode;
+
+         BUFF(AStarNode, MAX_ASTAR_NODES) nodes = {0};
+         struct { Vec2 key; AStarNode *value;  } *node_cache = 0;
+#define V2_HASH(v) (FloorV2(v))
+         const float jump_size = TILE_SIZE/2.0f;
+         BUFF_APPEND(&nodes, ((AStarNode){.in_open_set = true, .pos = from}));
+         Vec2 from_hash = V2_HASH(from);
+         float got_there_tolerance = max_coord(entity_aabb_size(player))*1.5f;
+         hmput(node_cache, from_hash, &nodes.data[0]);
+
+         bool should_quit = false;
+         AStarNode *last_node = 0;
+         PROFILE_SCOPE("A* Pathfinding") // astar pathfinding a star 
+          while(!should_quit)
           {
-           float min_fscore = INFINITY;
-           int min_fscore_index = -1;
-           BUFF_ITER_I(AStarNode, &nodes, i)
-            if(it->in_open_set)
-            {
-             if(it->f_score < min_fscore)
-             {
-              min_fscore = it->f_score;
-              min_fscore_index = i;
-             }
-            }
-           assert(min_fscore_index >= 0);
-           current = &nodes.data[min_fscore_index];
-           assert(current);
-          }
-
-          float length_to_goal = 0.0f;
-          PROFILE_SCOPE("get length to goal") length_to_goal  = LenV2(SubV2(to, current->pos));
-
-          if(length_to_goal <= got_there_tolerance)
-          {
-           succeeded = true;
-           should_quit = true;
-           last_node = current;
-          }
-          else
-          {
-           current->in_open_set = false;
-           Vec2 neighbor_positions[] = {
-            V2(-jump_size, 0.0f),
-            V2( jump_size, 0.0f),
-            V2(0.0f, jump_size),
-            V2(0.0f, -jump_size),
-
-            V2(-jump_size, jump_size),
-            V2( jump_size, jump_size),
-            V2( jump_size, -jump_size),
-            V2(-jump_size, -jump_size),
-           };
-           ARR_ITER(Vec2, neighbor_positions) *it = AddV2(*it, current->pos);
-
-           Entity *e = it;
-           PROFILE_SCOPE("Checking neighbor positions")
-           ARR_ITER(Vec2, neighbor_positions)
+           int openset_size = 0;
+           BUFF_ITER(AStarNode, &nodes) if(it->in_open_set) openset_size += 1;
+           if(openset_size == 0)
            {
-            Vec2 cur_pos = *it;
-
-            dbgsquare(cur_pos);
-
-            bool would_block_me = false;
-
-
-            PROFILE_SCOPE("Checking for overlap")
+            should_quit = true;
+           }
+           else
+           {
+            AStarNode *current = 0;
+            PROFILE_SCOPE("Get lowest fscore astar node in open set")
             {
-             Overlapping overlapping_at_want = get_overlapping(&level_level0, entity_aabb_at(e, cur_pos));
-             BUFF_ITER(Overlap, &overlapping_at_want) if(is_overlap_collision(*it) && !(it->e && it->e == e)) would_block_me = true;
+             float min_fscore = INFINITY;
+             int min_fscore_index = -1;
+             BUFF_ITER_I(AStarNode, &nodes, i)
+              if(it->in_open_set)
+              {
+               if(it->f_score < min_fscore)
+               {
+                min_fscore = it->f_score;
+                min_fscore_index = i;
+               }
+              }
+             assert(min_fscore_index >= 0);
+             current = &nodes.data[min_fscore_index];
+             assert(current);
             }
 
-            if(would_block_me)
+            float length_to_goal = 0.0f;
+            PROFILE_SCOPE("get length to goal") length_to_goal  = LenV2(SubV2(to, current->pos));
+
+            if(length_to_goal <= got_there_tolerance)
             {
+             succeeded = true;
+             should_quit = true;
+             last_node = current;
             }
             else
             {
-             AStarNode *existing = 0;
-             Vec2 hash = V2_HASH(cur_pos);
-             existing = hmget(node_cache, hash);
+             current->in_open_set = false;
+             Vec2 neighbor_positions[] = {
+              V2(-jump_size, 0.0f),
+              V2( jump_size, 0.0f),
+              V2(0.0f, jump_size),
+              V2(0.0f, -jump_size),
 
-             if(false)
-             PROFILE_SCOPE("look for existing A* node")
-             BUFF_ITER(AStarNode, &nodes)
-             {
-              if(V2ApproxEq(it->pos, cur_pos))
-              {
-               existing = it;
-               break;
-              }
-             }
+              V2(-jump_size, jump_size),
+              V2( jump_size, jump_size),
+              V2( jump_size, -jump_size),
+              V2(-jump_size, -jump_size),
+             };
+             ARR_ITER(Vec2, neighbor_positions) *it = AddV2(*it, current->pos);
 
-             float tentative_gscore = current->g_score + jump_size;
-             if(tentative_gscore < (existing ? existing->g_score : INFINITY))
-             {
-              if(!existing)
+             Entity *e = it;
+             PROFILE_SCOPE("Checking neighbor positions")
+              ARR_ITER(Vec2, neighbor_positions)
               {
-               if(!BUFF_HAS_SPACE(&nodes))
+               Vec2 cur_pos = *it;
+
+               dbgsquare(cur_pos);
+
+               bool would_block_me = false;
+
+
+               PROFILE_SCOPE("Checking for overlap")
                {
-                should_quit = true;
-                succeeded = false;
+                Overlapping overlapping_at_want = get_overlapping(&level_level0, entity_aabb_at(e, cur_pos));
+                BUFF_ITER(Overlap, &overlapping_at_want) if(is_overlap_collision(*it) && !(it->e && it->e == e)) would_block_me = true;
+               }
+
+               if(would_block_me)
+               {
                }
                else
                {
-                BUFF_APPEND(&nodes, (AStarNode){0});
-                existing = &nodes.data[nodes.cur_index-1];
-                existing->pos = cur_pos;
-                Vec2 pos_hash = V2_HASH(cur_pos);
-                hmput(node_cache, pos_hash, existing);
+                AStarNode *existing = 0;
+                Vec2 hash = V2_HASH(cur_pos);
+                existing = hmget(node_cache, hash);
+
+                if(false)
+                 PROFILE_SCOPE("look for existing A* node")
+                  BUFF_ITER(AStarNode, &nodes)
+                  {
+                   if(V2ApproxEq(it->pos, cur_pos))
+                   {
+                    existing = it;
+                    break;
+                   }
+                  }
+
+                float tentative_gscore = current->g_score + jump_size;
+                if(tentative_gscore < (existing ? existing->g_score : INFINITY))
+                {
+                 if(!existing)
+                 {
+                  if(!BUFF_HAS_SPACE(&nodes))
+                  {
+                   should_quit = true;
+                   succeeded = false;
+                  }
+                  else
+                  {
+                   BUFF_APPEND(&nodes, (AStarNode){0});
+                   existing = &nodes.data[nodes.cur_index-1];
+                   existing->pos = cur_pos;
+                   Vec2 pos_hash = V2_HASH(cur_pos);
+                   hmput(node_cache, pos_hash, existing);
+                  }
+                 }
+
+                 if(existing)
+                  PROFILE_SCOPE("estimate heuristic")
+                  {
+                   existing->parent = current;
+                   existing->g_score = tentative_gscore;
+                   float h_score = 0.0f;
+                   {
+                    // diagonal movement heuristic from some article
+                    Vec2 curr_cell = *it;
+                    Vec2 goal = to;
+                    float D = jump_size;
+                    float D2 = LenV2(V2(jump_size, jump_size));
+                    float dx = fabsf(curr_cell.x - goal.x);
+                    float dy = fabsf(curr_cell.y - goal.y);
+                    float h = D * (dx + dy) + (D2 - 2 * D) * fminf(dx, dy);
+
+                    h_score += h;
+                    // approx distance with manhattan distance
+                    //h_score += fabsf(existing->pos.x - to.x) + fabsf(existing->pos.y - to.y);
+                   }
+                   existing->f_score = tentative_gscore + h_score;
+                   existing->in_open_set = true;
+                  }
+                }
                }
               }
-
-              if(existing)
-              PROFILE_SCOPE("estimate heuristic")
-              {
-               existing->parent = current;
-               existing->g_score = tentative_gscore;
-               float h_score = 0.0f;
-               {
-                // diagonal movement heuristic from some article
-                Vec2 curr_cell = *it;
-                Vec2 goal = to;
-                float D = jump_size;
-                float D2 = LenV2(V2(jump_size, jump_size));
-                float dx = fabsf(curr_cell.x - goal.x);
-                float dy = fabsf(curr_cell.y - goal.y);
-                float h = D * (dx + dy) + (D2 - 2 * D) * fminf(dx, dy);
-
-                h_score += h;
-                // approx distance with manhattan distance
-                //h_score += fabsf(existing->pos.x - to.x) + fabsf(existing->pos.y - to.y);
-               }
-               existing->f_score = tentative_gscore + h_score;
-               existing->in_open_set = true;
-              }
-             }
             }
            }
           }
-         }
-        }
 
-        hmfree(node_cache);
-        node_cache = 0;
+         hmfree(node_cache);
+         node_cache = 0;
 
-        // reconstruct path
-        BUFF(Vec2, ARRLEN(nodes.data)) path = {0};
-        if(succeeded)
-        {
-         assert(last_node);
-         AStarNode *cur = last_node;
-         while(cur)
+         // reconstruct path
+         if(succeeded)
          {
-          BUFF_PUSH_FRONT(&path, cur->pos);
-          cur = cur->parent;
+          assert(last_node);
+          AStarNode *cur = last_node;
+          while(cur)
+          {
+           BUFF_PUSH_FRONT(&path, cur->pos);
+           cur = cur->parent;
+          }
          }
+
+         if(succeeded)
+          it->cached_path = cache_path(elapsed_time, &path);
         }
 
         Vec2 next_point_on_path = {0};
         if(succeeded)
         {
-         assert(path.cur_index > 0);
-         if(path.cur_index == 1)
+         float nearest_dist = INFINITY;
+         int nearest_index = -1;
+         Entity *from = it;
+         BUFF_ITER_I(Vec2, &path, i)
+         {
+          float dist = LenV2(SubV2(*it, from->pos));
+          if(dist < nearest_dist)
+          {
+           nearest_dist = dist;
+           nearest_index = i;
+          }
+         }
+         assert(nearest_index >= 0);
+         int target_index = (nearest_index + 1);
+
+         if(target_index >= path.cur_index)
          {
           next_point_on_path = to;
          }
          else
          {
-          next_point_on_path = path.data[1];
+          next_point_on_path = path.data[target_index];
          }
         }
 

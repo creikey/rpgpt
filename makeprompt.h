@@ -149,6 +149,25 @@ typedef struct
  float alive_for;
 } PlayerAfterImage;
 
+#define MAX_ASTAR_NODES 1024
+typedef BUFF(Vec2, MAX_ASTAR_NODES) AStarPath;
+#define TIME_BETWEEN_PATH_GENS (0.5f)
+
+typedef struct
+{
+ bool exists;
+ int generation;
+ double elapsed_time;
+
+ AStarPath path;
+} PathCache;
+
+typedef struct
+{
+ int generation;
+ int index;
+} PathCacheHandle;
+
 typedef struct Entity
 {
  bool exists;
@@ -186,6 +205,7 @@ typedef struct Entity
  double characters_said;
  NPCPlayerStanding standing;
  NpcKind npc_kind;
+ PathCacheHandle cached_path;
  ItemKind last_seen_holding_kind;
 #ifdef WEB
  int gen_request_id;
