@@ -29,6 +29,10 @@ typedef BUFF(char, MAX_SENTENCE_LENGTH) Sentence;
 #define DAMAGE_SWORD 0.2f
 #define DAMAGE_BULLET 0.2f
 
+// A* tuning
+#define MAX_ASTAR_NODES 1024
+#define TIME_BETWEEN_PATH_GENS (0.5f)
+
 // Never expected such a stupid stuff from such a great director. If there is 0 stari can give that or -200 to this movie. Its worst to see and unnecessary loss of money
 
 typedef BUFF(char, 1024*10) Escaped;
@@ -149,9 +153,7 @@ typedef struct
  float alive_for;
 } PlayerAfterImage;
 
-#define MAX_ASTAR_NODES 1024
 typedef BUFF(Vec2, MAX_ASTAR_NODES) AStarPath;
-#define TIME_BETWEEN_PATH_GENS (0.5f)
 
 typedef struct
 {
