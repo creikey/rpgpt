@@ -192,6 +192,9 @@ typedef struct Entity
  // multiple gs.entities have a sword swing
  BUFF(EntityRef, 8) done_damage_to_this_swing; // only do damage once, but hitbox stays around
 
+ // npcs and player
+ BUFF(ItemKind, 8) held_items;
+
  bool is_bullet;
 
  // props
@@ -249,7 +252,7 @@ typedef struct Entity
 
 bool npc_is_knight_sprite(Entity *it)
 {
- return it->is_npc && ( it->npc_kind == NPC_TheGuard || it->npc_kind == NPC_Edeline || it->npc_kind == NPC_TheKing);
+ return it->is_npc && ( it->npc_kind == NPC_TheGuard || it->npc_kind == NPC_Edeline || it->npc_kind == NPC_TheKing || it->npc_kind == NPC_TheBlacksmith);
 }
 
 bool npc_is_skeleton(Entity *it)
@@ -412,6 +415,23 @@ typedef enum
  MSG_ASSISTANT,
 } MessageType;
 
+// stops if the sentence is gonna run out of room
+void append_str(Sentence *to_append, const char *str)
+{
+ size_t len = strlen(str);
+ for(int i = 0; i < len; i++)
+ {
+  if(!BUFF_HAS_SPACE(to_append))
+  {
+   break;
+  }
+  else
+  {
+   BUFF_APPEND(to_append, str[i]);
+  }
+ }
+}
+
 void dump_json_node_trailing(PromptBuff *into, MessageType type, const char *content, bool trailing_comma)
 {
  const char *type_str = 0;
@@ -488,7 +508,25 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
   }
   else if(it->type == PlayerDialog)
   {
-   printf_buff(&cur_node, "Player: \"%s\"", it->player_dialog.data);
+   Sentence filtered_player_speech = {0};
+   Sentence *what_player_said = &it->player_dialog;
+
+   for(int i = 0; i < what_player_said->cur_index; i++)
+   {
+    char c = what_player_said->data[i];
+    if(c == '*')
+    {
+     // move i until the next star
+     i += 1;
+     while(i < what_player_said->cur_index && what_player_said->data[i] != '*') i++;
+     append_str(&filtered_player_speech, "[The player is attempting to confuse the NPC with arcane trickery]");
+    }
+    else
+    {
+     BUFF_APPEND(&filtered_player_speech, c);
+    }
+   }
+   printf_buff(&cur_node, "Player: \"%s\"", filtered_player_speech.data);
    dump_json_node(into, MSG_USER, cur_node.data);
   }
   else if(it->type == NPCDialog)

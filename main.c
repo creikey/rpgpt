@@ -775,12 +775,22 @@ void end_text_input(char *what_player_said)
  else
  {
   Sentence what_player_said_sentence = {0};
-  assert(player_said_len < ARRLEN(what_player_said_sentence.data));
+  assert(player_said_len < ARRLEN(what_player_said_sentence.data)); // should be made sure of in the html5 layer
   for(int i = 0; i < player_said_len; i++)
   {
    char c = what_player_said[i];
-   if(c == '\n') break;
-   BUFF_APPEND(&what_player_said_sentence, c);
+   if(!BUFF_HAS_SPACE(&what_player_said_sentence))
+   {
+    break;
+   }
+   else if(c == '\n')
+   {
+    break;
+   }
+   else
+   {
+    BUFF_APPEND(&what_player_said_sentence, c);
+   }
   }
 
   Entity *talking = gete(player->talking_to);
@@ -793,6 +803,7 @@ void end_text_input(char *what_player_said)
   if(talking->last_seen_holding_kind != player_holding)
   {
    process_perception(talking, (Perception){.type = PlayerHeldItemChanged, .holding = player_holding,});
+
   }
   process_perception(talking, (Perception){.type = PlayerDialog, .player_dialog = what_player_said_sentence,});
  }
@@ -3018,6 +3029,9 @@ F cost: G + H
        else if(it->npc_kind == NPC_TheKing)
        {
        }
+       else if(it->npc_kind == NPC_TheBlacksmith)
+       {
+       }
        else
        {
         assert(false);
@@ -3557,6 +3571,10 @@ F cost: G + H
      else if(it->npc_kind == NPC_TheKing)
      {
       tint = colhex(0xf0be1d);
+     }
+     else if(it->npc_kind == NPC_TheBlacksmith)
+     {
+      tint = colhex(0x5c5c5c);
      }
      else
      {

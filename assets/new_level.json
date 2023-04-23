@@ -371,8 +371,25 @@
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":1524,
-                 "y":2649.33333333333
+                 "x":1938.66666666667,
+                 "y":2269.33333333333
+                }, 
+                {
+                 "class":"",
+                 "height":32,
+                 "id":22,
+                 "name":"TheBlacksmith",
+                 "properties":[
+                        {
+                         "name":"standing",
+                         "type":"string",
+                         "value":"STANDING_FIGHTING"
+                        }],
+                 "rotation":0,
+                 "visible":true,
+                 "width":32,
+                 "x":2066.66666666667,
+                 "y":2209.33333333333
                 }],
          "opacity":1,
          "type":"objectgroup",
@@ -381,7 +398,7 @@
          "y":0
         }],
  "nextlayerid":5,
- "nextobjectid":22,
+ "nextobjectid":23,
  "orientation":"orthogonal",
  "renderorder":"right-down",
  "tiledversion":"1.9.2",
