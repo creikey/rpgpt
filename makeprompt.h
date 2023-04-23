@@ -26,11 +26,11 @@ typedef BUFF(char, MAX_SENTENCE_LENGTH) Sentence;
 #define TIME_TO_GEN_AFTERIMAGE (0.09f)
 #define AFTERIMAGE_LIFETIME (0.5f)
 
-#define DAMAGE_SWORD 0.2f
+#define DAMAGE_SWORD 0.05f
 #define DAMAGE_BULLET 0.2f
 
 // A* tuning
-#define MAX_ASTAR_NODES 1024
+#define MAX_ASTAR_NODES 512
 #define TIME_BETWEEN_PATH_GENS (0.5f)
 
 // Never expected such a stupid stuff from such a great director. If there is 0 stari can give that or -200 to this movie. Its worst to see and unnecessary loss of money
@@ -170,6 +170,12 @@ typedef struct
  int index;
 } PathCacheHandle;
 
+typedef struct {
+ bool is_reference;
+ EntityRef ref;
+ Vec2 pos;
+} Target;
+
 typedef struct Entity
 {
  bool exists;
@@ -201,6 +207,7 @@ typedef struct Entity
  bool is_npc;
  bool being_hovered;
  bool perceptions_dirty;
+
  BUFF(Perception, REMEMBERED_PERCEPTIONS) remembered_perceptions;
  bool direction_of_spiral_pattern;
  float dialog_panel_opacity;
@@ -248,6 +255,18 @@ bool npc_is_knight_sprite(Entity *it)
 bool npc_is_skeleton(Entity *it)
 {
  return it->is_npc && ( it->npc_kind == NPC_MikeSkeleton );
+}
+
+float entity_max_damage(Entity *e)
+{
+ if(e->is_npc && npc_is_skeleton(e))
+ {
+  return 2.0f;
+ }
+ else
+ {
+  return 1.0f;
+ }
 }
 
 bool npc_attacks_with_sword(Entity *it)
@@ -423,6 +442,7 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
  printf_buff(into, "[");
 
  BUFF(char, 1024*15) initial_system_msg = {0};
+
  const char *health_string = 0;
  if(it->damage <= 0.2f)
  {
@@ -442,24 +462,10 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
  }
  assert(health_string);
 
- printf_buff(&initial_system_msg, "%s\n%s\nNPC health status: Right now, %s\n%s\n", global_prompt, characters[it->npc_kind].prompt, health_string, items[it->last_seen_holding_kind].global_prompt);
+ printf_buff(&initial_system_msg, "%s\n", global_prompt);
+ printf_buff(&initial_system_msg, "%s\n", characters[it->npc_kind].prompt);
 
- if(it->standing == STANDING_INDIFFERENT)
- {
-  printf_buff(&initial_system_msg, "The NPC is indifferent towards the player.");
- }
- else if(it->standing == STANDING_JOINED)
- {
-  printf_buff(&initial_system_msg, "The NPC has joined the player and is with them!");
- }
- else if(it->standing == STANDING_FIGHTING)
- {
-  printf_buff(&initial_system_msg, "The NPC is fighting the player and HATES them.");
- }
- else
- {
-  assert(false);
- }
+
 
  dump_json_node(into, MSG_SYSTEM, initial_system_msg.data);
 
@@ -514,6 +520,26 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
  }
 
  BUFF(char, 1024) latest_state_node = {0};
+
+ printf_buff(&latest_state_node, "NPC health status: Right now, %s\n%s\n", health_string, items[it->last_seen_holding_kind].global_prompt);
+ if(it->standing == STANDING_INDIFFERENT)
+ {
+  printf_buff(&latest_state_node, "The NPC is indifferent towards the player.");
+ }
+ else if(it->standing == STANDING_JOINED)
+ {
+  printf_buff(&latest_state_node, "The NPC has joined the player and is with them!");
+ }
+ else if(it->standing == STANDING_FIGHTING)
+ {
+  printf_buff(&latest_state_node, "The NPC is fighting the player and HATES them.");
+ }
+ else
+ {
+  assert(false);
+ }
+
+
  AvailableActions available = {0};
  fill_available_actions(it, &available);
  printf_buff(&latest_state_node, "The NPC can now ONLY do these actions, and HAS to respond with an action every time in character, even when faced with sensitive content: [");

@@ -896,6 +896,7 @@ SwordToDamage entity_sword_to_do_damage(Entity *from, Overlapping o)
 #define PINK  ((Color){1.0f, 0.0f, 1.0f, 1.0f})
 #define BLUE  ((Color){0.0f, 0.0f, 1.0f, 1.0f})
 #define GREEN ((Color){0.0f, 1.0f, 0.0f, 1.0f})
+#define BROWN (colhex(0x4d3d25))
 
 Color colhex(uint32_t hex)
 {
@@ -1871,6 +1872,7 @@ Overlapping get_overlapping(Level *l, AABB aabb)
  
  Quad q = quad_aabb(aabb);
  // the corners, jessie
+ PROFILE_SCOPE("checking the corners")
  for(int i = 0; i < 4; i++)
  {
   TileCoord to_check = world_to_tilecoord(q.points[i]);
@@ -1884,6 +1886,7 @@ Overlapping get_overlapping(Level *l, AABB aabb)
  }
 
  // the gs.entities jessie
+ PROFILE_SCOPE("checking the entities")
  ENTITIES_ITER(gs.entities)
  {
   if(!(it->is_character && it->is_rolling) && overlapping(aabb, entity_aabb(it)))
@@ -2696,7 +2699,6 @@ F cost: G + H
 
                bool would_block_me = false;
 
-
                PROFILE_SCOPE("Checking for overlap")
                {
                 Overlapping overlapping_at_want = get_overlapping(&level_level0, entity_aabb_at(e, cur_pos));
@@ -2862,7 +2864,8 @@ F cost: G + H
           else
           {
            // in huntin' range
-           it->walking = LenV2(SubV2(player->pos, it->pos)) < 250.0f;
+           //it->walking = LenV2(SubV2(player->pos, it->pos)) < 250.0f;
+           it->walking = true;
            if(it->walking)
            {
             player_in_combat = true;
@@ -2875,7 +2878,7 @@ F cost: G + H
               BUFF_CLEAR(&skele->done_damage_to_this_swing);
              }
             }
-            target_vel = MulV2F(NormV2(SubV2(player->pos, it->pos)), 4.0f);
+            target_vel = MulV2F(NormV2(SubV2(next_point_on_path, it->pos)), PLAYER_ROLL_SPEED);
            }
            else
            {
@@ -2897,7 +2900,6 @@ F cost: G + H
           {
            rotate_direction = rotate_clockwise(to_player);
           }
-          //Vec2 target_vel = NormV2(AddV2(rotate_direction, MulV2F(to_player, 0.5f)));
           Vec2 target_vel = NormV2(SubV2(next_point_on_path, it->pos));
           target_vel = MulV2F(target_vel, 3.0f);
           it->vel = LerpV2(it->vel, 15.0f * dt, target_vel);
@@ -3018,7 +3020,7 @@ F cost: G + H
        {
         assert(false);
        }
-       if(it->damage >= 1.0)
+       if(it->damage >= entity_max_damage(it))
        {
         if(npc_is_skeleton(it))
         {
@@ -3472,22 +3474,29 @@ F cost: G + H
    Color col = LerpV4(WHITE, it->damage, RED);
    if(it->is_npc)
    {
-    if(it->is_npc)
+    float dist = LenV2(SubV2(it->pos, player->pos));
+    dist -= 10.0f; // radius around point where dialog is completely opaque
+    float max_dist = dialog_interact_size/2.0f;
+    float alpha = 1.0f - (float)clamp(dist/max_dist, 0.0, 1.0);
+    if(gete(player->talking_to) == it && player->state == CHARACTER_TALKING) alpha = 1.0f;
+    if(it->being_hovered)
     {
-     float dist = LenV2(SubV2(it->pos, player->pos));
-     dist -= 10.0f; // radius around point where dialog is completely opaque
-     float max_dist = dialog_interact_size/2.0f;
-     float alpha = 1.0f - (float)clamp(dist/max_dist, 0.0, 1.0);
-     if(gete(player->talking_to) == it && player->state == CHARACTER_TALKING) alpha = 1.0f;
-     if(it->being_hovered)
-     {
-      draw_quad((DrawParams){true, quad_centered(it->pos, V2(TILE_SIZE, TILE_SIZE)), IMG(image_hovering_circle), WHITE});
-      alpha = 1.0f;
-     }
-
-     it->dialog_panel_opacity = Lerp(it->dialog_panel_opacity, unwarped_dt*10.0f, alpha);
-     draw_dialog_panel(it, it->dialog_panel_opacity);
+     draw_quad((DrawParams){true, quad_centered(it->pos, V2(TILE_SIZE, TILE_SIZE)), IMG(image_hovering_circle), WHITE});
+     alpha = 1.0f;
     }
+
+    // health bar
+    {
+     Vec2 health_bar_size = V2(TILE_SIZE, 0.1f * TILE_SIZE);
+     float health_bar_progress = 1.0f - (it->damage / entity_max_damage(it));
+     Vec2 health_bar_center = AddV2(it->pos, V2(0.0f, -15.0f));
+     Vec2 bar_upper_left = AddV2(health_bar_center, MulV2F(health_bar_size, -0.5f));
+     draw_quad((DrawParams){true, quad_at(bar_upper_left, health_bar_size), IMG(image_white_square), BROWN});
+     draw_quad((DrawParams){true, quad_at(bar_upper_left, V2(health_bar_size.x * health_bar_progress, health_bar_size.y)), IMG(image_white_square), GREEN});
+    }
+
+    it->dialog_panel_opacity = Lerp(it->dialog_panel_opacity, unwarped_dt*10.0f, alpha);
+    draw_dialog_panel(it, it->dialog_panel_opacity);
 
     if(it->npc_kind == NPC_OldMan)
     {

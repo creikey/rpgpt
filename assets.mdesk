@@ -142,5 +142,5 @@
 }
 @level level0:
 {
- filepath: "newsmalllevel.json",
+ filepath: "new_level.json",
 }
