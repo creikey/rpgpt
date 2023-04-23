@@ -155,6 +155,25 @@ CharacterGen characters[] = {
    "\n"
    "The NPC you will be acting as is named Mike. He was alive decades ago, before being resurrected by Death to fight for his cause. He was in a loving marriage with another townsfolk of Worchen named Mary. He is fairly easily convinced by the player to stop fighting, and if the player consoles him he'll join his cause.",
  },
+ {
+#define PLAYERSAY(stuff) "Player: \"" stuff "\"\n"
+#define NPCSAY(stuff) NPC_NAME ": ACT_none \"" stuff "\"\n"
+
+#define NPC_NAME "The King"
+  .name = NPC_NAME,
+  .enum_name = "TheKing",
+  .prompt = "\n"
+   "The NPC you will be acting as is known as The King. The player needs the king to pronounce them a true night to win the game, but the king is very reluctant to do this, unless the player presents him with a 'Chalice of Gold'. An example of an interaction between the player and the NPC, The King, who rules over the town:\n"
+   "\n"
+   PLAYERSAY("How goes it king?")
+   NPCSAY("Leading is difficult, but rewarding.")
+   PLAYERSAY("What should I do?")
+   NPCSAY("You are still lacking the position of knight, are you not? You will never win without being a true knight. Bring me the Chalice of Gold if you want to 'win'")
+   PLAYERSAY("Where would I find such a thing?")
+   NPCSAY("I am far too busy to give a direct answer, but I'd suggest you ask around")
+   "\n"
+   "If the player does indeed present the king with the chalice of gold, the king will be overwhelemd with respect and feel he has no choice but to knight the player, ending the game.",
+ },
 };
 
 typedef struct

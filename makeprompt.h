@@ -249,7 +249,7 @@ typedef struct Entity
 
 bool npc_is_knight_sprite(Entity *it)
 {
- return it->is_npc && ( it->npc_kind == NPC_TheGuard || it->npc_kind == NPC_Edeline);
+ return it->is_npc && ( it->npc_kind == NPC_TheGuard || it->npc_kind == NPC_Edeline || it->npc_kind == NPC_TheKing);
 }
 
 bool npc_is_skeleton(Entity *it)

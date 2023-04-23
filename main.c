@@ -186,8 +186,7 @@ typedef struct Arena
  size_t cur;
 } Arena;
 
-Entity *player = NULL; // up here, used in text backend callback
-
+Entity *player = 0; // up here, used in text backend callback
 
 typedef struct AudioSample
 {
@@ -3016,6 +3015,9 @@ F cost: G + H
          it->walking = false;
         }
        }
+       else if(it->npc_kind == NPC_TheKing)
+       {
+       }
        else
        {
         assert(false);
@@ -3551,6 +3553,10 @@ F cost: G + H
      else if(it->npc_kind == NPC_Edeline)
      {
       tint = colhex(0x8c34eb);
+     }
+     else if(it->npc_kind == NPC_TheKing)
+     {
+      tint = colhex(0xf0be1d);
      }
      else
      {
