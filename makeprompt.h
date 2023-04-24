@@ -195,7 +195,7 @@ typedef struct Entity
  BUFF(EntityRef, 8) done_damage_to_this_swing; // only do damage once, but hitbox stays around
 
  // npcs and player
- BUFF(ItemKind, 8) held_items;
+ BUFF(ItemKind, 32) held_items;
 
  bool is_bullet;
 

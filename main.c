@@ -741,10 +741,10 @@ void reset_level()
  update_player_from_entities();
 
  BUFF_APPEND(&player->held_items, ITEM_WhiteSquare);
- BUFF_APPEND(&player->held_items, ITEM_Boots);
+ for(int i = 0; i < 30; i++)
+  BUFF_APPEND(&player->held_items, ITEM_Boots);
  BUFF_APPEND(&player->held_items, ITEM_Tripod);
 
- // noceckin delete this
  ENTITIES_ITER(gs.entities)
  {
   if(it->npc_kind == NPC_TheBlacksmith)
@@ -1414,6 +1414,9 @@ typedef struct DrawParams
  float y_coord_sorting; // Y_COORD_IN_BACK, or the smallest value, is all the way in the back, Y_COORD_IN_FRONT is in the front
  float alpha_clip_threshold;
  bool queue_for_translucent;
+
+ bool do_clipping;
+
 } DrawParams;
 
 BUFF(DrawParams, 1024*2) translucent_queue = {0};
@@ -1434,7 +1437,8 @@ void draw_quad(DrawParams d)
  params.tint[2] = d.tint.B;
  params.tint[3] = d.tint.A;
  params.alpha_clip_threshold = d.alpha_clip_threshold;
- if(aabb_is_valid(d.clip_to) && LenV2(aabb_size(d.clip_to)) > 0.1)
+ if(d.do_clipping &&
+  aabb_is_valid(d.clip_to) && LenV2(aabb_size(d.clip_to)) > 0.1)
  {
   if(d.world_space)
   {
@@ -1614,6 +1618,7 @@ void colorquad(bool world_space, Quad q, Color col)
 
 
 // in world coordinates
+bool in_screen_space = false;
 void line(Vec2 from, Vec2 to, float line_width, Color color)
 {
  Vec2 normal = rotate_counter_clockwise(NormV2(SubV2(to, from)));
@@ -1625,7 +1630,7 @@ void line(Vec2 from, Vec2 to, float line_width, Color color)
    AddV2(from, MulV2F(normal, -line_width)), // lower left
   }
  };
- colorquad(true, line_quad, color);
+ colorquad(!in_screen_space, line_quad, color);
 }
 
 #ifdef DEVTOOLS
@@ -1742,6 +1747,7 @@ typedef struct TextParams
  float scale;
  AABB clip_to; // if in world space, in world space. In space of pos given
  Color *colors; // color per character, if not null must be array of same length as text
+ bool do_clipping;
 } TextParams;
 
 // returns bounds. To measure text you can set dry run to true and get the bounds
@@ -1815,6 +1821,7 @@ AABB draw_text(TextParams t)
     {
      col = t.colors[i];
     }
+
     if(false) // drop shadow, don't really like it
     if(t.world_space)
     {
@@ -1823,9 +1830,10 @@ AABB draw_text(TextParams t)
      {
       shadow_quad.points[i] = AddV2(shadow_quad.points[i], V2(0.0, -1.0));
      }
-     draw_quad((DrawParams){t.world_space, shadow_quad, image_font, font_atlas_region, (Color){0.0f,0.0f,0.0f,0.4f}, t.clip_to, .y_coord_sorting = Y_COORD_IN_FRONT, .queue_for_translucent = true});
+     draw_quad((DrawParams){t.world_space, shadow_quad, image_font, font_atlas_region, (Color){0.0f,0.0f,0.0f,0.4f}, t.clip_to, .y_coord_sorting = Y_COORD_IN_FRONT, .queue_for_translucent = true, .do_clipping = t.do_clipping});
     }
-    draw_quad((DrawParams){t.world_space, to_draw, image_font, font_atlas_region, col, t.clip_to, .y_coord_sorting = Y_COORD_IN_FRONT, .queue_for_translucent = true});
+
+    draw_quad((DrawParams){t.world_space, to_draw, image_font, font_atlas_region, col, t.clip_to, .y_coord_sorting = Y_COORD_IN_FRONT, .queue_for_translucent = true, .do_clipping = t.do_clipping});
    }
   }
  }
@@ -2364,13 +2372,14 @@ typedef struct
 
 struct { int key; IMState value; } *imui_state = 0;
 
-bool imbutton_key(Vec2 upper_left, Vec2 size, float text_scale, const char *text, int key, float dt, bool force_down)
+bool imbutton_key(AABB button_aabb, float text_scale, const char *text, int key, float dt, bool force_down)
 {
  IMState state = hmget(imui_state, key);
 
- upper_left.y += Lerp(0.0f, state.pressed_amount, 5.0f);
+ float raise = Lerp(0.0f, state.pressed_amount, 5.0f);
+ button_aabb.upper_left.y += raise;
+ button_aabb.lower_right.y += raise;
 
- AABB button_aabb = aabb_at(upper_left, size);
  bool to_return = false;
  float pressed_target = 0.5f;
  if(has_point(button_aabb, mouse_pos))
@@ -2394,8 +2403,8 @@ bool imbutton_key(Vec2 upper_left, Vec2 size, float text_scale, const char *text
 
  if(aabb_is_valid(button_aabb))
  {
-  draw_quad((DrawParams){false, quad_aabb(button_aabb), IMG(image_white_square), blendalpha(WHITE, button_alpha)});
-  draw_centered_text((TextParams){false, false, text, aabb_center(button_aabb), BLACK, text_scale, .clip_to = button_aabb});
+  draw_quad((DrawParams){false, quad_aabb(button_aabb), IMG(image_white_square), blendalpha(WHITE, button_alpha), .y_coord_sorting = Y_COORD_IN_FRONT});
+  draw_centered_text((TextParams){false, false, text, aabb_center(button_aabb), BLACK, text_scale, .clip_to = button_aabb, .do_clipping = true});
  }
 
  hmput(imui_state, key, state);
@@ -3832,14 +3841,14 @@ F cost: G + H
      );
      float button_grid_width = button_size.x*num_buttons + space_btwn_buttons * (num_buttons - 1.0f);
      Vec2 cur_upper_left = V2((panel_aabb.upper_left.x + panel_aabb.lower_right.x)/2.0f - button_grid_width/2.0f, panel_aabb.lower_right.y + button_size.y);
-     if(imbutton_key(cur_upper_left, button_size, text_scale, "Speak", __LINE__, unwarped_dt, receiving_text_input))
+     if(imbutton_key(aabb_at(cur_upper_left, button_size), text_scale, "Speak", __LINE__, unwarped_dt, receiving_text_input))
      {
       begin_text_input();
      }
      float button_grid_height = button_size.y;
 
      cur_upper_left.x += button_size.x + space_btwn_buttons;
-     if(imbutton(cur_upper_left, button_size, text_scale, "Give Item"))
+     if(imbutton(aabb_at(cur_upper_left, button_size), text_scale, "Give Item"))
      {
       choosing_item_grid = true;
      }
@@ -3884,8 +3893,8 @@ F cost: G + H
     }
    }
   }
-   
-   // translucent
+
+  // translucent
   draw_all_translucent();
 
   // item grid modal draw item grid
@@ -3910,26 +3919,47 @@ F cost: G + H
    }
    if(aabb_is_valid(grid_aabb))
    {
-    const float padding = 30.0f; // between border of panel and item icons
-    Vec2 item_icon_size = V2(60.0f, 60.0f);
     draw_quad((DrawParams){false, quad_aabb(grid_aabb), IMG(image_white_square), blendalpha(BLACK, visible * 0.7f), .y_coord_sorting = Y_COORD_IN_FRONT});
 
+    if(imbutton(centered_aabb(AddV2(grid_aabb.upper_left, V2(aabb_size(grid_aabb).x/2.0f, -aabb_size(grid_aabb).y)), V2(100.f*visible, 50.0f*visible)), 1.0f, "Cancel"))
+    {
+     choosing_item_grid = false;
+    }
+
+    const float padding = 30.0f; // between border of panel and the items
+    const float padding_btwn_items = 10.0f;
+
+    const int horizontal_item_count = 10;
+    const int vertical_item_count = 6;
+    assert(ARRLEN(player->held_items.data) < horizontal_item_count * vertical_item_count);
+
+    Vec2 space_for_items = SubV2(aabb_size(grid_aabb), V2(padding*2.0f, padding*2.0f));
+    float item_icon_width = (space_for_items.x - (horizontal_item_count - 1)*padding_btwn_items) / horizontal_item_count;
+    Vec2 item_icon_size = V2(item_icon_width, item_icon_width);
+
     Vec2 cursor = AddV2(grid_aabb.upper_left, V2(padding, -padding));
-    BUFF_ITER(ItemKind, &player->held_items)
+    BUFF_ITER_I(ItemKind, &player->held_items, i)
     {
      AABB item_icon = aabb_at(cursor, item_icon_size);
 
-     draw_item(false, *it, item_icon, clamp01(visible*visible));
-
-     cursor.x += item_icon_size.x + padding;
-     if(cursor.x + item_icon_size.x + padding >= grid_aabb.lower_right.x)
+     if(aabb_is_valid(item_icon))
      {
-      cursor.y += item_icon_size.y + padding;
+      in_screen_space = true;
+      dbgrect(item_icon);
+      in_screen_space = false;
+      draw_item(false, *it, item_icon, clamp01(visible*visible));
+     }
+     
+     cursor.x += item_icon_size.x + padding_btwn_items;
+     if((i + 1) % horizontal_item_count == 0 && i != 0)
+     {
+      cursor.y -= item_icon_size.y + padding_btwn_items;
       cursor.x = grid_aabb.upper_left.x + padding;
      }
     }
    }
   }
+   
 
   // ui
 #define HELPER_SIZE 250.0f
