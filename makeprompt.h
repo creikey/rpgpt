@@ -10,6 +10,8 @@
  NPC_MOOSE,
 } NpcKind;
 
+// TODO do strings: https://pastebin.com/Kwcw2sye
+
 #define DO_CHATGPT_PARSING
 
 #define Log(...) { printf("%s Log %d | ", __FILE__, __LINE__); printf(__VA_ARGS__); }
