@@ -247,6 +247,8 @@ void play_audio(AudioSample *sample, float volume)
 // on web it disables event handling so the button up event isn't received
 bool keydown[SAPP_KEYCODE_MENU] = {0};
 
+bool choosing_item_grid = false;
+
 // set to true when should receive text input from the web input box
 // or desktop text input
 bool receiving_text_input = false;
@@ -256,7 +258,6 @@ bool is_receiving_text_input()
 {
  return receiving_text_input;
 }
-
 
 #ifdef DESKTOP
 Sentence text_input_buffer = {0};
@@ -739,6 +740,11 @@ void reset_level()
  }
  update_player_from_entities();
 
+ BUFF_APPEND(&player->held_items, ITEM_WhiteSquare);
+ BUFF_APPEND(&player->held_items, ITEM_Boots);
+ BUFF_APPEND(&player->held_items, ITEM_Tripod);
+
+ // noceckin delete this
  ENTITIES_ITER(gs.entities)
  {
   if(it->npc_kind == NPC_TheBlacksmith)
@@ -926,6 +932,11 @@ SwordToDamage entity_sword_to_do_damage(Entity *from, Overlapping o)
 #define BLUE  ((Color){0.0f, 0.0f, 1.0f, 1.0f})
 #define GREEN ((Color){0.0f, 1.0f, 0.0f, 1.0f})
 #define BROWN (colhex(0x4d3d25))
+
+Color oflightness(float dark)
+{
+ return (Color){dark, dark, dark, 1.0f};
+}
 
 Color colhex(uint32_t hex)
 {
@@ -2391,7 +2402,28 @@ bool imbutton_key(Vec2 upper_left, Vec2 size, float text_scale, const char *text
  return to_return;
 }
 
-#define imbutton(...) imbutton_key(__VA_ARGS__, __LINE__, dt, false)
+#define imbutton(...) imbutton_key(__VA_ARGS__, __LINE__, unwarped_dt, false)
+
+void draw_item(bool world_space, ItemKind kind, AABB in_aabb, float alpha)
+{
+ Quad drawn = quad_aabb(in_aabb);
+ if(kind == ITEM_Tripod)
+ {
+  draw_quad((DrawParams){world_space, drawn, IMG(image_tripod), blendalpha(WHITE, alpha), .y_coord_sorting = Y_COORD_IN_FRONT});
+ }
+ else if(kind == ITEM_Boots)
+ {
+  draw_quad((DrawParams){world_space, drawn, IMG(image_boots), blendalpha(WHITE, alpha), .y_coord_sorting = Y_COORD_IN_FRONT});
+ }
+ else if(kind == ITEM_WhiteSquare)
+ {
+  colorquad(world_space, drawn, blendalpha(WHITE, alpha));
+ }
+ else
+ {
+  assert(false);
+ }
+}
 
 void frame(void)
 {
@@ -3491,90 +3523,6 @@ F cost: G + H
   }
   pressed = before_gameplay_loops;
 
-  PROFILE_SCOPE("dialog menu") // big dialog panel
-  {
-   static float on_screen = 0.0f;
-   Entity *talking_to = gete(player->talking_to);
-   on_screen = Lerp(on_screen, dt*9.0f, talking_to ? 1.0f : 0.0f);
-   {
-    float panel_width = screen_size().x * 0.4f * on_screen;
-    AABB panel_aabb = (AABB){.upper_left = V2(0.0f, screen_size().y), .lower_right = V2(panel_width, 0.0f)};
-    float alpha = 1.0f;
-
-
-    if(aabb_is_valid(panel_aabb))
-    {
-     if(pressed.mouse_down && !has_point(panel_aabb, mouse_pos))
-     {
-      player->state = CHARACTER_IDLE;
-     }
-     draw_quad((DrawParams){false, quad_aabb(panel_aabb), IMG(image_white_square), blendalpha(BLACK, 0.7f)});
-
-     // apply padding
-     float padding = 0.1f * screen_size().y;
-     panel_width -= padding * 2.0f;
-     panel_aabb.upper_left = AddV2(panel_aabb.upper_left, V2(padding, -padding));
-     panel_aabb.lower_right = AddV2(panel_aabb.lower_right, V2(-padding, padding));
-
-     // draw button
-     float space_btwn_buttons = 20.0f;
-     float text_scale = 1.0f;
-     const float num_buttons = 2.0f;
-     Vec2 button_size = V2(
-      (panel_width - (num_buttons - 1.0f)*space_btwn_buttons)/num_buttons,
-      (panel_aabb.upper_left.y - panel_aabb.lower_right.y)*0.2f
-     );
-     float button_grid_width = button_size.x*num_buttons + space_btwn_buttons * (num_buttons - 1.0f);
-     Vec2 cur_upper_left = V2((panel_aabb.upper_left.x + panel_aabb.lower_right.x)/2.0f - button_grid_width/2.0f, panel_aabb.lower_right.y + button_size.y);
-     if(imbutton_key(cur_upper_left, button_size, text_scale, "Speak", __LINE__, dt, receiving_text_input))
-     {
-      begin_text_input();
-     }
-     float button_grid_height = button_size.y;
-
-     cur_upper_left.x += button_size.x + space_btwn_buttons;
-     imbutton(cur_upper_left, button_size, text_scale, "Give Item");
-
-     const float dialog_text_scale = 1.0f;
-
-     AABB dialog_text_aabb = panel_aabb;
-     dialog_text_aabb.lower_right.y += button_grid_height + 20.0f; // a little bit of padding because the buttons go up
-     float new_line_height = dialog_text_aabb.lower_right.y;
-
-     if(talking_to)
-     {
-      Dialog dialog = produce_dialog(talking_to, true);
-      if(dialog.cur_index > 0)
-      {
-       for(int i = dialog.cur_index - 1; i >= 0; i--)
-       {
-        DialogElement *it = &dialog.data[i];
-        {
-         Color *colors = calloc(sizeof(*colors), it->s.cur_index);
-         for(int char_i = 0; char_i < it->s.cur_index; char_i++)
-         {
-          if(it->is_player)
-          {
-           colors[char_i] = WHITE;
-          }
-          else
-          {
-           colors[char_i] = colhex(0x34e05c);
-          }
-          colors[char_i] = blendalpha(colors[char_i], alpha);
-         }
-         float measured_line_height = draw_wrapped_text((WrappedTextParams){true, V2(dialog_text_aabb.upper_left.X, new_line_height), dialog_text_aabb.lower_right.X - dialog_text_aabb.upper_left.X, it->s.data, colors, dialog_text_scale, dialog_text_aabb, .screen_space = true});
-         new_line_height += (new_line_height - measured_line_height);
-         draw_wrapped_text((WrappedTextParams){false, V2(dialog_text_aabb.upper_left.X, new_line_height), dialog_text_aabb.lower_right.X - dialog_text_aabb.upper_left.X, it->s.data, colors, dialog_text_scale, dialog_text_aabb, .screen_space = true});
-
-         free(colors);
-        }
-       }
-      }
-     }
-    }
-   }
-  }
 
   PROFILE_SCOPE("render player")
   {
@@ -3801,23 +3749,7 @@ F cost: G + H
    }
    else if (it->is_item)
    {
-    Quad drawn = quad_centered(it->pos, V2(15.0f, 15.0f));
-    if(it->item_kind == ITEM_Tripod)
-    {
-     draw_quad((DrawParams){true, drawn, IMG(image_tripod), WHITE});
-    }
-    else if(it->item_kind == ITEM_Boots)
-    {
-     draw_quad((DrawParams){true, drawn, IMG(image_boots), WHITE});
-    }
-    else if(it->item_kind == ITEM_WhiteSquare)
-    {
-     colorquad(true, drawn, WHITE);
-    }
-    else
-    {
-     assert(false);
-    }
+    draw_item(true, it->item_kind, centered_aabb(it->pos,V2(15.0f, 15.0f)), 1.0f);
    }
    else if (it->is_bullet)
    {
@@ -3863,9 +3795,141 @@ F cost: G + H
     assert(false);
    }
   }
+
+  PROFILE_SCOPE("dialog menu") // big dialog panel draw big dialog panel
+  {
+   static float on_screen = 0.0f;
+   Entity *talking_to = gete(player->talking_to);
+   on_screen = Lerp(on_screen, unwarped_dt*9.0f, talking_to ? 1.0f : 0.0f);
+   {
+
+    float panel_width = screen_size().x * 0.4f * on_screen;
+    AABB panel_aabb = (AABB){.upper_left = V2(0.0f, screen_size().y), .lower_right = V2(panel_width, 0.0f)};
+    float alpha = 1.0f;
+
+
+    if(aabb_is_valid(panel_aabb))
+    {
+     if(!choosing_item_grid && pressed.mouse_down && !has_point(panel_aabb, mouse_pos))
+     {
+      player->state = CHARACTER_IDLE;
+     }
+     draw_quad((DrawParams){false, quad_aabb(panel_aabb), IMG(image_white_square), blendalpha(BLACK, 0.7f)});
+
+     // apply padding
+     float padding = 0.1f * screen_size().y;
+     panel_width -= padding * 2.0f;
+     panel_aabb.upper_left = AddV2(panel_aabb.upper_left, V2(padding, -padding));
+     panel_aabb.lower_right = AddV2(panel_aabb.lower_right, V2(-padding, padding));
+
+     // draw button
+     float space_btwn_buttons = 20.0f;
+     float text_scale = 1.0f;
+     const float num_buttons = 2.0f;
+     Vec2 button_size = V2(
+      (panel_width - (num_buttons - 1.0f)*space_btwn_buttons)/num_buttons,
+      (panel_aabb.upper_left.y - panel_aabb.lower_right.y)*0.2f
+     );
+     float button_grid_width = button_size.x*num_buttons + space_btwn_buttons * (num_buttons - 1.0f);
+     Vec2 cur_upper_left = V2((panel_aabb.upper_left.x + panel_aabb.lower_right.x)/2.0f - button_grid_width/2.0f, panel_aabb.lower_right.y + button_size.y);
+     if(imbutton_key(cur_upper_left, button_size, text_scale, "Speak", __LINE__, unwarped_dt, receiving_text_input))
+     {
+      begin_text_input();
+     }
+     float button_grid_height = button_size.y;
+
+     cur_upper_left.x += button_size.x + space_btwn_buttons;
+     if(imbutton(cur_upper_left, button_size, text_scale, "Give Item"))
+     {
+      choosing_item_grid = true;
+     }
+
+     const float dialog_text_scale = 1.0f;
+
+     AABB dialog_text_aabb = panel_aabb;
+     dialog_text_aabb.lower_right.y += button_grid_height + 20.0f; // a little bit of padding because the buttons go up
+     float new_line_height = dialog_text_aabb.lower_right.y;
+
+     if(talking_to)
+     {
+      Dialog dialog = produce_dialog(talking_to, true);
+      if(dialog.cur_index > 0)
+      {
+       for(int i = dialog.cur_index - 1; i >= 0; i--)
+       {
+        DialogElement *it = &dialog.data[i];
+        {
+         Color *colors = calloc(sizeof(*colors), it->s.cur_index);
+         for(int char_i = 0; char_i < it->s.cur_index; char_i++)
+         {
+          if(it->is_player)
+          {
+           colors[char_i] = WHITE;
+          }
+          else
+          {
+           colors[char_i] = colhex(0x34e05c);
+          }
+          colors[char_i] = blendalpha(colors[char_i], alpha);
+         }
+         float measured_line_height = draw_wrapped_text((WrappedTextParams){true, V2(dialog_text_aabb.upper_left.X, new_line_height), dialog_text_aabb.lower_right.X - dialog_text_aabb.upper_left.X, it->s.data, colors, dialog_text_scale, dialog_text_aabb, .screen_space = true});
+         new_line_height += (new_line_height - measured_line_height);
+         draw_wrapped_text((WrappedTextParams){false, V2(dialog_text_aabb.upper_left.X, new_line_height), dialog_text_aabb.lower_right.X - dialog_text_aabb.upper_left.X, it->s.data, colors, dialog_text_scale, dialog_text_aabb, .screen_space = true});
+
+         free(colors);
+        }
+       }
+      }
+     }
+    }
+   }
+  }
    
    // translucent
   draw_all_translucent();
+
+  // item grid modal draw item grid
+  {
+   static float visible = 0.0f;
+   float target = 0.0f;
+   if(choosing_item_grid) target = 1.0f;
+   visible = Lerp(visible, unwarped_dt*9.0f, target);
+
+   if(player->state != CHARACTER_TALKING)
+   {
+    choosing_item_grid = false;
+   }
+
+   draw_quad((DrawParams){false, quad_at(V2(0.0,screen_size().y), screen_size()), IMG(image_white_square), blendalpha(oflightness(0.2f), visible*0.4f), .y_coord_sorting = Y_COORD_IN_FRONT});
+
+   Vec2 grid_panel_size = LerpV2(V2(0.0f, 0.0f), visible, V2(screen_size().x*0.75f, screen_size().y * 0.75f));
+   AABB grid_aabb = centered_aabb(MulV2F(screen_size(), 0.5f), grid_panel_size);
+   if(choosing_item_grid && pressed.mouse_down && !has_point(grid_aabb, mouse_pos))
+   {
+    choosing_item_grid = false;
+   }
+   if(aabb_is_valid(grid_aabb))
+   {
+    const float padding = 30.0f; // between border of panel and item icons
+    Vec2 item_icon_size = V2(60.0f, 60.0f);
+    draw_quad((DrawParams){false, quad_aabb(grid_aabb), IMG(image_white_square), blendalpha(BLACK, visible * 0.7f), .y_coord_sorting = Y_COORD_IN_FRONT});
+
+    Vec2 cursor = AddV2(grid_aabb.upper_left, V2(padding, -padding));
+    BUFF_ITER(ItemKind, &player->held_items)
+    {
+     AABB item_icon = aabb_at(cursor, item_icon_size);
+
+     draw_item(false, *it, item_icon, clamp01(visible*visible));
+
+     cursor.x += item_icon_size.x + padding;
+     if(cursor.x + item_icon_size.x + padding >= grid_aabb.lower_right.x)
+     {
+      cursor.y += item_icon_size.y + padding;
+      cursor.x = grid_aabb.upper_left.x + padding;
+     }
+    }
+   }
+  }
 
   // ui
 #define HELPER_SIZE 250.0f
