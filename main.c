@@ -3518,7 +3518,7 @@ F cost: G + H
 
      // draw button
      float space_btwn_buttons = 20.0f;
-     float text_scale = 1.5f;
+     float text_scale = 1.0f;
      const float num_buttons = 2.0f;
      Vec2 button_size = V2(
       (panel_width - (num_buttons - 1.0f)*space_btwn_buttons)/num_buttons,
