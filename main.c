@@ -2122,7 +2122,6 @@ typedef struct
  char *text;
  Color *colors;
  float text_scale;
- bool going_up;
  AABB clip_to;
 
  bool screen_space;
@@ -2202,28 +2201,45 @@ typedef struct
 } DialogElement;
 
 typedef BUFF(DialogElement, REMEMBERED_PERCEPTIONS) Dialog;
-Dialog produce_dialog(Entity *talking_to)
+Dialog produce_dialog(Entity *talking_to, bool character_names)
 {
+ assert(talking_to->is_npc);
  Dialog to_return = {0};
  BUFF_ITER(Perception, &talking_to->remembered_perceptions)
  {
   if(it->type == NPCDialog)
   {
-   Sentence to_say = it->npc_dialog;
+   Sentence to_say = (Sentence){0};
+   
+   if(character_names)
+   {
+    append_str(&to_say, characters[talking_to->npc_kind].name);
+    append_str(&to_say, ": ");
+   }
+
    Sentence *last_said = last_said_sentence(talking_to);
    if(last_said == &it->npc_dialog)
    {
-    to_say = (Sentence){0};
     for(int i = 0; i < min(it->npc_dialog.cur_index, (int)talking_to->characters_said); i++)
     {
      BUFF_APPEND(&to_say, it->npc_dialog.data[i]);
     }
    }
+   else
+   {
+    append_str(&to_say, it->npc_dialog.data);
+   }
    BUFF_APPEND(&to_return, ((DialogElement){ .s = to_say, .is_player = false }) );
   }
   else if(it->type == PlayerDialog)
   {
-   BUFF_APPEND(&to_return, ((DialogElement){ .s = it->player_dialog, .is_player = true }) );
+   Sentence to_say = (Sentence){0};
+   if(character_names)
+   {
+    append_str(&to_say, "Player: ");
+   }
+   append_str(&to_say, it->player_dialog.data);
+   BUFF_APPEND(&to_return, ((DialogElement){ .s = to_say, .is_player = true }) );
   }
  }
  return to_return;
@@ -2272,7 +2288,7 @@ void draw_dialog_panel(Entity *talking_to, float alpha)
   {
    float new_line_height = dialog_panel.lower_right.Y;
 
-   Dialog dialog = produce_dialog(talking_to);
+   Dialog dialog = produce_dialog(talking_to, false);
    if(dialog.cur_index > 0)
    {
     for(int i = dialog.cur_index - 1; i >= 0; i--)
@@ -3492,7 +3508,6 @@ F cost: G + H
      {
       player->state = CHARACTER_IDLE;
      }
-     float new_line_height = panel_aabb.lower_right.Y;
      draw_quad((DrawParams){false, quad_aabb(panel_aabb), IMG(image_white_square), blendalpha(BLACK, 0.7f)});
 
      // apply padding
@@ -3500,38 +3515,6 @@ F cost: G + H
      panel_width -= padding * 2.0f;
      panel_aabb.upper_left = AddV2(panel_aabb.upper_left, V2(padding, -padding));
      panel_aabb.lower_right = AddV2(panel_aabb.lower_right, V2(-padding, padding));
-
-     if(talking_to)
-     {
-      Dialog dialog = produce_dialog(talking_to);
-      if(dialog.cur_index > 0)
-      {
-       for(int i = dialog.cur_index - 1; i >= 0; i--)
-       {
-        DialogElement *it = &dialog.data[i];
-        {
-         Color *colors = calloc(sizeof(*colors), it->s.cur_index);
-         for(int char_i = 0; char_i < it->s.cur_index; char_i++)
-         {
-          if(it->is_player)
-          {
-           colors[char_i] = BLACK;
-          }
-          else
-          {
-           colors[char_i] = colhex(0x345e22);
-          }
-          colors[char_i] = blendalpha(colors[char_i], alpha);
-         }
-         float measured_line_height = draw_wrapped_text((WrappedTextParams){true, V2(panel_aabb.upper_left.X, new_line_height), panel_aabb.lower_right.X - panel_aabb.upper_left.X, it->s.data, colors, 0.5f, panel_aabb, .screen_space = true});
-         new_line_height += (new_line_height - measured_line_height);
-         draw_wrapped_text((WrappedTextParams){false, V2(panel_aabb.upper_left.X, new_line_height), panel_aabb.lower_right.X - panel_aabb.upper_left.X, it->s.data, colors, 0.5f, panel_aabb});
-
-         free(colors);
-        }
-       }
-      }
-     }
 
      // draw button
      float space_btwn_buttons = 20.0f;
@@ -3547,9 +3530,48 @@ F cost: G + H
      {
       begin_text_input();
      }
+     float button_grid_height = button_size.y;
 
      cur_upper_left.x += button_size.x + space_btwn_buttons;
      imbutton(cur_upper_left, button_size, text_scale, "Give Item");
+
+     const float dialog_text_scale = 1.0f;
+
+     AABB dialog_text_aabb = panel_aabb;
+     dialog_text_aabb.lower_right.y += button_grid_height + 20.0f; // a little bit of padding because the buttons go up
+     float new_line_height = dialog_text_aabb.lower_right.y;
+
+     if(talking_to)
+     {
+      Dialog dialog = produce_dialog(talking_to, true);
+      if(dialog.cur_index > 0)
+      {
+       for(int i = dialog.cur_index - 1; i >= 0; i--)
+       {
+        DialogElement *it = &dialog.data[i];
+        {
+         Color *colors = calloc(sizeof(*colors), it->s.cur_index);
+         for(int char_i = 0; char_i < it->s.cur_index; char_i++)
+         {
+          if(it->is_player)
+          {
+           colors[char_i] = WHITE;
+          }
+          else
+          {
+           colors[char_i] = colhex(0x34e05c);
+          }
+          colors[char_i] = blendalpha(colors[char_i], alpha);
+         }
+         float measured_line_height = draw_wrapped_text((WrappedTextParams){true, V2(dialog_text_aabb.upper_left.X, new_line_height), dialog_text_aabb.lower_right.X - dialog_text_aabb.upper_left.X, it->s.data, colors, dialog_text_scale, dialog_text_aabb, .screen_space = true});
+         new_line_height += (new_line_height - measured_line_height);
+         draw_wrapped_text((WrappedTextParams){false, V2(dialog_text_aabb.upper_left.X, new_line_height), dialog_text_aabb.lower_right.X - dialog_text_aabb.upper_left.X, it->s.data, colors, dialog_text_scale, dialog_text_aabb, .screen_space = true});
+
+         free(colors);
+        }
+       }
+      }
+     }
     }
    }
   }
