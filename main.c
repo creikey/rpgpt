@@ -738,6 +738,14 @@ void reset_level()
   }
  }
  update_player_from_entities();
+
+ ENTITIES_ITER(gs.entities)
+ {
+  if(it->npc_kind == NPC_TheBlacksmith)
+  {
+   BUFF_APPEND(&it->remembered_perceptions, ((Perception){.type = PlayerDialog, .player_dialog = SENTENCE_CONST("Testing dialog")}));
+  }
+ }
 }
 
 
@@ -775,7 +783,6 @@ void end_text_input(char *what_player_said)
  {
   return;
  }
- player->state = CHARACTER_IDLE;
 
  size_t player_said_len = strlen(what_player_said);
  int actual_len = 0;
@@ -2107,13 +2114,27 @@ Vec2 move_and_slide(MoveSlideParams p)
  return result_pos;
 }
 
-// returns next vertical cursor position
-float draw_wrapped_text(bool dry_run, Vec2 at_point, float max_width, char *text, Color *colors, float text_scale, bool going_up, AABB clip_to)
+typedef struct
 {
- char *sentence_to_draw = text;
+ bool dry_run;
+ Vec2 at_point;
+ float max_width;
+ char *text;
+ Color *colors;
+ float text_scale;
+ bool going_up;
+ AABB clip_to;
+
+ bool screen_space;
+} WrappedTextParams;
+
+// returns next vertical cursor position
+float draw_wrapped_text(WrappedTextParams p)
+{
+ char *sentence_to_draw = p.text;
  size_t sentence_len = strlen(sentence_to_draw);
 
- Vec2 cursor = at_point;
+ Vec2 cursor = p.at_point;
  while(sentence_len > 0)
  {
   char line_to_draw[MAX_SENTENCE_LENGTH] = {0};
@@ -2125,11 +2146,11 @@ float draw_wrapped_text(bool dry_run, Vec2 at_point, float max_width, char *text
    memset(line_to_draw, 0, MAX_SENTENCE_LENGTH);
    memcpy(line_to_draw, sentence_to_draw, chars_from_sentence);
 
-   line_bounds = draw_text((TextParams){true, true, line_to_draw, cursor, BLACK, text_scale, clip_to});
-   if(line_bounds.lower_right.X > at_point.X + max_width)
+   line_bounds = draw_text((TextParams){!p.screen_space, true, line_to_draw, cursor, BLACK, p.text_scale, p.clip_to});
+   if(line_bounds.lower_right.X > p.at_point.X + p.max_width)
    {
     // too big
-    assert(chars_from_sentence > 0);
+    if(chars_from_sentence <= 0) chars_from_sentence = 1; // @CREDIT(warehouse56) always draw at least one character, if there's not enough room
     chars_from_sentence -= 1;
     break;
    }
@@ -2138,12 +2159,12 @@ float draw_wrapped_text(bool dry_run, Vec2 at_point, float max_width, char *text
   if(chars_from_sentence > sentence_len) chars_from_sentence--;
   memset(line_to_draw, 0, MAX_SENTENCE_LENGTH);
   memcpy(line_to_draw, sentence_to_draw, chars_from_sentence);
-  memcpy(colors_to_draw, colors, chars_from_sentence*sizeof(Color));
+  memcpy(colors_to_draw, p.colors, chars_from_sentence*sizeof(Color));
 
   //float line_height = line_bounds.upper_left.Y - line_bounds.lower_right.Y;
-  float line_height = font_line_advance * text_scale;
-  AABB drawn_bounds = draw_text((TextParams){true, dry_run, line_to_draw, AddV2(cursor, V2(0.0f, -line_height)), BLACK, text_scale, clip_to, colors_to_draw});
-  if(!dry_run) dbgrect(drawn_bounds);
+  float line_height = font_line_advance * p.text_scale;
+  AABB drawn_bounds = draw_text((TextParams){!p.screen_space, p.dry_run, line_to_draw, AddV2(cursor, V2(0.0f, -line_height)), BLACK, p.text_scale, p.clip_to, colors_to_draw});
+  if(!p.dry_run) dbgrect(drawn_bounds);
 
   // caught a random infinite loop in the debugger, this will stop it
   assert(chars_from_sentence >= 0); // defensive programming
@@ -2154,7 +2175,7 @@ float draw_wrapped_text(bool dry_run, Vec2 at_point, float max_width, char *text
 
   sentence_len -= chars_from_sentence;
   sentence_to_draw += chars_from_sentence;
-  colors += chars_from_sentence;
+  p.colors += chars_from_sentence;
   cursor = V2(drawn_bounds.upper_left.X, drawn_bounds.lower_right.Y);
  }
 
@@ -2271,9 +2292,9 @@ void draw_dialog_panel(Entity *talking_to, float alpha)
        }
        colors[char_i] = blendalpha(colors[char_i], alpha);
       }
-      float measured_line_height = draw_wrapped_text(true, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->s.data, colors, 0.5f, true, dialog_panel);
+      float measured_line_height = draw_wrapped_text((WrappedTextParams){true, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->s.data, colors, 0.5f, dialog_panel});
       new_line_height += (new_line_height - measured_line_height);
-      draw_wrapped_text(false, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->s.data, colors, 0.5f, true, dialog_panel);
+      draw_wrapped_text((WrappedTextParams){false, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->s.data, colors, 0.5f, dialog_panel});
 
       free(colors);
      }
@@ -2316,7 +2337,7 @@ typedef struct
 
 struct { int key; IMState value; } *imui_state = 0;
 
-bool imbutton_key(Vec2 upper_left, Vec2 size, float text_scale, const char *text, int key, float dt)
+bool imbutton_key(Vec2 upper_left, Vec2 size, float text_scale, const char *text, int key, float dt, bool force_down)
 {
  IMState state = hmget(imui_state, key);
 
@@ -2338,20 +2359,23 @@ bool imbutton_key(Vec2 upper_left, Vec2 size, float text_scale, const char *text
  }
  if(pressed.mouse_up) state.is_being_pressed = false;
 
- if(state.is_being_pressed) pressed_target = 0.0f;
+ if(state.is_being_pressed || force_down) pressed_target = 0.0f;
 
  state.pressed_amount = Lerp(state.pressed_amount, dt*20.0f, pressed_target);
 
  float button_alpha = Lerp(0.5f, state.pressed_amount, 1.0f);
 
- draw_quad((DrawParams){false, quad_aabb(button_aabb), IMG(image_white_square), blendalpha(WHITE, button_alpha)});
- draw_centered_text((TextParams){false, false, text, aabb_center(button_aabb), BLACK, text_scale, .clip_to = button_aabb});
+ if(aabb_is_valid(button_aabb))
+ {
+  draw_quad((DrawParams){false, quad_aabb(button_aabb), IMG(image_white_square), blendalpha(WHITE, button_alpha)});
+  draw_centered_text((TextParams){false, false, text, aabb_center(button_aabb), BLACK, text_scale, .clip_to = button_aabb});
+ }
 
  hmput(imui_state, key, state);
  return to_return;
 }
 
-#define imbutton(...) imbutton_key(__VA_ARGS__, __LINE__, dt)
+#define imbutton(...) imbutton_key(__VA_ARGS__, __LINE__, dt, false)
 
 void frame(void)
 {
@@ -3304,6 +3328,8 @@ F cost: G + H
      {
       if(player->state == CHARACTER_TALKING)
       {
+       // don't add extra stuff to be done when changing state because in several
+       // places it's assumed to end dialog I can just do player->state = CHARACTER_IDLE
        player->state = CHARACTER_IDLE;
       }
       else if(closest_interact_with)
@@ -3458,13 +3484,19 @@ F cost: G + H
     float panel_width = screen_size().x * 0.4f * on_screen;
     AABB panel_aabb = (AABB){.upper_left = V2(0.0f, screen_size().y), .lower_right = V2(panel_width, 0.0f)};
     float alpha = 1.0f;
+
+
     if(aabb_is_valid(panel_aabb))
     {
+     if(pressed.mouse_down && !has_point(panel_aabb, mouse_pos))
+     {
+      player->state = CHARACTER_IDLE;
+     }
      float new_line_height = panel_aabb.lower_right.Y;
      draw_quad((DrawParams){false, quad_aabb(panel_aabb), IMG(image_white_square), blendalpha(BLACK, 0.7f)});
 
      // apply padding
-     float padding = 0.1f * panel_width;
+     float padding = 0.1f * screen_size().y;
      panel_width -= padding * 2.0f;
      panel_aabb.upper_left = AddV2(panel_aabb.upper_left, V2(padding, -padding));
      panel_aabb.lower_right = AddV2(panel_aabb.lower_right, V2(-padding, padding));
@@ -3491,9 +3523,9 @@ F cost: G + H
           }
           colors[char_i] = blendalpha(colors[char_i], alpha);
          }
-         float measured_line_height = draw_wrapped_text(true, V2(panel_aabb.upper_left.X, new_line_height), panel_aabb.lower_right.X - panel_aabb.upper_left.X, it->s.data, colors, 0.5f, true, panel_aabb);
+         float measured_line_height = draw_wrapped_text((WrappedTextParams){true, V2(panel_aabb.upper_left.X, new_line_height), panel_aabb.lower_right.X - panel_aabb.upper_left.X, it->s.data, colors, 0.5f, panel_aabb, .screen_space = true});
          new_line_height += (new_line_height - measured_line_height);
-         draw_wrapped_text(false, V2(panel_aabb.upper_left.X, new_line_height), panel_aabb.lower_right.X - panel_aabb.upper_left.X, it->s.data, colors, 0.5f, true, panel_aabb);
+         draw_wrapped_text((WrappedTextParams){false, V2(panel_aabb.upper_left.X, new_line_height), panel_aabb.lower_right.X - panel_aabb.upper_left.X, it->s.data, colors, 0.5f, panel_aabb});
 
          free(colors);
         }
@@ -3502,7 +3534,7 @@ F cost: G + H
      }
 
      // draw button
-     float space_btwn_buttons = panel_width * 0.05f;
+     float space_btwn_buttons = 20.0f;
      float text_scale = 1.5f;
      const float num_buttons = 2.0f;
      Vec2 button_size = V2(
@@ -3511,7 +3543,7 @@ F cost: G + H
      );
      float button_grid_width = button_size.x*num_buttons + space_btwn_buttons * (num_buttons - 1.0f);
      Vec2 cur_upper_left = V2((panel_aabb.upper_left.x + panel_aabb.lower_right.x)/2.0f - button_grid_width/2.0f, panel_aabb.lower_right.y + button_size.y);
-     if(imbutton(cur_upper_left, button_size, text_scale, "Speak"))
+     if(imbutton_key(cur_upper_left, button_size, text_scale, "Speak", __LINE__, dt, receiving_text_input))
      {
       begin_text_input();
      }
