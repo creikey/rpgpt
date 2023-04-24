@@ -3511,7 +3511,10 @@ F cost: G + H
      );
      float button_grid_width = button_size.x*num_buttons + space_btwn_buttons * (num_buttons - 1.0f);
      Vec2 cur_upper_left = V2((panel_aabb.upper_left.x + panel_aabb.lower_right.x)/2.0f - button_grid_width/2.0f, panel_aabb.lower_right.y + button_size.y);
-     imbutton(cur_upper_left, button_size, text_scale, "Speak");
+     if(imbutton(cur_upper_left, button_size, text_scale, "Speak"))
+     {
+      begin_text_input();
+     }
 
      cur_upper_left.x += button_size.x + space_btwn_buttons;
      imbutton(cur_upper_left, button_size, text_scale, "Give Item");
