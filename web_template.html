@@ -262,7 +262,7 @@ function frame(delta) {
  let input_visible = input_modal.style.display === "flex";
  let pause_visible = pause_modal.style.display === "flex";
 
- if( Module.ccall('in_dialog', 'bool', [], [])) {
+ if( Module.ccall('is_receiving_text_input', 'bool', [], [])) {
   if(!input_visible) {
    document.getElementById("inputtext").value = "";
    setTimeout(function(){document.getElementById("inputtext").focus();},50); // for some reason focus doesn't work immediately here

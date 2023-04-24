@@ -236,7 +236,7 @@ typedef struct Entity
  Vec2 to_throw_direction;
 
  CharacterState state;
- EntityRef talking_to; // Maybe should be generational index, but I dunno. No death yet
+ EntityRef talking_to;
  bool is_rolling; // can only roll in idle or walk states
  double time_not_rolling; // for cooldown for roll, so you can't just hold it and be invincible
 

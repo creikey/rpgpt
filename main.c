@@ -247,14 +247,18 @@ void play_audio(AudioSample *sample, float volume)
 // on web it disables event handling so the button up event isn't received
 bool keydown[SAPP_KEYCODE_MENU] = {0};
 
+// set to true when should receive text input from the web input box
+// or desktop text input
+bool receiving_text_input = false;
 
-bool in_dialog()
+// called from the web to see if should do the text input modal
+bool is_receiving_text_input()
 {
- return player->state == CHARACTER_TALKING;
+ return receiving_text_input;
 }
 
+
 #ifdef DESKTOP
-bool receiving_text_input = false;
 Sentence text_input_buffer = {0};
 #else
 #ifdef WEB
@@ -276,6 +280,13 @@ void start_controlling_input()
 
 #endif // desktop
 
+void begin_text_input()
+{
+ receiving_text_input = true;
+#ifdef DESKTOP
+ BUFF_CLEAR(&text_input_buffer);
+#endif
+}
 
 
 Vec2 FloorV2(Vec2 v)
@@ -758,6 +769,7 @@ void read_from_save_data(char *data, size_t length)
 // a callback, when 'text backend' has finished making text. End dialog
 void end_text_input(char *what_player_said)
 {
+ receiving_text_input = false;
  // avoid double ending text input
  if(player->state != CHARACTER_TALKING)
  {
@@ -923,7 +935,6 @@ Color blendalpha(Color c, float alpha)
  to_return.a = alpha;
  return to_return;
 }
-
 
 
 void init(void)
@@ -1285,7 +1296,8 @@ bool segments_overlapping(float *a_segment, float *b_segment)
  if (farthest_to_right - farthest_to_left < total_length)
  {
   return true;
- } else
+ }
+ else
  {
   return false;
  }
@@ -1302,7 +1314,8 @@ bool overlapping(AABB a, AABB b)
   { b.upper_left.X, b.lower_right.X };
   if(segments_overlapping(a_segment, b_segment))
   {
-  } else
+  }
+  else
   {
    return false;
   }
@@ -1317,7 +1330,8 @@ bool overlapping(AABB a, AABB b)
   { b.lower_right.Y, b.upper_left.Y };
   if(segments_overlapping(a_segment, b_segment))
   {
-  } else
+  }
+  else
   {
    return false;
   }
@@ -1803,6 +1817,16 @@ AABB draw_text(TextParams t)
  return bounds;
 }
 
+AABB draw_centered_text(TextParams t)
+{
+ t.dry_run = true;
+ AABB text_aabb = draw_text(t);
+ t.dry_run = false;
+ Vec2 center_pos = t.pos;
+ t.pos = AddV2(center_pos, MulV2F(aabb_size(text_aabb), -0.5f));
+ return draw_text(t);
+}
+
 float y_coord_sorting_at(Vec2 pos)
 {
  float y_coord_sorting = world_to_screen(pos).y / screen_size().y;
@@ -2150,6 +2174,40 @@ Sentence *last_said_sentence(Entity *npc)
  return 0;
 }
 
+typedef struct 
+{
+ Sentence s;
+ bool is_player;
+} DialogElement;
+
+typedef BUFF(DialogElement, REMEMBERED_PERCEPTIONS) Dialog;
+Dialog produce_dialog(Entity *talking_to)
+{
+ Dialog to_return = {0};
+ BUFF_ITER(Perception, &talking_to->remembered_perceptions)
+ {
+  if(it->type == NPCDialog)
+  {
+   Sentence to_say = it->npc_dialog;
+   Sentence *last_said = last_said_sentence(talking_to);
+   if(last_said == &it->npc_dialog)
+   {
+    to_say = (Sentence){0};
+    for(int i = 0; i < min(it->npc_dialog.cur_index, (int)talking_to->characters_said); i++)
+    {
+     BUFF_APPEND(&to_say, it->npc_dialog.data[i]);
+    }
+   }
+   BUFF_APPEND(&to_return, ((DialogElement){ .s = to_say, .is_player = false }) );
+  }
+  else if(it->type == PlayerDialog)
+  {
+   BUFF_APPEND(&to_return, ((DialogElement){ .s = it->player_dialog, .is_player = true }) );
+  }
+ }
+ return to_return;
+}
+
 
 void draw_dialog_panel(Entity *talking_to, float alpha)
 {
@@ -2193,34 +2251,7 @@ void draw_dialog_panel(Entity *talking_to, float alpha)
   {
    float new_line_height = dialog_panel.lower_right.Y;
 
-   typedef struct 
-   {
-    Sentence s;
-    bool is_player;
-   } DialogElement;
-
-   BUFF(DialogElement, 32) dialog = {0};
-   BUFF_ITER(Perception, &talking_to->remembered_perceptions)
-   {
-    if(it->type == NPCDialog)
-    {
-     Sentence to_say = it->npc_dialog;
-     Sentence *last_said = last_said_sentence(talking_to);
-     if(last_said == &it->npc_dialog)
-     {
-      to_say = (Sentence){0};
-      for(int i = 0; i < min(it->npc_dialog.cur_index, (int)talking_to->characters_said); i++)
-      {
-       BUFF_APPEND(&to_say, it->npc_dialog.data[i]);
-      }
-     }
-     BUFF_APPEND(&dialog, ((DialogElement){ .s = to_say, .is_player = false }) );
-    }
-    else if(it->type == PlayerDialog)
-    {
-     BUFF_APPEND(&dialog, ((DialogElement){ .s = it->player_dialog, .is_player = true }) );
-    }
-   }
+   Dialog dialog = produce_dialog(talking_to);
    if(dialog.cur_index > 0)
    {
     for(int i = dialog.cur_index - 1; i >= 0; i--)
@@ -2254,19 +2285,74 @@ void draw_dialog_panel(Entity *talking_to, float alpha)
  }
 }
 
+
 #define ROLL_KEY SAPP_KEYCODE_LEFT_SHIFT
 double elapsed_time = 0.0;
 double last_frame_processing_time = 0.0;
 uint64_t last_frame_time;
 Vec2 mouse_pos = {0}; // in screen space
-bool interact_just_pressed = false;
-bool mouse_just_clicked = false;
+
+typedef struct
+{
+ bool interact;
+ bool mouse_down;
+ bool mouse_up;
+} PressedState;
+
+PressedState pressed = {0};
+bool mouse_down = false;
 float learned_shift = 0.0;
 float learned_space = 0.0;
 float learned_e = 0.0;
 #ifdef DEVTOOLS
 bool mouse_frozen = false;
 #endif
+
+typedef struct
+{
+ float pressed_amount; // for buttons, 0.0 is completely unpressed (up), 1.0 is completely depressed (down)
+ bool is_being_pressed;
+} IMState;
+
+struct { int key; IMState value; } *imui_state = 0;
+
+bool imbutton_key(Vec2 upper_left, Vec2 size, float text_scale, const char *text, int key, float dt)
+{
+ IMState state = hmget(imui_state, key);
+
+ upper_left.y += Lerp(0.0f, state.pressed_amount, 5.0f);
+
+ AABB button_aabb = aabb_at(upper_left, size);
+ bool to_return = false;
+ float pressed_target = 0.5f;
+ if(has_point(button_aabb, mouse_pos))
+ {
+  if(pressed.mouse_down)
+  {
+   state.is_being_pressed = true;
+  }
+
+  pressed_target = 1.0f; // when hovering button like pops out a bit
+
+  if(pressed.mouse_up) to_return = true; // when mouse released, and hovering over button, this is a button press - Lao Tzu
+ }
+ if(pressed.mouse_up) state.is_being_pressed = false;
+
+ if(state.is_being_pressed) pressed_target = 0.0f;
+
+ state.pressed_amount = Lerp(state.pressed_amount, dt*20.0f, pressed_target);
+
+ float button_alpha = Lerp(0.5f, state.pressed_amount, 1.0f);
+
+ draw_quad((DrawParams){false, quad_aabb(button_aabb), IMG(image_white_square), blendalpha(WHITE, button_alpha)});
+ draw_centered_text((TextParams){false, false, text, aabb_center(button_aabb), BLACK, text_scale, .clip_to = button_aabb});
+
+ hmput(imui_state, key, state);
+ return to_return;
+}
+
+#define imbutton(...) imbutton_key(__VA_ARGS__, __LINE__, dt)
+
 void frame(void)
 {
  static float speed_factor = 1.0f;
@@ -2306,14 +2392,6 @@ void frame(void)
  PROFILE_SCOPE("frame")
  {
 
-#ifdef DESKTOP
-  if(!receiving_text_input && in_dialog())
-  {
-   receiving_text_input = true;
-   BUFF_CLEAR(&text_input_buffer);
-  }
-#endif
-
   // better for vertical aspect ratios
   if(screen_size().x < 0.7f*screen_size().y)
   {
@@ -2340,7 +2418,7 @@ void frame(void)
    }
    attack = mobile_attack_pressed;
    roll = mobile_roll_pressed;
-   interact = interact_just_pressed;
+   interact = pressed.interact;
   }
   else
   {
@@ -2353,7 +2431,7 @@ void frame(void)
    attack = attack || keydown[SAPP_KEYCODE_LEFT_CONTROL]; 
 #endif
    roll = keydown[ROLL_KEY];
-   interact = interact_just_pressed;
+   interact = pressed.interact;
   }
   if(LenV2(movement) > 1.0)
   {
@@ -2463,6 +2541,9 @@ void frame(void)
    speed_factor = speed_target;
   }
   int num_timestep_loops = 0;
+  // restore the pressed state after gameplay loop so pressed input events can be processed in the
+  // rendering correctly as well
+  PressedState before_gameplay_loops = pressed;
   {
    unprocessed_gameplay_time += unwarped_dt;
    float timestep = fminf(unwarped_dt, (float)MINIMUM_TIMESTEP);
@@ -2562,7 +2643,7 @@ void frame(void)
        if(has_point(entity_aabb(it), screen_to_world(mouse_pos)))
        {
         it->being_hovered = true;
-        if(mouse_just_clicked)
+        if(pressed.mouse_down)
         {
          player->talking_to = frome(it);
          player->state = CHARACTER_TALKING;
@@ -3094,283 +3175,352 @@ F cost: G + H
       {
        assert(false);
       }
-      }
      }
+    }
 
-     PROFILE_SCOPE("Destroy gs.entities, maybe send generation requests")
+    PROFILE_SCOPE("Destroy gs.entities, maybe send generation requests")
+    {
+     ENTITIES_ITER(gs.entities)
      {
-      ENTITIES_ITER(gs.entities)
+      if(it->destroy)
       {
-       if(it->destroy)
-       {
-        int gen = it->generation;
-        *it = (Entity){0};
-        it->generation = gen;
-       }
-       if(it->perceptions_dirty && !npc_does_dialog(it))
-       {
-        it->perceptions_dirty = false;
-       }
-       if(it->perceptions_dirty)
-       {
-        PromptBuff prompt = {0};
+       int gen = it->generation;
+       *it = (Entity){0};
+       it->generation = gen;
+      }
+      if(it->perceptions_dirty && !npc_does_dialog(it))
+      {
+       it->perceptions_dirty = false;
+      }
+      if(it->perceptions_dirty)
+      {
+       PromptBuff prompt = {0};
 #ifdef DO_CHATGPT_PARSING
-        generate_chatgpt_prompt(it, &prompt);
+       generate_chatgpt_prompt(it, &prompt);
 #else
-        generate_prompt(it, &prompt);
+       generate_prompt(it, &prompt);
 #endif
-        Log("Sending request with prompt `%s`\n", prompt.data);
+       Log("Sending request with prompt `%s`\n", prompt.data);
 
 #ifdef WEB
-        // fire off generation request, save id
-        BUFF(char, 512) completion_server_url = {0};
-        printf_buff(&completion_server_url, "%s/completion", SERVER_URL);
-        int req_id = EM_ASM_INT({
-          return make_generation_request(UTF8ToString($1), UTF8ToString($0));
-          }, completion_server_url.data, prompt.data);
-        it->gen_request_id = req_id;
+       // fire off generation request, save id
+       BUFF(char, 512) completion_server_url = {0};
+       printf_buff(&completion_server_url, "%s/completion", SERVER_URL);
+       int req_id = EM_ASM_INT({
+         return make_generation_request(UTF8ToString($1), UTF8ToString($0));
+         }, completion_server_url.data, prompt.data);
+       it->gen_request_id = req_id;
 #endif
 
 #ifdef DESKTOP
-        BUFF(char, 1024) mocked_ai_response = {0};
+       BUFF(char, 1024) mocked_ai_response = {0};
 #define SAY(act, txt) { printf_buff(&mocked_ai_response, "%s \"%s\"", actions[act], txt); }
-        if(it->npc_kind == NPC_TheGuard)
+       if(it->npc_kind == NPC_TheGuard)
+       {
+        if(it->last_seen_holding_kind == ITEM_Tripod && !it->moved)
         {
-         if(it->last_seen_holding_kind == ITEM_Tripod && !it->moved)
-         {
-          SAY(ACT_allows_player_to_pass, "Here you go");
-         }
-         else
-         {
-          SAY(ACT_none, "You passed");
-         }
+         SAY(ACT_allows_player_to_pass, "Here you go");
         }
         else
         {
-         //SAY(ACT_joins_player, "I am an NPC");
-         SAY(ACT_fights_player, "I am an NPC. Bla bla bl alb djsfklalfkdsaj. Did you know shortcake?");
+         SAY(ACT_none, "You passed");
         }
-        Perception p = {0};
-        assert(parse_chatgpt_response(it, mocked_ai_response.data, &p));
-        process_perception(it, p);
+       }
+       else
+       {
+        //SAY(ACT_joins_player, "I am an NPC");
+        SAY(ACT_fights_player, "I am an NPC. Bla bla bl alb djsfklalfkdsaj. Did you know shortcake?");
+       }
+       Perception p = {0};
+       assert(parse_chatgpt_response(it, mocked_ai_response.data, &p));
+       process_perception(it, p);
 #undef SAY
 #endif
-        it->perceptions_dirty = false;
-       }
+       it->perceptions_dirty = false;
       }
      }
+    }
 
-     PROFILE_SCOPE("process player")
+    PROFILE_SCOPE("process player")
+    {
+
+     // do dialog
+     Entity *closest_interact_with = 0;
      {
-
-      // do dialog
-      Entity *closest_interact_with = 0;
+      // find closest to talk to
       {
-       // find closest to talk to
+       AABB dialog_rect = centered_aabb(player->pos, V2(dialog_interact_size , dialog_interact_size));
+       dbgrect(dialog_rect);
+       Overlapping possible_dialogs = get_overlapping(cur_level, dialog_rect);
+       float closest_interact_with_dist = INFINITY;
+       BUFF_ITER(Overlap, &possible_dialogs)
        {
-        AABB dialog_rect = centered_aabb(player->pos, V2(dialog_interact_size , dialog_interact_size));
-        dbgrect(dialog_rect);
-        Overlapping possible_dialogs = get_overlapping(cur_level, dialog_rect);
-        float closest_interact_with_dist = INFINITY;
-        BUFF_ITER(Overlap, &possible_dialogs)
-        {
-         bool entity_talkable = true;
-         if(entity_talkable) entity_talkable = entity_talkable && !it->is_tile;
-         if(entity_talkable) entity_talkable = entity_talkable && it->e->is_npc;
-         //if(entity_talkable) entity_talkable = entity_talkable && !(it->e->npc_kind == NPC_Skeleton);
+        bool entity_talkable = true;
+        if(entity_talkable) entity_talkable = entity_talkable && !it->is_tile;
+        if(entity_talkable) entity_talkable = entity_talkable && it->e->is_npc;
+        //if(entity_talkable) entity_talkable = entity_talkable && !(it->e->npc_kind == NPC_Skeleton);
 #ifdef WEB
-         if(entity_talkable) entity_talkable = entity_talkable && it->e->gen_request_id == 0;
+        if(entity_talkable) entity_talkable = entity_talkable && it->e->gen_request_id == 0;
 #endif
 
-         bool entity_pickupable = !it->is_tile && !gete(player->holding_item) && it->e->is_item;
+        bool entity_pickupable = !it->is_tile && !gete(player->holding_item) && it->e->is_item;
 
-         if(entity_talkable || entity_pickupable)
+        if(entity_talkable || entity_pickupable)
+        {
+         float dist = LenV2(SubV2(it->e->pos, player->pos));
+         if(dist < closest_interact_with_dist)
          {
-          float dist = LenV2(SubV2(it->e->pos, player->pos));
-          if(dist < closest_interact_with_dist)
-          {
-           closest_interact_with_dist = dist;
-           closest_interact_with = it->e;
-          }
+          closest_interact_with_dist = dist;
+          closest_interact_with = it->e;
          }
         }
        }
-
-
-       interacting_with = closest_interact_with;
-       if(player->state == CHARACTER_TALKING)
-       {
-        interacting_with = gete(player->talking_to);
-        assert(interacting_with);
-       }
-
-
-       // maybe get rid of talking to
-       if(player->state == CHARACTER_TALKING)
-       {
-        if(gete(player->talking_to) == 0)
-        {
-         player->state = CHARACTER_IDLE;
-        }
-       }
       }
 
-      if(interact)
+
+      interacting_with = closest_interact_with;
+      if(player->state == CHARACTER_TALKING)
       {
-       if(player->in_conversation_mode)
-       {
-        player->in_conversation_mode = false;
-       }
-       else if(closest_interact_with)
-       {
-        if(closest_interact_with->is_npc)
-        {
-         // begin dialog with closest npc
-         player->state = CHARACTER_TALKING;
-         player->talking_to = frome(closest_interact_with);
-        }
-        else if(closest_interact_with->is_item)
-        {
-         // pick up item
-         closest_interact_with->held_by_player = true;
-         player->holding_item = frome(closest_interact_with);
-        }
-        else
-        {
-         assert(false);
-        }
-       }
-       else
-       {
-        if(gete(player->holding_item))
-        {
-         // throw item if not talking to somebody with item
-         Entity *thrown = gete(player->holding_item);
-         assert(thrown);
-         thrown->vel = MulV2F(player->to_throw_direction, 20.0f);
-         thrown->held_by_player = false;
-         player->holding_item = (EntityRef){0};
-        }
-        else
-        {
-         player->in_conversation_mode = true;
-        }
-       }
+       interacting_with = gete(player->talking_to);
+       assert(interacting_with);
       }
 
-      float speed = 0.0f;
+
+      // maybe get rid of talking to
+      if(player->state == CHARACTER_TALKING)
       {
-       if(roll && !player->is_rolling && player->time_not_rolling > 0.3f && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
+       if(gete(player->talking_to) == 0)
        {
-        player->is_rolling = true;
-        player->roll_progress = 0.0;
+        player->state = CHARACTER_IDLE;
        }
-       if(attack && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
-       {
-        player->state = CHARACTER_ATTACK;
-        BUFF_CLEAR(&player->done_damage_to_this_swing); 
-        player->swing_progress = 0.0;
-       }
-       // after images
-       BUFF_ITER(PlayerAfterImage, &player->after_images)
-       {
-        it->alive_for += dt;
-       }
-       if(player->after_images.data[0].alive_for >= AFTERIMAGE_LIFETIME)
-       {
-        BUFF_REMOVE_FRONT(&player->after_images);
-       }
-
-       // roll processing
-       {
-        if(player->state != CHARACTER_IDLE && player->state != CHARACTER_WALKING)
-        {
-         player->roll_progress = 0.0;
-         player->is_rolling = false;
-        }
-        if(player->is_rolling)
-        {
-         player->after_image_timer += dt;
-         player->time_not_rolling = 0.0f;
-         player->roll_progress += dt;
-         if(player->roll_progress > anim_sprite_duration(ANIM_knight_rolling))
-         {
-          player->is_rolling = false;
-         }
-        }
-        if(!player->is_rolling) player->time_not_rolling += dt;
-       }
-
-       Vec2 target_vel = {0};
-
-       if(LenV2(movement) > 0.01f) player->to_throw_direction = NormV2(movement);
-       if(player->state == CHARACTER_WALKING)
-       {
-        speed = PLAYER_SPEED;
-        if(player->is_rolling) speed = PLAYER_ROLL_SPEED;
-
-        if(gete(player->holding_item) && gete(player->holding_item)->item_kind == ITEM_Boots)
-        {
-         speed *= 2.0f;
-        }
-
-        if(LenV2(movement) == 0.0)
-        {
-         player->state = CHARACTER_IDLE;
-        }
-        else
-        {
-        }
-       }
-       else if(player->state == CHARACTER_IDLE)
-       {
-        if(LenV2(movement) > 0.01) player->state = CHARACTER_WALKING;
-       }
-       else if(player->state == CHARACTER_ATTACK)
-       {
-        AABB weapon_aabb = entity_sword_aabb(player, 40.0f, 25.0f);
-        dbgrect(weapon_aabb);
-        SwordToDamage to_damage = entity_sword_to_do_damage(player, get_overlapping(cur_level, weapon_aabb));
-        BUFF_ITER(Entity*, &to_damage)
-        {
-         request_do_damage(*it, player, DAMAGE_SWORD);
-        }
-        player->swing_progress += dt;
-        if(player->swing_progress > anim_sprite_duration(ANIM_knight_attack))
-        {
-         player->state = CHARACTER_IDLE;
-        }
-       }
-       else if(player->state == CHARACTER_TALKING)
-       {
-       }
-       else
-       {
-        assert(false); // unknown character state? not defined how to process
-       }
-      } // not time stopped
-
-      // velocity processing
-      {
-       Vec2 target_vel = MulV2F(movement, pixels_per_meter * speed);
-       player->vel = LerpV2(player->vel, dt * 15.0f, target_vel);
-       player->pos = move_and_slide((MoveSlideParams){player, player->pos, MulV2F(player->vel, dt)});
       }
-      // health
-      if(player->damage >= 1.0)
+      else
       {
-       reset_level();
+       player->talking_to = (EntityRef){0};
       }
      }
-     interact_just_pressed = false;
-     mouse_just_clicked = false;
-     interact = false;
-    } // while loop
-   }
 
+     if(interact)
+     {
+      if(player->state == CHARACTER_TALKING)
+      {
+       player->state = CHARACTER_IDLE;
+      }
+      else if(closest_interact_with)
+      {
+       if(closest_interact_with->is_npc)
+       {
+        // begin dialog with closest npc
+        player->state = CHARACTER_TALKING;
+        player->talking_to = frome(closest_interact_with);
+       }
+       else if(closest_interact_with->is_item)
+       {
+        // pick up item
+        closest_interact_with->held_by_player = true;
+        player->holding_item = frome(closest_interact_with);
+       }
+       else
+       {
+        assert(false);
+       }
+      }
+      else
+      {
+       if(gete(player->holding_item))
+       {
+        // throw item if not talking to somebody with item
+        Entity *thrown = gete(player->holding_item);
+        assert(thrown);
+        thrown->vel = MulV2F(player->to_throw_direction, 20.0f);
+        thrown->held_by_player = false;
+        player->holding_item = (EntityRef){0};
+       }
+      }
+     }
 
-   PROFILE_SCOPE("render player")
+     float speed = 0.0f;
+     {
+      if(roll && !player->is_rolling && player->time_not_rolling > 0.3f && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
+      {
+       player->is_rolling = true;
+       player->roll_progress = 0.0;
+      }
+      if(attack && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
+      {
+       player->state = CHARACTER_ATTACK;
+       BUFF_CLEAR(&player->done_damage_to_this_swing); 
+       player->swing_progress = 0.0;
+      }
+      // after images
+      BUFF_ITER(PlayerAfterImage, &player->after_images)
+      {
+       it->alive_for += dt;
+      }
+      if(player->after_images.data[0].alive_for >= AFTERIMAGE_LIFETIME)
+      {
+       BUFF_REMOVE_FRONT(&player->after_images);
+      }
+
+      // roll processing
+      {
+       if(player->state != CHARACTER_IDLE && player->state != CHARACTER_WALKING)
+       {
+        player->roll_progress = 0.0;
+        player->is_rolling = false;
+       }
+       if(player->is_rolling)
+       {
+        player->after_image_timer += dt;
+        player->time_not_rolling = 0.0f;
+        player->roll_progress += dt;
+        if(player->roll_progress > anim_sprite_duration(ANIM_knight_rolling))
+        {
+         player->is_rolling = false;
+        }
+       }
+       if(!player->is_rolling) player->time_not_rolling += dt;
+      }
+
+      Vec2 target_vel = {0};
+
+      if(LenV2(movement) > 0.01f) player->to_throw_direction = NormV2(movement);
+      if(player->state == CHARACTER_WALKING)
+      {
+       speed = PLAYER_SPEED;
+       if(player->is_rolling) speed = PLAYER_ROLL_SPEED;
+
+       if(gete(player->holding_item) && gete(player->holding_item)->item_kind == ITEM_Boots)
+       {
+        speed *= 2.0f;
+       }
+
+       if(LenV2(movement) == 0.0)
+       {
+        player->state = CHARACTER_IDLE;
+       }
+       else
+       {
+       }
+      }
+      else if(player->state == CHARACTER_IDLE)
+      {
+       if(LenV2(movement) > 0.01) player->state = CHARACTER_WALKING;
+      }
+      else if(player->state == CHARACTER_ATTACK)
+      {
+       AABB weapon_aabb = entity_sword_aabb(player, 40.0f, 25.0f);
+       dbgrect(weapon_aabb);
+       SwordToDamage to_damage = entity_sword_to_do_damage(player, get_overlapping(cur_level, weapon_aabb));
+       BUFF_ITER(Entity*, &to_damage)
+       {
+        request_do_damage(*it, player, DAMAGE_SWORD);
+       }
+       player->swing_progress += dt;
+       if(player->swing_progress > anim_sprite_duration(ANIM_knight_attack))
+       {
+        player->state = CHARACTER_IDLE;
+       }
+      }
+      else if(player->state == CHARACTER_TALKING)
+      {
+      }
+      else
+      {
+       assert(false); // unknown character state? not defined how to process
+      }
+     } // not time stopped
+
+     // velocity processing
+     {
+      Vec2 target_vel = MulV2F(movement, pixels_per_meter * speed);
+      player->vel = LerpV2(player->vel, dt * 15.0f, target_vel);
+      player->pos = move_and_slide((MoveSlideParams){player, player->pos, MulV2F(player->vel, dt)});
+     }
+     // health
+     if(player->damage >= 1.0)
+     {
+      reset_level();
+     }
+    }
+    pressed = (PressedState){0};
+    interact = false;
+   } // while loop
+  }
+  pressed = before_gameplay_loops;
+
+  PROFILE_SCOPE("dialog menu") // big dialog panel
+  {
+   static float on_screen = 0.0f;
+   Entity *talking_to = gete(player->talking_to);
+   on_screen = Lerp(on_screen, dt*9.0f, talking_to ? 1.0f : 0.0f);
    {
+    float panel_width = screen_size().x * 0.4f * on_screen;
+    AABB panel_aabb = (AABB){.upper_left = V2(0.0f, screen_size().y), .lower_right = V2(panel_width, 0.0f)};
+    float alpha = 1.0f;
+    if(aabb_is_valid(panel_aabb))
+    {
+     float new_line_height = panel_aabb.lower_right.Y;
+     draw_quad((DrawParams){false, quad_aabb(panel_aabb), IMG(image_white_square), blendalpha(BLACK, 0.7f)});
+
+     // apply padding
+     float padding = 0.1f * panel_width;
+     panel_width -= padding * 2.0f;
+     panel_aabb.upper_left = AddV2(panel_aabb.upper_left, V2(padding, -padding));
+     panel_aabb.lower_right = AddV2(panel_aabb.lower_right, V2(-padding, padding));
+
+     if(talking_to)
+     {
+      Dialog dialog = produce_dialog(talking_to);
+      if(dialog.cur_index > 0)
+      {
+       for(int i = dialog.cur_index - 1; i >= 0; i--)
+       {
+        DialogElement *it = &dialog.data[i];
+        {
+         Color *colors = calloc(sizeof(*colors), it->s.cur_index);
+         for(int char_i = 0; char_i < it->s.cur_index; char_i++)
+         {
+          if(it->is_player)
+          {
+           colors[char_i] = BLACK;
+          }
+          else
+          {
+           colors[char_i] = colhex(0x345e22);
+          }
+          colors[char_i] = blendalpha(colors[char_i], alpha);
+         }
+         float measured_line_height = draw_wrapped_text(true, V2(panel_aabb.upper_left.X, new_line_height), panel_aabb.lower_right.X - panel_aabb.upper_left.X, it->s.data, colors, 0.5f, true, panel_aabb);
+         new_line_height += (new_line_height - measured_line_height);
+         draw_wrapped_text(false, V2(panel_aabb.upper_left.X, new_line_height), panel_aabb.lower_right.X - panel_aabb.upper_left.X, it->s.data, colors, 0.5f, true, panel_aabb);
+
+         free(colors);
+        }
+       }
+      }
+     }
+
+     // draw button
+     float space_btwn_buttons = panel_width * 0.05f;
+     float text_scale = 1.5f;
+     const float num_buttons = 2.0f;
+     Vec2 button_size = V2(
+      (panel_width - (num_buttons - 1.0f)*space_btwn_buttons)/num_buttons,
+      (panel_aabb.upper_left.y - panel_aabb.lower_right.y)*0.2f
+     );
+     float button_grid_width = button_size.x*num_buttons + space_btwn_buttons * (num_buttons - 1.0f);
+     Vec2 cur_upper_left = V2((panel_aabb.upper_left.x + panel_aabb.lower_right.x)/2.0f - button_grid_width/2.0f, panel_aabb.lower_right.y + button_size.y);
+     imbutton(cur_upper_left, button_size, text_scale, "Speak");
+
+     cur_upper_left.x += button_size.x + space_btwn_buttons;
+     imbutton(cur_upper_left, button_size, text_scale, "Give Item");
+    }
+   }
+  }
+
+  PROFILE_SCOPE("render player")
+  {
    DrawnAnimatedSprite to_draw = {0};
    Vec2 character_sprite_pos = AddV2(player->pos, V2(0.0, 20.0f));
    // if somebody, show their dialog panel
@@ -3490,26 +3640,27 @@ F cost: G + H
    Color col = LerpV4(WHITE, it->damage, RED);
    if(it->is_npc)
    {
+    // health bar
+    {
+     Vec2 health_bar_size = V2(TILE_SIZE, 0.1f * TILE_SIZE);
+     float health_bar_progress = 1.0f - (it->damage / entity_max_damage(it));
+     Vec2 health_bar_center = AddV2(it->pos, V2(0.0f, -entity_aabb_size(it).y));
+     Vec2 bar_upper_left = AddV2(health_bar_center, MulV2F(health_bar_size, -0.5f));
+     draw_quad((DrawParams){true, quad_at(bar_upper_left, health_bar_size), IMG(image_white_square), BROWN});
+     draw_quad((DrawParams){true, quad_at(bar_upper_left, V2(health_bar_size.x * health_bar_progress, health_bar_size.y)), IMG(image_white_square), GREEN});
+    }
+
     float dist = LenV2(SubV2(it->pos, player->pos));
     dist -= 10.0f; // radius around point where dialog is completely opaque
     float max_dist = dialog_interact_size/2.0f;
     float alpha = 1.0f - (float)clamp(dist/max_dist, 0.0, 1.0);
-    if(gete(player->talking_to) == it && player->state == CHARACTER_TALKING) alpha = 1.0f;
+    if(gete(player->talking_to) == it && player->state == CHARACTER_TALKING) alpha = 0.0f;
     if(it->being_hovered)
     {
      draw_quad((DrawParams){true, quad_centered(it->pos, V2(TILE_SIZE, TILE_SIZE)), IMG(image_hovering_circle), WHITE});
      alpha = 1.0f;
     }
 
-    // health bar
-    {
-     Vec2 health_bar_size = V2(TILE_SIZE, 0.1f * TILE_SIZE);
-     float health_bar_progress = 1.0f - (it->damage / entity_max_damage(it));
-     Vec2 health_bar_center = AddV2(it->pos, V2(0.0f, -15.0f));
-     Vec2 bar_upper_left = AddV2(health_bar_center, MulV2F(health_bar_size, -0.5f));
-     draw_quad((DrawParams){true, quad_at(bar_upper_left, health_bar_size), IMG(image_white_square), BROWN});
-     draw_quad((DrawParams){true, quad_at(bar_upper_left, V2(health_bar_size.x * health_bar_progress, health_bar_size.y)), IMG(image_white_square), GREEN});
-    }
 
     it->dialog_panel_opacity = Lerp(it->dialog_panel_opacity, unwarped_dt*10.0f, alpha);
     draw_dialog_panel(it, it->dialog_panel_opacity);
@@ -3668,9 +3819,10 @@ F cost: G + H
    total_height -= (total_height - (vertical_spacing + HELPER_SIZE));
    const float padding = 50.0f;
    float y = screen_size().y/2.0f + total_height/2.0f;
-   draw_quad((DrawParams){false, quad_at(V2(padding, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_shift_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_shift)}, .y_coord_sorting = Y_COORD_IN_FRONT});
+   float x = screen_size().x - padding - HELPER_SIZE;
+   draw_quad((DrawParams){false, quad_at(V2(x, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_shift_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_shift)}, .y_coord_sorting = Y_COORD_IN_FRONT});
    y -= vertical_spacing;
-   draw_quad((DrawParams){false, quad_at(V2(padding, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_space_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_space)}, .y_coord_sorting = Y_COORD_IN_FRONT});
+   draw_quad((DrawParams){false, quad_at(V2(x, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_space_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_space)}, .y_coord_sorting = Y_COORD_IN_FRONT});
   }
 
 
@@ -3748,12 +3900,14 @@ F cost: G + H
   last_frame_processing_time = stm_sec(stm_diff(stm_now(),time_start_frame));
 
   reset(&scratch);
+  pressed = (PressedState){0};
  }
 }
 
 void cleanup(void)
 {
  sg_shutdown();
+ hmfree(imui_state);
  Log("Cleaning up\n");
 }
 
@@ -3783,7 +3937,6 @@ void event(const sapp_event *e)
   }
   if(e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_code == SAPP_KEYCODE_ENTER)
   {
-   receiving_text_input = false;
    end_text_input(text_input_buffer.data);
   }
  }
@@ -3821,7 +3974,7 @@ void event(const sapp_event *e)
     {
      interact_pressed_by = activate(point.identifier);
      mobile_interact_pressed = true;
-     interact_just_pressed = true;
+     pressed.interact = true;
     }
     if(LenV2(SubV2(touchpoint_screen_pos, attack_button_pos())) < mobile_button_size()*0.5f)
     {
@@ -3878,7 +4031,17 @@ void event(const sapp_event *e)
  {
   if(e->mouse_button == SAPP_MOUSEBUTTON_LEFT)
   {
-   mouse_just_clicked = true;
+   pressed.mouse_down = true;
+   mouse_down = true;
+  }
+ }
+
+ if(e->type == SAPP_EVENTTYPE_MOUSE_UP)
+ {
+  if(e->mouse_button == SAPP_MOUSEBUTTON_LEFT)
+  {
+   mouse_down = false;
+   pressed.mouse_up = true;
   }
  }
 
@@ -3893,7 +4056,7 @@ void event(const sapp_event *e)
   
   if(e->key_code == SAPP_KEYCODE_E)
   {
-   interact_just_pressed = true;
+   pressed.interact = true;
   }
 
   if(e->key_code == SAPP_KEYCODE_LEFT_SHIFT)
