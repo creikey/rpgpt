@@ -3767,6 +3767,7 @@ F cost: G + H
   // item grid modal draw item grid
   {
    static float visible = 0.0f;
+   static float hovered_state[ARRLEN(player->held_items.data)] = { 0 };
    float target = 0.0f;
    if(choosing_item_grid) target = 1.0f;
    visible = Lerp(visible, unwarped_dt*9.0f, target);
@@ -3807,15 +3808,25 @@ F cost: G + H
     Vec2 cursor = AddV2(grid_aabb.upper_left, V2(padding, -padding));
     BUFF_ITER_I(ItemKind, &player->held_items, i)
     {
-     AABB item_icon = aabb_at(cursor, item_icon_size);
+     Vec2 real_size = LerpV2(item_icon_size, hovered_state[i], MulV2F(item_icon_size, 1.25f));
+     Vec2 item_center = AddV2(cursor, MulV2F(V2(item_icon_size.x, -item_icon_size.y), 0.5f));
+     AABB item_icon = centered_aabb(item_center, real_size);
 
+
+     float target = 0.0f;
      if(aabb_is_valid(item_icon))
      {
+      draw_quad((DrawParams){false, quad_aabb(item_icon), IMG(image_white_square), blendalpha(WHITE, Lerp(0.0f, hovered_state[i], 0.4f)), .layer = LAYER_UI_FG });
+      bool hovered = has_point(item_icon, mouse_pos);
+      if(hovered) target = 1.0f;
+
       in_screen_space = true;
       dbgrect(item_icon);
       in_screen_space = false;
       draw_item(false, *it, item_icon, clamp01(visible*visible));
      }
+
+     hovered_state[i] = Lerp(hovered_state[i], dt*12.0f, target);
      
      cursor.x += item_icon_size.x + padding_btwn_items;
      if((i + 1) % horizontal_item_count == 0 && i != 0)
