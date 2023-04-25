@@ -1400,6 +1400,16 @@ void flush_quad_batch()
  cur_batch_data_index = 0;
 }
 
+typedef enum 
+{
+ LAYER_TILEMAP,
+ LAYER_WORLD,
+ LAYER_UI,
+ LAYER_UI_FG,
+
+ LAYER_LAST
+} Layer;
+
 #define Y_COORD_IN_BACK (-1.0f)
 #define Y_COORD_IN_FRONT (3.0f)
 typedef struct DrawParams
@@ -1415,10 +1425,8 @@ typedef struct DrawParams
  float alpha_clip_threshold;
 
  bool do_clipping;
-
+ Layer layer;
 } DrawParams;
-
-BUFF(DrawParams, 1024*5) rendering_queue = {0};
 
 Vec2 into_clip_space(Vec2 screen_space_point)
 {
@@ -1426,6 +1434,9 @@ Vec2 into_clip_space(Vec2 screen_space_point)
   Vec2 in_clip_space = SubV2(MulV2F(zero_to_one, 2.0), V2(1.0, 1.0));
   return in_clip_space;
 }
+
+typedef BUFF(DrawParams, 1024*5) RenderingQueue;
+RenderingQueue rendering_queues[LAYER_LAST] = {0};
 
 // The image region is in pixel space of the image
 void draw_quad(DrawParams d)
@@ -1441,7 +1452,8 @@ void draw_quad(DrawParams d)
  // we've aplied the world space transform
  d.world_space = false;
 
- BUFF_APPEND(&rendering_queue, d);
+ assert(d.layer >= 0 && d.layer < ARRLEN(rendering_queues));
+ BUFF_APPEND(&rendering_queues[(int)d.layer], d);
 }
 
 int rendering_compare(const void *a, const void *b)
@@ -3910,127 +3922,131 @@ F cost: G + H
 
   PROFILE_SCOPE("flush rendering")
   {
-   qsort(&rendering_queue.data[0], rendering_queue.cur_index, sizeof(rendering_queue.data[0]), rendering_compare);
-
-   BUFF_ITER(DrawParams, &rendering_queue)
+   ARR_ITER(RenderingQueue, rendering_queues)
    {
-    DrawParams d = *it;
-    PROFILE_SCOPE("Draw quad")
+    RenderingQueue *rendering_queue = it;
+    qsort(&rendering_queue->data[0], rendering_queue->cur_index, sizeof(rendering_queue->data[0]), rendering_compare);
+
+    BUFF_ITER(DrawParams, rendering_queue)
     {
-     Vec2 *points = d.quad.points;
-     quad_fs_params_t params = {0};
-     params.tint[0] = d.tint.R;
-     params.tint[1] = d.tint.G;
-     params.tint[2] = d.tint.B;
-     params.tint[3] = d.tint.A;
-     params.alpha_clip_threshold = d.alpha_clip_threshold;
-     if(d.do_clipping &&
-       aabb_is_valid(d.clip_to) && LenV2(aabb_size(d.clip_to)) > 0.1)
+     DrawParams d = *it;
+     PROFILE_SCOPE("Draw quad")
      {
-      if(d.world_space)
+      Vec2 *points = d.quad.points;
+      quad_fs_params_t params = {0};
+      params.tint[0] = d.tint.R;
+      params.tint[1] = d.tint.G;
+      params.tint[2] = d.tint.B;
+      params.tint[3] = d.tint.A;
+      params.alpha_clip_threshold = d.alpha_clip_threshold;
+      if(d.do_clipping &&
+        aabb_is_valid(d.clip_to) && LenV2(aabb_size(d.clip_to)) > 0.1)
       {
-       d.clip_to.upper_left = world_to_screen(d.clip_to.upper_left);
-       d.clip_to.lower_right = world_to_screen(d.clip_to.lower_right);
+       if(d.world_space)
+       {
+        d.clip_to.upper_left = world_to_screen(d.clip_to.upper_left);
+        d.clip_to.lower_right = world_to_screen(d.clip_to.lower_right);
+       }
+       Vec2 aabb_clip_ul = into_clip_space(d.clip_to.upper_left);
+       Vec2 aabb_clip_lr = into_clip_space(d.clip_to.lower_right);
+       params.clip_ul[0] = aabb_clip_ul.x;
+       params.clip_ul[1] = aabb_clip_ul.y;
+       params.clip_lr[0] = aabb_clip_lr.x;
+       params.clip_lr[1] = aabb_clip_lr.y;
       }
-      Vec2 aabb_clip_ul = into_clip_space(d.clip_to.upper_left);
-      Vec2 aabb_clip_lr = into_clip_space(d.clip_to.lower_right);
-      params.clip_ul[0] = aabb_clip_ul.x;
-      params.clip_ul[1] = aabb_clip_ul.y;
-      params.clip_lr[0] = aabb_clip_lr.x;
-      params.clip_lr[1] = aabb_clip_lr.y;
-     }
-     else
-     {
-      params.clip_ul[0] = -1.0;
-      params.clip_ul[1] = 1.0;
-      params.clip_lr[0] = 1.0;
-      params.clip_lr[1] = -1.0;
-     }
-     // if the rendering call is different, and the batch must be flushed
-     if(d.image.id != cur_batch_image.id || memcmp(&params,&cur_batch_params,sizeof(params)) != 0 )
-     {
-      flush_quad_batch();
-      cur_batch_image = d.image;
-      cur_batch_params = params;
-     }
+      else
+      {
+       params.clip_ul[0] = -1.0;
+       params.clip_ul[1] = 1.0;
+       params.clip_lr[0] = 1.0;
+       params.clip_lr[1] = -1.0;
+      }
+      // if the rendering call is different, and the batch must be flushed
+      if(d.image.id != cur_batch_image.id || memcmp(&params,&cur_batch_params,sizeof(params)) != 0 )
+      {
+       flush_quad_batch();
+       cur_batch_image = d.image;
+       cur_batch_params = params;
+      }
 
 
-     AABB cam_aabb = screen_cam_aabb();
-     AABB points_bounding_box = { .upper_left = V2(INFINITY, -INFINITY), .lower_right = V2(-INFINITY, INFINITY) };
+      AABB cam_aabb = screen_cam_aabb();
+      AABB points_bounding_box = { .upper_left = V2(INFINITY, -INFINITY), .lower_right = V2(-INFINITY, INFINITY) };
 
-     for(int i = 0; i < 4; i++)
-     {
-      points_bounding_box.upper_left.X = fminf(points_bounding_box.upper_left.X, points[i].X);
-      points_bounding_box.upper_left.Y = fmaxf(points_bounding_box.upper_left.Y, points[i].Y);
+      for(int i = 0; i < 4; i++)
+      {
+       points_bounding_box.upper_left.X = fminf(points_bounding_box.upper_left.X, points[i].X);
+       points_bounding_box.upper_left.Y = fmaxf(points_bounding_box.upper_left.Y, points[i].Y);
 
-      points_bounding_box.lower_right.X = fmaxf(points_bounding_box.lower_right.X, points[i].X);
-      points_bounding_box.lower_right.Y = fminf(points_bounding_box.lower_right.Y, points[i].Y);
-     }
-     if(!overlapping(cam_aabb, points_bounding_box))
-     {
-      //dbgprint("Out of screen, cam aabb %f %f %f %f\n", cam_aabb.upper_left.X, cam_aabb.upper_left.Y, cam_aabb.lower_right.X, cam_aabb.lower_right.Y);
-      //dbgprint("Points boundig box %f %f %f %f\n", points_bounding_box.upper_left.X, points_bounding_box.upper_left.Y, points_bounding_box.lower_right.X, points_bounding_box.lower_right.Y);
-      continue; // cull out of screen quads
-     }
+       points_bounding_box.lower_right.X = fmaxf(points_bounding_box.lower_right.X, points[i].X);
+       points_bounding_box.lower_right.Y = fminf(points_bounding_box.lower_right.Y, points[i].Y);
+      }
+      if(!overlapping(cam_aabb, points_bounding_box))
+      {
+       //dbgprint("Out of screen, cam aabb %f %f %f %f\n", cam_aabb.upper_left.X, cam_aabb.upper_left.Y, cam_aabb.lower_right.X, cam_aabb.lower_right.Y);
+       //dbgprint("Points boundig box %f %f %f %f\n", points_bounding_box.upper_left.X, points_bounding_box.upper_left.Y, points_bounding_box.lower_right.X, points_bounding_box.lower_right.Y);
+       continue; // cull out of screen quads
+      }
 
-     float new_vertices[ FLOATS_PER_VERTEX*4 ] = {0};
-     Vec2 region_size = SubV2(d.image_region.lower_right, d.image_region.upper_left);
-     assert(region_size.X > 0.0);
-     assert(region_size.Y > 0.0);
-     Vec2 tex_coords[4] =
-     {
-      AddV2(d.image_region.upper_left, V2(0.0,                     0.0)),
-      AddV2(d.image_region.upper_left, V2(region_size.X,           0.0)),
-      AddV2(d.image_region.upper_left, V2(region_size.X, region_size.Y)),
-      AddV2(d.image_region.upper_left, V2(0.0,           region_size.Y)),
-     };
+      float new_vertices[ FLOATS_PER_VERTEX*4 ] = {0};
+      Vec2 region_size = SubV2(d.image_region.lower_right, d.image_region.upper_left);
+      assert(region_size.X > 0.0);
+      assert(region_size.Y > 0.0);
+      Vec2 tex_coords[4] =
+      {
+       AddV2(d.image_region.upper_left, V2(0.0,                     0.0)),
+       AddV2(d.image_region.upper_left, V2(region_size.X,           0.0)),
+       AddV2(d.image_region.upper_left, V2(region_size.X, region_size.Y)),
+       AddV2(d.image_region.upper_left, V2(0.0,           region_size.Y)),
+      };
 
-     // convert to uv space
-     sg_image_info info = sg_query_image_info(d.image);
-     for(int i = 0; i < 4; i++)
-     {
-      tex_coords[i] = DivV2(tex_coords[i], V2((float)info.width, (float)info.height));
-     }
-     for(int i = 0; i < 4; i++)
-     {
-      Vec2 in_clip_space = into_clip_space(points[i]);
-      new_vertices[i*FLOATS_PER_VERTEX + 0] = in_clip_space.X;
-      new_vertices[i*FLOATS_PER_VERTEX + 1] = in_clip_space.Y;
-      // update Y_COORD_IN_BACK, Y_COORD_IN_FRONT when this changes
-      float unmapped = (clampf(d.y_coord_sorting, -1.0f, 2.0f));
-      float mapped = (unmapped + 1.0f)/3.0f;
-      new_vertices[i*FLOATS_PER_VERTEX + 2] = 1.0f - (float)clamp(mapped, 0.0, 1.0);
-      new_vertices[i*FLOATS_PER_VERTEX + 3] = tex_coords[i].X;
-      new_vertices[i*FLOATS_PER_VERTEX + 4] = tex_coords[i].Y;
-     }
+      // convert to uv space
+      sg_image_info info = sg_query_image_info(d.image);
+      for(int i = 0; i < 4; i++)
+      {
+       tex_coords[i] = DivV2(tex_coords[i], V2((float)info.width, (float)info.height));
+      }
+      for(int i = 0; i < 4; i++)
+      {
+       Vec2 in_clip_space = into_clip_space(points[i]);
+       new_vertices[i*FLOATS_PER_VERTEX + 0] = in_clip_space.X;
+       new_vertices[i*FLOATS_PER_VERTEX + 1] = in_clip_space.Y;
+       // update Y_COORD_IN_BACK, Y_COORD_IN_FRONT when this changes
+       float unmapped = (clampf(d.y_coord_sorting, -1.0f, 2.0f));
+       float mapped = (unmapped + 1.0f)/3.0f;
+       new_vertices[i*FLOATS_PER_VERTEX + 2] = 1.0f - (float)clamp(mapped, 0.0, 1.0);
+       new_vertices[i*FLOATS_PER_VERTEX + 3] = tex_coords[i].X;
+       new_vertices[i*FLOATS_PER_VERTEX + 4] = tex_coords[i].Y;
+      }
 
-     // two triangles drawn, six vertices
-     size_t total_size = 6*FLOATS_PER_VERTEX;
+      // two triangles drawn, six vertices
+      size_t total_size = 6*FLOATS_PER_VERTEX;
 
-     // batched a little too close to the sun
-     if(cur_batch_data_index + total_size >= ARRLEN(cur_batch_data))
-     {
-      flush_quad_batch();
-      cur_batch_image = d.image;
-      cur_batch_params = params;
-     }
+      // batched a little too close to the sun
+      if(cur_batch_data_index + total_size >= ARRLEN(cur_batch_data))
+      {
+       flush_quad_batch();
+       cur_batch_image = d.image;
+       cur_batch_params = params;
+      }
 
 #define PUSH_VERTEX(vert) { memcpy(&cur_batch_data[cur_batch_data_index], &vert, FLOATS_PER_VERTEX*sizeof(float)); cur_batch_data_index += FLOATS_PER_VERTEX; }
-     PUSH_VERTEX(new_vertices[0*FLOATS_PER_VERTEX]);
-     PUSH_VERTEX(new_vertices[1*FLOATS_PER_VERTEX]);
-     PUSH_VERTEX(new_vertices[2*FLOATS_PER_VERTEX]);
-     PUSH_VERTEX(new_vertices[0*FLOATS_PER_VERTEX]);
-     PUSH_VERTEX(new_vertices[2*FLOATS_PER_VERTEX]);
-     PUSH_VERTEX(new_vertices[3*FLOATS_PER_VERTEX]);
+      PUSH_VERTEX(new_vertices[0*FLOATS_PER_VERTEX]);
+      PUSH_VERTEX(new_vertices[1*FLOATS_PER_VERTEX]);
+      PUSH_VERTEX(new_vertices[2*FLOATS_PER_VERTEX]);
+      PUSH_VERTEX(new_vertices[0*FLOATS_PER_VERTEX]);
+      PUSH_VERTEX(new_vertices[2*FLOATS_PER_VERTEX]);
+      PUSH_VERTEX(new_vertices[3*FLOATS_PER_VERTEX]);
 #undef PUSH_VERTEX
 
+     }
     }
-   }
-   BUFF_CLEAR(&rendering_queue);
+    BUFF_CLEAR(rendering_queue);
 
-   flush_quad_batch();
-   sg_end_pass();
-   sg_commit();
+    flush_quad_batch();
+    sg_end_pass();
+    sg_commit();
+   }
   }
 
   last_frame_processing_time = stm_sec(stm_diff(stm_now(),time_start_frame));
