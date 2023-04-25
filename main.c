@@ -1406,12 +1406,11 @@ typedef enum
  LAYER_WORLD,
  LAYER_UI,
  LAYER_UI_FG,
+ LAYER_SCREENSPACE_EFFECTS,
 
  LAYER_LAST
 } Layer;
 
-#define Y_COORD_IN_BACK (-1.0f)
-#define Y_COORD_IN_FRONT (3.0f)
 typedef struct DrawParams
 {
  bool world_space;
@@ -1421,7 +1420,7 @@ typedef struct DrawParams
  Color tint;
 
  AABB clip_to; // if world space is in world space, if screen space is in screen space - Lao Tzu
- float y_coord_sorting; // Y_COORD_IN_BACK, or the smallest value, is all the way in the back, Y_COORD_IN_FRONT is in the front
+ int sorting_key;
  float alpha_clip_threshold;
 
  bool do_clipping;
@@ -1461,7 +1460,7 @@ int rendering_compare(const void *a, const void *b)
  DrawParams *a_draw = (DrawParams*)a;
  DrawParams *b_draw = (DrawParams*)b;
 
- return (int)((a_draw->y_coord_sorting - b_draw->y_coord_sorting)*1000.0f);
+ return (int)((a_draw->sorting_key - b_draw->sorting_key));
 }
 
 void swap(Vec2 *p1, Vec2 *p2)
@@ -1495,7 +1494,7 @@ void colorquad(bool world_space, Quad q, Color col)
   queue = true;
  }
  // y coord sorting for colorquad puts it below text for dialog panel
- draw_quad((DrawParams){world_space, q, image_white_square, full_region(image_white_square), col, .y_coord_sorting = Y_COORD_IN_FRONT - 0.05f, });
+ draw_quad((DrawParams){world_space, q, image_white_square, full_region(image_white_square), col, .layer = LAYER_UI});
 }
 
 
@@ -1712,10 +1711,10 @@ AABB draw_text(TextParams t)
      {
       shadow_quad.points[i] = AddV2(shadow_quad.points[i], V2(0.0, -1.0));
      }
-     draw_quad((DrawParams){t.world_space, shadow_quad, image_font, font_atlas_region, (Color){0.0f,0.0f,0.0f,0.4f}, t.clip_to, .y_coord_sorting = Y_COORD_IN_FRONT, .do_clipping = t.do_clipping});
+     draw_quad((DrawParams){t.world_space, shadow_quad, image_font, font_atlas_region, (Color){0.0f,0.0f,0.0f,0.4f}, t.clip_to, .layer = LAYER_UI_FG, .do_clipping = t.do_clipping});
     }
 
-    draw_quad((DrawParams){t.world_space, to_draw, image_font, font_atlas_region, col, t.clip_to, .y_coord_sorting = Y_COORD_IN_FRONT, .do_clipping = t.do_clipping});
+    draw_quad((DrawParams){t.world_space, to_draw, image_font, font_atlas_region, col, t.clip_to, .layer = LAYER_UI_FG, .do_clipping = t.do_clipping});
    }
   }
  }
@@ -1735,19 +1734,9 @@ AABB draw_centered_text(TextParams t)
  return draw_text(t);
 }
 
-float y_coord_sorting_at(Vec2 pos)
+int sorting_key_at(Vec2 pos)
 {
- float y_coord_sorting = world_to_screen(pos).y / screen_size().y;
-
- y_coord_sorting = 1.0f - y_coord_sorting;
-
- // debug draw the y cord sorting value
-#if 0
- char *to_draw = tprint("%f", y_coord_sorting);
- draw_text((TextParams){true, false, to_draw, pos, BLACK, 1.0f});
-#endif
- 
- return y_coord_sorting;
+ return -(int)pos.y;
 }
 
 void draw_shadow_for(DrawParams d)
@@ -1759,7 +1748,7 @@ void draw_shadow_for(DrawParams d)
  sheared_quad.ur = AddV2(sheared_quad.ur, shear_addition);
  d.quad = sheared_quad;
  d.tint = (Color){0,0,0,0.2f};
- d.y_coord_sorting -= 0.05f;
+ d.sorting_key -= 1;
  d.alpha_clip_threshold = 0.0f;
  d;
  dbgline(sheared_quad.ul, sheared_quad.ur);
@@ -1775,7 +1764,6 @@ void draw_animated_sprite(DrawnAnimatedSprite d)
  AnimatedSprite *s = GET_TABLE_PTR(sprites, d.anim);
  sg_image spritesheet_img = *GET_TABLE(anim_img_table, d.anim);
 
- float y_sort_pos = y_coord_sorting_at(d.pos);
  d.pos = AddV2(d.pos, s->offset);
  int index = (int)floor(d.elapsed_time/s->time_per_frame) % s->num_frames;
  if(s->no_wrap)
@@ -1802,7 +1790,7 @@ void draw_animated_sprite(DrawnAnimatedSprite d)
  }
  region.lower_right = AddV2(region.upper_left, s->region_size);
 
- DrawParams drawn = (DrawParams){true, q, spritesheet_img, region, d.tint, .y_coord_sorting = y_sort_pos, };
+ DrawParams drawn = (DrawParams){true, q, spritesheet_img, region, d.tint, .sorting_key = sorting_key_at(d.pos), .layer = LAYER_WORLD, };
  if(!d.no_shadow) draw_shadow_for(drawn);
  draw_quad(drawn);
 }
@@ -2285,7 +2273,7 @@ bool imbutton_key(AABB button_aabb, float text_scale, const char *text, int key,
 
  if(aabb_is_valid(button_aabb))
  {
-  draw_quad((DrawParams){false, quad_aabb(button_aabb), IMG(image_white_square), blendalpha(WHITE, button_alpha), .y_coord_sorting = Y_COORD_IN_FRONT});
+  draw_quad((DrawParams){false, quad_aabb(button_aabb), IMG(image_white_square), blendalpha(WHITE, button_alpha), .layer = LAYER_UI, });
   draw_centered_text((TextParams){false, false, text, aabb_center(button_aabb), BLACK, text_scale, .clip_to = button_aabb, .do_clipping = true});
  }
 
@@ -2300,11 +2288,11 @@ void draw_item(bool world_space, ItemKind kind, AABB in_aabb, float alpha)
  Quad drawn = quad_aabb(in_aabb);
  if(kind == ITEM_Tripod)
  {
-  draw_quad((DrawParams){world_space, drawn, IMG(image_tripod), blendalpha(WHITE, alpha), .y_coord_sorting = Y_COORD_IN_FRONT});
+  draw_quad((DrawParams){world_space, drawn, IMG(image_tripod), blendalpha(WHITE, alpha), .layer = LAYER_UI_FG});
  }
  else if(kind == ITEM_Boots)
  {
-  draw_quad((DrawParams){world_space, drawn, IMG(image_boots), blendalpha(WHITE, alpha), .y_coord_sorting = Y_COORD_IN_FRONT});
+  draw_quad((DrawParams){world_space, drawn, IMG(image_boots), blendalpha(WHITE, alpha), .layer = LAYER_UI_FG});
  }
  else if(kind == ITEM_WhiteSquare)
  {
@@ -2473,7 +2461,7 @@ void frame(void)
        region.upper_left = tile_image_coord;
        region.lower_right = AddV2(region.upper_left, tile_size);
 
-       draw_quad((DrawParams){true, tile_quad(cur_coord), tileset_image, region, WHITE, .y_coord_sorting = Y_COORD_IN_BACK});
+       draw_quad((DrawParams){true, tile_quad(cur_coord), tileset_image, region, WHITE, .layer = LAYER_TILEMAP});
       }
      }
     }
@@ -3427,7 +3415,7 @@ F cost: G + H
     {
      float size = 100.0f;
      Vec2 midpoint = MulV2F(AddV2(interacting_with->pos, player->pos), 0.5f);
-     draw_quad((DrawParams){true, quad_centered(AddV2(midpoint, V2(0.0, 5.0f + sinf((float)elapsed_time*3.0f)*5.0f)), V2(size, size)), IMG(image_e_icon), blendalpha(WHITE, clamp01(1.0f - learned_e)), .y_coord_sorting = Y_COORD_IN_FRONT, });
+     draw_quad((DrawParams){true, quad_centered(AddV2(midpoint, V2(0.0, 5.0f + sinf((float)elapsed_time*3.0f)*5.0f)), V2(size, size)), IMG(image_e_icon), blendalpha(WHITE, clamp01(1.0f - learned_e)), .layer = LAYER_UI_FG });
     }
 
     // interaction circle
@@ -3472,7 +3460,7 @@ F cost: G + H
    // hurt vignette
    if(player->damage > 0.0)
    {
-    draw_quad((DrawParams){false, (Quad){.ul=V2(0.0f, screen_size().Y), .ur = screen_size(), .lr = V2(screen_size().X, 0.0f)}, image_hurt_vignette, full_region(image_hurt_vignette), (Color){1.0f, 1.0f, 1.0f, player->damage}, .y_coord_sorting = Y_COORD_IN_FRONT, });
+    draw_quad((DrawParams){false, (Quad){.ul=V2(0.0f, screen_size().Y), .ur = screen_size(), .lr = V2(screen_size().X, 0.0f)}, image_hurt_vignette, full_region(image_hurt_vignette), (Color){1.0f, 1.0f, 1.0f, player->damage}, .layer = LAYER_SCREENSPACE_EFFECTS, });
    }
 
    player->anim_change_timer += dt;
@@ -3600,7 +3588,7 @@ F cost: G + H
     else if(it->npc_kind == NPC_GodRock)
     {
      Vec2 prop_size = V2(46.0f, 40.0f);
-     DrawParams d = (DrawParams){true, quad_centered(AddV2(it->pos, V2(-0.0f, 0.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(15.0f, 219.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.7f};
+     DrawParams d = (DrawParams){true, quad_centered(AddV2(it->pos, V2(-0.0f, 0.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(15.0f, 219.0f), prop_size), WHITE, .sorting_key = sorting_key_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.7f, .layer = LAYER_WORLD,};
      draw_shadow_for(d);
      draw_quad(d);
     }
@@ -3657,22 +3645,22 @@ F cost: G + H
     if(it->prop_kind == TREE0)
     {
      Vec2 prop_size = V2(74.0f, 122.0f);
-     d = (DrawParams){true, quad_centered(AddV2(it->pos, V2(-5.0f, 45.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(2.0f, 4.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.7f};
+     d = (DrawParams){true, quad_centered(AddV2(it->pos, V2(-5.0f, 45.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(2.0f, 4.0f), prop_size), WHITE, .sorting_key = sorting_key_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.7f};
     }
     else if(it->prop_kind == TREE1)
     {
      Vec2 prop_size = V2(94.0f, 120.0f);
-     d = ((DrawParams){true, quad_centered(AddV2(it->pos, V2(-4.0f, 55.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(105.0f, 4.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f});
+     d = ((DrawParams){true, quad_centered(AddV2(it->pos, V2(-4.0f, 55.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(105.0f, 4.0f), prop_size), WHITE, .sorting_key = sorting_key_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f});
     }
     else if(it->prop_kind == TREE2)
     {
      Vec2 prop_size = V2(128.0f, 192.0f);
-     d = ((DrawParams){true, quad_centered(AddV2(it->pos, V2(-2.5f, 70.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(385.0f, 479.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f});
+     d = ((DrawParams){true, quad_centered(AddV2(it->pos, V2(-2.5f, 70.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(385.0f, 479.0f), prop_size), WHITE, .sorting_key = sorting_key_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f});
     }
     else if(it->prop_kind == ROCK0)
     {
      Vec2 prop_size = V2(30.0f, 22.0f);
-     d = (DrawParams){true, quad_centered(AddV2(it->pos, V2(0.0f, 25.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(66.0f, 235.0f), prop_size), WHITE, .y_coord_sorting = y_coord_sorting_at(AddV2(it->pos, V2(0.0f, 0.0f))), .alpha_clip_threshold = 0.7f};
+     d = (DrawParams){true, quad_centered(AddV2(it->pos, V2(0.0f, 25.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(66.0f, 235.0f), prop_size), WHITE, .sorting_key = sorting_key_at(AddV2(it->pos, V2(0.0f, 0.0f))), .alpha_clip_threshold = 0.7f};
     }
     else
     {
@@ -3788,7 +3776,7 @@ F cost: G + H
     choosing_item_grid = false;
    }
 
-   draw_quad((DrawParams){false, quad_at(V2(0.0,screen_size().y), screen_size()), IMG(image_white_square), blendalpha(oflightness(0.2f), visible*0.4f), .y_coord_sorting = Y_COORD_IN_FRONT});
+   draw_quad((DrawParams){false, quad_at(V2(0.0,screen_size().y), screen_size()), IMG(image_white_square), blendalpha(oflightness(0.2f), visible*0.4f), .layer = LAYER_UI});
 
    Vec2 grid_panel_size = LerpV2(V2(0.0f, 0.0f), visible, V2(screen_size().x*0.75f, screen_size().y * 0.75f));
    AABB grid_aabb = centered_aabb(MulV2F(screen_size(), 0.5f), grid_panel_size);
@@ -3798,7 +3786,7 @@ F cost: G + H
    }
    if(aabb_is_valid(grid_aabb))
    {
-    draw_quad((DrawParams){false, quad_aabb(grid_aabb), IMG(image_white_square), blendalpha(BLACK, visible * 0.7f), .y_coord_sorting = Y_COORD_IN_FRONT});
+    draw_quad((DrawParams){false, quad_aabb(grid_aabb), IMG(image_white_square), blendalpha(BLACK, visible * 0.7f), .layer = LAYER_UI});
 
     if(imbutton(centered_aabb(AddV2(grid_aabb.upper_left, V2(aabb_size(grid_aabb).x/2.0f, -aabb_size(grid_aabb).y)), V2(100.f*visible, 50.0f*visible)), 1.0f, "Cancel"))
     {
@@ -3850,24 +3838,24 @@ F cost: G + H
    const float padding = 50.0f;
    float y = screen_size().y/2.0f + total_height/2.0f;
    float x = screen_size().x - padding - HELPER_SIZE;
-   draw_quad((DrawParams){false, quad_at(V2(x, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_shift_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_shift)}, .y_coord_sorting = Y_COORD_IN_FRONT});
+   draw_quad((DrawParams){false, quad_at(V2(x, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_shift_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_shift)}, .layer = LAYER_UI_FG});
    y -= vertical_spacing;
-   draw_quad((DrawParams){false, quad_at(V2(x, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_space_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_space)}, .y_coord_sorting = Y_COORD_IN_FRONT});
+   draw_quad((DrawParams){false, quad_at(V2(x, y), V2(HELPER_SIZE,HELPER_SIZE)), IMG(image_space_icon), (Color){1.0f,1.0f,1.0f,fmaxf(0.0f, 1.0f-learned_space)}, .layer = LAYER_UI_FG});
   }
 
 
   if(mobile_controls)
   {
    float thumbstick_nub_size = (img_size(image_mobile_thumbstick_nub).x / img_size(image_mobile_thumbstick_base).x) * thumbstick_base_size();
-   draw_quad((DrawParams){false, quad_centered(thumbstick_base_pos, V2(thumbstick_base_size(), thumbstick_base_size())), IMG(image_mobile_thumbstick_base), WHITE, .y_coord_sorting = Y_COORD_IN_FRONT});
-   draw_quad((DrawParams){false, quad_centered(thumbstick_nub_pos, V2(thumbstick_nub_size, thumbstick_nub_size)), IMG(image_mobile_thumbstick_nub), WHITE, .y_coord_sorting = Y_COORD_IN_FRONT});
+   draw_quad((DrawParams){false, quad_centered(thumbstick_base_pos, V2(thumbstick_base_size(), thumbstick_base_size())), IMG(image_mobile_thumbstick_base), WHITE, .layer = LAYER_UI_FG});
+   draw_quad((DrawParams){false, quad_centered(thumbstick_nub_pos, V2(thumbstick_nub_size, thumbstick_nub_size)), IMG(image_mobile_thumbstick_nub), WHITE, .layer = LAYER_UI_FG});
 
    if(interacting_with || gete(player->holding_item))
    {
-    draw_quad((DrawParams){false, quad_centered(interact_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .y_coord_sorting = Y_COORD_IN_FRONT});
+    draw_quad((DrawParams){false, quad_centered(interact_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .layer = LAYER_UI_FG});
    }
-   draw_quad((DrawParams){false, quad_centered(roll_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .y_coord_sorting = Y_COORD_IN_FRONT});
-   draw_quad((DrawParams){false, quad_centered(attack_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .y_coord_sorting = Y_COORD_IN_FRONT});
+   draw_quad((DrawParams){false, quad_centered(roll_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .layer = LAYER_UI_FG});
+   draw_quad((DrawParams){false, quad_centered(attack_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .layer = LAYER_UI_FG});
   }
 
 #ifdef DEVTOOLS
@@ -3939,8 +3927,7 @@ F cost: G + H
       params.tint[2] = d.tint.B;
       params.tint[3] = d.tint.A;
       params.alpha_clip_threshold = d.alpha_clip_threshold;
-      if(d.do_clipping &&
-        aabb_is_valid(d.clip_to) && LenV2(aabb_size(d.clip_to)) > 0.1)
+      if(d.do_clipping)
       {
        if(d.world_space)
        {
@@ -4012,9 +3999,12 @@ F cost: G + H
        new_vertices[i*FLOATS_PER_VERTEX + 0] = in_clip_space.X;
        new_vertices[i*FLOATS_PER_VERTEX + 1] = in_clip_space.Y;
        // update Y_COORD_IN_BACK, Y_COORD_IN_FRONT when this changes
+       /*
        float unmapped = (clampf(d.y_coord_sorting, -1.0f, 2.0f));
        float mapped = (unmapped + 1.0f)/3.0f;
        new_vertices[i*FLOATS_PER_VERTEX + 2] = 1.0f - (float)clamp(mapped, 0.0, 1.0);
+       */
+       new_vertices[i*FLOATS_PER_VERTEX + 2] = 0.0f;
        new_vertices[i*FLOATS_PER_VERTEX + 3] = tex_coords[i].X;
        new_vertices[i*FLOATS_PER_VERTEX + 4] = tex_coords[i].Y;
       }
@@ -4043,10 +4033,12 @@ F cost: G + H
     }
     BUFF_CLEAR(rendering_queue);
 
-    flush_quad_batch();
-    sg_end_pass();
-    sg_commit();
    }
+
+   // end of rendering
+   flush_quad_batch();
+   sg_end_pass();
+   sg_commit();
   }
 
   last_frame_processing_time = stm_sec(stm_diff(stm_now(),time_start_frame));
