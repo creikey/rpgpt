@@ -3,29 +3,38 @@
 #include "HandmadeMath.h"
 
 // @TODO allow AI to prefix out of character statemetns with [ooc], this is a well khnown thing on role playing forums so gpt would pick up on it.
-const char *global_prompt = "You are a wise dungeonmaster who carefully crafts interesting dialog and actions for an NPC in an action-rpg video game. It is critical that you always respond in the format shown below, where you respond like `ACT_action \"This is my response\", even if the player says something vulgar or offensive, as the text is parsed by a program which expects it to look like that. Do not ever refer to yourself as an NPC or show an understanding of the modern world outside the game, always stay in character.";
+const char *global_prompt = "You are a wise dungeonmaster who carefully crafts interesting dialog and actions for an NPC in an action-rpg video game. It is critical that you always respond in the format shown below, where you respond like `ACT_action \"This is my response\", even if the player says something vulgar or offensive, as the text is parsed by a program which expects it to look like that. Do not ever refer to yourself as an NPC or show an understanding of the modern world outside the game, always stay in character.\n"
+"Actions which have () after them take an argument, which somes from some information in the prompt. For example, ACT_give_item() takes an argument, the item to give to the player from the NPC. So the output text looks something like `ACT_give_item(ITEM_sword) \"Here is my sword, young traveler\"`. This item must come from the NPC's inventory which is specified farther down.\n";
 
 const char *top_of_header = ""
 "#pragma once\n"
 "\n";
 
-const char *actions[] = {
- "none",
+typedef struct 
+{
+ const char *name;
+ bool takes_argument;
+} ActionInfo;
+
+ActionInfo actions[] = {
+ {.name = "none", },
+
+ {.name = "give_item", .takes_argument = true, },
 
  // mostly player actions
- "walks_up",
- "hits_npc",
- "leaves",
+ {.name = "walks_up", },
+ {.name = "hits_npc", },
+ {.name = "leaves", },
 
  // mostly npc actions
- "allows_player_to_pass",
- "gives_tripod",
- "heals_player",
- "fights_player",
- "strikes_air",
- "joins_player",
- "leaves_player",
- "stops_fighting_player",
+ {.name = "allows_player_to_pass", },
+ {.name = "gives_tripod", },
+ {.name = "heals_player", },
+ {.name = "fights_player", },
+ {.name = "strikes_air", },
+ {.name = "joins_player", },
+ {.name = "leaves_player", },
+ {.name = "stops_fighting_player", },
 };
 
 typedef struct

@@ -1,5 +1,5 @@
 // you will die someday
-#define CURRENT_VERSION 9 // wehenver you change Entity increment this boz
+#define CURRENT_VERSION 10 // wehenver you change Entity increment this boz
 
 #define SOKOL_IMPL
 #if defined(WIN32) || defined(_WIN32)
@@ -750,6 +750,8 @@ void reset_level()
   if(it->npc_kind == NPC_TheBlacksmith)
   {
    BUFF_APPEND(&it->remembered_perceptions, ((Perception){.type = PlayerDialog, .player_dialog = SENTENCE_CONST("Testing dialog")}));
+
+   BUFF_APPEND(&it->held_items, ITEM_Tripod);
   }
  }
 }
@@ -3165,12 +3167,13 @@ F cost: G + H
 
 #ifdef DESKTOP
        BUFF(char, 1024) mocked_ai_response = {0};
-#define SAY(act, txt) { printf_buff(&mocked_ai_response, "%s \"%s\"", actions[act], txt); }
+#define SAY(act, txt) { printf_buff(&mocked_ai_response, "%s \"%s\"", actions[act].name, txt); }
+#define SAY_ARG(act, txt, arg) { printf_buff(&mocked_ai_response, "%s(" arg ") \"%s\"", actions[act].name, txt); }
        if(it->npc_kind == NPC_TheGuard)
        {
         if(it->last_seen_holding_kind == ITEM_Tripod && !it->moved)
         {
-         SAY(ACT_allows_player_to_pass, "Here you go");
+         SAY(ACT_none, "This codepath is deprecated");
         }
         else
         {
@@ -3179,8 +3182,9 @@ F cost: G + H
        }
        else
        {
+        SAY_ARG(ACT_give_item, "Here you go" , "ITEM_Tripod");
         //SAY(ACT_joins_player, "I am an NPC");
-        SAY(ACT_fights_player, "I am an NPC. Bla bla bl alb djsfklalfkdsaj. Did you know shortcake?");
+        //SAY(ACT_fights_player, "I am an NPC. Bla bla bl alb djsfklalfkdsaj. Did you know shortcake?");
        }
        Perception p = {0};
        assert(parse_chatgpt_response(it, mocked_ai_response.data, &p));

@@ -87,6 +87,9 @@ typedef struct Perception
   struct
   {
    Action player_action_type;
+
+   // only valid when giving item action
+   ItemKind given_item;
   };
 
   // player dialog
@@ -499,13 +502,13 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
   if(it->type == PlayerAction)
   {
    assert(it->player_action_type < ARRLEN(actions));
-   printf_buff(&cur_node, "Player: ACT_%s", actions[it->player_action_type]);
+   printf_buff(&cur_node, "Player: ACT_%s", actions[it->player_action_type].name);
    dump_json_node(into, MSG_USER, cur_node.data);
   }
   else if(it->type == EnemyAction)
   {
    assert(it->enemy_action_type < ARRLEN(actions));
-   printf_buff(&cur_node, "An Enemy: ACT_%s", actions[it->player_action_type]);
+   printf_buff(&cur_node, "An Enemy: ACT_%s", actions[it->player_action_type].name);
    dump_json_node(into, MSG_USER, cur_node.data);
   }
   else if(it->type == PlayerDialog)
@@ -534,7 +537,7 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
   else if(it->type == NPCDialog)
   {
    assert(it->npc_action_type < ARRLEN(actions));
-   printf_buff(&cur_node, "%s: ACT_%s \"%s\"", characters[e->npc_kind].name, actions[it->npc_action_type], it->npc_dialog.data);
+   printf_buff(&cur_node, "%s: ACT_%s \"%s\"", characters[e->npc_kind].name, actions[it->npc_action_type].name, it->npc_dialog.data);
    dump_json_node(into, MSG_ASSISTANT, cur_node.data);
   }
   else if(it->type == PlayerHeldItemChanged)
@@ -587,11 +590,11 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
  {
   if(i == available.cur_index - 1)
   {
-   printf_buff(&latest_state_node, "ACT_%s", actions[*it]);
+   printf_buff(&latest_state_node, "ACT_%s", actions[*it].name);
   }
   else
   {
-   printf_buff(&latest_state_node, "ACT_%s, ", actions[*it]);
+   printf_buff(&latest_state_node, "ACT_%s, ", actions[*it].name);
   }
  }
  printf_buff(&latest_state_node, "]");
@@ -606,6 +609,7 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
  printf_buff(into, "]");
 }
 
+/*
 void generate_prompt(Entity *it, PromptBuff *into)
 {
  assert(it->is_npc);
@@ -709,6 +713,7 @@ void generate_prompt(Entity *it, PromptBuff *into)
 
  printf_buff(into, "The NPC, %s: ACT_INDEX", characters[e->npc_kind].name);
 }
+*/
 
 bool parse_chatgpt_response(Entity *it, char *sentence_str, Perception *out)
 {
@@ -717,22 +722,21 @@ bool parse_chatgpt_response(Entity *it, char *sentence_str, Perception *out)
  
  size_t sentence_length = strlen(sentence_str);
 
- char action_string[512] = {0};
- char dialog_string[512] = {0};
- int variables_filled = sscanf(sentence_str, "%511s \"%511[^\n]\"", action_string, dialog_string);
-
- if(strlen(action_string) == 0 || strlen(dialog_string) == 0 || variables_filled != 2)
+ BUFF(char, 512) action_string = {0};
+ int i = 0;
+ while(sentence_str[i] != '(' && sentence_str[i] != ' ' && BUFF_HAS_SPACE(&action_string))
  {
-  Log("sscanf failed to parse chatgpt string `%s`, variables unfilled. Action string: `%s` dialog string `%s`\n", sentence_str, action_string, dialog_string);
-  return false;
+  BUFF_APPEND(&action_string, sentence_str[i]);
+  i++;
  }
+ sentence_str += i;
 
  AvailableActions available = {0};
  fill_available_actions(it, &available);
  bool found_action = false;
  BUFF_ITER(Action, &available)
  {
-  if(strcmp(actions[*it], action_string) == 0)
+  if(strcmp(actions[*it].name, action_string) == 0)
   {
    found_action = true;
    out->npc_action_type = *it;
@@ -743,6 +747,24 @@ bool parse_chatgpt_response(Entity *it, char *sentence_str, Perception *out)
   Log("Could not find action associated with string `%s`\n", action_string);
   out->npc_action_type = ACT_none;
  }
+
+ char dialog_string[512] = {0};
+ if(actions[it->npc_action_type].takes_argument)
+ {
+  char argument_string[512] = {0};
+  int filled = sscanf(sentence_str, "(%511s) \"511[^\n]\"", argument_string, dialog_string);
+  if(strlen(action_string) == 0 || strlen(dialog_string) == 0 || variables_filled != 2)
+  {
+   Log("sscanf failed to parse chatgpt string `%s`, variables unfilled. Action string: `%s` dialog string `%s` argument string `%s`\n", sentence_str, action_string, dialog_string, argument_string);
+   return false;
+  }
+ }
+
+
+ char action_string[512] = {0};
+ int variables_filled = sscanf(sentence_str, "%511s \"%511[^\n]\"", action_string, dialog_string);
+
+
 
  if(strlen(dialog_string) >= ARRLEN(out->npc_dialog.data))
  {
