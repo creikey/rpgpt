@@ -3806,6 +3806,7 @@ F cost: G + H
     Vec2 item_icon_size = V2(item_icon_width, item_icon_width);
 
     Vec2 cursor = AddV2(grid_aabb.upper_left, V2(padding, -padding));
+    int to_give = -1; // don't modify the item array while iterating
     BUFF_ITER_I(ItemKind, &player->held_items, i)
     {
      Vec2 real_size = LerpV2(item_icon_size, hovered_state[i], MulV2F(item_icon_size, 1.25f));
@@ -3816,9 +3817,19 @@ F cost: G + H
      float target = 0.0f;
      if(aabb_is_valid(item_icon))
      {
-      draw_quad((DrawParams){false, quad_aabb(item_icon), IMG(image_white_square), blendalpha(WHITE, Lerp(0.0f, hovered_state[i], 0.4f)), .layer = LAYER_UI_FG });
+      draw_quad((DrawParams){false, quad_aabb(item_icon), IMG(image_white_square), blendalpha(WHITE, Lerp(0.0f, hovered_state[i], 0.4f)), .layer = LAYER_UI_FG});
       bool hovered = has_point(item_icon, mouse_pos);
-      if(hovered) target = 1.0f;
+      if(hovered)
+      {
+       target = 1.0f;
+       if(pressed.mouse_down)
+       {
+        if(gete(player->talking_to))
+        {
+         to_give = i;
+        }
+       }
+      }
 
       in_screen_space = true;
       dbgrect(item_icon);
@@ -3835,6 +3846,15 @@ F cost: G + H
       cursor.x = grid_aabb.upper_left.x + padding;
      }
     }
+    if(to_give > -1)
+    {
+     choosing_item_grid = false;
+     assert(gete(player->talking_to));
+     ItemKind given_item_kind = player->held_items.data[to_give];
+     BUFF_REMOVE_AT_INDEX(&player->held_items, to_give);
+     BUFF_APPEND(&gete(player->talking_to)->held_items, given_item_kind);
+    }
+
    }
   }
    
