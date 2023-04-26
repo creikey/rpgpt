@@ -81,15 +81,13 @@ typedef struct Perception
  PerceptionType type;
 
  float damage_done; // Valid in player action and enemy action
+ ItemKind given_item; // valid in player action and enemy action when the kind is such that there is an item to be given
  union 
  {
   // player action
   struct
   {
    Action player_action_type;
-
-   // only valid when giving item action
-   ItemKind given_item;
   };
 
   // player dialog
@@ -295,6 +293,7 @@ void fill_available_actions(Entity *it, AvailableActions *a)
 {
  *a = (AvailableActions){0};
  BUFF_APPEND(a, ACT_none);
+ BUFF_APPEND(a, ACT_give_item);
  if(it->npc_kind == NPC_GodRock)
  {
   BUFF_APPEND(a, ACT_heals_player);
@@ -715,6 +714,38 @@ void generate_prompt(Entity *it, PromptBuff *into)
 }
 */
 
+typedef BUFF(char, 512) GottenUntil;
+
+// puts characters from `str` into `into` until any character in `until` is encountered
+// returns the number of characters read into into
+int get_until(GottenUntil *into, const char *str, const char *until)
+{
+ int i = 0;
+ size_t until_size = strlen(until);
+ bool encountered_char = false;
+ int before_cur_index = into->cur_index;
+ while(BUFF_HAS_SPACE(into) && str[i] != '\0' && !encountered_char)
+ {
+  for(int ii = 0; ii < until_size; ii++)
+  {
+   if(until[ii] == str[i]) encountered_char = true;
+  }
+  if(!encountered_char) BUFF_APPEND(into, str[i]);
+  i += 1;
+ }
+ return into->cur_index - before_cur_index;
+}
+
+bool char_in_str(char c, const char *str)
+{
+ size_t len = strlen(str);
+ for(int i = 0; i < len; i++)
+ {
+  if(str[i] == c) return true;
+ }
+ return false;
+}
+
 bool parse_chatgpt_response(Entity *it, char *sentence_str, Perception *out)
 {
  *out = (Perception){0};
@@ -722,60 +753,98 @@ bool parse_chatgpt_response(Entity *it, char *sentence_str, Perception *out)
  
  size_t sentence_length = strlen(sentence_str);
 
- BUFF(char, 512) action_string = {0};
- int i = 0;
- while(sentence_str[i] != '(' && sentence_str[i] != ' ' && BUFF_HAS_SPACE(&action_string))
- {
-  BUFF_APPEND(&action_string, sentence_str[i]);
-  i++;
- }
- sentence_str += i;
+ GottenUntil action_string = {0};
+ sentence_str += get_until(&action_string, sentence_str, "( ");
 
+ bool found_action = false;
  AvailableActions available = {0};
  fill_available_actions(it, &available);
- bool found_action = false;
  BUFF_ITER(Action, &available)
  {
-  if(strcmp(actions[*it].name, action_string) == 0)
+  if(strcmp(actions[*it].name, action_string.data) == 0)
   {
    found_action = true;
    out->npc_action_type = *it;
   }
  }
+
  if(!found_action)
  {
-  Log("Could not find action associated with string `%s`\n", action_string);
+  Log("Could not find action associated with string `%s`\n", action_string.data);
   out->npc_action_type = ACT_none;
- }
 
- char dialog_string[512] = {0};
- if(actions[it->npc_action_type].takes_argument)
- {
-  char argument_string[512] = {0};
-  int filled = sscanf(sentence_str, "(%511s) \"511[^\n]\"", argument_string, dialog_string);
-  if(strlen(action_string) == 0 || strlen(dialog_string) == 0 || variables_filled != 2)
-  {
-   Log("sscanf failed to parse chatgpt string `%s`, variables unfilled. Action string: `%s` dialog string `%s` argument string `%s`\n", sentence_str, action_string, dialog_string, argument_string);
-   return false;
-  }
- }
-
-
- char action_string[512] = {0};
- int variables_filled = sscanf(sentence_str, "%511s \"%511[^\n]\"", action_string, dialog_string);
-
-
-
- if(strlen(dialog_string) >= ARRLEN(out->npc_dialog.data))
- {
-  Log("Dialog string `%s` too big to fit in sentence size %d\n", dialog_string, (int)ARRLEN(out->npc_dialog.data));
   return false;
  }
- 
- memcpy(out->npc_dialog.data, dialog_string, strlen(dialog_string));
- out->npc_dialog.cur_index = (int)strlen(dialog_string);
+ else
+ {
+  GottenUntil dialog_str = {0};
+  if(actions[out->npc_action_type].takes_argument)
+  {
+#define EXPECT(chr, val) if(chr != val) { Log("Improperly formatted sentence_str `%s`, expected %c but got %c\n", sentence_str, val, chr); return false; }
 
- return true;
+   EXPECT(*sentence_str, '('); sentence_str += 1;
+
+   GottenUntil argument = {0};
+   sentence_str += get_until(&argument, sentence_str, ")");
+
+   if(out->npc_action_type == ACT_give_item)
+   {
+    Entity *e = it;
+    bool found = false;
+    BUFF_ITER(ItemKind, &e->held_items)
+    {
+     const char *without_item_prefix = &argument.data[0];
+     EXPECT(*without_item_prefix, 'I'); without_item_prefix += 1;
+     EXPECT(*without_item_prefix, 'T'); without_item_prefix += 1;
+     EXPECT(*without_item_prefix, 'E'); without_item_prefix += 1;
+     EXPECT(*without_item_prefix, 'M'); without_item_prefix += 1;
+     EXPECT(*without_item_prefix, '_'); without_item_prefix += 1;
+     if(strcmp(items[*it].enum_name, without_item_prefix) == 0)
+     {
+      out->given_item = *it;
+      if(found)
+      {
+       Log("Duplicate item enum name? Really weird...\n");
+      }
+      found = true;
+     }
+    }
+    if(!found)
+    {
+     Log("Couldn't find item in inventory of NPC to give with item string %s\n", argument.data);
+     return false;
+    }
+   }
+   else
+   {
+    Log("Don't know how to handle argument in action of type %s\n", actions[out->npc_action_type].name);
+#ifdef DEVTOOLS
+    // not sure if this should never happen or not, need more sleep...
+    assert(false);
+#endif
+    return false;
+   }
+
+   EXPECT(*sentence_str, ')'); sentence_str += 1;
+  }
+  EXPECT(*sentence_str, ' '); sentence_str += 1;
+  EXPECT(*sentence_str, '"'); sentence_str += 1;
+
+  sentence_str += get_until(&dialog_str, sentence_str, "\"\n");
+  if(dialog_str.cur_index >= ARRLEN(out->npc_dialog.data))
+  {
+   Log("Dialog string `%s` too big to fit in sentence size %d\n", dialog_str.data, (int)ARRLEN(out->npc_dialog.data));
+   return false;
+  }
+
+  memcpy(out->npc_dialog.data, dialog_str.data, dialog_str.cur_index);
+  out->npc_dialog.cur_index = dialog_str.cur_index;
+
+  return true;
+
+ }
+
+ return false;
 }
 
 // returns if the response was well formatted
