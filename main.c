@@ -2085,13 +2085,24 @@ Sentence *last_said_sentence(Entity *npc)
  return 0;
 }
 
+typedef enum
+{
+ DELEM_NPC,
+ DELEM_PLAYER,
+ DELEM_NPC_ACTION_DESCRIPTION,
+} DialogElementKind;
+
 typedef struct 
 {
  Sentence s;
- bool is_player;
+ DialogElementKind kind;
 } DialogElement;
 
-typedef BUFF(DialogElement, REMEMBERED_PERCEPTIONS) Dialog;
+// Some perceptions can have multiple dialog elements.
+// Like item give perceptions that have an action with both dialog
+// and an argument. So worst case every perception has 2 dialog
+// elements right now is why it's *2
+typedef BUFF(DialogElement, REMEMBERED_PERCEPTIONS*2) Dialog;
 Dialog produce_dialog(Entity *talking_to, bool character_names)
 {
  assert(talking_to->is_npc);
@@ -2101,6 +2112,14 @@ Dialog produce_dialog(Entity *talking_to, bool character_names)
   if(it->type == NPCDialog)
   {
    Sentence to_say = (Sentence){0};
+
+   if(it->npc_action_type == ACT_give_item)
+   {
+    DialogElement new = {0};
+    printf_buff(&new.s, "%s gave %s to you", characters[talking_to->npc_kind].name, items[it->given_item].name);
+    new.kind = DELEM_NPC_ACTION_DESCRIPTION;
+    BUFF_APPEND(&to_return, new);
+   }
    
    if(character_names)
    {
@@ -2120,7 +2139,7 @@ Dialog produce_dialog(Entity *talking_to, bool character_names)
    {
     append_str(&to_say, it->npc_dialog.data);
    }
-   BUFF_APPEND(&to_return, ((DialogElement){ .s = to_say, .is_player = false }) );
+   BUFF_APPEND(&to_return, ((DialogElement){ .s = to_say, .kind = DELEM_NPC }) );
   }
   else if(it->type == PlayerDialog)
   {
@@ -2130,7 +2149,7 @@ Dialog produce_dialog(Entity *talking_to, bool character_names)
     append_str(&to_say, "Player: ");
    }
    append_str(&to_say, it->player_dialog.data);
-   BUFF_APPEND(&to_return, ((DialogElement){ .s = to_say, .is_player = true }) );
+   BUFF_APPEND(&to_return, ((DialogElement){ .s = to_say, .kind = DELEM_PLAYER }) );
   }
  }
  return to_return;
@@ -2189,13 +2208,21 @@ void draw_dialog_panel(Entity *talking_to, float alpha)
       Color *colors = calloc(sizeof(*colors), it->s.cur_index);
       for(int char_i = 0; char_i < it->s.cur_index; char_i++)
       {
-       if(it->is_player)
+       if(it->kind == DELEM_PLAYER)
        {
         colors[char_i] = BLACK;
        }
-       else
+       else if(it->kind == DELEM_NPC)
        {
         colors[char_i] = colhex(0x345e22);
+       }
+       else if(it->kind == DELEM_NPC_ACTION_DESCRIPTION)
+       {
+        colors[char_i] = colhex(0xb5910e);
+       }
+       else
+       {
+        assert(false);
        }
        colors[char_i] = blendalpha(colors[char_i], alpha);
       }
@@ -3745,13 +3772,21 @@ F cost: G + H
          Color *colors = calloc(sizeof(*colors), it->s.cur_index);
          for(int char_i = 0; char_i < it->s.cur_index; char_i++)
          {
-          if(it->is_player)
+          if(it->kind == DELEM_PLAYER)
           {
            colors[char_i] = WHITE;
           }
-          else
+          else if(it->kind == DELEM_NPC)
           {
            colors[char_i] = colhex(0x34e05c);
+          }
+          else if(it->kind == DELEM_NPC_ACTION_DESCRIPTION)
+          {
+           colors[char_i] = colhex(0xebc334);
+          }
+          else
+          {
+           assert(false);
           }
           colors[char_i] = blendalpha(colors[char_i], alpha);
          }

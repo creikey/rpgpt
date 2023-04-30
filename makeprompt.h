@@ -412,8 +412,16 @@ bool printf_buff_impl(BuffRef into, const char *format, ...)
  assert(into.data_elem_size == 1); // characters
  va_list args;
  va_start (args, format);
- int n = info.max_data_elems - *info.cur_index;
- int written = vsnprintf((char*)into.data + *info.cur_index, n, format, args);
+ size_t n = into.max_data_elems - *into.cur_index;
+ int written = vsnprintf((char*)into.data + *into.cur_index, n, format, args);
+
+ if(written < 0)
+ {
+ }
+ else
+ {
+  *into.cur_index += written;
+ }
 
  // https://cplusplus.com/reference/cstdio/vsnprintf/
  bool succeeded = true;

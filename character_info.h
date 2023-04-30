@@ -41,30 +41,35 @@ typedef struct
 {
  char *global_prompt;
  char *enum_name;
+ char *name; // talked about like 'The Player gave `item.name` to the NPC'
  char *possess;
  char *discard;
 } ItemInfo;
 ItemInfo items[] = {
  {
   .enum_name = "none",
+  .name = "Nothing",
   .global_prompt = "The player isn't holding anything",
   .possess = "The player is no longer holding anything",
   .discard = "The player is no longer holding nothing",
  },
  {
   .enum_name = "WhiteSquare",
+  .name = "the white square",
   .global_prompt = "The player is holding a mysterious white square. It is unknown what strange and erotic abilities one has when they possess the square.",
   .possess = "The player is now holding the white square",
   .discard = "The player is no longer holding the white square.",
  },
  {
   .enum_name = "Boots",
+  .name = "some boots",
   .global_prompt = "The player is holding the boots of speed. He is a force to be recogned with in this state, he has great speed while holding the boots.",
   .possess = "The player is now holding the boots of speed",
   .discard = "The player is no longer holding the boots of speed",
  },
  {
   .enum_name = "Tripod",
+  .name = "the tripod",
   .global_prompt = "The player is holding a tripod used for holding things up. It's got an odd construction, but Block really likes it for some reason.",
   .possess = "The player is now holding the tripod",
   .discard = "The player is no longer holding the tripod.",
