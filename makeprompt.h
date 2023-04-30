@@ -405,7 +405,26 @@ void process_perception(Entity *it, Perception p)
  }
 }
 
-#define printf_buff(buff_ptr, ...) { BUFF_VALID(buff_ptr); int written = snprintf((buff_ptr)->data+(buff_ptr)->cur_index, ARRLEN((buff_ptr)->data) - (buff_ptr)->cur_index, __VA_ARGS__); assert(written >= 0); (buff_ptr)->cur_index += written; };
+// returns if printed into the buff without any errors
+bool printf_buff_impl(BuffRef into, const char *format, ...)
+{
+ assert(*into.cur_index < into.max_data_elems);
+ assert(into.data_elem_size == 1); // characters
+ va_list args;
+ va_start (args, format);
+ int n = info.max_data_elems - *info.cur_index;
+ int written = vsnprintf((char*)into.data + *info.cur_index, n, format, args);
+
+ // https://cplusplus.com/reference/cstdio/vsnprintf/
+ bool succeeded = true;
+ if(written < 0) succeeded = false; // encoding error
+ if(written >= n) succeeded = false; // didn't fit in buffer
+
+ va_end(args);
+ return succeeded;
+}
+
+#define printf_buff(buff_ptr, ...) printf_buff_impl(BUFF_MAKEREF(buff_ptr), __VA_ARGS__)
 
 bool npc_does_dialog(Entity *it)
 {

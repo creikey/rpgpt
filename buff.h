@@ -20,3 +20,15 @@
 #define BUFF_REMOVE_FRONT(buff_ptr) {if((buff_ptr)->cur_index > 0) {for(int i = 0; i < (buff_ptr)->cur_index - 1; i++) { (buff_ptr)->data[i] = (buff_ptr)->data[i+1]; }; (buff_ptr)->cur_index--;}}
 #define BUFF_REMOVE_AT_INDEX(buff_ptr, index) { BUFF_VALID(buff_ptr); assert(index >= 0); assert(index < (buff_ptr)->cur_index); for(int i = index; i < (buff_ptr)->cur_index - 1; i++) (buff_ptr)->data[i] = (buff_ptr)->data[i + 1]; (buff_ptr)->cur_index -= 1; }
 #define BUFF_CLEAR(buff_ptr) {memset((buff_ptr), 0, sizeof(*(buff_ptr)));  ((buff_ptr)->cur_index = 0);}
+
+typedef struct
+{
+ void *data;
+ size_t max_data_elems;
+ size_t data_elem_size;
+ int *cur_index;
+} BuffRef;
+
+#define BUFF_MAKEREF(buff_ptr) ((BuffRef){.data = (void*)((buff_ptr)->data), .max_data_elems = ARRLEN((buff_ptr)->data), .data_elem_size = sizeof((buff_ptr)->data[0]), .cur_index = &((buff_ptr)->cur_index)})
+
+
