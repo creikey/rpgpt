@@ -1,3 +1,7 @@
+# Clion stuff
+.idea/
+cmake-build-debug/
+
 # Tiled session
 main.tiled-session
 # Server builds

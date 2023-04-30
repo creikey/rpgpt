@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stddef.h>
+
 #define ARRLEN(x) ((sizeof(x)/sizeof(0[x])) / ((size_t)(!(sizeof(x) % sizeof(0[x])))))
 #define ARR_ITER(type, arr) for(type *it = &arr[0]; it < &arr[ARRLEN(arr)]; it++)
 #define ARR_ITER_I(type, arr, i_var) ARR_ITER(type, arr) for(int i_var = (int)(it - &arr[0]); i_var != -1; i_var = -1)
