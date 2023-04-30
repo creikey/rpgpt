@@ -741,9 +741,8 @@ void reset_level()
  update_player_from_entities();
 
  BUFF_APPEND(&player->held_items, ITEM_WhiteSquare);
- for(int i = 0; i < 30; i++)
+ for(int i = 0; i < 20; i++)
   BUFF_APPEND(&player->held_items, ITEM_Boots);
- BUFF_APPEND(&player->held_items, ITEM_Tripod);
 
  ENTITIES_ITER(gs.entities)
  {
@@ -829,10 +828,10 @@ void end_text_input(char *what_player_said)
   }
   if(talking->last_seen_holding_kind != player_holding)
   {
-   process_perception(talking, (Perception){.type = PlayerHeldItemChanged, .holding = player_holding,});
+   process_perception(talking, (Perception){.type = PlayerHeldItemChanged, .holding = player_holding,}, player);
 
   }
-  process_perception(talking, (Perception){.type = PlayerDialog, .player_dialog = what_player_said_sentence,});
+  process_perception(talking, (Perception){.type = PlayerDialog, .player_dialog = what_player_said_sentence,}, player);
  }
 }
 /*
@@ -1604,11 +1603,11 @@ void request_do_damage(Entity *to, Entity *from, float damage)
   {
    if(from->is_character)
    {
-    process_perception(to, (Perception){.type = PlayerAction, .player_action_type = ACT_hits_npc, .damage_done = damage,});
+    process_perception(to, (Perception){.type = PlayerAction, .player_action_type = ACT_hits_npc, .damage_done = damage,}, player);
    }
    else
    {
-    process_perception(to, (Perception){.type = EnemyAction, .enemy_action_type = ACT_hits_npc, .damage_done = damage,});
+    process_perception(to, (Perception){.type = EnemyAction, .enemy_action_type = ACT_hits_npc, .damage_done = damage,}, player);
    }
   }
   to->vel = MulV2F(NormV2(SubV2(to->pos, from_point)), 15.0f);
@@ -3215,7 +3214,7 @@ F cost: G + H
        }
        Perception p = {0};
        assert(parse_chatgpt_response(it, mocked_ai_response.data, &p));
-       process_perception(it, p);
+       process_perception(it, p, player);
 #undef SAY
 #endif
        it->perceptions_dirty = false;

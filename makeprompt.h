@@ -363,7 +363,7 @@ int action_to_index(Entity *it, Action a)
  return index;
 }
 
-void process_perception(Entity *it, Perception p)
+void process_perception(Entity *it, Perception p, Entity *player)
 {
  if(it->is_npc)
  {
@@ -400,6 +400,34 @@ void process_perception(Entity *it, Perception p)
    else if(p.npc_action_type == ACT_joins_player)
    {
     it->standing = STANDING_JOINED;
+   }
+   else if(p.npc_action_type == ACT_give_item)
+   {
+    int item_to_remove = -1;
+    Entity *e = it;
+    BUFF_ITER_I(ItemKind, &e->held_items, i)
+    {
+     if(*it == p.given_item)
+     {
+      item_to_remove = i;
+      break;
+     }
+    }
+    if(item_to_remove < 0)
+    {
+     Log("Can't find item %s to give from NPC %s to the player\n", items[p.given_item].name, characters[it->npc_kind].name);
+     assert(false);
+    }
+    else
+    {
+     BUFF_REMOVE_AT_INDEX(&it->held_items, item_to_remove);
+     BUFF_APPEND(&player->held_items, p.given_item);
+    }
+   }
+   else
+   {
+    // actions that take an argument have to have some kind of side effect based on that argument...
+    assert(!actions[p.npc_action_type].takes_argument);
    }
   }
  }
