@@ -1,4 +1,4 @@
-#define CURRENT_VERSION 10 // wehenver you change Entity increment this boz
+#define CURRENT_VERSION 11 // wehenver you change Entity increment this boz
 													 // you will die someday
 
 #define SOKOL_IMPL
@@ -571,7 +571,9 @@ sg_image load_image(const char *path)
 
 AABB level_aabb = { .upper_left = { 0.0f, 0.0f }, .lower_right = { TILE_SIZE * LEVEL_TILES, -(TILE_SIZE * LEVEL_TILES) } };
 typedef struct GameState {
-		int version;
+		int version; // this field must be first to detect versions of old saves. Must bee consistent
+		
+		bool won;
 		Entity entities[MAX_ENTITIES];
 } GameState;
 GameState gs = { 0 };
@@ -712,6 +714,7 @@ void update_player_from_entities()
 void reset_level()
 {
 		// load level
+		gs.won = false;
 		Level *to_load = &level_level0;
 		{
 				assert(ARRLEN(to_load->initial_entities) == ARRLEN(gs.entities));
@@ -1713,6 +1716,7 @@ AABB draw_text(TextParams t)
 
 AABB draw_centered_text(TextParams t)
 {
+		if(t.scale <= 0.01f) return (AABB){0};
 		t.dry_run = true;
 		AABB text_aabb = draw_text(t);
 		t.dry_run = false;
@@ -2237,6 +2241,7 @@ void draw_dialog_panel(Entity *talking_to, float alpha)
 
 #define ROLL_KEY SAPP_KEYCODE_LEFT_SHIFT
 double elapsed_time = 0.0;
+double unwarped_elapsed_time = 0.0;
 double last_frame_processing_time = 0.0;
 uint64_t last_frame_time;
 Vec2 mouse_pos = { 0 }; // in screen space
@@ -2340,6 +2345,7 @@ void frame(void)
 				unwarped_dt_double = stm_sec(stm_diff(stm_now(), last_frame_time));
 				unwarped_dt_double = fmin(unwarped_dt_double, MINIMUM_TIMESTEP * 5.0); // clamp dt at maximum 5 frames, avoid super huge dt
 				elapsed_time += unwarped_dt_double*speed_factor;
+				unwarped_elapsed_time += unwarped_dt_double;
 				last_frame_time = stm_now();
 		}
 		double dt_double = unwarped_dt_double*speed_factor;
@@ -2505,7 +2511,8 @@ void frame(void)
 				const float dialog_interact_size = 2.5f * TILE_SIZE;
 
 				float speed_target;
-				if (player->in_conversation_mode)
+				// pausing the game
+				if (player->in_conversation_mode || gs.won)
 				{
 						speed_target = 0.0f;
 				}
@@ -3891,6 +3898,28 @@ void frame(void)
 								}
 						}
 
+						// win screen
+						{
+								static float visible = 0.0f;
+								float target = 0.0f;
+								if(gs.won)
+								{
+										target = 1.0f;
+								}
+								visible = Lerp(visible, unwarped_dt*9.0f, target);
+
+								draw_quad((DrawParams) {false, quad_at(V2(0,screen_size().y), screen_size()), IMG(image_white_square), blendalpha(BLACK, visible*0.7f), .layer = LAYER_UI});
+								float shake_speed = 9.0f;
+								Vec2 win_offset = V2(sinf((float)unwarped_elapsed_time * shake_speed * 1.5f + 0.1f), sinf((float)unwarped_elapsed_time * shake_speed + 0.3f));
+								win_offset = MulV2F(win_offset, 10.0f);
+								draw_centered_text((TextParams){false, false, "YOU WON", AddV2(MulV2F(screen_size(), 0.5f), win_offset), WHITE, 9.0f*visible});
+
+								if(imbutton(centered_aabb(V2(screen_size().x/2.0f, screen_size().y*0.25f), MulV2F(V2(170.0f, 60.0f), visible)), 1.5f*visible, "Restart"))
+								{
+										reset_level();
+								}
+						}
+
 
 						// ui
 #define HELPER_SIZE 250.0f
@@ -4150,6 +4179,7 @@ void frame(void)
 				}
 #endif
 
+
 				// mobile handling touch controls handling touch input
 				if (mobile_controls)
 				{
@@ -4289,6 +4319,10 @@ void frame(void)
 								if (e->key_code == SAPP_KEYCODE_T)
 								{
 										mouse_frozen = !mouse_frozen;
+								}
+								if (e->key_code == SAPP_KEYCODE_9)
+								{
+										gs.won = true;
 								}
 								if (e->key_code == SAPP_KEYCODE_M)
 								{
