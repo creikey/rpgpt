@@ -382,8 +382,25 @@
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":2066.66666666667,
-                 "y":2209.33333333333
+                 "x":2126.66666666667,
+                 "y":2220
+                }, 
+                {
+                 "class":"",
+                 "height":32,
+                 "id":23,
+                 "name":"Edeline",
+                 "properties":[
+                        {
+                         "name":"held_items",
+                         "type":"string",
+                         "value":"{.data = {ITEM_GoldCoin}, .cur_index = 1}"
+                        }],
+                 "rotation":0,
+                 "visible":true,
+                 "width":32,
+                 "x":1286.66666666667,
+                 "y":2110.66666666667
                 }],
          "opacity":1,
          "type":"objectgroup",
@@ -392,7 +409,7 @@
          "y":0
         }],
  "nextlayerid":5,
- "nextobjectid":23,
+ "nextobjectid":24,
  "orientation":"orthogonal",
  "renderorder":"right-down",
  "tiledversion":"1.9.2",

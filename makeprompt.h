@@ -697,7 +697,7 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
 
 	if(e->held_items.cur_index > 0)
 	{
-	printf_buff(&latest_state_node, "\nThe items in the NPC's inventory: [");
+	printf_buff(&latest_state_node, "\nThe NPC you're acting as, %s, has these items in their inventory: [", characters[it->npc_kind].name);
 	BUFF_ITER_I(ItemKind, &e->held_items, i)
 	{
 		printf_buff(&latest_state_node, "ITEM_%s", items[*it].enum_name);

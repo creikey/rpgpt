@@ -2326,6 +2326,10 @@ void draw_item(bool world_space, ItemKind kind, AABB in_aabb, float alpha)
 		{
 				draw_quad((DrawParams) { world_space, drawn, IMG(image_chalice), blendalpha(WHITE, alpha), .layer = LAYER_UI_FG });
 		}
+		else if (kind == ITEM_GoldCoin)
+		{
+				draw_quad((DrawParams) { world_space, drawn, IMG(image_gold_coin), blendalpha(WHITE, alpha), .layer = LAYER_UI_FG });
+		}
 		else if (kind == ITEM_WhiteSquare)
 		{
 				colorquad(world_space, drawn, blendalpha(WHITE, alpha));
