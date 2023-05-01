@@ -35,6 +35,8 @@ ActionInfo actions[] = {
 	{.name = "joins_player", },
 	{.name = "leaves_player", },
 	{.name = "stops_fighting_player", },
+
+	{.name = "knights_player", },
 };
 
 typedef struct

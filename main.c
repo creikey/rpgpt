@@ -2543,6 +2543,10 @@ void frame(void)
 								player_in_combat = false; // in combat set by various enemies when they fight the player
 								PROFILE_SCOPE("entity processing")
 								{
+										if(player->knighted)
+										{
+												gs.won = true;
+										}
 										ENTITIES_ITER(gs.entities)
 										{
 												assert(!(it->exists && it->generation == 0));

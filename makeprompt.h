@@ -236,6 +236,7 @@ typedef struct Entity
 
 	// character
 	bool is_character;
+	bool knighted;
 	EntityRef holding_item;
 	bool in_conversation_mode;
 	Vec2 to_throw_direction;
@@ -297,6 +298,12 @@ void fill_available_actions(Entity *it, AvailableActions *a)
 	*a = (AvailableActions) { 0 };
 	BUFF_APPEND(a, ACT_none);
 	BUFF_APPEND(a, ACT_give_item);
+	
+	if (it->npc_kind == NPC_TheKing)
+	{
+		BUFF_APPEND(a, ACT_knights_player);
+	}
+
 	if (it->npc_kind == NPC_GodRock)
 	{
 		BUFF_APPEND(a, ACT_heals_player);
@@ -406,6 +413,10 @@ void process_perception(Entity *it, Perception p, Entity *player)
 		else if (p.npc_action_type == ACT_fights_player)
 		{
 			it->standing = STANDING_FIGHTING;
+		}
+		else if(p.npc_action_type == ACT_knights_player)
+		{
+			player->knighted = true;
 		}
 		else if (p.npc_action_type == ACT_stops_fighting_player)
 		{
