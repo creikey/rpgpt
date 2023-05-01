@@ -26,6 +26,10 @@
 {
  filepath: "boots.png",
 }
+@image chalice:
+{
+ filepath: "chalice_of_gold.png",
+}
 @image new_knight_idle:
 {
  filepath: "copyrighted/knight_idle.png",

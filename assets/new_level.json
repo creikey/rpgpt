@@ -381,6 +381,11 @@
                  "name":"TheBlacksmith",
                  "properties":[
                         {
+                         "name":"held_items",
+                         "type":"string",
+                         "value":"{.data = {ITEM_Chalice}, .cur_index = 1}"
+                        }, 
+                        {
                          "name":"standing",
                          "type":"string",
                          "value":"STANDING_FIGHTING"
