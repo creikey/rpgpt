@@ -740,7 +740,7 @@ void reset_level()
 				{
 						//BUFF_APPEND(&it->remembered_perceptions, ((Perception) { .type = PlayerDialog, .player_dialog = SENTENCE_CONST("Testing dialog") }));
 
-						BUFF_APPEND(&it->held_items, ITEM_Chalice);
+						//BUFF_APPEND(&it->held_items, ITEM_Chalice);
 				}
 		}
 }

@@ -345,12 +345,6 @@
                  "height":32,
                  "id":4,
                  "name":"TheKing",
-                 "properties":[
-                        {
-                         "name":"standing",
-                         "type":"string",
-                         "value":"STANDING_FIGHTING"
-                        }],
                  "rotation":0,
                  "visible":true,
                  "width":32,
@@ -384,11 +378,6 @@
                          "name":"held_items",
                          "type":"string",
                          "value":"{.data = {ITEM_Chalice}, .cur_index = 1}"
-                        }, 
-                        {
-                         "name":"standing",
-                         "type":"string",
-                         "value":"STANDING_FIGHTING"
                         }],
                  "rotation":0,
                  "visible":true,

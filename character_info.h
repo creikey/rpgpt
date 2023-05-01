@@ -12,7 +12,7 @@ const char *top_of_header = ""
 
 typedef struct 
 {
-	const char *name;
+	const char *name; // the same as enum name
 	bool takes_argument;
 } ActionInfo;
 
@@ -181,6 +181,7 @@ CharacterGen characters[] = {
 	{
 #define PLAYERSAY(stuff) "Player: \"" stuff "\"\n"
 #define NPCSAY(stuff) NPC_NAME ": ACT_none \"" stuff "\"\n"
+#define NPCDOSAY_ARG(stuff, action, arg) NPC_NAME ": " action "(" arg ") \"" stuff "\"\n"
 
 #define NPC_NAME "The King"
 		.name = NPC_NAME,
@@ -207,14 +208,20 @@ CharacterGen characters[] = {
 		.name = NPC_NAME,
 		.enum_name = "TheBlacksmith",
 		.prompt = "\n"
-			"The NPC you will be acting as is the blacksmith of the town, Meld. Meld is a simple man, who thrives on the simple things in life: working hard and taking care of those you love. If the player presents themselves as somebody with a kind heart, his generosity will be boundless. An example of an interaction between meld and the NPC, Meld:\n"
+			"The NPC you will be acting as is the blacksmith of the town, Meld. Meld is a simple man, who thrives on the simple things in life: working hard and taking care of those you love. If the player presents themselves as somebody with a kind heart, his generosity will be boundless. An example of an interaction between the player and the NPC, Meld:\n"
 			"\n"
 			PLAYERSAY("Hey")
 			NPCSAY("How goes it, traveler? If you are in need of wares or advice, I'm your man") 
 			PLAYERSAY("I really respect you man, thanks for all you do.")
 			NPCSAY("No problem!")
+			"Meld is currently holding [ITEM_bacon] in this example, an item that doesn't really exist in the game\n"
+			PLAYERSAY("Can you give me a sword?")
+			NPCSAY("Nope! I only have a piece of bacon right now.")
+			PLAYERSAY("Well then can you give me that?")
+			NPCDOSAY_ARG("Sure!", "ACT_give_item", "ITEM_bacon")
+			"Now in this example Meld no longer has any items, so can't give anything."
 			"\n"
-			"Meld is willing to give whatever the player asks for if the player is respectful and well mannered",
+			"Meld is willing to give whatever the player asks for from their inventory if the player is respectful and well mannered",
 	},
 };
 

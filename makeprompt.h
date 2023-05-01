@@ -297,7 +297,11 @@ void fill_available_actions(Entity *it, AvailableActions *a)
 {
 	*a = (AvailableActions) { 0 };
 	BUFF_APPEND(a, ACT_none);
-	BUFF_APPEND(a, ACT_give_item);
+
+	if(it->held_items.cur_index > 0)
+	{
+		BUFF_APPEND(a, ACT_give_item);
+	}
 	
 	if (it->npc_kind == NPC_TheKing)
 	{
@@ -495,6 +499,27 @@ bool printf_buff_impl(BuffRef into, const char *format, ...)
 
 #define printf_buff(buff_ptr, ...) printf_buff_impl(BUFF_MAKEREF(buff_ptr), __VA_ARGS__)
 
+typedef BUFF(char, 512) SmallTextChunk;
+
+SmallTextChunk percept_action_str(Perception p, Action act)
+{
+	SmallTextChunk to_return = {0};
+	printf_buff(&to_return, "ACT_%s", actions[act].name);
+	if(actions[act].takes_argument)
+	{
+		if(act == ACT_give_item)
+		{
+			printf_buff(&to_return, "(ITEM_%s)", items[p.given_item].enum_name);
+		}
+		else
+		{
+			assert(false);
+		}
+	}
+	return to_return;
+}
+
+
 bool npc_does_dialog(Entity *it)
 {
 	return it->npc_kind < ARRLEN(characters);
@@ -587,13 +612,13 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
 		if (it->type == PlayerAction)
 		{
 			assert(it->player_action_type < ARRLEN(actions));
-			printf_buff(&cur_node, "Player: ACT_%s", actions[it->player_action_type].name);
+			printf_buff(&cur_node, "Player: %s", percept_action_str(*it, it->player_action_type).data);
 			dump_json_node(into, MSG_USER, cur_node.data);
 		}
 		else if (it->type == EnemyAction)
 		{
 			assert(it->enemy_action_type < ARRLEN(actions));
-			printf_buff(&cur_node, "An Enemy: ACT_%s", actions[it->player_action_type].name);
+			printf_buff(&cur_node, "An Enemy: %s", percept_action_str(*it, it->enemy_action_type).data);
 			dump_json_node(into, MSG_USER, cur_node.data);
 		}
 		else if (it->type == PlayerDialog)
@@ -623,8 +648,8 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
 		else if (it->type == NPCDialog)
 		{
 			assert(it->npc_action_type < ARRLEN(actions));
-			printf_buff(&cur_node, "%s: ACT_%s \"%s\"", characters[e->npc_kind].name,
-			            actions[it->npc_action_type].name, it->npc_dialog.data);
+			printf_buff(&cur_node, "%s: %s \"%s\"", characters[e->npc_kind].name,
+			            percept_action_str(*it, it->npc_action_type).data, it->npc_dialog.data);
 			dump_json_node(into, MSG_ASSISTANT, cur_node.data);
 		}
 		else if (it->type == PlayerHeldItemChanged)
@@ -670,6 +695,8 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
 		assert(false);
 	}
 
+	if(e->held_items.cur_index > 0)
+	{
 	printf_buff(&latest_state_node, "\nThe items in the NPC's inventory: [");
 	BUFF_ITER_I(ItemKind, &e->held_items, i)
 	{
@@ -682,6 +709,11 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
 		{
 			printf_buff(&latest_state_node, ", ");
 		}
+	}
+	}
+	else
+	{
+		printf_buff(&latest_state_node, "\nThe NPC doesn't have any items.\n");
 	}
 
 	AvailableActions available = { 0 };
@@ -817,11 +849,10 @@ void generate_prompt(Entity *it, PromptBuff *into)
 }
 */
 
-typedef BUFF(char, 512) GottenUntil;
 
 // puts characters from `str` into `into` until any character in `until` is encountered
 // returns the number of characters read into into
-int get_until(GottenUntil *into, const char *str, const char *until)
+int get_until(SmallTextChunk *into, const char *str, const char *until)
 {
 	int i = 0;
 	size_t until_size = strlen(until);
@@ -840,6 +871,7 @@ int get_until(GottenUntil *into, const char *str, const char *until)
 	return into->cur_index - before_cur_index;
 }
 
+
 bool char_in_str(char c, const char *str)
 {
 	size_t len = strlen(str);
@@ -857,7 +889,7 @@ bool parse_chatgpt_response(Entity *it, char *sentence_str, Perception *out)
 
 	size_t sentence_length = strlen(sentence_str);
 
-	GottenUntil action_string = { 0 };
+	SmallTextChunk action_string = { 0 };
 	sentence_str += get_until(&action_string, sentence_str, "( ");
 
 	bool found_action = false;
@@ -881,7 +913,7 @@ bool parse_chatgpt_response(Entity *it, char *sentence_str, Perception *out)
 	}
 	else
 	{
-		GottenUntil dialog_str = { 0 };
+		SmallTextChunk dialog_str = { 0 };
 		if (actions[out->npc_action_type].takes_argument)
 		{
 #define EXPECT(chr, val) if (chr != val) { Log("Improperly formatted sentence_str `%s`, expected %c but got %c\n", sentence_str, val, chr); return false; }
@@ -889,7 +921,7 @@ bool parse_chatgpt_response(Entity *it, char *sentence_str, Perception *out)
 			EXPECT(*sentence_str, '(');
 			sentence_str += 1;
 
-			GottenUntil argument = { 0 };
+			SmallTextChunk argument = { 0 };
 			sentence_str += get_until(&argument, sentence_str, ")");
 
 			if (out->npc_action_type == ACT_give_item)
