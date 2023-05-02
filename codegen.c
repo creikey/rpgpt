@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdbool.h>
-#include <assert.h>
+#include "better_assert.h"
 
 #include "buff.h"
 

@@ -500,6 +500,7 @@ AABB centered_aabb(Vec2 at, Vec2 size)
 	};
 }
 
+
 AABB entity_aabb_at(Entity *e, Vec2 at)
 {
 	return centered_aabb(at, entity_aabb_size(e));
@@ -919,6 +920,7 @@ SwordToDamage entity_sword_to_do_damage(Entity *from, Overlapping o)
 
 
 #define WHITE ((Color) { 1.0f, 1.0f, 1.0f, 1.0f })
+#define GREY ((Color) { 0.4f, 0.4f, 0.4f, 1.0f })
 #define BLACK ((Color) { 0.0f, 0.0f, 0.0f, 1.0f })
 #define RED   ((Color) { 1.0f, 0.0f, 0.0f, 1.0f })
 #define PINK  ((Color) { 1.0f, 0.0f, 1.0f, 1.0f })
@@ -1295,6 +1297,10 @@ Quad quad_aabb(AABB aabb)
 	};
 }
 
+Quad centered_quad(Vec2 at, Vec2 size)
+{
+	return quad_aabb(centered_aabb(at, size));
+}
 
 // both segment_a and segment_b must be arrays of length 2
 bool segments_overlapping(float *a_segment, float *b_segment)
@@ -2264,6 +2270,9 @@ typedef struct
 	bool interact;
 	bool mouse_down;
 	bool mouse_up;
+
+	bool speak_shortcut;
+	bool give_shortcut;
 } PressedState;
 
 PressedState pressed = { 0 };
@@ -2689,14 +2698,14 @@ void frame(void)
 							{
 								Entity *targeting = player;
 
-								/*
-									 G cost: distance from the current node to the start node
-									 H cost: distance from the current node to the target node
+/*
+G cost: distance from the current node to the start node
+H cost: distance from the current node to the target node
 
-									 G     H
-									 SUM
-									 F cost: G + H
-									 */
+G     H
+  SUM
+F cost: G + H
+*/
 								Vec2 to = targeting->pos;
 
 								PathCache *cached = get_path_cache(elapsed_time, it->cached_path);
@@ -3760,20 +3769,47 @@ void frame(void)
 								);
 						float button_grid_width = button_size.x*num_buttons + space_btwn_buttons * (num_buttons - 1.0f);
 						Vec2 cur_upper_left = V2((panel_aabb.upper_left.x + panel_aabb.lower_right.x) / 2.0f - button_grid_width / 2.0f, panel_aabb.lower_right.y + button_size.y);
-						if (imbutton_key(aabb_at(cur_upper_left, button_size), text_scale, "Speak", __LINE__, unwarped_dt, receiving_text_input))
+						if(receiving_text_input && pressed.speak_shortcut)
+						{
+							end_text_input("");
+							pressed.speak_shortcut = false;
+						}
+						if (imbutton_key(aabb_at(cur_upper_left, button_size), text_scale, "Speak", __LINE__, unwarped_dt, receiving_text_input) || pressed.speak_shortcut)
 						{
 							begin_text_input();
 						}
-						float button_grid_height = button_size.y;
+
+
+						// draw keyboard hint
+						{
+							Vec2 keyboard_helper_at = V2(cur_upper_left.x + button_size.x*0.5f, cur_upper_left.y - button_size.y*0.75f);
+							draw_quad((DrawParams){false, centered_quad(keyboard_helper_at, V2(40.0f, 40.0f)), IMG(image_white_square), blendalpha(GREY, 0.4f)});
+							draw_centered_text((TextParams){false, false, "S", keyboard_helper_at, BLACK, 1.5f});
+						}
 
 						cur_upper_left.x += button_size.x + space_btwn_buttons;
-						if (imbutton(aabb_at(cur_upper_left, button_size), text_scale, "Give Item"))
+
+						if(choosing_item_grid && pressed.give_shortcut)
+						{
+							pressed.give_shortcut = false;
+							choosing_item_grid = false;
+						}
+
+						if (imbutton_key(aabb_at(cur_upper_left, button_size), text_scale, "Give Item", __LINE__, unwarped_dt, choosing_item_grid) || pressed.give_shortcut)
 						{
 							choosing_item_grid = true;
 						}
 
-						const float dialog_text_scale = 1.0f;
+						
+						// draw keyboard hint
+						{
+							Vec2 keyboard_helper_at = V2(cur_upper_left.x + button_size.x*0.5f, cur_upper_left.y - button_size.y*0.75f);
+							draw_quad((DrawParams){false, centered_quad(keyboard_helper_at, V2(40.0f, 40.0f)), IMG(image_white_square), blendalpha(GREY, 0.4f)});
+							draw_centered_text((TextParams){false, false, "G", keyboard_helper_at, BLACK, 1.5f});
+						}
 
+						const float dialog_text_scale = 1.0f;
+						float button_grid_height = button_size.y;
 						AABB dialog_text_aabb = panel_aabb;
 						dialog_text_aabb.lower_right.y += button_grid_height + 20.0f; // a little bit of padding because the buttons go up
 						float new_line_height = dialog_text_aabb.lower_right.y;
@@ -4313,6 +4349,15 @@ void frame(void)
 				if (e->key_code == SAPP_KEYCODE_E)
 				{
 					pressed.interact = true;
+				}
+
+				if (e->key_code == SAPP_KEYCODE_S)
+				{
+					pressed.speak_shortcut = true;
+				}
+				if (e->key_code == SAPP_KEYCODE_G)
+				{
+					pressed.give_shortcut = true;
 				}
 
 				if (e->key_code == SAPP_KEYCODE_LEFT_SHIFT)

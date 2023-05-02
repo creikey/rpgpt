@@ -8,7 +8,11 @@
 #define DeferLoop(start, end) for (int _i_ = ((start), 0); _i_ == 0; _i_ += 1, (end))
 
 #ifdef PROFILING
+#if defined(__clang__)
+#define THREADLOCAL _Thread_local
+#else
 #define THREADLOCAL __declspec(thread)
+#endif
 #define PROFILING_BUFFER_SIZE (1 * 1024 * 1024)
 
 #ifdef PROFILING_IMPL

@@ -1113,7 +1113,13 @@ static size_t stbds_siphash_bytes(void *p, size_t len, size_t seed)
 #endif
 }
 
-size_t stbds_hash_bytes(void *p, size_t len, size_t seed)
+#if defined(__clang__)
+#define no_ubsan_overflow __attribute__((no_sanitize("undefined")))
+#else
+#define no_ubsan_overflow 
+#endif
+
+size_t no_ubsan_overflow stbds_hash_bytes(void *p, size_t len, size_t seed)
 {
 #ifdef STBDS_SIPHASH_2_4
   return stbds_siphash_bytes(p,len,seed);

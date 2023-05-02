@@ -2,7 +2,7 @@
 
 #include "buff.h"
 #include "HandmadeMath.h" // vector types in entity struct definition
-#include <assert.h>
+#include "better_assert.h"
 #include <stdbool.h>
 #include <string.h>
 #include <stdlib.h> // atoi
