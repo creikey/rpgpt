@@ -1596,7 +1596,7 @@ bool profiling;
 #endif
 #endif
 
-Color debug_color = { 1.0f, 0.0f, 0.0f, 0.0f };
+Color debug_color = {1,0,0,1};
 
 #define dbgcol(col) DeferLoop(debug_color = col, debug_color = RED)
 
@@ -1934,10 +1934,13 @@ Vec2 move_and_slide(MoveSlideParams p)
 {
 	Vec2 collision_aabb_size = entity_aabb_size(p.from);
 	Vec2 new_pos = AddV2(p.position, p.movement_this_frame);
+
 	assert(collision_aabb_size.x > 0.0f);
 	assert(collision_aabb_size.y > 0.0f);
 	AABB at_new = centered_aabb(new_pos, collision_aabb_size);
 	BUFF(AABB, 256) to_check = { 0 };
+
+
 
 	// add tilemap boxes
 	{
@@ -1960,6 +1963,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 			}
 		}
 	}
+
 
 	// add entity boxes
 	if (!p.dont_collide_with_entities && !(p.from->is_character && p.from->is_rolling))
@@ -2027,6 +2031,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 			dbgrect(*it);
 		}
 	}
+
 
 	//overlapping_smallest_first = actually_overlapping;
 
