@@ -5,8 +5,8 @@
 
 START /B remedybg.exe stop-debugging
 if "%1" == "codegen" ( call run_codegen.bat || goto :error ) else ( echo NOT RUNNING CODEGEN )
-@REM cl /diagnostics:caret /DDEVTOOLS /Igen /Ithirdparty /W3 /Zi /WX main.c || goto :error
-zig cc -DDEVTOOLS -Igen -Ithirdparty -lGdi32 -lD3D11 -lOle32 -gfull -gcodeview -o main.exe main.c || goto :error
+cl /diagnostics:caret /DDEVTOOLS /Igen /Ithirdparty /W3 /Zi /WX Dbghelp.lib main.c || goto :error
+@REM zig cc -DDEVTOOLS -Igen -Ithirdparty -lDbghelp -lGdi32 -lD3D11 -lOle32 -gfull -gcodeview -o main.exe main.c || goto :error
 @REM cl /Igen /Ithirdparty /W3 /Zi /WX main.c || goto :error
 
 remedybg.exe start-debugging

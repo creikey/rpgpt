@@ -25,6 +25,11 @@
 #define BUFF_REMOVE_AT_INDEX(buff_ptr, index) { BUFF_VALID(buff_ptr); assert(index >= 0); assert(index < (buff_ptr)->cur_index); for(int i = index; i < (buff_ptr)->cur_index - 1; i++) (buff_ptr)->data[i] = (buff_ptr)->data[i + 1]; (buff_ptr)->cur_index -= 1; }
 #define BUFF_CLEAR(buff_ptr) {memset((buff_ptr), 0, sizeof(*(buff_ptr)));  ((buff_ptr)->cur_index = 0);}
 
+#define BUFF_QUEUE_APPEND(buff_ptr, element) { if(!BUFF_HAS_SPACE(buff_ptr)) BUFF_REMOVE_FRONT(buff_ptr); BUFF_APPEND(buff_ptr, element); }
+
+// must have at least one element
+#define BUFF_LAST(buff_ptr) (buff_ptr)->data[(buff_ptr)->cur_index - 1]
+
 typedef struct
 {
  void *data;

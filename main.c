@@ -4,13 +4,16 @@
 #define SOKOL_IMPL
 #if defined(WIN32) || defined(_WIN32)
 #define DESKTOP
+#define WINDOWS
 #define SOKOL_D3D11
 #endif
 
-#if defined(__EMSCRIPTEN__)
-#define WEB
-#define SOKOL_GLES2
+#ifdef WINDOWS
+#include <Windows.h>
+#include <processthreadsapi.h>
+#include <dbghelp.h>
 #endif
+
 
 #include "buff.h"
 #include "sokol_app.h"
@@ -1410,6 +1413,49 @@ typedef enum
 	LAYER_LAST
 } Layer;
 
+typedef BUFF(char, 200) StacktraceElem;
+typedef BUFF(StacktraceElem, 16) StacktraceInfo;
+
+StacktraceInfo get_stacktrace()
+{
+#ifdef WINDOWS
+	StacktraceInfo to_return = {0};
+	void *stack[ARRLEN(to_return.data)] = {0};
+	int captured = CaptureStackBackTrace(0, ARRLEN(to_return.data), stack, 0);
+
+	HANDLE process = GetCurrentProcess();
+	SymInitialize(process, NULL, TRUE);
+
+	for(int i = 0; i < captured; i++)
+	{
+		StacktraceElem new_elem = {0};
+		
+		SYMBOL_INFO *symbol = calloc(sizeof(SYMBOL_INFO) + ARRLEN(new_elem.data), 1);
+
+		symbol->MaxNameLen = ARRLEN(new_elem.data);
+		symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+
+		if(!SymFromAddr(process, (DWORD64) stack[i], 0, symbol))
+		{
+			DWORD error_code = GetLastError();
+			Log("Could not read stack trace: %d\n", error_code);
+			assert(false);
+		}
+
+		size_t symbol_name_len = strlen(symbol->Name);
+		assert(symbol_name_len < ARRLEN(new_elem.data));
+		memcpy(new_elem.data, symbol->Name, symbol_name_len);
+		new_elem.cur_index = (int)symbol_name_len;
+		BUFF_APPEND(&to_return, new_elem);
+
+		free(symbol);
+	}
+	return to_return;
+#else
+	return (StacktraceInfo){0};
+#endif
+}
+
 typedef struct DrawParams
 {
 	bool world_space;
@@ -1424,6 +1470,9 @@ typedef struct DrawParams
 
 	bool do_clipping;
 	Layer layer;
+
+	// for debugging purposes
+	int line_number; 
 } DrawParams;
 
 Vec2 into_clip_space(Vec2 screen_space_point)
@@ -1433,11 +1482,12 @@ Vec2 into_clip_space(Vec2 screen_space_point)
 	return in_clip_space;
 }
 
+
 typedef BUFF(DrawParams, 1024*5) RenderingQueue;
 RenderingQueue rendering_queues[LAYER_LAST] = { 0 };
 
 // The image region is in pixel space of the image
-void draw_quad(DrawParams d)
+void draw_quad_impl(DrawParams d, int line)
 {
 	Vec2 *points = d.quad.points;
 	if (d.world_space)
@@ -1457,9 +1507,13 @@ void draw_quad(DrawParams d)
 	// we've aplied the world space transform
 	d.world_space = false;
 
+	d.line_number = line;
+
 	assert(d.layer >= 0 && d.layer < ARRLEN(rendering_queues));
 	BUFF_APPEND(&rendering_queues[(int)d.layer], d);
 }
+
+#define draw_quad(...) draw_quad_impl(__VA_ARGS__, __LINE__)
 
 int rendering_compare(const void *a, const void *b)
 {
@@ -1503,12 +1557,25 @@ void colorquad(bool world_space, Quad q, Color col)
 	draw_quad((DrawParams) { world_space, q, image_white_square, full_region(image_white_square), col, .layer = LAYER_UI });
 }
 
+Vec2 NormV2_or_zero(Vec2 v)
+{
+	if(v.x == 0.0f && v.y == 0.0f)
+	{
+		return V2(0.0f, 0.0f);
+	}
+	else
+	{
+		return NormV2(v);
+	}
+}
+
 
 // in world coordinates
 bool in_screen_space = false;
 void line(Vec2 from, Vec2 to, float line_width, Color color)
 {
-	Vec2 normal = rotate_counter_clockwise(NormV2(SubV2(to, from)));
+	Vec2 normal = rotate_counter_clockwise(NormV2_or_zero(SubV2(to, from)));
+	
 	Quad line_quad = {
 		.points = {
 			AddV2(from, MulV2F(normal, line_width)),  // upper left
@@ -1538,6 +1605,16 @@ void dbgsquare(Vec2 at)
 #ifdef DEVTOOLS
 	if (!show_devtools) return;
 	colorquad(true, quad_centered(at, V2(3.0, 3.0)), debug_color);
+#else
+	(void)at;
+#endif
+}
+
+void dbgbigsquare(Vec2 at)
+{
+#ifdef DEVTOOLS
+	if (!show_devtools) return;
+	colorquad(true, quad_centered(at, V2(20.0, 20.0)), BLUE);
 #else
 	(void)at;
 #endif
@@ -2168,6 +2245,53 @@ Dialog produce_dialog(Entity *talking_to, bool character_names)
 		}
 	}
 	return to_return;
+}
+
+// trail is buffer of vec2s
+Vec2 get_point_along_trail(BuffRef trail, float along)
+{
+	assert(trail.data_elem_size == sizeof(Vec2));
+	assert(*trail.cur_index > 1);
+
+	Vec2 *arr = (Vec2*)trail.data;
+
+	int cur = *trail.cur_index - 1;
+	while(cur > 0)
+	{
+		Vec2 from = arr[cur];
+		Vec2 to = arr[cur - 1];
+		Vec2 cur_segment = SubV2(to, from);
+		float len = LenV2(cur_segment);
+		if(len < along)
+		{
+			along -= len;
+		}
+		else
+		{
+			return LerpV2(from, along/len, to);
+		}
+		cur -= 1;
+	}
+	return arr[*trail.cur_index - 1];
+}
+float get_total_trail_len(BuffRef trail)
+{
+	assert(trail.data_elem_size == sizeof(Vec2));
+
+	if(*trail.cur_index <= 1)
+	{
+		return 0.0f;
+	}
+	else
+	{
+		float to_return = 0.0f;
+		Vec2 *arr = (Vec2*)trail.data;
+		for(int i = 0; i < *trail.cur_index - 1; i++)
+		{
+			to_return += LenV2(SubV2(arr[i], arr[i+1]));
+		}
+		return to_return;
+	}
 }
 
 Vec2 mouse_pos = { 0 }; // in screen space
@@ -3258,7 +3382,6 @@ F cost: G + H
 
 					PROFILE_SCOPE("process player")
 					{
-
 						// do dialog
 						Entity *closest_interact_with = 0;
 						{
@@ -3453,6 +3576,25 @@ F cost: G + H
 							Vec2 target_vel = MulV2F(movement, pixels_per_meter * speed);
 							player->vel = LerpV2(player->vel, dt * 15.0f, target_vel);
 							player->pos = move_and_slide((MoveSlideParams) { player, player->pos, MulV2F(player->vel, dt) });
+
+							bool should_append = false;
+
+							// make it so no snap when new points added
+							if(player->position_history.cur_index > 0)
+							{
+								player->position_history.data[player->position_history.cur_index - 1] = player->pos;
+							}
+
+							if(player->position_history.cur_index > 2)
+							{
+								should_append = LenV2(SubV2(player->position_history.data[player->position_history.cur_index - 2], player->pos)) > TILE_SIZE;
+							}
+							else
+							{
+								should_append = true;
+							}
+							if(should_append) BUFF_QUEUE_APPEND(&player->position_history, player->pos);
+
 						}
 						// health
 						if (player->damage >= 1.0)
@@ -3467,9 +3609,34 @@ F cost: G + H
 			pressed = before_gameplay_loops;
 
 
-			PROFILE_SCOPE("render player")
+			PROFILE_SCOPE("render player") // draw character draw player render character
 			{
 				DrawnAnimatedSprite to_draw = { 0 };
+
+				dbgline(screen_to_world(mouse_pos), player->pos);
+
+				if(player->position_history.cur_index > 0)
+				{
+					float trail_len = get_total_trail_len(BUFF_MAKEREF(&player->position_history));
+					if(trail_len > 0.0f) // fmodf returns nan
+					{
+						float along = fmodf((float)elapsed_time*100.0f, 200.0f);
+						Vec2 at = get_point_along_trail(BUFF_MAKEREF(&player->position_history), along);
+						dbgbigsquare(at);
+						dbgbigsquare(get_point_along_trail(BUFF_MAKEREF(&player->position_history), 50.0f));
+					}
+					BUFF_ITER_I(Vec2, &player->position_history, i)
+					{
+						if(i == player->position_history.cur_index - 1) 
+						{
+						}
+						else
+						{
+							dbgline(*it, player->position_history.data[i + 1]);
+						}
+					}
+				}
+
 				Vec2 character_sprite_pos = AddV2(player->pos, V2(0.0, 20.0f));
 				// if somebody, show their dialog panel
 				if (interacting_with)
@@ -3817,7 +3984,6 @@ F cost: G + H
 						if (talking_to)
 						{
 							Dialog dialog = produce_dialog(talking_to, true);
-							if (dialog.cur_index > 0)
 							{
 								for (int i = dialog.cur_index - 1; i >= 0; i--)
 								{
