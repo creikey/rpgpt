@@ -100,7 +100,9 @@ typedef struct
 } CharacterGen;
 CharacterGen characters[] = {
 #define PLAYERSAY(stuff) "Player: \"" stuff "\"\n"
+#define PLAYERDO_ARG(act, arg) "Player: " act "(" arg ")\n"
 #define NPCSAY(stuff) NPC_NAME ": ACT_none \"" stuff "\"\n"
+#define NPCDOSAY(stuff, action) NPC_NAME ": " action " \"" stuff "\"\n"
 #define NPCDOSAY_ARG(stuff, action, arg) NPC_NAME ": " action "(" arg ") \"" stuff "\"\n"
 	{
 #undef NPC_NAME
@@ -120,8 +122,12 @@ CharacterGen characters[] = {
 			NPCSAY("I can clearly see you don't have it. Do not attempt to fool me if you value your head")
 			PLAYERSAY("Presents it")
 			NPCSAY("Did you just say 'presents it' out loud thinking I'd think that means you have the chalice?")
+			PLAYERSAY("Apologies for the tomfoolery, but I was just making sure you were the real king. I do in fact have the Chalice.")
+			NPCSAY("Then give it to me.")
+			PLAYERDO_ARG("ACT_give_item", "ITEM_Chalice")
+			NPCDOSAY("The chalice of gold! This is indeed knight-worthy. I pronounce you, knight!", "ACT_knights_player")
 			"\n"
-			"If the player does indeed present the king with the chalice of gold, the king will be overwhelemd with respect and feel he has no choice but to knight the player, ending the game.",
+			"If the player does indeed present the king with the chalice of gold, the king will be overwhelemed with respect and feel he has no choice but to knight the player, ending the game. To knight the player the king says the action `ACT_knights_player`",
 	},
 	{
 #undef NPC_NAME
