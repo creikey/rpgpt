@@ -2823,6 +2823,27 @@ void frame(void)
 							}
 
 
+							if(it->standing == STANDING_JOINED)
+							{
+								int place_in_line = 1;
+								Entity *e = it;
+								ENTITIES_ITER(gs.entities)
+								{
+									if(it->is_npc && it->standing == STANDING_JOINED)
+									{
+										if(it == e) break;
+										place_in_line += 1;
+									}
+								}
+
+								Vec2 target = get_point_along_trail(BUFF_MAKEREF(&player->position_history), (float)place_in_line * TILE_SIZE);
+
+								it->pos = LerpV2(it->pos, dt*5.0f, target);
+							}
+
+
+							// A* and shotgun movement code
+							if(false)
 							if (it->standing == STANDING_FIGHTING || it->standing == STANDING_JOINED)
 							{
 								Entity *targeting = player;
@@ -3372,7 +3393,14 @@ F cost: G + H
 								else
 								{
 									//SAY_ARG(ACT_give_item, "Here you go" , "ITEM_Chalice");
-									SAY(ACT_joins_player, "I am an NPC");
+									if(it->standing != STANDING_JOINED)
+									{
+										SAY(ACT_joins_player, "I am an NPC");
+									}
+									else
+									{
+										SAY(ACT_none, "What's good");
+									}
 									//SAY(ACT_fights_player, "I am an NPC. Bla bla bl alb djsfklalfkdsaj. Did you know shortcake?");
 								}
 								Perception p = { 0 };
@@ -3617,8 +3645,6 @@ F cost: G + H
 			PROFILE_SCOPE("render player") // draw character draw player render character
 			{
 				DrawnAnimatedSprite to_draw = { 0 };
-
-				dbgline(screen_to_world(mouse_pos), player->pos);
 
 				if(player->position_history.cur_index > 0)
 				{
@@ -3946,7 +3972,7 @@ F cost: G + H
 							end_text_input("");
 							pressed.speak_shortcut = false;
 						}
-						if (imbutton_key(aabb_at(cur_upper_left, button_size), text_scale, "Speak", __LINE__, unwarped_dt, receiving_text_input) || pressed.speak_shortcut)
+						if (imbutton_key(aabb_at(cur_upper_left, button_size), text_scale, "Speak", __LINE__, unwarped_dt, receiving_text_input) || (talking_to && pressed.speak_shortcut))
 						{
 							begin_text_input();
 						}
@@ -3967,7 +3993,7 @@ F cost: G + H
 							choosing_item_grid = false;
 						}
 
-						if (imbutton_key(aabb_at(cur_upper_left, button_size), text_scale, "Give Item", __LINE__, unwarped_dt, choosing_item_grid) || pressed.give_shortcut)
+						if (imbutton_key(aabb_at(cur_upper_left, button_size), text_scale, "Give Item", __LINE__, unwarped_dt, choosing_item_grid) || (talking_to && pressed.give_shortcut))
 						{
 							choosing_item_grid = true;
 						}
