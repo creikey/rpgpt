@@ -408,18 +408,22 @@ func completion(w http.ResponseWriter, req *http.Request) {
    with_action := strings.SplitAfter(response, "ACT_")
    if len(with_action) != 2 {
     log.Printf("Could not find action in response string `%s`\n", response)
-    w.WriteHeader(http.StatusInternalServerError)
+    w.WriteHeader(http.StatusInternalServerError) // game should send a new retry request after this
     return
    }
    response = with_action[1]
    
-   // trim ending quotation mark
-   if !strings.HasSuffix(response, "\"") {
-    log.Printf("Could not find ending quotation in response string `%s`\n", response)
+   // trim ending quotation mark. There might be text after the ending quotation mark because chatgpt sometimes
+	 // puts addendums in its responses, like `ACT_none "Hey" (I wanted the NPC to say hey here)`. The stuffafter the second
+	 // quotation mark needs to be ignored
+	 between_quotes := strings.Split(response, "\"")
+	 // [action] " [stuff] " [anything extra]
+   if len(between_quotes) < 2 {
+    log.Printf("Could not find enough quotes in response string `%s`\n", response)
     w.WriteHeader(http.StatusInternalServerError)
     return
    }
-   response = response[:len(response)-1]
+	 response = between_quotes[0] + "\"" + between_quotes[1] + "\""
   }
   if logResponses {
    log.Println("Println response: `", response + "`")
