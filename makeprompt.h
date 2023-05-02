@@ -241,6 +241,8 @@ typedef struct Entity
 	bool in_conversation_mode;
 	Vec2 to_throw_direction;
 
+	BUFF(Vec2, 8) position_history; // so npcs can follow behind the player
+
 	CharacterState state;
 	EntityRef talking_to;
 	bool is_rolling; // can only roll in idle or walk states

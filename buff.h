@@ -9,6 +9,8 @@
 // you can't do &(some func, variable) to get the variable's address in C. Sad!
 #define GET_TABLE_PTR(table, index) (assert(index < ARRLEN(table) && index >= 0), &table[index])
 
+#define RANGE_ITER(from, to) for(int i = from; i < to; i++)
+
 // null terminator always built into buffers so can read properly from data
 #define BUFF_VALID(buff_ptr) assert((buff_ptr)->cur_index <= ARRLEN((buff_ptr)->data))
 #define BUFF(type, max_size) struct { int cur_index; type data[max_size]; char null_terminator; }

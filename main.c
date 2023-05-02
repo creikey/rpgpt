@@ -727,6 +727,7 @@ void reset_level()
 	}
 	update_player_from_entities();
 
+#ifdef DEVTOOLS
 	if(false)
 	{
 		BUFF_APPEND(&player->held_items, ITEM_WhiteSquare);
@@ -738,11 +739,13 @@ void reset_level()
 	{
 		if (it->npc_kind == NPC_TheBlacksmith)
 		{
-			//BUFF_APPEND(&it->remembered_perceptions, ((Perception) { .type = PlayerDialog, .player_dialog = SENTENCE_CONST("Testing dialog") }));
+			//RANGE_ITER(0, 20)
+				//BUFF_APPEND(&it->remembered_perceptions, ((Perception) { .type = PlayerDialog, .player_dialog = SENTENCE_CONST("Testing dialog") }));
 
 			//BUFF_APPEND(&it->held_items, ITEM_Chalice);
 		}
 	}
+#endif
 }
 
 
@@ -1438,6 +1441,13 @@ void draw_quad(DrawParams d)
 			points[i] = world_to_screen(points[i]);
 		}
 	}
+
+	if (d.do_clipping && d.world_space)
+	{
+		d.clip_to.upper_left = world_to_screen(d.clip_to.upper_left);
+		d.clip_to.lower_right = world_to_screen(d.clip_to.lower_right);
+	}
+
 	// we've aplied the world space transform
 	d.world_space = false;
 
@@ -2002,6 +2012,7 @@ typedef struct
 	Color *colors;
 	float text_scale;
 	AABB clip_to;
+	bool do_clipping;
 
 	bool screen_space;
 } WrappedTextParams;
@@ -2024,7 +2035,7 @@ float draw_wrapped_text(WrappedTextParams p)
 			memset(line_to_draw, 0, MAX_SENTENCE_LENGTH);
 			memcpy(line_to_draw, sentence_to_draw, chars_from_sentence);
 
-			line_bounds = draw_text((TextParams) { !p.screen_space, true, line_to_draw, cursor, BLACK, p.text_scale, p.clip_to });
+			line_bounds = draw_text((TextParams) { !p.screen_space, true, line_to_draw, cursor, BLACK, p.text_scale, p.clip_to, .do_clipping = p.do_clipping});
 			if (line_bounds.lower_right.X > p.at_point.X + p.max_width)
 			{
 				// too big
@@ -2041,7 +2052,7 @@ float draw_wrapped_text(WrappedTextParams p)
 
 		//float line_height = line_bounds.upper_left.Y - line_bounds.lower_right.Y;
 		float line_height = font_line_advance * p.text_scale;
-		AABB drawn_bounds = draw_text((TextParams) { !p.screen_space, p.dry_run, line_to_draw, AddV2(cursor, V2(0.0f, -line_height)), BLACK, p.text_scale, p.clip_to, colors_to_draw });
+		AABB drawn_bounds = draw_text((TextParams) { !p.screen_space, p.dry_run, line_to_draw, AddV2(cursor, V2(0.0f, -line_height)), BLACK, p.text_scale, p.clip_to, colors_to_draw, .do_clipping = p.do_clipping});
 		if (!p.dry_run) dbgrect(drawn_bounds);
 
 		// caught a random infinite loop in the debugger, this will stop it
@@ -2153,12 +2164,15 @@ Dialog produce_dialog(Entity *talking_to, bool character_names)
 	return to_return;
 }
 
+Vec2 mouse_pos = { 0 }; // in screen space
 
 void draw_dialog_panel(Entity *talking_to, float alpha)
 {
 	float panel_width = 250.0f;
 	float panel_height = 150.0f;
 	float panel_vert_offset = 30.0f;
+
+
 	AABB dialog_panel = (AABB) {
 		.upper_left = AddV2(talking_to->pos, V2(-panel_width / 2.0f, panel_vert_offset + panel_height)),
 			.lower_right = AddV2(talking_to->pos, V2(panel_width / 2.0f, panel_vert_offset)),
@@ -2224,9 +2238,9 @@ void draw_dialog_panel(Entity *talking_to, float alpha)
 							}
 							colors[char_i] = blendalpha(colors[char_i], alpha);
 						}
-						float measured_line_height = draw_wrapped_text((WrappedTextParams) { true, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->s.data, colors, 0.5f, dialog_panel });
+						float measured_line_height = draw_wrapped_text((WrappedTextParams) { true, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->s.data, colors, 0.5f, .clip_to = dialog_panel, .do_clipping = true});
 						new_line_height += (new_line_height - measured_line_height);
-						draw_wrapped_text((WrappedTextParams) { false, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->s.data, colors, 0.5f, dialog_panel });
+						draw_wrapped_text((WrappedTextParams) { false, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->s.data, colors, 0.5f, dialog_panel, .do_clipping = true });
 
 						free(colors);
 					}
@@ -2244,7 +2258,6 @@ double elapsed_time = 0.0;
 double unwarped_elapsed_time = 0.0;
 double last_frame_processing_time = 0.0;
 uint64_t last_frame_time;
-Vec2 mouse_pos = { 0 }; // in screen space
 
 typedef struct
 {
@@ -3795,9 +3808,9 @@ void frame(void)
 											}
 											colors[char_i] = blendalpha(colors[char_i], alpha);
 										}
-										float measured_line_height = draw_wrapped_text((WrappedTextParams) { true, V2(dialog_text_aabb.upper_left.X, new_line_height), dialog_text_aabb.lower_right.X - dialog_text_aabb.upper_left.X, it->s.data, colors, dialog_text_scale, dialog_text_aabb, .screen_space = true });
+										float measured_line_height = draw_wrapped_text((WrappedTextParams) { true, V2(dialog_text_aabb.upper_left.X, new_line_height), dialog_text_aabb.lower_right.X - dialog_text_aabb.upper_left.X, it->s.data, colors, dialog_text_scale, dialog_text_aabb, .screen_space = true, .do_clipping = true});
 										new_line_height += (new_line_height - measured_line_height);
-										draw_wrapped_text((WrappedTextParams) { false, V2(dialog_text_aabb.upper_left.X, new_line_height), dialog_text_aabb.lower_right.X - dialog_text_aabb.upper_left.X, it->s.data, colors, dialog_text_scale, dialog_text_aabb, .screen_space = true });
+										draw_wrapped_text((WrappedTextParams) { false, V2(dialog_text_aabb.upper_left.X, new_line_height), dialog_text_aabb.lower_right.X - dialog_text_aabb.upper_left.X, it->s.data, colors, dialog_text_scale, dialog_text_aabb, .screen_space = true, .do_clipping = true});
 
 										free(colors);
 									}
@@ -4011,8 +4024,9 @@ void frame(void)
 
 			PROFILE_SCOPE("flush rendering")
 			{
-				ARR_ITER(RenderingQueue, rendering_queues)
+				ARR_ITER_I(RenderingQueue, rendering_queues, i)
 				{
+					Layer layer = (Layer)i;
 					RenderingQueue *rendering_queue = it;
 					qsort(&rendering_queue->data[0], rendering_queue->cur_index, sizeof(rendering_queue->data[0]), rendering_compare);
 
@@ -4021,6 +4035,7 @@ void frame(void)
 						DrawParams d = *it;
 						PROFILE_SCOPE("Draw quad")
 						{
+							assert(!d.world_space); // world space already applied when queued for drawing
 							Vec2 *points = d.quad.points;
 							quad_fs_params_t params = { 0 };
 							params.tint[0] = d.tint.R;
@@ -4030,11 +4045,6 @@ void frame(void)
 							params.alpha_clip_threshold = d.alpha_clip_threshold;
 							if (d.do_clipping)
 							{
-								if (d.world_space)
-								{
-									d.clip_to.upper_left = world_to_screen(d.clip_to.upper_left);
-									d.clip_to.lower_right = world_to_screen(d.clip_to.lower_right);
-								}
 								Vec2 aabb_clip_ul = into_clip_space(d.clip_to.upper_left);
 								Vec2 aabb_clip_lr = into_clip_space(d.clip_to.lower_right);
 								params.clip_ul[0] = aabb_clip_ul.x;

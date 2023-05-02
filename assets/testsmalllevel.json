@@ -28,17 +28,6 @@
          "objects":[
                 {
                  "class":"",
-                 "height":31.604938271605,
-                 "id":1,
-                 "name":"MERCHANT",
-                 "rotation":0,
-                 "visible":true,
-                 "width":29.9415204678363,
-                 "x":167,
-                 "y":81.5
-                }, 
-                {
-                 "class":"",
                  "height":31.6049,
                  "id":2,
                  "name":"PLAYER",
@@ -47,6 +36,23 @@
                  "width":29.9415,
                  "x":68.02925,
                  "y":88.19755
+                }, 
+                {
+                 "class":"",
+                 "height":32,
+                 "id":3,
+                 "name":"TheBlacksmith",
+                 "properties":[
+                        {
+                         "name":"held_items",
+                         "type":"string",
+                         "value":"{.data = {ITEM_Chalice}, .cur_index = 1}"
+                        }],
+                 "rotation":0,
+                 "visible":true,
+                 "width":32,
+                 "x":165.353383458647,
+                 "y":104.300751879699
                 }],
          "opacity":1,
          "type":"objectgroup",
@@ -74,7 +80,7 @@
          "y":0
         }],
  "nextlayerid":4,
- "nextobjectid":3,
+ "nextobjectid":4,
  "orientation":"orthogonal",
  "renderorder":"right-down",
  "tiledversion":"1.9.2",

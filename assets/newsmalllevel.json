@@ -96,14 +96,14 @@
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":46.4621212121228,
-                 "y":115.727272727277
+                 "x":173.128787878789,
+                 "y":107.06060606061
                 }, 
                 {
                  "class":"",
                  "height":32,
                  "id":17,
-                 "name":"OldMan",
+                 "name":"TheBlacksmith",
                  "properties":[
                         {
                          "name":"standing",
@@ -115,23 +115,6 @@
                  "width":32,
                  "x":240,
                  "y":106
-                }, 
-                {
-                 "class":"",
-                 "height":32,
-                 "id":18,
-                 "name":"OldMan",
-                 "properties":[
-                        {
-                         "name":"standing",
-                         "type":"string",
-                         "value":"STANDING_JOINED"
-                        }],
-                 "rotation":0,
-                 "visible":true,
-                 "width":32,
-                 "x":236,
-                 "y":472
                 }],
          "opacity":1,
          "type":"objectgroup",
