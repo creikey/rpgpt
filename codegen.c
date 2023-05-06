@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdbool.h>
+#define DESKTOP
 #include "better_assert.h"
 
 #include "buff.h"

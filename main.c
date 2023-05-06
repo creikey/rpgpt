@@ -2,10 +2,16 @@
 // you will die someday
 
 #define SOKOL_IMPL
+
 #if defined(WIN32) || defined(_WIN32)
 #define DESKTOP
 #define WINDOWS
 #define SOKOL_D3D11
+#endif
+
+#if defined(__EMSCRIPTEN__)
+#define WEB
+#define SOKOL_GLES2
 #endif
 
 #ifdef WINDOWS
@@ -13,6 +19,7 @@
 #include <processthreadsapi.h>
 #include <dbghelp.h>
 #endif
+
 
 
 #include "buff.h"
