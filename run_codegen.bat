@@ -36,7 +36,7 @@ thirdparty\sokol-shdc.exe --input quad.glsl --output gen\quad-sapp.glsl.h --slan
 
 @REM metadesk codegen
 @REM cl /Ithirdparty /W3 /Zi /WX codegen.c || goto :error
-zig -Ithirdparty -gfull -gcodeview codegen.c -o codegen.exe || goto error
+zig cc -Ithirdparty -gfull -gcodeview codegen.c -o codegen.exe || goto error
 codegen || goto :error
 
 @REM cl /Ithirdparty /Igen /W3 /Zi /WX maketraining.c || goto :error

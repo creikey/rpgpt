@@ -1,6 +1,9 @@
 # Visual studio stuff
 .vs/
 
+# ctags
+tags
+
 # Clion stuff
 .idea/
 cmake-build-debug/

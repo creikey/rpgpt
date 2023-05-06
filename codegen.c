@@ -6,9 +6,17 @@
 
 #pragma warning(disable : 4996) // nonsense about fopen being insecure
 
+#if defined(__clang__)
+#define no_ubsan __attribute__((no_sanitize("undefined")))
+#else
+#define no_ubsan 
+#endif
+
 #pragma warning(push)
 #pragma warning(disable : 4244) // loss of data warning
 #pragma warning(disable : 4101) // unreferenced local variable
+#define STBSP_ADD_TO_FUNCTIONS no_ubsan
+#define MD_FUNCTION no_ubsan
 #include "md.h"
 #include "md.c"
 #pragma warning(pop)
@@ -51,7 +59,7 @@ MD_String8 asset_file_path(MD_String8 filename) {
 }
 
 char *nullterm(MD_String8 s) {
-	char *to_return = malloc(s.size + 1);
+	char *to_return = MD_ArenaPush(cg_arena, s.size + 1);
 	memcpy(to_return, s.str, s.size);
 	to_return[s.size] = '\0';
 	return to_return;
@@ -154,7 +162,7 @@ int main(int argc, char **argv)
 			MD_String8 filepath = ChildValue(node, MD_S8Lit("filepath"));
 			filepath = asset_file_path(filepath);
 			assert(filepath.str != 0); // MD_S8Fmt(cg_arena, "No filepath specified for sound '%.*s'", MD_S8VArg(node->string)));
-			FILE *asset_file = fopen(filepath.str, "r");
+			FILE *asset_file = fopen(nullterm(filepath), "r");
 			assert(asset_file); //  MD_S8Fmt(cg_arena, "Could not open filepath %.*s for asset '%.*s'", MD_S8VArg(filepath), MD_S8VArg(node->string)));
 			fclose(asset_file);
 
@@ -167,7 +175,7 @@ int main(int argc, char **argv)
 			MD_String8 filepath = ChildValue(node, MD_S8Lit("filepath"));
 			filepath = asset_file_path(filepath);
 			assert(filepath.str != 0); // , MD_S8Fmt(cg_arena, "No filepath specified for image '%.*s'", MD_S8VArg(node->string)));
-			FILE *asset_file = fopen(filepath.str, "r");
+			FILE *asset_file = fopen(nullterm(filepath), "r");
 			assert(asset_file); // , MD_S8Fmt(cg_arena, "Could not open filepath %.*s for asset '%.*s'", MD_S8VArg(filepath), MD_S8VArg(node->string)));
 			fclose(asset_file);
 
