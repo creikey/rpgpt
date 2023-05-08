@@ -72,7 +72,7 @@ typedef enum PerceptionType
 	Invalid, // so that zero value in training structs means end of perception
 	PlayerAction,
 	PlayerDialog,
-	NPCDialog, // includes an npc action in every npc dialog. So it's often nothing
+	NPCDialog, // includes an npc action in every npc dialog. So it's often ACT_none
 	EnemyAction, // An enemy performed an action against the NPC
 	PlayerHeldItemChanged,
 } PerceptionType;
@@ -80,6 +80,8 @@ typedef enum PerceptionType
 typedef struct Perception
 {
 	PerceptionType type;
+
+	bool was_eavesdropped; // when the npc is in a party they perceive player conversations, but in the third party. Formatted differently
 
 	float damage_done; // Valid in player action and enemy action
 	ItemKind given_item; // valid in player action and enemy action when the kind is such that there is an item to be given
@@ -97,6 +99,7 @@ typedef struct Perception
 		// npc dialog
 		struct
 		{
+			NpcKind who_said_it;
 			Action npc_action_type;
 			Sentence npc_dialog;
 		};
@@ -215,6 +218,10 @@ typedef struct Entity
 	bool is_npc;
 	bool being_hovered;
 	bool perceptions_dirty;
+
+#ifdef DESKTOP
+	int times_talked_to; // for better mocked response string
+#endif
 
 	BUFF(Perception, REMEMBERED_PERCEPTIONS) remembered_perceptions;
 	bool direction_of_spiral_pattern;
@@ -379,22 +386,54 @@ int action_to_index(Entity *it, Action a)
 	return index;
 }
 
-void process_perception(Entity *it, Perception p, Entity *player)
+#define MAX_ENTITIES 128
+
+typedef struct GameState {
+	int version; // this field must be first to detect versions of old saves. Must bee consistent
+	
+	bool won;
+	Entity entities[MAX_ENTITIES];
+} GameState;
+
+#define ENTITIES_ITER(ents) for (Entity *it = ents; it < ents + ARRLEN(ents); it++) if (it->exists)
+
+// gamestate to propagate eavesdropped perceptions in player party
+// don't save perception outside of this function, it's modified
+void process_perception(Entity *happened_to_npc, Perception p, Entity *player, GameState *gs)
 {
-	assert(it->is_npc);
-	if (p.type != NPCDialog) it->perceptions_dirty = true;
-	if (!BUFF_HAS_SPACE(&it->remembered_perceptions))
-		BUFF_REMOVE_FRONT(&it->remembered_perceptions);
-	BUFF_APPEND(&it->remembered_perceptions, p);
+	assert(happened_to_npc->is_npc);
+
+	if(!p.was_eavesdropped && p.type == NPCDialog)
+		p.who_said_it = happened_to_npc->npc_kind;
+
+	if (!p.was_eavesdropped && p.type != NPCDialog) happened_to_npc->perceptions_dirty = true; // NPCs perceive their own actions. Self is a perception
+
+	if (!BUFF_HAS_SPACE(&happened_to_npc->remembered_perceptions))
+		BUFF_REMOVE_FRONT(&happened_to_npc->remembered_perceptions);
+	BUFF_APPEND(&happened_to_npc->remembered_perceptions, p);
+
+	if(!p.was_eavesdropped && (p.type == NPCDialog || p.type == PlayerAction || p.type == PlayerDialog))
+	{
+		Perception eavesdropped = p;
+		eavesdropped.was_eavesdropped = true;
+		ENTITIES_ITER(gs->entities)
+		{
+			if(it->is_npc && it->standing == STANDING_JOINED && it != happened_to_npc)
+			{
+				process_perception(it, eavesdropped, player, gs);
+			}
+		}
+	}
+
 	if (p.type == PlayerAction)
 	{
 		if (p.player_action_type == ACT_hits_npc)
 		{
-			it->damage += p.damage_done;
+			happened_to_npc->damage += p.damage_done;
 		}
 		else if(p.player_action_type == ACT_give_item)
 		{
-			BUFF_APPEND(&it->held_items, p.given_item);
+			BUFF_APPEND(&happened_to_npc->held_items, p.given_item);
 		}
 		else
 		{
@@ -407,18 +446,18 @@ void process_perception(Entity *it, Perception p, Entity *player)
 	}
 	else if (p.type == PlayerHeldItemChanged)
 	{
-		it->last_seen_holding_kind = p.holding;
+		happened_to_npc->last_seen_holding_kind = p.holding;
 	}
 	else if (p.type == NPCDialog)
 	{
 		if (p.npc_action_type == ACT_allows_player_to_pass)
 		{
-			it->target_goto = AddV2(it->pos, V2(-50.0, 0.0));
-			it->moved = true;
+			happened_to_npc->target_goto = AddV2(happened_to_npc->pos, V2(-50.0, 0.0));
+			happened_to_npc->moved = true;
 		}
 		else if (p.npc_action_type == ACT_fights_player)
 		{
-			it->standing = STANDING_FIGHTING;
+			happened_to_npc->standing = STANDING_FIGHTING;
 		}
 		else if(p.npc_action_type == ACT_knights_player)
 		{
@@ -426,20 +465,20 @@ void process_perception(Entity *it, Perception p, Entity *player)
 		}
 		else if (p.npc_action_type == ACT_stops_fighting_player)
 		{
-			it->standing = STANDING_INDIFFERENT;
+			happened_to_npc->standing = STANDING_INDIFFERENT;
 		}
 		else if (p.npc_action_type == ACT_leaves_player)
 		{
-			it->standing = STANDING_INDIFFERENT;
+			happened_to_npc->standing = STANDING_INDIFFERENT;
 		}
 		else if (p.npc_action_type == ACT_joins_player)
 		{
-			it->standing = STANDING_JOINED;
+			happened_to_npc->standing = STANDING_JOINED;
 		}
 		else if (p.npc_action_type == ACT_give_item)
 		{
 			int item_to_remove = -1;
-			Entity *e = it;
+			Entity *e = happened_to_npc;
 			BUFF_ITER_I(ItemKind, &e->held_items, i)
 			{
 				if (*it == p.given_item)
@@ -451,12 +490,12 @@ void process_perception(Entity *it, Perception p, Entity *player)
 			if (item_to_remove < 0)
 			{
 				Log("Can't find item %s to give from NPC %s to the player\n", items[p.given_item].name,
-				    characters[it->npc_kind].name);
+				    characters[happened_to_npc->npc_kind].name);
 				assert(false);
 			}
 			else
 			{
-				BUFF_REMOVE_AT_INDEX(&it->held_items, item_to_remove);
+				BUFF_REMOVE_AT_INDEX(&happened_to_npc->held_items, item_to_remove);
 				BUFF_APPEND(&player->held_items, p.given_item);
 			}
 		}
@@ -610,18 +649,20 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
 	ItemKind last_holding = ITEM_none;
 	BUFF_ITER_I(Perception, &e->remembered_perceptions, i)
 	{
-		BUFF(char, 1024) cur_node = { 0 };
+		MessageType sent_type = 0;
+		typedef BUFF(char, 1024) DialogNode;
+		DialogNode cur_node = { 0 };
 		if (it->type == PlayerAction)
 		{
 			assert(it->player_action_type < ARRLEN(actions));
 			printf_buff(&cur_node, "Player: %s", percept_action_str(*it, it->player_action_type).data);
-			dump_json_node(into, MSG_USER, cur_node.data);
+			sent_type = MSG_USER;
 		}
 		else if (it->type == EnemyAction)
 		{
 			assert(it->enemy_action_type < ARRLEN(actions));
 			printf_buff(&cur_node, "An Enemy: %s", percept_action_str(*it, it->enemy_action_type).data);
-			dump_json_node(into, MSG_USER, cur_node.data);
+			sent_type = MSG_USER;
 		}
 		else if (it->type == PlayerDialog)
 		{
@@ -645,14 +686,14 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
 				}
 			}
 			printf_buff(&cur_node, "Player: \"%s\"", filtered_player_speech.data);
-			dump_json_node(into, MSG_USER, cur_node.data);
+			sent_type = MSG_USER;
 		}
 		else if (it->type == NPCDialog)
 		{
 			assert(it->npc_action_type < ARRLEN(actions));
 			printf_buff(&cur_node, "%s: %s \"%s\"", characters[e->npc_kind].name,
 			            percept_action_str(*it, it->npc_action_type).data, it->npc_dialog.data);
-			dump_json_node(into, MSG_ASSISTANT, cur_node.data);
+			sent_type = MSG_ASSISTANT;
 		}
 		else if (it->type == PlayerHeldItemChanged)
 		{
@@ -660,20 +701,28 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
 			{
 				if (last_holding != ITEM_none)
 				{
-					printf_buff(&cur_node, "%s\n", items[last_holding].discard);
+					printf_buff(&cur_node, "%s", items[last_holding].discard);
 				}
 				if (it->holding != ITEM_none)
 				{
-					printf_buff(&cur_node, "%s\n", items[it->holding].possess);
+					printf_buff(&cur_node, "%s", items[it->holding].possess);
 				}
 				last_holding = it->holding;
 			}
-			dump_json_node(into, MSG_SYSTEM, cur_node.data);
+			sent_type = MSG_SYSTEM;
 		}
 		else
 		{
 			assert(false);
 		}
+
+		if(it->was_eavesdropped)
+		{
+			DialogNode eavesdropped = {0};
+			printf_buff(&eavesdropped , "From within the player's party, you hear: '%s'", cur_node);
+			cur_node = eavesdropped;
+		}
+		dump_json_node(into,sent_type, cur_node.data);
 	}
 
 	BUFF(char, 1024) latest_state_node = { 0 };
@@ -993,87 +1042,4 @@ bool parse_chatgpt_response(Entity *it, char *sentence_str, Perception *out)
 	}
 
 	return false;
-}
-
-// returns if the response was well formatted
-bool parse_ai_response(Entity *it, char *sentence_str, Perception *out)
-{
-	*out = (Perception) { 0 };
-	out->type = NPCDialog;
-
-	size_t sentence_length = strlen(sentence_str);
-	bool text_was_well_formatted = true;
-
-	BUFF(char, 128) action_index_string = { 0 };
-	int npc_sentence_beginning = 0;
-	for (int i = 0; i < sentence_length; i++)
-	{
-		if (i == 0)
-		{
-			if (sentence_str[i] != ' ')
-			{
-				text_was_well_formatted = false;
-				Log("Poorly formatted AI string, did not start with a ' ': `%s`\n", sentence_str);
-				break;
-			}
-		}
-		else
-		{
-			if (sentence_str[i] == ' ')
-			{
-				npc_sentence_beginning = i + 2;
-				break;
-			}
-			else
-			{
-				BUFF_APPEND(&action_index_string, sentence_str[i]);
-			}
-		}
-	}
-	if (sentence_str[npc_sentence_beginning - 1] != '"' || npc_sentence_beginning == 0)
-	{
-		Log("Poorly formatted AI string, sentence beginning incorrect in AI string `%s` NPC sentence beginning %d ...\n",
-		    sentence_str, npc_sentence_beginning);
-		text_was_well_formatted = false;
-	}
-
-	Action npc_action = 0;
-	if (text_was_well_formatted)
-	{
-		int index_of_action = atoi(action_index_string.data);
-
-		if (!action_from_index(it, &npc_action, index_of_action))
-		{
-			Log("AI output invalid action index %d action index string %s\n", index_of_action,
-			    action_index_string.data);
-		}
-	}
-
-	Sentence what_npc_said = { 0 };
-	bool found_end_quote = false;
-	for (int i = npc_sentence_beginning; i < sentence_length; i++)
-	{
-		if (sentence_str[i] == '"')
-		{
-			found_end_quote = true;
-			break;
-		}
-		else
-		{
-			BUFF_APPEND(&what_npc_said, sentence_str[i]);
-		}
-	}
-	if (!found_end_quote)
-	{
-		Log("Poorly formatted AI string, couln't find matching end quote in string %s...\n", sentence_str);
-		text_was_well_formatted = false;
-	}
-
-	if (text_was_well_formatted)
-	{
-		out->npc_action_type = npc_action;
-		out->npc_dialog = what_npc_said;
-	}
-
-	return text_was_well_formatted;
 }

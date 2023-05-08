@@ -1,4 +1,4 @@
-#define CURRENT_VERSION 11 // wehenver you change Entity increment this boz
+#define CURRENT_VERSION 12 // wehenver you change Entity increment this boz
 // you will die someday
 
 #define SOKOL_IMPL
@@ -50,8 +50,6 @@
 #endif
 #endif
 #include "profiling.h"
-
-#define ENTITIES_ITER(ents) for (Entity *it = ents; it < ents + ARRLEN(ents); it++) if (it->exists)
 
 double clamp(double d, double min, double max)
 {
@@ -161,7 +159,6 @@ typedef BUFF(Overlap, 16) Overlapping;
 #define LEVEL_TILES 150
 #define LAYERS 3
 #define TILE_SIZE 32 // in pixels
-#define MAX_ENTITIES 128
 #define PLAYER_SPEED 3.5f // in meters per second
 #define PLAYER_ROLL_SPEED 7.0f
 typedef struct Level
@@ -581,12 +578,6 @@ sg_image load_image(const char *path)
 #include "quad-sapp.glsl.h"
 
 AABB level_aabb = { .upper_left = { 0.0f, 0.0f }, .lower_right = { TILE_SIZE * LEVEL_TILES, -(TILE_SIZE * LEVEL_TILES) } };
-typedef struct GameState {
-	int version; // this field must be first to detect versions of old saves. Must bee consistent
-	
-	bool won;
-	Entity entities[MAX_ENTITIES];
-} GameState;
 GameState gs = { 0 };
 
 PathCache cached_paths[32] = { 0 };
@@ -832,10 +823,9 @@ void end_text_input(char *what_player_said)
 		}
 		if (talking->last_seen_holding_kind != player_holding)
 		{
-			process_perception(talking, (Perception) { .type = PlayerHeldItemChanged, .holding = player_holding, }, player);
-
+			process_perception(talking, (Perception) { .type = PlayerHeldItemChanged, .holding = player_holding, }, player, &gs);
 		}
-		process_perception(talking, (Perception) { .type = PlayerDialog, .player_dialog = what_player_said_sentence, }, player);
+		process_perception(talking, (Perception) { .type = PlayerDialog, .player_dialog = what_player_said_sentence, }, player, &gs);
 	}
 }
 /*
@@ -1692,11 +1682,11 @@ void request_do_damage(Entity *to, Entity *from, float damage)
 		{
 			if (from->is_character)
 			{
-				process_perception(to, (Perception) { .type = PlayerAction, .player_action_type = ACT_hits_npc, .damage_done = damage, }, player);
+				process_perception(to, (Perception) { .type = PlayerAction, .player_action_type = ACT_hits_npc, .damage_done = damage, }, player, &gs);
 			}
 			else
 			{
-				process_perception(to, (Perception) { .type = EnemyAction, .enemy_action_type = ACT_hits_npc, .damage_done = damage, }, player);
+				process_perception(to, (Perception) { .type = EnemyAction, .enemy_action_type = ACT_hits_npc, .damage_done = damage, }, player, &gs);
 			}
 		}
 		to->vel = MulV2F(NormV2(SubV2(to->pos, from_point)), 15.0f);
@@ -2190,6 +2180,8 @@ typedef struct
 {
 	Sentence s;
 	DialogElementKind kind;
+	bool was_eavesdropped;
+	NpcKind who_said_it;
 } DialogElement;
 
 // Some perceptions can have multiple dialog elements.
@@ -2203,6 +2195,7 @@ Dialog produce_dialog(Entity *talking_to, bool character_names)
 	Dialog to_return = { 0 };
 	BUFF_ITER(Perception, &talking_to->remembered_perceptions)
 	{
+		DialogElement new_element = { .who_said_it = it->who_said_it, .was_eavesdropped = it->was_eavesdropped };
 		if (it->type == NPCDialog)
 		{
 			Sentence to_say = (Sentence) { 0 };
@@ -2210,14 +2203,13 @@ Dialog produce_dialog(Entity *talking_to, bool character_names)
 			if (it->npc_action_type == ACT_give_item)
 			{
 				DialogElement new = { 0 };
-				printf_buff(&new.s, "%s gave %s to you", characters[talking_to->npc_kind].name, items[it->given_item].name);
-				new.kind = DELEM_ACTION_DESCRIPTION;
-				BUFF_APPEND(&to_return, new);
+				printf_buff(&new_element.s, "%s gave %s to you", characters[talking_to->npc_kind].name, items[it->given_item].name);
+				new_element.kind = DELEM_ACTION_DESCRIPTION;
 			}
 
 			if (character_names)
 			{
-				append_str(&to_say, characters[talking_to->npc_kind].name);
+				append_str(&to_say, characters[it->who_said_it].name);
 				append_str(&to_say, ": ");
 			}
 
@@ -2233,16 +2225,15 @@ Dialog produce_dialog(Entity *talking_to, bool character_names)
 			{
 				append_str(&to_say, it->npc_dialog.data);
 			}
-			BUFF_APPEND(&to_return, ((DialogElement) { .s = to_say, .kind = DELEM_NPC }));
+			new_element.s = to_say;
+			new_element.kind = DELEM_NPC;
 		}
 		else if (it->type == PlayerAction)
 		{
 			if (it->player_action_type == ACT_give_item)
 			{
-				DialogElement new = { 0 };
-				printf_buff(&new.s, "You gave %s to the NPC", items[it->given_item].name);
-				new.kind = DELEM_ACTION_DESCRIPTION;
-				BUFF_APPEND(&to_return, new);
+				printf_buff(&new_element.s, "You gave %s to the NPC", items[it->given_item].name);
+				new_element.kind = DELEM_ACTION_DESCRIPTION;
 			}
 		}
 		else if (it->type == PlayerDialog)
@@ -2253,8 +2244,10 @@ Dialog produce_dialog(Entity *talking_to, bool character_names)
 				append_str(&to_say, "Player: ");
 			}
 			append_str(&to_say, it->player_dialog.data);
-			BUFF_APPEND(&to_return, ((DialogElement) { .s = to_say, .kind = DELEM_PLAYER }));
+			new_element.s = to_say;
+			new_element.kind = DELEM_PLAYER;
 		}
+		BUFF_APPEND(&to_return, new_element);
 	}
 	return to_return;
 }
@@ -2362,21 +2355,28 @@ void draw_dialog_panel(Entity *talking_to, float alpha)
 						Color *colors = calloc(sizeof(*colors), it->s.cur_index);
 						for (int char_i = 0; char_i < it->s.cur_index; char_i++)
 						{
-							if (it->kind == DELEM_PLAYER)
+							if(it->was_eavesdropped)
 							{
-								colors[char_i] = BLACK;
-							}
-							else if (it->kind == DELEM_NPC)
-							{
-								colors[char_i] = colhex(0x345e22);
-							}
-							else if (it->kind == DELEM_ACTION_DESCRIPTION)
-							{
-								colors[char_i] = colhex(0xb5910e);
+								colors[char_i] = colhex(0x9341a3);
 							}
 							else
 							{
-								assert(false);
+								if (it->kind == DELEM_PLAYER)
+								{
+									colors[char_i] = BLACK;
+								}
+								else if (it->kind == DELEM_NPC)
+								{
+									colors[char_i] = colhex(0x345e22);
+								}
+								else if (it->kind == DELEM_ACTION_DESCRIPTION)
+								{
+									colors[char_i] = colhex(0xb5910e);
+								}
+								else
+								{
+									assert(false);
+								}
 							}
 							colors[char_i] = blendalpha(colors[char_i], alpha);
 						}
@@ -2747,7 +2747,7 @@ void frame(void)
 
 										if (text_was_well_formatted)
 										{
-											process_perception(it, out, player);
+											process_perception(it, out, player, &gs);
 										}
 										else
 										{
@@ -2762,7 +2762,7 @@ void frame(void)
 									{
 										Log("Failed to generate dialog! Fuck!\n");
 										// need somethin better here. Maybe each sentence has to know if it's player or NPC, that way I can remove the player's dialog
-										process_perception(it, (Perception) { .type = NPCDialog, .npc_action_type = ACT_none, .npc_dialog = SENTENCE_CONST("I'm not sure...") }, player);
+										process_perception(it, (Perception) { .type = NPCDialog, .npc_action_type = ACT_none, .npc_dialog = SENTENCE_CONST("I'm not sure...") }, player, &gs);
 									}
 									else if (status == -1)
 									{
@@ -3364,6 +3364,7 @@ F cost: G + H
 							}
 							if (it->perceptions_dirty)
 							{
+								it->perceptions_dirty = false; // needs to be in beginning because they might be redirtied by the new perception
 								PromptBuff prompt = { 0 };
 #ifdef DO_CHATGPT_PARSING
 								generate_chatgpt_prompt(it, &prompt);
@@ -3383,39 +3384,36 @@ F cost: G + H
 #endif
 
 #ifdef DESKTOP
-								BUFF(char, 1024) mocked_ai_response = { 0 };
-#define SAY(act, txt) { printf_buff(&mocked_ai_response, "%s \"%s\"", actions[act].name, txt); }
-#define SAY_ARG(act, txt, arg) { printf_buff(&mocked_ai_response, "%s(" arg ") \"%s\"", actions[act].name, txt); }
-								if (it->npc_kind == NPC_TheGuard)
+								const char *argument = 0;
+								BUFF(char, 512) dialog_string = {0};
+								Action act = ACT_none;
+
+								it->times_talked_to++;
+								if(it->npc_kind == NPC_TheBlacksmith && it->standing != STANDING_JOINED)
 								{
-									if (it->last_seen_holding_kind == ITEM_Tripod && !it->moved)
-									{
-										SAY(ACT_none, "This codepath is deprecated");
-									}
-									else
-									{
-										SAY(ACT_none, "You passed");
-									}
+									assert(it->times_talked_to == 1);
+									act = ACT_joins_player;
+									printf_buff(&dialog_string, "Joining you...\n");
 								}
 								else
 								{
-									//SAY_ARG(ACT_give_item, "Here you go" , "ITEM_Chalice");
-									if(it->standing != STANDING_JOINED)
-									{
-										SAY(ACT_joins_player, "I am an NPC");
-									}
-									else
-									{
-										SAY(ACT_none, "What's good");
-									}
-									//SAY(ACT_fights_player, "I am an NPC. Bla bla bl alb djsfklalfkdsaj. Did you know shortcake?");
+									printf_buff(&dialog_string, "%d times talked\n", it->times_talked_to);
+								}
+
+								BUFF(char, 1024) mocked_ai_response = { 0 };
+								if (argument)
+								{
+									printf_buff(&mocked_ai_response, "%s(%s) \"%s\"", actions[act].name, argument, dialog_string.data);
+								}
+								else
+								{
+									printf_buff(&mocked_ai_response, "%s \"%s\"", actions[act].name, dialog_string.data);
 								}
 								Perception p = { 0 };
 								assert(parse_chatgpt_response(it, mocked_ai_response.data, &p));
-								process_perception(it, p, player);
+								process_perception(it, p, player, &gs);
 #undef SAY
 #endif
-								it->perceptions_dirty = false;
 							}
 						}
 					}
@@ -4030,21 +4028,28 @@ F cost: G + H
 										Color *colors = calloc(sizeof(*colors), it->s.cur_index);
 										for (int char_i = 0; char_i < it->s.cur_index; char_i++)
 										{
-											if (it->kind == DELEM_PLAYER)
+											if(it->was_eavesdropped)
 											{
-												colors[char_i] = WHITE;
-											}
-											else if (it->kind == DELEM_NPC)
-											{
-												colors[char_i] = colhex(0x34e05c);
-											}
-											else if (it->kind == DELEM_ACTION_DESCRIPTION)
-											{
-												colors[char_i] = colhex(0xebc334);
+												colors[char_i] = colhex(0xcb40e6);
 											}
 											else
 											{
-												assert(false);
+												if (it->kind == DELEM_PLAYER)
+												{
+													colors[char_i] = WHITE;
+												}
+												else if (it->kind == DELEM_NPC)
+												{
+													colors[char_i] = colhex(0x34e05c);
+												}
+												else if (it->kind == DELEM_ACTION_DESCRIPTION)
+												{
+													colors[char_i] = colhex(0xebc334);
+												}
+												else
+												{
+													assert(false);
+												}
 											}
 											colors[char_i] = blendalpha(colors[char_i], alpha);
 										}
@@ -4153,7 +4158,7 @@ F cost: G + H
 						ItemKind given_item_kind = player->held_items.data[to_give];
 						BUFF_REMOVE_AT_INDEX(&player->held_items, to_give);
 
-						process_perception(to, (Perception) { .type = PlayerAction, .player_action_type = ACT_give_item, .given_item = given_item_kind }, player);
+						process_perception(to, (Perception) { .type = PlayerAction, .player_action_type = ACT_give_item, .given_item = given_item_kind }, player, &gs);
 					}
 
 				}
