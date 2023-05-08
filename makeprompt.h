@@ -70,6 +70,7 @@ Escaped escape_for_json(const char *s)
 typedef enum PerceptionType
 {
 	Invalid, // so that zero value in training structs means end of perception
+	ErrorMessage, // when chatgpt gives a response that we can't parse, explain to it why and retry. Can also log parse errors for training
 	PlayerAction,
 	PlayerDialog,
 	NPCDialog, // includes an npc action in every npc dialog. So it's often ACT_none
@@ -87,6 +88,9 @@ typedef struct Perception
 	ItemKind given_item; // valid in player action and enemy action when the kind is such that there is an item to be given
 	union
 	{
+		// ErrorMessage
+		Sentence error;
+
 		// player action
 		struct
 		{
@@ -505,6 +509,10 @@ void process_perception(Entity *happened_to_npc, Perception p, Entity *player, G
 			assert(!actions[p.npc_action_type].takes_argument);
 		}
 	}
+	else if(p.type == ErrorMessage)
+	{
+		Log("Failed to parse chatgippity sentence because: '%s'\n", p.error.data);
+	}
 	else
 	{
 		assert(false);
@@ -609,6 +617,25 @@ void dump_json_node(PromptBuff *into, MessageType type, const char *content)
 	dump_json_node_trailing(into, type, content, true);
 }
 
+// returns a string like `ITEM_one, ITEM_two`
+Sentence item_string(Entity *e)
+{
+	Sentence to_return = {0};
+	BUFF_ITER_I(ItemKind, &e->held_items, i)
+	{
+		printf_buff(&to_return, "ITEM_%s", items[*it].enum_name);
+		if (i == e->held_items.cur_index - 1)
+		{
+			printf_buff(&to_return, "");
+		}
+		else
+		{
+			printf_buff(&to_return, ", ");
+		}
+	}
+	return to_return;
+}
+
 // outputs json
 void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
 {
@@ -652,7 +679,13 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
 		MessageType sent_type = 0;
 		typedef BUFF(char, 1024) DialogNode;
 		DialogNode cur_node = { 0 };
-		if (it->type == PlayerAction)
+		if (it->type == ErrorMessage)
+		{
+			assert(it->error.cur_index > 0);
+			printf_buff(&cur_node, "ERROR, YOU SAID SOMETHING WRONG: The program can't parse what you said because: %s", it->error.data);
+			sent_type = MSG_USER;
+		}
+		else if (it->type == PlayerAction)
 		{
 			assert(it->player_action_type < ARRLEN(actions));
 			printf_buff(&cur_node, "Player: %s", percept_action_str(*it, it->player_action_type).data);
@@ -748,19 +781,7 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
 
 	if(e->held_items.cur_index > 0)
 	{
-		printf_buff(&latest_state_node, "\nThe NPC you're acting as, %s, has these items in their inventory: [", characters[it->npc_kind].name);
-		BUFF_ITER_I(ItemKind, &e->held_items, i)
-		{
-			printf_buff(&latest_state_node, "ITEM_%s", items[*it].enum_name);
-			if (i == e->held_items.cur_index - 1)
-			{
-				printf_buff(&latest_state_node, "]\n");
-			}
-			else
-			{
-				printf_buff(&latest_state_node, ", ");
-			}
-		}
+		printf_buff(&latest_state_node, "\nThe NPC you're acting as, %s, has these items in their inventory: [%s]", characters[it->npc_kind].name, item_string(it).data);
 	}
 	else
 	{
@@ -933,8 +954,16 @@ bool char_in_str(char c, const char *str)
 	return false;
 }
 
-bool parse_chatgpt_response(Entity *it, char *sentence_str, Perception *out)
+typedef struct
 {
+	bool succeeded;
+	Sentence error_message;
+} ChatgptParse;
+
+ChatgptParse parse_chatgpt_response(Entity *it, char *sentence_str, Perception *out)
+{
+	ChatgptParse to_return = {0};
+
 	*out = (Perception) { 0 };
 	out->type = NPCDialog;
 
@@ -957,17 +986,16 @@ bool parse_chatgpt_response(Entity *it, char *sentence_str, Perception *out)
 
 	if (!found_action)
 	{
-		Log("Could not find action associated with string `%s`\n", action_string.data);
+		printf_buff(&to_return.error_message, "Could not find action associated with parsed 'ACT_' string `%s`\n", action_string.data);
 		out->npc_action_type = ACT_none;
-
-		return false;
+		return to_return;
 	}
 	else
 	{
 		SmallTextChunk dialog_str = { 0 };
 		if (actions[out->npc_action_type].takes_argument)
 		{
-#define EXPECT(chr, val) if (chr != val) { Log("Improperly formatted sentence_str `%s`, expected %c but got %c\n", sentence_str, val, chr); return false; }
+#define EXPECT(chr, val) if (chr != val) { printf_buff(&to_return.error_message, "Improperly formatted sentence, expected character '%c' but got '%c'\n", sentence_str, val, chr); return to_return; }
 
 			EXPECT(*sentence_str, '(');
 			sentence_str += 1;
@@ -1004,18 +1032,18 @@ bool parse_chatgpt_response(Entity *it, char *sentence_str, Perception *out)
 				}
 				if (!found)
 				{
-					Log("Couldn't find item in inventory of NPC to give with item string %s\n", argument.data);
-					return false;
+					printf_buff(&to_return.error_message, "Couldn't find item in the inventory of the NPC to give. You said `%s`, but you have [%s] in your inventory \n", argument.data, item_string(it).data);
+					return to_return;
 				}
 			}
 			else
 			{
-				Log("Don't know how to handle argument in action of type %s\n", actions[out->npc_action_type].name);
+				printf_buff(&to_return.error_message, "Don't know how to handle argument in action of type `%s`\n", actions[out->npc_action_type].name);
 #ifdef DEVTOOLS
 				// not sure if this should never happen or not, need more sleep...
 				assert(false);
 #endif
-				return false;
+				return to_return;
 			}
 
 			EXPECT(*sentence_str, ')');
@@ -1029,17 +1057,18 @@ bool parse_chatgpt_response(Entity *it, char *sentence_str, Perception *out)
 		sentence_str += get_until(&dialog_str, sentence_str, "\"\n");
 		if (dialog_str.cur_index >= ARRLEN(out->npc_dialog.data))
 		{
-			Log("Dialog string `%s` too big to fit in sentence size %d\n", dialog_str.data,
+			printf_buff(&to_return.error_message, "Dialog string `%s` too big to fit in sentence size %d\n", dialog_str.data,
 			    (int) ARRLEN(out->npc_dialog.data));
-			return false;
+			return to_return;
 		}
 
 		memcpy(out->npc_dialog.data, dialog_str.data, dialog_str.cur_index);
 		out->npc_dialog.cur_index = dialog_str.cur_index;
 
-		return true;
-
+		to_return.succeeded = true;
+		return to_return;
 	}
 
-	return false;
+	to_return.succeeded = false;
+	return to_return;
 }

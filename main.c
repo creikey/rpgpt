@@ -2739,19 +2739,17 @@ void frame(void)
 
 										// parse out from the sentence NPC action and dialog
 										Perception out = { 0 };
-#ifdef DO_CHATGPT_PARSING
-										bool text_was_well_formatted = parse_chatgpt_response(it, sentence_str, &out);
-#else
-										bool text_was_well_formatted = parse_ai_response(it, sentence_str, &out);
-#endif
 
-										if (text_was_well_formatted)
+										ChatgptParse parse_response = parse_chatgpt_response(it, sentence_str, &out);
+
+										if (parse_response.succeeded)
 										{
 											process_perception(it, out, player, &gs);
 										}
 										else
 										{
-											it->perceptions_dirty = true; // on poorly formatted AI, just retry request.
+											process_perception(it, (Perception){.type = ErrorMessage, .error = parse_response.error_message}, player, &gs);
+											it->perceptions_dirty = true; // on poorly formatted AI, just retry request. Explain to it why it's wrong. Adapt, improve, overcome. Time stops for nothing!
 										}
 
 										EM_ASM( {

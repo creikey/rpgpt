@@ -165,7 +165,7 @@ CharacterGen characters[] = {
 			"The player is currently holding a tripod\n"
 			"Edeline: ACT_none \"That tripod will be the decisive factor in your victory\"\n"
 			"\n"
-			"The NPC you will be acting as is named Edeline. She is the master of the future, the star reader. Both are self-given titles, but her ability to predict the future has garnered attention from many who live in Worchen. However, some have called her “unreliable” at times and her predictions can at times be either cryptic or broadly interpreted.",
+			"The NPC you will be acting as is named Edeline. She is the master of the future, the star reader. Both are self-given titles, but her ability to predict the future has garnered attention from many who live in Worchen. However, some have called her 'unreliable' at times and her predictions can at times be either cryptic or broadly interpreted.",
 	},
 	{
 		.name = "Death",
