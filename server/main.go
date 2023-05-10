@@ -371,6 +371,8 @@ func completion(w http.ResponseWriter, req *http.Request) {
   } else {
    // parse the json walter
    var parsed []ChatGPTElem
+   log.Printf("----------------------------------------------------------")
+   defer log.Printf("----------------------------------------------------------")
    log.Printf("Parsing prompt string `%s`\n", promptString)
    err = json.Unmarshal([]byte(promptString), &parsed)
    if err != nil {
@@ -405,6 +407,7 @@ func completion(w http.ResponseWriter, req *http.Request) {
    log.Printf("Full response: \n````\n%s\n````\n", resp)
    response = resp.Choices[0].Message.Content
 
+   /*
    with_action := strings.SplitAfter(response, "ACT_")
    if len(with_action) != 2 {
     log.Printf("Could not find action in response string `%s`\n", response)
@@ -412,18 +415,19 @@ func completion(w http.ResponseWriter, req *http.Request) {
     return
    }
    response = with_action[1]
-   
+
    // trim ending quotation mark. There might be text after the ending quotation mark because chatgpt sometimes
-	 // puts addendums in its responses, like `ACT_none "Hey" (I wanted the NPC to say hey here)`. The stuffafter the second
-	 // quotation mark needs to be ignored
-	 between_quotes := strings.Split(response, "\"")
-	 // [action] " [stuff] " [anything extra]
+   // puts addendums in its responses, like `ACT_none "Hey" (I wanted the NPC to say hey here)`. The stuffafter the second
+   // quotation mark needs to be ignored
+   between_quotes := strings.Split(response, "\"")
+   // [action] " [stuff] " [anything extra]
    if len(between_quotes) < 2 {
-    log.Printf("Could not find enough quotes in response string `%s`\n", response)
-    w.WriteHeader(http.StatusInternalServerError)
-    return
+     log.Printf("Could not find enough quotes in response string `%s`\n", response)
+	 w.WriteHeader(http.StatusInternalServerError)
+	 return
    }
-	 response = between_quotes[0] + "\"" + between_quotes[1] + "\""
+   response = between_quotes[0] + "\"" + between_quotes[1] + "\""
+   */
   }
   if logResponses {
    log.Println("Println response: `", response + "`")

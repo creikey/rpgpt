@@ -83,6 +83,7 @@ typedef struct Perception
 	PerceptionType type;
 
 	bool was_eavesdropped; // when the npc is in a party they perceive player conversations, but in the third party. Formatted differently
+	NpcKind talked_to_while_eavesdropped; // better chatpgpt messages when the NPCs know who the player is talking to when they eavesdrop a perception
 
 	float damage_done; // Valid in player action and enemy action
 	ItemKind given_item; // valid in player action and enemy action when the kind is such that there is an item to be given
@@ -410,7 +411,8 @@ void process_perception(Entity *happened_to_npc, Perception p, Entity *player, G
 	if(!p.was_eavesdropped && p.type == NPCDialog)
 		p.who_said_it = happened_to_npc->npc_kind;
 
-	if (!p.was_eavesdropped && p.type != NPCDialog) happened_to_npc->perceptions_dirty = true; // NPCs perceive their own actions. Self is a perception
+	bool should_respond_to_this = !(!p.was_eavesdropped && p.type == NPCDialog); // NPCs shouldn't respond to what they said, what they said is self-perception. Would trigger endless NPC thought loop if possible
+	if (should_respond_to_this) happened_to_npc->perceptions_dirty = true; // NPCs perceive their own actions. Self is a perception
 
 	if (!BUFF_HAS_SPACE(&happened_to_npc->remembered_perceptions))
 		BUFF_REMOVE_FRONT(&happened_to_npc->remembered_perceptions);
@@ -420,6 +422,7 @@ void process_perception(Entity *happened_to_npc, Perception p, Entity *player, G
 	{
 		Perception eavesdropped = p;
 		eavesdropped.was_eavesdropped = true;
+		eavesdropped.talked_to_while_eavesdropped = happened_to_npc->npc_kind;
 		ENTITIES_ITER(gs->entities)
 		{
 			if(it->is_npc && it->standing == STANDING_JOINED && it != happened_to_npc)
@@ -454,59 +457,63 @@ void process_perception(Entity *happened_to_npc, Perception p, Entity *player, G
 	}
 	else if (p.type == NPCDialog)
 	{
-		if (p.npc_action_type == ACT_allows_player_to_pass)
+		// everything in this branch has an effect
+		if(!p.was_eavesdropped)
 		{
-			happened_to_npc->target_goto = AddV2(happened_to_npc->pos, V2(-50.0, 0.0));
-			happened_to_npc->moved = true;
-		}
-		else if (p.npc_action_type == ACT_fights_player)
-		{
-			happened_to_npc->standing = STANDING_FIGHTING;
-		}
-		else if(p.npc_action_type == ACT_knights_player)
-		{
-			player->knighted = true;
-		}
-		else if (p.npc_action_type == ACT_stops_fighting_player)
-		{
-			happened_to_npc->standing = STANDING_INDIFFERENT;
-		}
-		else if (p.npc_action_type == ACT_leaves_player)
-		{
-			happened_to_npc->standing = STANDING_INDIFFERENT;
-		}
-		else if (p.npc_action_type == ACT_joins_player)
-		{
-			happened_to_npc->standing = STANDING_JOINED;
-		}
-		else if (p.npc_action_type == ACT_give_item)
-		{
-			int item_to_remove = -1;
-			Entity *e = happened_to_npc;
-			BUFF_ITER_I(ItemKind, &e->held_items, i)
+			if (p.npc_action_type == ACT_allows_player_to_pass)
 			{
-				if (*it == p.given_item)
-				{
-					item_to_remove = i;
-					break;
-				}
+				happened_to_npc->target_goto = AddV2(happened_to_npc->pos, V2(-50.0, 0.0));
+				happened_to_npc->moved = true;
 			}
-			if (item_to_remove < 0)
+			else if (p.npc_action_type == ACT_fights_player)
 			{
-				Log("Can't find item %s to give from NPC %s to the player\n", items[p.given_item].name,
-				    characters[happened_to_npc->npc_kind].name);
-				assert(false);
+				happened_to_npc->standing = STANDING_FIGHTING;
+			}
+			else if(p.npc_action_type == ACT_knights_player)
+			{
+				player->knighted = true;
+			}
+			else if (p.npc_action_type == ACT_stops_fighting_player)
+			{
+				happened_to_npc->standing = STANDING_INDIFFERENT;
+			}
+			else if (p.npc_action_type == ACT_leaves_player)
+			{
+				happened_to_npc->standing = STANDING_INDIFFERENT;
+			}
+			else if (p.npc_action_type == ACT_joins_player)
+			{
+				happened_to_npc->standing = STANDING_JOINED;
+			}
+			else if (p.npc_action_type == ACT_give_item)
+			{
+				int item_to_remove = -1;
+				Entity *e = happened_to_npc;
+				BUFF_ITER_I(ItemKind, &e->held_items, i)
+				{
+					if (*it == p.given_item)
+					{
+						item_to_remove = i;
+						break;
+					}
+				}
+				if (item_to_remove < 0)
+				{
+					Log("Can't find item %s to give from NPC %s to the player\n", items[p.given_item].name,
+							characters[happened_to_npc->npc_kind].name);
+					assert(false);
+				}
+				else
+				{
+					BUFF_REMOVE_AT_INDEX(&happened_to_npc->held_items, item_to_remove);
+					BUFF_APPEND(&player->held_items, p.given_item);
+				}
 			}
 			else
 			{
-				BUFF_REMOVE_AT_INDEX(&happened_to_npc->held_items, item_to_remove);
-				BUFF_APPEND(&player->held_items, p.given_item);
+				// actions that take an argument have to have some kind of side effect based on that argument...
+				assert(!actions[p.npc_action_type].takes_argument);
 			}
-		}
-		else
-		{
-			// actions that take an argument have to have some kind of side effect based on that argument...
-			assert(!actions[p.npc_action_type].takes_argument);
 		}
 	}
 	else if(p.type == ErrorMessage)
@@ -546,7 +553,7 @@ bool printf_buff_impl(BuffRef into, const char *format, ...)
 	return succeeded;
 }
 
-#define printf_buff(buff_ptr, ...) printf_buff_impl(BUFF_MAKEREF(buff_ptr), __VA_ARGS__)
+#define printf_buff(buff_ptr, ...) { printf_buff_impl(BUFF_MAKEREF(buff_ptr), __VA_ARGS__); if(false) printf(__VA_ARGS__); }
 
 typedef BUFF(char, 512) SmallTextChunk;
 
@@ -683,7 +690,7 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
 		{
 			assert(it->error.cur_index > 0);
 			printf_buff(&cur_node, "ERROR, YOU SAID SOMETHING WRONG: The program can't parse what you said because: %s", it->error.data);
-			sent_type = MSG_USER;
+			sent_type = MSG_SYSTEM;
 		}
 		else if (it->type == PlayerAction)
 		{
@@ -724,7 +731,9 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
 		else if (it->type == NPCDialog)
 		{
 			assert(it->npc_action_type < ARRLEN(actions));
-			printf_buff(&cur_node, "%s: %s \"%s\"", characters[e->npc_kind].name,
+			NpcKind who_said_it = e->npc_kind;
+			if(it->was_eavesdropped) who_said_it = it->talked_to_while_eavesdropped;
+			printf_buff(&cur_node, "%s: %s \"%s\"", characters[who_said_it].name,
 			            percept_action_str(*it, it->npc_action_type).data, it->npc_dialog.data);
 			sent_type = MSG_ASSISTANT;
 		}
@@ -752,7 +761,7 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
 		if(it->was_eavesdropped)
 		{
 			DialogNode eavesdropped = {0};
-			printf_buff(&eavesdropped , "From within the player's party, you hear: '%s'", cur_node);
+			printf_buff(&eavesdropped , "Within the player's party, while the player is talking to '%s', you hear: '%s'", characters[it->talked_to_while_eavesdropped].name, cur_node.data);
 			cur_node = eavesdropped;
 		}
 		dump_json_node(into,sent_type, cur_node.data);
@@ -781,7 +790,7 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
 
 	if(e->held_items.cur_index > 0)
 	{
-		printf_buff(&latest_state_node, "\nThe NPC you're acting as, %s, has these items in their inventory: [%s]", characters[it->npc_kind].name, item_string(it).data);
+		printf_buff(&latest_state_node, "\nThe NPC you're acting as, %s, has these items in their inventory: [%s]\n", characters[it->npc_kind].name, item_string(it).data);
 	}
 	else
 	{
@@ -969,6 +978,28 @@ ChatgptParse parse_chatgpt_response(Entity *it, char *sentence_str, Perception *
 
 	size_t sentence_length = strlen(sentence_str);
 
+	// dialog begins at ACT_
+	const char *to_find = "ACT_";
+	size_t to_find_len = strlen(to_find);
+	bool found = false;
+	while(true)
+	{
+		if(*to_find == '\0') break;
+		if(strncmp(sentence_str, to_find, to_find_len) == 0)
+		{
+			sentence_str += to_find_len;
+			found = true;
+			break;
+		}
+		sentence_str += 1;
+	}
+
+	if(!found)
+	{
+		printf_buff(&to_return.error_message, "Couldn't find action beginning with 'ACT_'.\n");
+		return to_return;
+	}
+
 	SmallTextChunk action_string = { 0 };
 	sentence_str += get_until(&action_string, sentence_str, "( ");
 
@@ -995,7 +1026,7 @@ ChatgptParse parse_chatgpt_response(Entity *it, char *sentence_str, Perception *
 		SmallTextChunk dialog_str = { 0 };
 		if (actions[out->npc_action_type].takes_argument)
 		{
-#define EXPECT(chr, val) if (chr != val) { printf_buff(&to_return.error_message, "Improperly formatted sentence, expected character '%c' but got '%c'\n", sentence_str, val, chr); return to_return; }
+#define EXPECT(chr, val) if (chr != val) { printf_buff(&to_return.error_message, "Improperly formatted sentence, expected character '%c' but got '%c'\n", val, chr); return to_return; }
 
 			EXPECT(*sentence_str, '(');
 			sentence_str += 1;
@@ -1059,6 +1090,13 @@ ChatgptParse parse_chatgpt_response(Entity *it, char *sentence_str, Perception *
 		{
 			printf_buff(&to_return.error_message, "Dialog string `%s` too big to fit in sentence size %d\n", dialog_str.data,
 			    (int) ARRLEN(out->npc_dialog.data));
+			return to_return;
+		}
+
+		char next_char = *(sentence_str + 1);
+		if(!(next_char == '\0' || next_char == '\n'))
+		{
+			printf_buff(&to_return.error_message, "Expected dialog to end after the last quote, but instead found character '%c'\n", next_char);
 			return to_return;
 		}
 

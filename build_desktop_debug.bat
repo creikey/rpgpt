@@ -4,9 +4,8 @@
 
 
 if "%1" == "codegen" ( call run_codegen.bat || goto :error ) else ( echo NOT RUNNING CODEGEN )
-@REM cl /diagnostics:caret /DDEVTOOLS /Igen /Ithirdparty /W3 /Zi /WX Dbghelp.lib main.c || goto :error
-zig cc -DDEVTOOLS -Igen -Ithirdparty -lDbghelp -lGdi32 -lD3D11 -lOle32 -gfull -gcodeview -o main.exe main.c || goto :error
-@REM cl /Igen /Ithirdparty /W3 /Zi /WX main.c || goto :error
+START /B zig cc -DDEVTOOLS -Igen -Ithirdparty -lDbghelp -lGdi32 -lD3D11 -lOle32 -gfull -gcodeview -o main_zig.exe main.c
+cl /diagnostics:caret /DDEVTOOLS /Igen /Ithirdparty /W3 /Zi /WX Dbghelp.lib main.c || goto :error
 
 goto :EOF
 

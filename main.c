@@ -3387,6 +3387,10 @@ F cost: G + H
 								Action act = ACT_none;
 
 								it->times_talked_to++;
+								if(it->remembered_perceptions.data[it->remembered_perceptions.cur_index-1].was_eavesdropped)
+								{
+									printf_buff(&dialog_string, "Responding to eavesdropped: ");
+								}
 								if(it->npc_kind == NPC_TheBlacksmith && it->standing != STANDING_JOINED)
 								{
 									assert(it->times_talked_to == 1);
@@ -3401,14 +3405,15 @@ F cost: G + H
 								BUFF(char, 1024) mocked_ai_response = { 0 };
 								if (argument)
 								{
-									printf_buff(&mocked_ai_response, "%s(%s) \"%s\"", actions[act].name, argument, dialog_string.data);
+									printf_buff(&mocked_ai_response, "ACT_%s(%s) \"%s\"", actions[act].name, argument, dialog_string.data);
 								}
 								else
 								{
-									printf_buff(&mocked_ai_response, "%s \"%s\"", actions[act].name, dialog_string.data);
+									printf_buff(&mocked_ai_response, "ACT_%s \"%s\"", actions[act].name, dialog_string.data);
 								}
 								Perception p = { 0 };
-								assert(parse_chatgpt_response(it, mocked_ai_response.data, &p));
+								ChatgptParse parsed = parse_chatgpt_response(it, mocked_ai_response.data, &p);
+								assert(parsed.succeeded);
 								process_perception(it, p, player, &gs);
 #undef SAY
 #endif

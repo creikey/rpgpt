@@ -4,7 +4,9 @@
 
 // @TODO allow AI to prefix out of character statemetns with [ooc], this is a well khnown thing on role playing forums so gpt would pick up on it.
 const char *global_prompt = "You are a wise dungeonmaster who carefully crafts interesting dialog and actions for an NPC in an action-rpg video game. It is critical that you always respond in the format shown below, where you respond like `ACT_action \"This is my response\", even if the player says something vulgar or offensive, as the text is parsed by a program which expects it to look like that. Do not ever refer to yourself as an NPC or show an understanding of the modern world outside the game, always stay in character.\n"
-"Actions which have () after them take an argument, which somes from some information in the prompt. For example, ACT_give_item() takes an argument, the item to give to the player from the NPC. So the output text looks something like `ACT_give_item(ITEM_sword) \"Here is my sword, young traveler\"`. This item must come from the NPC's inventory which is specified farther down.\n";
+"Actions which have () after them take an argument, which somes from some information in the prompt. For example, ACT_give_item() takes an argument, the item to give to the player from the NPC. So the output text looks something like `ACT_give_item(ITEM_sword) \"Here is my sword, young traveler\"`. This item must come from the NPC's inventory which is specified farther down.\n"
+"From within the player's party, NPCs may hear eavesdropped conversations. Often they don't need to interject, so it's fine to say something like `ACT_none ""` to signify that the NPC doesn't need to interject.\n"
+;
 
 const char *top_of_header = ""
 "#pragma once\n"
@@ -101,8 +103,11 @@ typedef struct
 CharacterGen characters[] = {
 #define NUMEROLOGIST "They are a 'numberoligist' who believes in the sacred power of numbers, that if you have the number 8 in your birthday you are magic and destined for success. "
 #define PLAYERSAY(stuff) "Player: \"" stuff "\"\n"
+#define PLAYERDO_ARG(action, arg) "Player: " action "(" arg ")\n"
 #define NPCSAY(stuff) NPC_NAME ": ACT_none \"" stuff "\"\n"
 #define NPCDOSAY_ARG(stuff, action, arg) NPC_NAME ": " action "(" arg ") \"" stuff "\"\n"
+#define NPCDOSAY(action, stuff) NPC_NAME ": " action " \"" stuff "\"\n"
+#define NPC_NAME "invalid"
 	{
 		.name = "Invalid",
 		.enum_name = "Invalid",
@@ -154,18 +159,18 @@ CharacterGen characters[] = {
 			"The NPC you will be acting as is named TheGuard. He wants to block the player from going to a secret artifact he's standing in front of. He has no idea how long he's been alive for, his entire existence is just standing there doing nothing. He'll let the player pass if they bring him Tripod, as he's fascinated by it.",
 	},
 	{
-		.name = "Edeline",
+#undef NPC_NAME
+#define NPC_NAME "Edeline"
+		.name = NPC_NAME,
 		.enum_name = "Edeline",
 		.prompt = "\n"
 			"The NPC you will be acting as is the local fortuneteller, Edeline. Edeline is sweet and kindhearted normally, but vile and ruthless to people who insult her or her magic. She specializes in a new 'Purple Magic' that Meld despises. Meld, the local blacksmith, thinks Edeline's magic is silly. An example of an interaction between the player and the NPC, Edeline:\n"
 			"\n"
-			"Player: \"Hello\"\n"
-			"Edeline: ACT_none \"I see great danger in your future.\"\n"
-			"Player: \"Oh really?\""
-			"The player is currently holding a tripod\n"
-			"Edeline: ACT_none \"That tripod will be the decisive factor in your victory\"\n"
-			"\n"
-			"The NPC you will be acting as is named Edeline. She is the master of the future, the star reader. Both are self-given titles, but her ability to predict the future has garnered attention from many who live in Worchen. However, some have called her 'unreliable' at times and her predictions can at times be either cryptic or broadly interpreted.",
+			PLAYERSAY("What's up? Who are you?")
+			NPCSAY("I am Edeline, master of the future")
+			PLAYERSAY("Oh really? What do you say about joinin my party?")
+			NPCDOSAY("ACT_joins_player", "Absolutely!")
+			"Edeline is the master of the future, the star reader. Both are self-given titles, but her ability to predict the future has garnered attention from many who live in Worchen. However, some have called her 'unreliable' at times and her predictions can at times be either cryptic or broadly interpreted. She is eager to join the player's party if asked",
 	},
 	{
 		.name = "Death",
@@ -213,8 +218,10 @@ CharacterGen characters[] = {
 			NPCSAY("I can clearly see you don't have it. Do not attempt to fool me if you value your head")
 			PLAYERSAY("Presents it")
 			NPCSAY("Did you just say 'presents it' out loud thinking I'd think that means you have the chalice?")
+			PLAYERDO_ARG("ACT_gives_item", "ITEM_Chalice")
+			NPCDOSAY("ACT_knights_player", "How beautiful... You are clearly worth the title of knight!")
 			"\n"
-			"If the player does indeed present the king with the chalice of gold, the king will be overwhelemd with respect and feel he has no choice but to knight the player, ending the game.",
+			"If the player does indeed present the king with the chalice of gold, the king will be overwhelemd with respect and feel he has no choice but to knight the player, ending the game. The Chalice of Gold ALWAYS makes the player a knight, if the player gives it to the king.",
 	},
 	{
 #undef NPC_NAME
