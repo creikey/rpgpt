@@ -401,6 +401,50 @@
                  "width":32,
                  "x":1789.33333333334,
                  "y":2260
+                }, 
+                {
+                 "class":"",
+                 "height":32,
+                 "id":24,
+                 "name":"Davis",
+                 "rotation":0,
+                 "visible":true,
+                 "width":32,
+                 "x":2107,
+                 "y":2115
+                }, 
+                {
+                 "class":"",
+                 "height":32,
+                 "id":25,
+                 "name":"Blue",
+                 "rotation":0,
+                 "visible":true,
+                 "width":32,
+                 "x":1783,
+                 "y":2186
+                }, 
+                {
+                 "class":"",
+                 "height":32,
+                 "id":26,
+                 "name":"Red",
+                 "rotation":0,
+                 "visible":true,
+                 "width":32,
+                 "x":1877,
+                 "y":2185
+                }, 
+                {
+                 "class":"",
+                 "height":32,
+                 "id":27,
+                 "name":"Harold",
+                 "rotation":0,
+                 "visible":true,
+                 "width":32,
+                 "x":1992,
+                 "y":2182
                 }],
          "opacity":1,
          "type":"objectgroup",
@@ -409,7 +453,7 @@
          "y":0
         }],
  "nextlayerid":5,
- "nextobjectid":24,
+ "nextobjectid":28,
  "orientation":"orthogonal",
  "renderorder":"right-down",
  "tiledversion":"1.9.2",

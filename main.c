@@ -3278,6 +3278,18 @@ F cost: G + H
 							else if (it->npc_kind == NPC_TheKing)
 							{
 							}
+							else if (it->npc_kind == NPC_Red)
+							{
+							}
+							else if (it->npc_kind == NPC_Blue)
+							{
+							}
+							else if (it->npc_kind == NPC_Harold)
+							{
+							}
+							else if (it->npc_kind == NPC_Davis)
+							{
+							}
 							else if (it->npc_kind == NPC_TheBlacksmith)
 							{
 							}
@@ -3285,6 +3297,7 @@ F cost: G + H
 							{
 								assert(false);
 							}
+
 							if (it->damage >= entity_max_damage(it))
 							{
 								if (npc_is_skeleton(it))
@@ -3395,11 +3408,11 @@ F cost: G + H
 								{
 									assert(it->times_talked_to == 1);
 									act = ACT_joins_player;
-									printf_buff(&dialog_string, "Joining you...\n");
+									printf_buff(&dialog_string, "Joining you...");
 								}
 								else
 								{
-									printf_buff(&dialog_string, "%d times talked\n", it->times_talked_to);
+									printf_buff(&dialog_string, "%d times talked", it->times_talked_to);
 								}
 
 								BUFF(char, 1024) mocked_ai_response = { 0 };
@@ -3880,6 +3893,22 @@ F cost: G + H
 							else if (it->npc_kind == NPC_TheBlacksmith)
 							{
 								tint = colhex(0x5c5c5c);
+							}
+							else if (it->npc_kind == NPC_Red)
+							{
+								tint = colhex(0xf56f42);
+							}
+							else if (it->npc_kind == NPC_Blue)
+							{
+								tint = colhex(0x1153d6);
+							}
+							else if (it->npc_kind == NPC_Davis)
+							{
+								tint = colhex(0x8f8f8f);
+							}
+							else if (it->npc_kind == NPC_Harold)
+							{
+								tint = colhex(0xf2a311);
 							}
 							else
 							{
