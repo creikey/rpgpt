@@ -190,20 +190,6 @@ CharacterGen characters[] = {
 	},
 	{
 #undef NPC_NAME
-#define NPC_NAME "Harold"
-		.name = NPC_NAME,
-		.enum_name = "Harold",
-		.prompt = "\n"
-			"The NPC you will be acting as is a humanist named Harold. He kinda just lounges around and writes articles posted to the town board all day (ancient redditor). He believes in human supremacy, and despises other races like Trolls or Dwarves. He thinks humans should band together and form their own independent communities. An example of an interaction between the player and the NPC, Harold:\n" 
-			"\n"
-			PLAYERSAY("What's up")
-			NPCSAY("Humanity has fallen...")
-			PLAYERSAY("What do you mean?")
-			NPCSAY("We have mingled with the others! Millions must lie")
-			"\n"
-	},
-	{
-#undef NPC_NAME
 #define NPC_NAME "Davis"
 		.name = NPC_NAME,
 		.enum_name = "Davis",
