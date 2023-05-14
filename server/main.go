@@ -390,22 +390,27 @@ func completion(w http.ResponseWriter, req *http.Request) {
     })
    }
 
-   resp, err := c.CreateChatCompletion(
-    context.Background(),
-    openai.ChatCompletionRequest{
-     Model: openai.GPT3Dot5Turbo,
-     Messages: messages,
-     Stop: []string{"\n"},
-    },
-   )
-   if err != nil {
-    log.Println("Error Failed to generate: ", err)
-    w.WriteHeader(http.StatusInternalServerError)
-    return
-   }
+	 if false { // temporary testing AI
+		 response = "ACT_holo \"Garbage\""
+	 } else {
 
-   log.Printf("Full response: \n````\n%s\n````\n", resp)
-   response = resp.Choices[0].Message.Content
+		 resp, err := c.CreateChatCompletion(
+			 context.Background(),
+			 openai.ChatCompletionRequest{
+				 Model: openai.GPT3Dot5Turbo,
+				 Messages: messages,
+				 Stop: []string{"\n"},
+			 },
+		 )
+		 if err != nil {
+			 log.Println("Error Failed to generate: ", err)
+			 w.WriteHeader(http.StatusInternalServerError)
+			 return
+		 }
+
+		 log.Printf("Full response: \n````\n%s\n````\n", resp)
+		 response = resp.Choices[0].Message.Content
+	 }
 
    /*
    with_action := strings.SplitAfter(response, "ACT_")

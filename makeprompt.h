@@ -276,7 +276,6 @@ bool npc_is_knight_sprite(Entity *it)
 		it->npc_kind == NPC_TheBlacksmith
 		|| it->npc_kind == NPC_Red 
 		|| it->npc_kind == NPC_Blue
-		|| it->npc_kind == NPC_Harold
 		|| it->npc_kind == NPC_Davis
 		);
 }
@@ -989,7 +988,7 @@ ChatgptParse parse_chatgpt_response(Entity *it, char *sentence_str, Perception *
 	bool found = false;
 	while(true)
 	{
-		if(*to_find == '\0') break;
+		if(*sentence_str == '\0') break;
 		if(strncmp(sentence_str, to_find, to_find_len) == 0)
 		{
 			sentence_str += to_find_len;

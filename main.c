@@ -970,6 +970,9 @@ void init(void)
 
 	scratch = make_arena(1024 * 10);
 
+	typedef BUFF(char, 1024) DialogNode;
+	DialogNode cur_node = { 0 };
+
 	load_assets();
 	reset_level();
 
@@ -1486,6 +1489,7 @@ RenderingQueue rendering_queues[LAYER_LAST] = { 0 };
 // The image region is in pixel space of the image
 void draw_quad_impl(DrawParams d, int line)
 {
+	d.line_number = line;
 	Vec2 *points = d.quad.points;
 	if (d.world_space)
 	{
@@ -1504,7 +1508,25 @@ void draw_quad_impl(DrawParams d, int line)
 	// we've aplied the world space transform
 	d.world_space = false;
 
-	d.line_number = line;
+
+	AABB cam_aabb = screen_cam_aabb();
+	AABB points_bounding_box = { .upper_left = V2(INFINITY, -INFINITY), .lower_right = V2(-INFINITY, INFINITY) };
+
+	for (int i = 0; i < 4; i++)
+	{
+		points_bounding_box.upper_left.X = fminf(points_bounding_box.upper_left.X, points[i].X);
+		points_bounding_box.upper_left.Y = fmaxf(points_bounding_box.upper_left.Y, points[i].Y);
+
+		points_bounding_box.lower_right.X = fmaxf(points_bounding_box.lower_right.X, points[i].X);
+		points_bounding_box.lower_right.Y = fminf(points_bounding_box.lower_right.Y, points[i].Y);
+	}
+	if (!overlapping(cam_aabb, points_bounding_box))
+	{
+		//dbgprint("Out of screen, cam aabb %f %f %f %f\n", cam_aabb.upper_left.X, cam_aabb.upper_left.Y, cam_aabb.lower_right.X, cam_aabb.lower_right.Y);
+		//dbgprint("Points boundig box %f %f %f %f\n", points_bounding_box.upper_left.X, points_bounding_box.upper_left.Y, points_bounding_box.lower_right.X, points_bounding_box.lower_right.Y);
+		return; // cull out of screen quads
+	}
+
 
 	assert(d.layer >= 0 && d.layer < ARRLEN(rendering_queues));
 	BUFF_APPEND(&rendering_queues[(int)d.layer], d);
@@ -3284,9 +3306,6 @@ F cost: G + H
 							else if (it->npc_kind == NPC_Blue)
 							{
 							}
-							else if (it->npc_kind == NPC_Harold)
-							{
-							}
 							else if (it->npc_kind == NPC_Davis)
 							{
 							}
@@ -3416,6 +3435,9 @@ F cost: G + H
 								}
 
 								BUFF(char, 1024) mocked_ai_response = { 0 };
+
+								if(false)
+								{
 								if (argument)
 								{
 									printf_buff(&mocked_ai_response, "ACT_%s(%s) \"%s\"", actions[act].name, argument, dialog_string.data);
@@ -3424,6 +3446,8 @@ F cost: G + H
 								{
 									printf_buff(&mocked_ai_response, "ACT_%s \"%s\"", actions[act].name, dialog_string.data);
 								}
+								}
+								printf_buff(&mocked_ai_response, "ACT_boogley \"Otherwise ok\"");
 								Perception p = { 0 };
 								ChatgptParse parsed = parse_chatgpt_response(it, mocked_ai_response.data, &p);
 								assert(parsed.succeeded);
@@ -3906,10 +3930,6 @@ F cost: G + H
 							{
 								tint = colhex(0x8f8f8f);
 							}
-							else if (it->npc_kind == NPC_Harold)
-							{
-								tint = colhex(0xf2a311);
-							}
 							else
 							{
 								assert(false);
@@ -4345,23 +4365,6 @@ F cost: G + H
 							}
 
 
-							AABB cam_aabb = screen_cam_aabb();
-							AABB points_bounding_box = { .upper_left = V2(INFINITY, -INFINITY), .lower_right = V2(-INFINITY, INFINITY) };
-
-							for (int i = 0; i < 4; i++)
-							{
-								points_bounding_box.upper_left.X = fminf(points_bounding_box.upper_left.X, points[i].X);
-								points_bounding_box.upper_left.Y = fmaxf(points_bounding_box.upper_left.Y, points[i].Y);
-
-								points_bounding_box.lower_right.X = fmaxf(points_bounding_box.lower_right.X, points[i].X);
-								points_bounding_box.lower_right.Y = fminf(points_bounding_box.lower_right.Y, points[i].Y);
-							}
-							if (!overlapping(cam_aabb, points_bounding_box))
-							{
-								//dbgprint("Out of screen, cam aabb %f %f %f %f\n", cam_aabb.upper_left.X, cam_aabb.upper_left.Y, cam_aabb.lower_right.X, cam_aabb.lower_right.Y);
-								//dbgprint("Points boundig box %f %f %f %f\n", points_bounding_box.upper_left.X, points_bounding_box.upper_left.Y, points_bounding_box.lower_right.X, points_bounding_box.lower_right.Y);
-								continue; // cull out of screen quads
-							}
 
 							float new_vertices[ FLOATS_PER_VERTEX*4 ] = { 0 };
 							Vec2 region_size = SubV2(d.image_region.lower_right, d.image_region.upper_left);
