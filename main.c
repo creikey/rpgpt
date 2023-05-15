@@ -1,5 +1,5 @@
-#define CURRENT_VERSION 12 // wehenver you change Entity increment this boz
 // you will die someday
+#include "tuning.h"
 
 #define SOKOL_IMPL
 
@@ -38,6 +38,82 @@
 #include "HandmadeMath.h"
 #define DR_WAV_IMPLEMENTATION
 #include "dr_wav.h"
+
+// web compatible metadesk
+
+#define __gnu_linux__
+#define i386
+#define MD_DEFAULT_ARENA 0
+
+typedef struct WebArena
+{
+	char *data;
+	size_t cap;
+	size_t pos;
+} WebArena;
+
+WebArena *web_arena_alloc()
+{
+	WebArena *to_return = malloc(sizeof(to_return));
+
+	*to_return = (WebArena) {
+		.data = calloc(1, ARENA_SIZE),
+		.cap = ARENA_SIZE,
+		.pos = 0,
+	};
+
+	return to_return;
+}
+
+void web_arena_release(WebArena *arena)
+{
+	free(arena->data);
+	arena->data = 0;
+	free(arena);
+}
+
+size_t web_arena_get_pos(WebArena *arena)
+{
+	return arena->pos;
+}
+
+void *web_arena_push(WebArena *arena, size_t amount)
+{
+	void *to_return = arena->data + arena->pos;
+	arena->pos += amount;
+	assert(arena->pos < arena->cap);
+	return to_return;
+}
+
+void web_arena_pop_to(WebArena *arena, size_t new_pos)
+{
+	arena->pos = new_pos;
+	assert(arena->pos < arena->cap);
+}
+
+void web_arena_set_auto_align(WebArena *arena, size_t align)
+{
+	(void)arena;
+	(void)align;
+}
+
+#define MD_IMPL_Arena WebArena
+#define MD_IMPL_ArenaAlloc web_arena_alloc
+#define MD_IMPL_ArenaRelease web_arena_release
+#define MD_IMPL_ArenaGetPos web_arena_get_pos
+#define MD_IMPL_ArenaPush web_arena_push
+#define MD_IMPL_ArenaPopTo web_arena_pop_to
+#define MD_IMPL_ArenaSetAutoAlign web_arena_set_auto_align
+#define MD_IMPL_ArenaMinPos 64 // no idea what this is honestly
+
+#pragma warning(push)
+#pragma warning(disable : 4244) // loss of data warning
+#pragma warning(disable : 4101) // unreferenced local variable
+#define STBSP_ADD_TO_FUNCTIONS no_ubsan
+#define MD_FUNCTION no_ubsan
+#include "md.h"
+#include "md.c"
+#pragma warning(pop)
 
 #pragma warning(disable : 4996) // fopen is safe. I don't care about fopen_s
 
@@ -138,13 +214,26 @@ typedef struct TileSet
 	AnimatedTile animated[128];
 } TileSet;
 
-#ifdef DEVTOOLS
-#define SERVER_URL "http://localhost:8090"
-#else
-#define SERVER_URL "https://rpgpt.duckdns.org"
-#endif
-
 #include "makeprompt.h"
+
+#ifdef DEVTOOLS
+void do_metadesk_tests()
+{
+	Log("Testing metadesk library...\n");
+	MD_Arena *arena = MD_ArenaAlloc();
+	MD_String8 s = MD_S8Lit("This is a testing|string");
+
+	MD_String8List split_up = MD_S8Split(arena, s, 1, &MD_S8Lit("|"));
+
+	assert(split_up.node_count == 2);
+	assert(MD_S8Match(split_up.first->string, MD_S8Lit("This is a testing"), 0));
+	assert(MD_S8Match(split_up.last->string, MD_S8Lit("string"), 0));
+
+	MD_ArenaRelease(arena);
+
+	Log("Testing passed!\n");
+}
+#endif
 
 typedef struct Overlap
 {
@@ -155,12 +244,6 @@ typedef struct Overlap
 
 typedef BUFF(Overlap, 16) Overlapping;
 
-
-#define LEVEL_TILES 150
-#define LAYERS 3
-#define TILE_SIZE 32 // in pixels
-#define PLAYER_SPEED 3.5f // in meters per second
-#define PLAYER_ROLL_SPEED 7.0f
 typedef struct Level
 {
 	TileInstance tiles[LAYERS][LEVEL_TILES][LEVEL_TILES];
@@ -957,6 +1040,12 @@ void init(void)
 			set_server_url(UTF8ToString($0));
 			}, SERVER_URL);
 #endif
+
+#ifdef DEVTOOLS
+	do_metadesk_tests();
+#endif
+
+
 	Log("Size of entity struct: %zu\n", sizeof(Entity));
 	Log("Size of %d gs.entities: %zu kb\n", (int)ARRLEN(gs.entities), sizeof(gs.entities) / 1024);
 	sg_setup(&(sg_desc) {
