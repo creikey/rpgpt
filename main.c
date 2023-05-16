@@ -20,8 +20,6 @@
 #include <dbghelp.h>
 #endif
 
-
-
 #include "buff.h"
 #include "sokol_app.h"
 #include "sokol_gfx.h"
@@ -40,7 +38,7 @@
 #include "dr_wav.h"
 
 // web compatible metadesk
-
+#ifdef WEB
 #define __gnu_linux__
 #define i386
 #define MD_DEFAULT_ARENA 0
@@ -105,6 +103,9 @@ void web_arena_set_auto_align(WebArena *arena, size_t align)
 #define MD_IMPL_ArenaPopTo web_arena_pop_to
 #define MD_IMPL_ArenaSetAutoAlign web_arena_set_auto_align
 #define MD_IMPL_ArenaMinPos 64 // no idea what this is honestly
+#endif // web
+
+#pragma warning(disable : 4996) // fopen is safe. I don't care about fopen_s
 
 #pragma warning(push)
 #pragma warning(disable : 4244) // loss of data warning
@@ -115,7 +116,6 @@ void web_arena_set_auto_align(WebArena *arena, size_t align)
 #include "md.c"
 #pragma warning(pop)
 
-#pragma warning(disable : 4996) // fopen is safe. I don't care about fopen_s
 
 #include <math.h>
 
@@ -373,44 +373,17 @@ Vec2 FloorV2(Vec2 v)
 	return V2(floorf(v.x), floorf(v.y));
 }
 
-Arena make_arena(size_t max_size)
-{
-	return (Arena)
-	{
-		.data = calloc(max_size, 1),
-			.data_size = max_size,
-			.cur = 0,
-	};
-}
-void reset(Arena *a)
-{
-	memset(a->data, 0, a->data_size);
-	a->cur = 0;
-}
-char *get(Arena *a, size_t of_size)
-{
-	assert(a->data != NULL);
-	char *to_return = a->data + a->cur;
-	a->cur += of_size;
-	assert(a->cur < a->data_size);
-	return to_return;
-}
+MD_Arena *frame_arena = 0;
 
-Arena scratch = { 0 };
-
-char *tprint(const char *format, ...)
+MD_String8 tprint(char *format, ...)
 {
+	MD_String8 to_return = {0};
 	va_list argptr;
 	va_start(argptr, format);
 
-	int size = vsnprintf(NULL, 0, format, argptr) + 1; // for null terminator
-
-	char *to_return = get(&scratch, size);
-
-	vsnprintf(to_return, size, format, argptr);
+	to_return = MD_S8FmtV(frame_arena, format, argptr);
 
 	va_end(argptr);
-
 	return to_return;
 }
 
@@ -1045,6 +1018,7 @@ void init(void)
 	do_metadesk_tests();
 #endif
 
+	frame_arena = MD_ArenaAlloc();
 
 	Log("Size of entity struct: %zu\n", sizeof(Entity));
 	Log("Size of %d gs.entities: %zu kb\n", (int)ARRLEN(gs.entities), sizeof(gs.entities) / 1024);
@@ -1056,8 +1030,6 @@ void init(void)
 			.stream_cb = audio_stream_callback,
 			.logger.func = slog_func,
 			});
-
-	scratch = make_arena(1024 * 10);
 
 	typedef BUFF(char, 1024) DialogNode;
 	DialogNode cur_node = { 0 };
@@ -1813,7 +1785,7 @@ typedef struct TextParams
 {
 	bool world_space;
 	bool dry_run;
-	const char *text;
+	MD_String8 text;
 	Vec2 pos;
 	Color color;
 	float scale;
@@ -1825,7 +1797,7 @@ typedef struct TextParams
 // returns bounds. To measure text you can set dry run to true and get the bounds
 AABB draw_text(TextParams t)
 {
-	size_t text_len = strlen(t.text);
+	size_t text_len = t.text.size;
 	AABB bounds = { 0 };
 	float y = 0.0;
 	float x = 0.0;
@@ -1833,12 +1805,12 @@ AABB draw_text(TextParams t)
 	{
 		stbtt_aligned_quad q;
 		float old_y = y;
-		stbtt_GetBakedQuad(cdata, 512, 512, t.text[i]-32, &x, &y, &q, 1);
+		stbtt_GetBakedQuad(cdata, 512, 512, t.text.str[i]-32, &x, &y, &q, 1);
 		float difference = y - old_y;
 		y = old_y + difference;
 
 		Vec2 size = V2(q.x1 - q.x0, q.y1 - q.y0);
-		if (t.text[i] == '\n')
+		if (t.text.str[i] == '\n')
 		{
 #ifdef DEVTOOLS
 			y += font_size*0.75f; // arbitrary, only debug t.text has newlines
@@ -2231,7 +2203,7 @@ float draw_wrapped_text(WrappedTextParams p)
 			memset(line_to_draw, 0, MAX_SENTENCE_LENGTH);
 			memcpy(line_to_draw, sentence_to_draw, chars_from_sentence);
 
-			line_bounds = draw_text((TextParams) { !p.screen_space, true, line_to_draw, cursor, BLACK, p.text_scale, p.clip_to, .do_clipping = p.do_clipping});
+			line_bounds = draw_text((TextParams) { !p.screen_space, true, MD_S8CString(line_to_draw), cursor, BLACK, p.text_scale, p.clip_to, .do_clipping = p.do_clipping});
 			if (line_bounds.lower_right.X > p.at_point.X + p.max_width)
 			{
 				// too big
@@ -2248,7 +2220,7 @@ float draw_wrapped_text(WrappedTextParams p)
 
 		//float line_height = line_bounds.upper_left.Y - line_bounds.lower_right.Y;
 		float line_height = font_line_advance * p.text_scale;
-		AABB drawn_bounds = draw_text((TextParams) { !p.screen_space, p.dry_run, line_to_draw, AddV2(cursor, V2(0.0f, -line_height)), BLACK, p.text_scale, p.clip_to, colors_to_draw, .do_clipping = p.do_clipping});
+		AABB drawn_bounds = draw_text((TextParams) { !p.screen_space, p.dry_run, MD_S8CString(line_to_draw), AddV2(cursor, V2(0.0f, -line_height)), BLACK, p.text_scale, p.clip_to, colors_to_draw, .do_clipping = p.do_clipping});
 		if (!p.dry_run) dbgrect(drawn_bounds);
 
 		// caught a random infinite loop in the debugger, this will stop it
@@ -2539,7 +2511,7 @@ typedef struct
 
 struct { int key; IMState value; } *imui_state = 0;
 
-bool imbutton_key(AABB button_aabb, float text_scale, const char *text, int key, float dt, bool force_down)
+bool imbutton_key(AABB button_aabb, float text_scale, MD_String8 text, int key, float dt, bool force_down)
 {
 	IMState state = hmget(imui_state, key);
 
@@ -3525,7 +3497,7 @@ F cost: G + H
 
 								BUFF(char, 1024) mocked_ai_response = { 0 };
 
-								if(false)
+								if(true)
 								{
 								if (argument)
 								{
@@ -3536,7 +3508,6 @@ F cost: G + H
 									printf_buff(&mocked_ai_response, "ACT_%s \"%s\"", actions[act].name, dialog_string.data);
 								}
 								}
-								printf_buff(&mocked_ai_response, "ACT_boogley \"Otherwise ok\"");
 								Perception p = { 0 };
 								ChatgptParse parsed = parse_chatgpt_response(it, mocked_ai_response.data, &p);
 								assert(parsed.succeeded);
@@ -4118,7 +4089,7 @@ F cost: G + H
 							end_text_input("");
 							pressed.speak_shortcut = false;
 						}
-						if (imbutton_key(aabb_at(cur_upper_left, button_size), text_scale, "Speak", __LINE__, unwarped_dt, receiving_text_input) || (talking_to && pressed.speak_shortcut))
+						if (imbutton_key(aabb_at(cur_upper_left, button_size), text_scale, MD_S8Lit("Speak"), __LINE__, unwarped_dt, receiving_text_input) || (talking_to && pressed.speak_shortcut))
 						{
 							begin_text_input();
 						}
@@ -4128,7 +4099,7 @@ F cost: G + H
 						{
 							Vec2 keyboard_helper_at = V2(cur_upper_left.x + button_size.x*0.5f, cur_upper_left.y - button_size.y*0.75f);
 							draw_quad((DrawParams){false, centered_quad(keyboard_helper_at, V2(40.0f, 40.0f)), IMG(image_white_square), blendalpha(GREY, 0.4f)});
-							draw_centered_text((TextParams){false, false, "S", keyboard_helper_at, BLACK, 1.5f});
+							draw_centered_text((TextParams){false, false, MD_S8Lit("S"), keyboard_helper_at, BLACK, 1.5f});
 						}
 
 						cur_upper_left.x += button_size.x + space_btwn_buttons;
@@ -4139,7 +4110,7 @@ F cost: G + H
 							choosing_item_grid = false;
 						}
 
-						if (imbutton_key(aabb_at(cur_upper_left, button_size), text_scale, "Give Item", __LINE__, unwarped_dt, choosing_item_grid) || (talking_to && pressed.give_shortcut))
+						if (imbutton_key(aabb_at(cur_upper_left, button_size), text_scale, MD_S8Lit("Give Item"), __LINE__, unwarped_dt, choosing_item_grid) || (talking_to && pressed.give_shortcut))
 						{
 							choosing_item_grid = true;
 						}
@@ -4149,7 +4120,7 @@ F cost: G + H
 						{
 							Vec2 keyboard_helper_at = V2(cur_upper_left.x + button_size.x*0.5f, cur_upper_left.y - button_size.y*0.75f);
 							draw_quad((DrawParams){false, centered_quad(keyboard_helper_at, V2(40.0f, 40.0f)), IMG(image_white_square), blendalpha(GREY, 0.4f)});
-							draw_centered_text((TextParams){false, false, "G", keyboard_helper_at, BLACK, 1.5f});
+							draw_centered_text((TextParams){false, false, MD_S8Lit("G"), keyboard_helper_at, BLACK, 1.5f});
 						}
 
 						const float dialog_text_scale = 1.0f;
@@ -4232,7 +4203,7 @@ F cost: G + H
 				{
 					draw_quad((DrawParams) { false, quad_aabb(grid_aabb), IMG(image_white_square), blendalpha(BLACK, visible * 0.7f), .layer = LAYER_UI });
 
-					if (imbutton(centered_aabb(AddV2(grid_aabb.upper_left, V2(aabb_size(grid_aabb).x / 2.0f, -aabb_size(grid_aabb).y)), V2(100.f*visible, 50.0f*visible)), 1.0f, "Cancel"))
+					if (imbutton(centered_aabb(AddV2(grid_aabb.upper_left, V2(aabb_size(grid_aabb).x / 2.0f, -aabb_size(grid_aabb).y)), V2(100.f*visible, 50.0f*visible)), 1.0f, MD_S8Lit("Cancel")))
 					{
 						choosing_item_grid = false;
 					}
@@ -4319,9 +4290,9 @@ F cost: G + H
 				float shake_speed = 9.0f;
 				Vec2 win_offset = V2(sinf((float)unwarped_elapsed_time * shake_speed * 1.5f + 0.1f), sinf((float)unwarped_elapsed_time * shake_speed + 0.3f));
 				win_offset = MulV2F(win_offset, 10.0f);
-				draw_centered_text((TextParams){false, false, "YOU WON", AddV2(MulV2F(screen_size(), 0.5f), win_offset), WHITE, 9.0f*visible});
+				draw_centered_text((TextParams){false, false, MD_S8Lit("YOU WON"), AddV2(MulV2F(screen_size(), 0.5f), win_offset), WHITE, 9.0f*visible});
 
-				if(imbutton(centered_aabb(V2(screen_size().x/2.0f, screen_size().y*0.25f), MulV2F(V2(170.0f, 60.0f), visible)), 1.5f*visible, "Restart"))
+				if(imbutton(centered_aabb(V2(screen_size().x/2.0f, screen_size().y*0.25f), MulV2F(V2(170.0f, 60.0f), visible)), 1.5f*visible, MD_S8Lit("Restart")))
 				{
 					reset_level();
 				}
@@ -4383,7 +4354,7 @@ F cost: G + H
 					Vec2 pos = V2(0.0, screen_size().Y);
 					int num_entities = 0;
 					ENTITIES_ITER(gs.entities) num_entities++;
-					char *stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nEntities: %d\nDraw calls: %d\nProfiling: %s\nNumber gameplay processing loops: %d\n", dt*1000.0, last_frame_processing_time*1000.0, num_entities, num_draw_calls, profiling ? "yes" : "no", num_timestep_loops);
+					MD_String8 stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nEntities: %d\nDraw calls: %d\nProfiling: %s\nNumber gameplay processing loops: %d\n", dt*1000.0, last_frame_processing_time*1000.0, num_entities, num_draw_calls, profiling ? "yes" : "no", num_timestep_loops);
 					AABB bounds = draw_text((TextParams) { false, true, stats, pos, BLACK, 1.0f });
 					pos.Y -= bounds.upper_left.Y - screen_size().Y;
 					bounds = draw_text((TextParams) { false, true, stats, pos, BLACK, 1.0f });
@@ -4523,7 +4494,8 @@ F cost: G + H
 
 			last_frame_processing_time = stm_sec(stm_diff(stm_now(), time_start_frame));
 
-			reset(&scratch);
+			MD_ArenaClear(frame_arena);
+
 			pressed = (PressedState) { 0 };
 		}
 	}
