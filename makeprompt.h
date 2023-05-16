@@ -38,33 +38,64 @@ typedef BUFF(char, MAX_SENTENCE_LENGTH) Sentence;
 
 typedef BUFF(char, 1024 * 10) Escaped;
 
-Escaped escape_for_json(const char *s)
+bool character_valid(char c)
 {
-	Escaped to_return = { 0 };
-	size_t len = strlen(s);
-	for (int i = 0; i < len; i++)
+	return c <= 126 && c >= 32;
+}
+
+MD_String8 escape_for_json(MD_Arena *arena, MD_String8 from)
+{
+	MD_u64 output_size = 0;
+#define SHOULD_ESCAPE(c) (c == '"' || c == '\n')
+	for (int i = 0; i < from.size; i++)
 	{
-		if (s[i] == '\n')
+		char c = from.str[i];
+		if (SHOULD_ESCAPE(c))
 		{
-			BUFF_APPEND(&to_return, '\\');
-			BUFF_APPEND(&to_return, 'n');
-		}
-		else if (s[i] == '"')
-		{
-			BUFF_APPEND(&to_return, '\\');
-			BUFF_APPEND(&to_return, '"');
+			output_size += 2;
 		}
 		else
 		{
-			if (!(s[i] <= 126 && s[i] >= 32))
+			if (!character_valid(c))
 			{
-				BUFF_APPEND(&to_return, '?');
-				Log("Unknown character code %d\n", s[i]);
+				// replaces with question mark
+				Log("Unknown character code %d\n", c);
 			}
-			BUFF_APPEND(&to_return, s[i]);
+			output_size += 1;
 		}
 	}
-	return to_return;
+
+	MD_String8 output = {
+		.str = MD_ArenaPush(arena, output_size),
+		.size = output_size,
+	};
+	MD_u64 output_cursor = 0;
+
+	for(MD_u64 i = 0; i < from.size; i++)
+	{
+#define APPEND(elem) APPEND_TO_NAME(output.str, output_cursor, output.size, elem);
+		assert(output_cursor < output.size);
+		if(SHOULD_ESCAPE(from.str[i]))
+		{
+			if(from.str[i] == '\n')
+			{
+				APPEND('\\');
+				APPEND('n');
+			}
+			else
+			{
+				APPEND('\\');
+				APPEND(from.str[i]);
+			}
+		}
+		else
+		{
+			APPEND(from.str[i]);
+		}
+#undef APPEND
+	}
+
+	return output;
 }
 
 typedef enum PerceptionType
@@ -609,7 +640,7 @@ void append_str(Sentence *to_append, const char *str)
 	}
 }
 
-void dump_json_node_trailing(PromptBuff *into, MessageType type, const char *content, bool trailing_comma)
+void dump_json_node_trailing(PromptBuff *into, MessageType type, char *content, bool trailing_comma)
 {
 	const char *type_str = 0;
 	if (type == MSG_SYSTEM)
@@ -619,11 +650,14 @@ void dump_json_node_trailing(PromptBuff *into, MessageType type, const char *con
 	else if (type == MSG_ASSISTANT)
 		type_str = "assistant";
 	assert(type_str);
-	printf_buff(into, "{\"type\": \"%s\", \"content\": \"%s\"}", type_str, escape_for_json(content).data);
+
+	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+	printf_buff(into, "{\"type\": \"%s\", \"content\": \"%.*s\"}", type_str, MD_S8VArg(escape_for_json(scratch.arena, MD_S8CString(content))));
+	MD_ReleaseScratch(scratch);
 	if (trailing_comma) printf_buff(into, ",");
 }
 
-void dump_json_node(PromptBuff *into, MessageType type, const char *content)
+void dump_json_node(PromptBuff *into, MessageType type, char *content)
 {
 	dump_json_node_trailing(into, type, content, true);
 }

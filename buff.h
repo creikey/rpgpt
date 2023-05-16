@@ -40,4 +40,4 @@ typedef struct
 
 #define BUFF_MAKEREF(buff_ptr) ((BuffRef){.data = (void*)((buff_ptr)->data), .max_data_elems = ARRLEN((buff_ptr)->data), .data_elem_size = sizeof((buff_ptr)->data[0]), .cur_index = &((buff_ptr)->cur_index)})
 
-
+#define APPEND_TO_NAME(data, cur, cap, elem) { data[cur] = elem; cur += 1; assert(cur < cap); }
