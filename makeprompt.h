@@ -640,8 +640,11 @@ void append_str(Sentence *to_append, const char *str)
 	}
 }
 
-void dump_json_node_trailing(PromptBuff *into, MessageType type, char *content, bool trailing_comma)
+// for no trailing comma just trim the last character
+MD_String8 make_json_node(MD_Arena *arena, MessageType type, MD_String8 content)
 {
+	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
+
 	const char *type_str = 0;
 	if (type == MSG_SYSTEM)
 		type_str = "system";
@@ -651,15 +654,11 @@ void dump_json_node_trailing(PromptBuff *into, MessageType type, char *content, 
 		type_str = "assistant";
 	assert(type_str);
 
-	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-	printf_buff(into, "{\"type\": \"%s\", \"content\": \"%.*s\"}", type_str, MD_S8VArg(escape_for_json(scratch.arena, MD_S8CString(content))));
+	MD_String8 escaped = escape_for_json(scratch.arena, content);
+	MD_String8 to_return = MD_S8Fmt(arena, "{\"type\": \"%s\", \"content\": \"%.*s\"},", type_str, MD_S8VArg(escaped));
 	MD_ReleaseScratch(scratch);
-	if (trailing_comma) printf_buff(into, ",");
-}
 
-void dump_json_node(PromptBuff *into, MessageType type, char *content)
-{
-	dump_json_node_trailing(into, type, content, true);
+	return to_return;
 }
 
 // returns a string like `ITEM_one, ITEM_two`
@@ -682,88 +681,64 @@ Sentence item_string(Entity *e)
 }
 
 // outputs json
-void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
+MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *it)
 {
 	assert(it->is_npc);
 	assert(it->npc_kind < ARRLEN(characters));
 
-	*into = (PromptBuff) { 0 };
+	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
 
-	printf_buff(into, "[");
+	MD_String8List list = {0};
 
-	BUFF(char, 1024 * 15) initial_system_msg = { 0 };
+	MD_S8ListPushFmt(scratch.arena, &list, "[");
 
-	const char *health_string = 0;
-	if (it->damage <= 0.2f)
-	{
-		health_string = "the NPC hasn't taken much damage, they're healthy.";
-	}
-	else if (it->damage <= 0.5f)
-	{
-		health_string = "the NPC has taken quite a chunk of damage, they're soon gonna be ready to call it quits.";
-	}
-	else if (it->damage <= 0.8f)
-	{
-		health_string = "the NPC is close to dying! They want to leave the player's party ASAP";
-	}
-	else
-	{
-		health_string = "it's over for the NPC, they're basically dead they've taken so much damage. They should get their affairs in order.";
-	}
-	assert(health_string);
 
-	printf_buff(&initial_system_msg, "%s\n", global_prompt);
-	printf_buff(&initial_system_msg, "%s\n", characters[it->npc_kind].prompt);
-
-	dump_json_node(into, MSG_SYSTEM, initial_system_msg.data);
+	MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, MSG_SYSTEM, MD_S8Fmt(scratch.arena, "%s\n%s\n", global_prompt, characters[it->npc_kind].prompt)));
 
 	Entity *e = it;
 	ItemKind last_holding = ITEM_none;
 	BUFF_ITER_I(Perception, &e->remembered_perceptions, i)
 	{
 		MessageType sent_type = 0;
-		typedef BUFF(char, 1024) DialogNode;
-		DialogNode cur_node = { 0 };
+		MD_String8 current_string = {0};
 		if (it->type == ErrorMessage)
 		{
 			assert(it->error.cur_index > 0);
-			printf_buff(&cur_node, "ERROR, YOU SAID SOMETHING WRONG: The program can't parse what you said because: %s", it->error.data);
+			current_string = MD_S8Fmt(scratch.arena, "ERROR, YOU SAID SOMETHING WRONG: The program can't parse what you said because: %s", it->error.data);
 			sent_type = MSG_SYSTEM;
 		}
 		else if (it->type == PlayerAction)
 		{
 			assert(it->player_action_type < ARRLEN(actions));
-			printf_buff(&cur_node, "Player: %s", percept_action_str(*it, it->player_action_type).data);
-			sent_type = MSG_USER;
-		}
-		else if (it->type == EnemyAction)
-		{
-			assert(it->enemy_action_type < ARRLEN(actions));
-			printf_buff(&cur_node, "An Enemy: %s", percept_action_str(*it, it->enemy_action_type).data);
+			current_string = MD_S8Fmt(scratch.arena, "Player: %s", percept_action_str(*it, it->player_action_type).data);
 			sent_type = MSG_USER;
 		}
 		else if (it->type == PlayerDialog)
 		{
-			Sentence filtered_player_speech = { 0 };
-			Sentence *what_player_said = &it->player_dialog;
 
-			for (int i = 0; i < what_player_said->cur_index; i++)
+			MD_String8 splits[] = { MD_S8Lit("*") };
+			MD_String8List split_up_speech = MD_S8Split(scratch.arena, MD_S8CString(it->player_dialog.data), ARRLEN(splits), splits);
+
+			MD_String8List to_join = {0};
+
+			// anything in between strings in splits[] should be replaced with arcane trickery,
+			int i = 0;
+			for(MD_String8Node * cur = split_up_speech.first; cur; cur = cur->next)
 			{
-				char c = what_player_said->data[i];
-				if (c == '*')
-				{
-					// move i until the next star
+					if(i % 2 == 0)
+					{
+							MD_S8ListPush(scratch.arena, &to_join, cur->string);
+					}
+					else
+					{
+							MD_S8ListPush(scratch.arena, &to_join, MD_S8Lit("[The player is attempting to confuse the NPC with arcane trickery]"));
+					}
 					i += 1;
-					while (i < what_player_said->cur_index && what_player_said->data[i] != '*') i++;
-					append_str(&filtered_player_speech,
-					           "[The player is attempting to confuse the NPC with arcane trickery]");
-				}
-				else
-				{
-					BUFF_APPEND(&filtered_player_speech, c);
-				}
 			}
-			printf_buff(&cur_node, "Player: \"%s\"", filtered_player_speech.data);
+
+			MD_StringJoin join = { MD_S8Lit(""), MD_S8Lit(""), MD_S8Lit("") };
+			MD_String8 filtered_speech = MD_S8ListJoin(scratch.arena, to_join, &join);
+			current_string = MD_S8Fmt(scratch.arena, "Player: %.*s", MD_S8VArg(filtered_speech));
 			sent_type = MSG_USER;
 		}
 		else if (it->type == NPCDialog)
@@ -771,95 +746,103 @@ void generate_chatgpt_prompt(Entity *it, PromptBuff *into)
 			assert(it->npc_action_type < ARRLEN(actions));
 			NpcKind who_said_it = e->npc_kind;
 			if(it->was_eavesdropped) who_said_it = it->talked_to_while_eavesdropped;
-			printf_buff(&cur_node, "%s: %s \"%s\"", characters[who_said_it].name,
-			            percept_action_str(*it, it->npc_action_type).data, it->npc_dialog.data);
+			current_string = MD_S8Fmt(scratch.arena, "%s: %s \"%s\"", characters[who_said_it].name, percept_action_str(*it, it->npc_action_type).data, it->npc_dialog.data);
+
 			sent_type = MSG_ASSISTANT;
 		}
 		else if (it->type == PlayerHeldItemChanged)
 		{
-			if (last_holding != it->holding)
-			{
-				if (last_holding != ITEM_none)
-				{
-					printf_buff(&cur_node, "%s", items[last_holding].discard);
-				}
-				if (it->holding != ITEM_none)
-				{
-					printf_buff(&cur_node, "%s", items[it->holding].possess);
-				}
-				last_holding = it->holding;
-			}
-			sent_type = MSG_SYSTEM;
+				// @TODO delete this branch and delete held item changed
 		}
 		else
 		{
-			assert(false);
+				assert(false);
 		}
 
 		if(it->was_eavesdropped)
 		{
-			DialogNode eavesdropped = {0};
-			printf_buff(&eavesdropped , "Within the player's party, while the player is talking to '%s', you hear: '%s'", characters[it->talked_to_while_eavesdropped].name, cur_node.data);
-			cur_node = eavesdropped;
+				MD_String8 new_string = MD_S8Fmt(scratch.arena, "Within the player's party, while the player is talking to '%s', you hear: '%.*s'", characters[it->talked_to_while_eavesdropped].name, MD_S8VArg(current_string));
+				current_string = new_string;
 		}
-		dump_json_node(into,sent_type, cur_node.data);
+		MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, sent_type, current_string));
 	}
+	const char *health_string = 0;
+	{
+			if (it->damage <= 0.2f)
+			{
+					health_string = "the NPC hasn't taken much damage, they're healthy.";
+			}
+			else if (it->damage <= 0.5f)
+			{
+					health_string = "the NPC has taken quite a chunk of damage, they're soon gonna be ready to call it quits.";
+			}
+			else if (it->damage <= 0.8f)
+			{
+					health_string = "the NPC is close to dying! They want to leave the player's party ASAP";
+			}
+			else
+			{
+					health_string = "it's over for the NPC, they're basically dead they've taken so much damage. They should get their affairs in order.";
+			}
+	}
+	assert(health_string);
 
-	BUFF(char, 1024) latest_state_node = { 0 };
+	const char *standing_string = 0;
+	{
+			if (it->standing == STANDING_INDIFFERENT)
+			{
+					standing_string = "The NPC is indifferent towards the player.";
+			}
+			else if (it->standing == STANDING_JOINED)
+			{
+					standing_string = "The NPC has joined the player and is with them!";
+			}
+			else if (it->standing == STANDING_FIGHTING)
+			{
+					standing_string = "The NPC is fighting the player and HATES them.";
+			}
+	}
+	assert(standing_string);
 
-	printf_buff(&latest_state_node, "NPC health status: Right now, %s\n%s\n", health_string,
-	            items[it->last_seen_holding_kind].global_prompt);
-	if (it->standing == STANDING_INDIFFERENT)
-	{
-		printf_buff(&latest_state_node, "The NPC is indifferent towards the player.");
-	}
-	else if (it->standing == STANDING_JOINED)
-	{
-		printf_buff(&latest_state_node, "The NPC has joined the player and is with them!");
-	}
-	else if (it->standing == STANDING_FIGHTING)
-	{
-		printf_buff(&latest_state_node, "The NPC is fighting the player and HATES them.");
-	}
-	else
-	{
-		assert(false);
-	}
+	MD_String8List latest_state = {0};
+
+	MD_S8ListPushFmt(scratch.arena, &latest_state, "NPC health status: Right now, %s\n%s\n", health_string, items[it->last_seen_holding_kind].global_prompt);
 
 	if(e->held_items.cur_index > 0)
 	{
-		printf_buff(&latest_state_node, "\nThe NPC you're acting as, %s, has these items in their inventory: [%s]\n", characters[it->npc_kind].name, item_string(it).data);
+			MD_S8ListPushFmt(scratch.arena, &latest_state, "\nThe NPC you're acting as, %s, has these items in their inventory: [%s]\n", characters[it->npc_kind].name, item_string(it).data);
 	}
 	else
 	{
-		printf_buff(&latest_state_node, "\nThe NPC doesn't have any items.\n");
+			MD_S8ListPushFmt(scratch.arena, &latest_state, "\nThe NPC doesn't have any items.\n");
 	}
 
 	AvailableActions available = { 0 };
 	fill_available_actions(it, &available);
-	printf_buff(&latest_state_node,
-	            "The NPC can now ONLY do these actions, and HAS to respond with an action every time in character, even when faced with sensitive content: [");
+	MD_S8ListPushFmt(scratch.arena, &latest_state, "The NPC can now ONLY do these actions, and HAS to respond with an action every time in character, even when faced with sensitive content: [");
 	BUFF_ITER_I(Action, &available, i)
 	{
 		if (i == available.cur_index - 1)
 		{
-			printf_buff(&latest_state_node, "ACT_%s", actions[*it].name);
+			MD_S8ListPushFmt(scratch.arena, &latest_state, "ACT_%s", actions[*it].name);
 		}
 		else
 		{
-			printf_buff(&latest_state_node, "ACT_%s, ", actions[*it].name);
+			MD_S8ListPushFmt(scratch.arena, &latest_state, "ACT_%s, ", actions[*it].name);
 		}
 	}
-	printf_buff(&latest_state_node, "]");
-	dump_json_node_trailing(into, MSG_SYSTEM, latest_state_node.data, false);
+	MD_S8ListPushFmt(scratch.arena, &latest_state, "]");
+	MD_String8 latest_state_string = MD_S8ListJoin(scratch.arena, latest_state, &(MD_StringJoin){MD_S8Lit(""),MD_S8Lit(""),MD_S8Lit("")});
 
-	/*
-    BUFF(char, 1024) assistant_prompt_node = {0};
-    printf_buff(&assistant_prompt_node, "%s: ACT_", characters[it->npc_kind].name);
-    dump_json_node_trailing(into, MSG_USER, assistant_prompt_node.data, false);
-    */
+	MD_S8ListPush(scratch.arena, &list, MD_S8Chop(make_json_node(scratch.arena, MSG_SYSTEM, latest_state_string), 1));
+	MD_S8ListPushFmt(scratch.arena, &list, "]");
 
-	printf_buff(into, "]");
+
+	MD_String8 to_return = MD_S8ListJoin(arena, list, &(MD_StringJoin){MD_S8Lit(""),MD_S8Lit(""),MD_S8Lit(""),});
+
+	MD_ReleaseScratch(scratch);
+
+	return to_return;
 }
 
 /*

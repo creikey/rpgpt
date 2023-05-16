@@ -3456,21 +3456,21 @@ void frame(void)
 						if (it->perceptions_dirty)
 						{
 							it->perceptions_dirty = false; // needs to be in beginning because they might be redirtied by the new perception
-							PromptBuff prompt = { 0 };
+							MD_String8 prompt_str = {0};
 #ifdef DO_CHATGPT_PARSING
-							generate_chatgpt_prompt(it, &prompt);
+							prompt_str = generate_chatgpt_prompt(frame_arena, it);
 #else
 							generate_prompt(it, &prompt);
 #endif
-							Log("Sending request with prompt `%s`\n", prompt.data);
+							Log("Sending request with prompt `%.*s`\n", MD_S8VArg(prompt_str));
 
 #ifdef WEB
 							// fire off generation request, save id
 							BUFF(char, 512) completion_server_url = { 0 };
 							printf_buff(&completion_server_url, "%s/completion", SERVER_URL);
 							int req_id = EM_ASM_INT( {
-									return make_generation_request(UTF8ToString($1), UTF8ToString($0));
-									}, completion_server_url.data, prompt.data);
+									return make_generation_request(UTF8ToString($1, $2), UTF8ToString($0));
+									}, completion_server_url.data, prompt_str.str, prompt_str.size);
 							it->gen_request_id = req_id;
 #endif
 

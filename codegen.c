@@ -130,6 +130,17 @@ int main(int argc, char **argv)
 	cg_arena = MD_ArenaAlloc();
 	assert(cg_arena);
 
+	MD_String8 test = MD_S8Lit("*testing*other");
+	MD_String8 to_split = MD_S8Lit("*");
+	MD_String8List split_up = MD_S8Split(cg_arena, test, 1, &to_split);
+
+	printf("Split up: ");
+	for(MD_String8Node * cur = split_up.first; cur; cur = cur->next)
+	{
+		printf("'%.*s', ", MD_S8VArg(cur->string));
+	}
+	printf("\n");
+
 	// do characters
 
 	FILE *char_header = fopen("gen/characters.gen.h", "w");
