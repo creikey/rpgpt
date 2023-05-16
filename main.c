@@ -56,8 +56,8 @@ WebArena *web_arena_alloc()
 
 	*to_return = (WebArena) {
 		.data = calloc(1, ARENA_SIZE),
-		.cap = ARENA_SIZE,
-		.pos = 0,
+			.cap = ARENA_SIZE,
+			.pos = 0,
 	};
 
 	return to_return;
@@ -798,7 +798,7 @@ void reset_level()
 		if (it->npc_kind == NPC_TheBlacksmith)
 		{
 			//RANGE_ITER(0, 20)
-				//BUFF_APPEND(&it->remembered_perceptions, ((Perception) { .type = PlayerDialog, .player_dialog = SENTENCE_CONST("Testing dialog") }));
+			//BUFF_APPEND(&it->remembered_perceptions, ((Perception) { .type = PlayerDialog, .player_dialog = SENTENCE_CONST("Testing dialog") }));
 
 			//BUFF_APPEND(&it->held_items, ITEM_Chalice);
 		}
@@ -1490,7 +1490,7 @@ StacktraceInfo get_stacktrace()
 	for(int i = 0; i < captured; i++)
 	{
 		StacktraceElem new_elem = {0};
-		
+
 		SYMBOL_INFO *symbol = calloc(sizeof(SYMBOL_INFO) + ARRLEN(new_elem.data), 1);
 
 		symbol->MaxNameLen = ARRLEN(new_elem.data);
@@ -1655,7 +1655,7 @@ bool in_screen_space = false;
 void line(Vec2 from, Vec2 to, float line_width, Color color)
 {
 	Vec2 normal = rotate_counter_clockwise(NormV2_or_zero(SubV2(to, from)));
-	
+
 	Quad line_quad = {
 		.points = {
 			AddV2(from, MulV2F(normal, line_width)),  // upper left
@@ -2802,8 +2802,8 @@ void frame(void)
 							{
 								assert(it->gen_request_id > 0);
 								int status = EM_ASM_INT( {
-										return get_generation_request_status($0);
-										}, it->gen_request_id);
+									return get_generation_request_status($0);
+								}, it->gen_request_id);
 								if (status == 0)
 								{
 									// simply not done yet
@@ -2815,9 +2815,9 @@ void frame(void)
 										// done! we can get the string
 										char sentence_str[MAX_SENTENCE_LENGTH] = { 0 };
 										EM_ASM( {
-												let generation = get_generation_request_content($0);
-												stringToUTF8(generation, $1, $2);
-												}, it->gen_request_id, sentence_str, ARRLEN(sentence_str));
+											let generation = get_generation_request_content($0);
+											stringToUTF8(generation, $1, $2);
+										}, it->gen_request_id, sentence_str, ARRLEN(sentence_str));
 
 
 										// parse out from the sentence NPC action and dialog
@@ -2836,8 +2836,8 @@ void frame(void)
 										}
 
 										EM_ASM( {
-												done_with_generation_request($0);
-												}, it->gen_request_id);
+											done_with_generation_request($0);
+										}, it->gen_request_id);
 									}
 									else if (status == 2)
 									{
@@ -2932,356 +2932,356 @@ void frame(void)
 
 							// A* and shotgun movement code
 							if(false)
-							if (it->standing == STANDING_FIGHTING || it->standing == STANDING_JOINED)
-							{
-								Entity *targeting = player;
-
-/*
-G cost: distance from the current node to the start node
-H cost: distance from the current node to the target node
-
-G     H
-  SUM
-F cost: G + H
-*/
-								Vec2 to = targeting->pos;
-
-								PathCache *cached = get_path_cache(elapsed_time, it->cached_path);
-								AStarPath path = { 0 };
-								bool succeeded = false;
-								if (cached)
+								if (it->standing == STANDING_FIGHTING || it->standing == STANDING_JOINED)
 								{
-									path = cached->path;
-									succeeded = true;
-								}
-								else
-								{
-									Vec2 from = it->pos;
-									typedef struct AStarNode {
-										bool exists;
-										struct AStarNode * parent;
-										bool in_closed_set;
-										bool in_open_set;
-										float f_score; // total of g score and h score
-										float g_score; // distance from the node to the start node
-										Vec2 pos;
-									} AStarNode;
+									Entity *targeting = player;
 
-									BUFF(AStarNode, MAX_ASTAR_NODES) nodes = { 0 };
-									struct { Vec2 key; AStarNode *value; } *node_cache = 0;
+									/*
+										 G cost: distance from the current node to the start node
+										 H cost: distance from the current node to the target node
+
+										 G     H
+										 SUM
+										 F cost: G + H
+										 */
+									Vec2 to = targeting->pos;
+
+									PathCache *cached = get_path_cache(elapsed_time, it->cached_path);
+									AStarPath path = { 0 };
+									bool succeeded = false;
+									if (cached)
+									{
+										path = cached->path;
+										succeeded = true;
+									}
+									else
+									{
+										Vec2 from = it->pos;
+										typedef struct AStarNode {
+											bool exists;
+											struct AStarNode * parent;
+											bool in_closed_set;
+											bool in_open_set;
+											float f_score; // total of g score and h score
+											float g_score; // distance from the node to the start node
+											Vec2 pos;
+										} AStarNode;
+
+										BUFF(AStarNode, MAX_ASTAR_NODES) nodes = { 0 };
+										struct { Vec2 key; AStarNode *value; } *node_cache = 0;
 #define V2_HASH(v) (FloorV2(v))
-									const float jump_size = TILE_SIZE / 2.0f;
-									BUFF_APPEND(&nodes, ((AStarNode) { .in_open_set = true, .pos = from }));
-									Vec2 from_hash = V2_HASH(from);
-									float got_there_tolerance = max_coord(entity_aabb_size(player))*1.5f;
-									hmput(node_cache, from_hash, &nodes.data[0]);
+										const float jump_size = TILE_SIZE / 2.0f;
+										BUFF_APPEND(&nodes, ((AStarNode) { .in_open_set = true, .pos = from }));
+										Vec2 from_hash = V2_HASH(from);
+										float got_there_tolerance = max_coord(entity_aabb_size(player))*1.5f;
+										hmput(node_cache, from_hash, &nodes.data[0]);
 
-									bool should_quit = false;
-									AStarNode *last_node = 0;
-									PROFILE_SCOPE("A* Pathfinding") // astar pathfinding a star
-										while (!should_quit)
-										{
-											int openset_size = 0;
-											BUFF_ITER(AStarNode, &nodes) if (it->in_open_set) openset_size += 1;
-											if (openset_size == 0)
+										bool should_quit = false;
+										AStarNode *last_node = 0;
+										PROFILE_SCOPE("A* Pathfinding") // astar pathfinding a star
+											while (!should_quit)
 											{
-												should_quit = true;
-											}
-											else
-											{
-												AStarNode *current = 0;
-												PROFILE_SCOPE("Get lowest fscore astar node in open set")
+												int openset_size = 0;
+												BUFF_ITER(AStarNode, &nodes) if (it->in_open_set) openset_size += 1;
+												if (openset_size == 0)
 												{
-													float min_fscore = INFINITY;
-													int min_fscore_index = -1;
-													BUFF_ITER_I(AStarNode, &nodes, i)
-														if (it->in_open_set)
-														{
-															if (it->f_score < min_fscore)
-															{
-																min_fscore = it->f_score;
-																min_fscore_index = i;
-															}
-														}
-													assert(min_fscore_index >= 0);
-													current = &nodes.data[min_fscore_index];
-													assert(current);
-												}
-
-												float length_to_goal = 0.0f;
-												PROFILE_SCOPE("get length to goal") length_to_goal = LenV2(SubV2(to, current->pos));
-
-												if (length_to_goal <= got_there_tolerance)
-												{
-													succeeded = true;
 													should_quit = true;
-													last_node = current;
 												}
 												else
 												{
-													current->in_open_set = false;
-													Vec2 neighbor_positions[] = {
-														V2(-jump_size, 0.0f),
-														V2(jump_size, 0.0f),
-														V2(0.0f, jump_size),
-														V2(0.0f, -jump_size),
-
-														V2(-jump_size, jump_size),
-														V2(jump_size, jump_size),
-														V2(jump_size, -jump_size),
-														V2(-jump_size, -jump_size),
-													};
-													ARR_ITER(Vec2, neighbor_positions) *it = AddV2(*it, current->pos);
-
-													Entity *e = it;
-
-													PROFILE_SCOPE("Checking neighbor positions")
-														ARR_ITER(Vec2, neighbor_positions)
-														{
-															Vec2 cur_pos = *it;
-
-															dbgsquare(cur_pos);
-
-															bool would_block_me = false;
-
-															PROFILE_SCOPE("Checking for overlap")
+													AStarNode *current = 0;
+													PROFILE_SCOPE("Get lowest fscore astar node in open set")
+													{
+														float min_fscore = INFINITY;
+														int min_fscore_index = -1;
+														BUFF_ITER_I(AStarNode, &nodes, i)
+															if (it->in_open_set)
 															{
-																Overlapping overlapping_at_want = get_overlapping(&level_level0, entity_aabb_at(e, cur_pos));
-																BUFF_ITER(Overlap, &overlapping_at_want) if (is_overlap_collision(*it) && !(it->e && it->e == e)) would_block_me = true;
-															}
-
-															if (would_block_me)
-															{
-															}
-															else
-															{
-																AStarNode *existing = 0;
-																Vec2 hash = V2_HASH(cur_pos);
-																existing = hmget(node_cache, hash);
-
-																if (false)
-																	PROFILE_SCOPE("look for existing A* node")
-																		BUFF_ITER(AStarNode, &nodes)
-																		{
-																			if (V2ApproxEq(it->pos, cur_pos))
-																			{
-																				existing = it;
-																				break;
-																			}
-																		}
-
-																float tentative_gscore = current->g_score + jump_size;
-																if (tentative_gscore < (existing ? existing->g_score : INFINITY))
+																if (it->f_score < min_fscore)
 																{
-																	if (!existing)
-																	{
-																		if (!BUFF_HAS_SPACE(&nodes))
-																		{
-																			should_quit = true;
-																			succeeded = false;
-																		}
-																		else
-																		{
-																			BUFF_APPEND(&nodes, (AStarNode) { 0 });
-																			existing = &nodes.data[nodes.cur_index-1];
-																			existing->pos = cur_pos;
-																			Vec2 pos_hash = V2_HASH(cur_pos);
-																			hmput(node_cache, pos_hash, existing);
-																		}
-																	}
-
-																	if (existing)
-																		PROFILE_SCOPE("estimate heuristic")
-																		{
-																			existing->parent = current;
-																			existing->g_score = tentative_gscore;
-																			float h_score = 0.0f;
-																			{
-																				// diagonal movement heuristic from some article
-																				Vec2 curr_cell = *it;
-																				Vec2 goal = to;
-																				float D = jump_size;
-																				float D2 = LenV2(V2(jump_size, jump_size));
-																				float dx = fabsf(curr_cell.x - goal.x);
-																				float dy = fabsf(curr_cell.y - goal.y);
-																				float h = D * (dx + dy) + (D2 - 2 * D) * fminf(dx, dy);
-
-																				h_score += h;
-																				// approx distance with manhattan distance
-																				//h_score += fabsf(existing->pos.x - to.x) + fabsf(existing->pos.y - to.y);
-																			}
-																			existing->f_score = tentative_gscore + h_score;
-																			existing->in_open_set = true;
-																		}
+																	min_fscore = it->f_score;
+																	min_fscore_index = i;
 																}
 															}
-														}
+														assert(min_fscore_index >= 0);
+														current = &nodes.data[min_fscore_index];
+														assert(current);
+													}
+
+													float length_to_goal = 0.0f;
+													PROFILE_SCOPE("get length to goal") length_to_goal = LenV2(SubV2(to, current->pos));
+
+													if (length_to_goal <= got_there_tolerance)
+													{
+														succeeded = true;
+														should_quit = true;
+														last_node = current;
+													}
+													else
+													{
+														current->in_open_set = false;
+														Vec2 neighbor_positions[] = {
+															V2(-jump_size, 0.0f),
+															V2(jump_size, 0.0f),
+															V2(0.0f, jump_size),
+															V2(0.0f, -jump_size),
+
+															V2(-jump_size, jump_size),
+															V2(jump_size, jump_size),
+															V2(jump_size, -jump_size),
+															V2(-jump_size, -jump_size),
+														};
+														ARR_ITER(Vec2, neighbor_positions) *it = AddV2(*it, current->pos);
+
+														Entity *e = it;
+
+														PROFILE_SCOPE("Checking neighbor positions")
+															ARR_ITER(Vec2, neighbor_positions)
+															{
+																Vec2 cur_pos = *it;
+
+																dbgsquare(cur_pos);
+
+																bool would_block_me = false;
+
+																PROFILE_SCOPE("Checking for overlap")
+																{
+																	Overlapping overlapping_at_want = get_overlapping(&level_level0, entity_aabb_at(e, cur_pos));
+																	BUFF_ITER(Overlap, &overlapping_at_want) if (is_overlap_collision(*it) && !(it->e && it->e == e)) would_block_me = true;
+																}
+
+																if (would_block_me)
+																{
+																}
+																else
+																{
+																	AStarNode *existing = 0;
+																	Vec2 hash = V2_HASH(cur_pos);
+																	existing = hmget(node_cache, hash);
+
+																	if (false)
+																		PROFILE_SCOPE("look for existing A* node")
+																			BUFF_ITER(AStarNode, &nodes)
+																			{
+																				if (V2ApproxEq(it->pos, cur_pos))
+																				{
+																					existing = it;
+																					break;
+																				}
+																			}
+
+																	float tentative_gscore = current->g_score + jump_size;
+																	if (tentative_gscore < (existing ? existing->g_score : INFINITY))
+																	{
+																		if (!existing)
+																		{
+																			if (!BUFF_HAS_SPACE(&nodes))
+																			{
+																				should_quit = true;
+																				succeeded = false;
+																			}
+																			else
+																			{
+																				BUFF_APPEND(&nodes, (AStarNode) { 0 });
+																				existing = &nodes.data[nodes.cur_index-1];
+																				existing->pos = cur_pos;
+																				Vec2 pos_hash = V2_HASH(cur_pos);
+																				hmput(node_cache, pos_hash, existing);
+																			}
+																		}
+
+																		if (existing)
+																			PROFILE_SCOPE("estimate heuristic")
+																			{
+																				existing->parent = current;
+																				existing->g_score = tentative_gscore;
+																				float h_score = 0.0f;
+																				{
+																					// diagonal movement heuristic from some article
+																					Vec2 curr_cell = *it;
+																					Vec2 goal = to;
+																					float D = jump_size;
+																					float D2 = LenV2(V2(jump_size, jump_size));
+																					float dx = fabsf(curr_cell.x - goal.x);
+																					float dy = fabsf(curr_cell.y - goal.y);
+																					float h = D * (dx + dy) + (D2 - 2 * D) * fminf(dx, dy);
+
+																					h_score += h;
+																					// approx distance with manhattan distance
+																					//h_score += fabsf(existing->pos.x - to.x) + fabsf(existing->pos.y - to.y);
+																				}
+																				existing->f_score = tentative_gscore + h_score;
+																				existing->in_open_set = true;
+																			}
+																	}
+																}
+															}
+													}
 												}
 											}
+
+										hmfree(node_cache);
+										node_cache = 0;
+
+										// reconstruct path
+										if (succeeded)
+										{
+											assert(last_node);
+											AStarNode *cur = last_node;
+											while (cur)
+											{
+												BUFF_PUSH_FRONT(&path, cur->pos);
+												cur = cur->parent;
+											}
 										}
 
-									hmfree(node_cache);
-									node_cache = 0;
+										if (succeeded)
+											it->cached_path = cache_path(elapsed_time, &path);
+									}
 
-									// reconstruct path
+									Vec2 next_point_on_path = { 0 };
 									if (succeeded)
 									{
-										assert(last_node);
-										AStarNode *cur = last_node;
-										while (cur)
+										float nearest_dist = INFINITY;
+										int nearest_index = -1;
+										Entity *from = it;
+										BUFF_ITER_I(Vec2, &path, i)
 										{
-											BUFF_PUSH_FRONT(&path, cur->pos);
-											cur = cur->parent;
-										}
-									}
-
-									if (succeeded)
-										it->cached_path = cache_path(elapsed_time, &path);
-								}
-
-								Vec2 next_point_on_path = { 0 };
-								if (succeeded)
-								{
-									float nearest_dist = INFINITY;
-									int nearest_index = -1;
-									Entity *from = it;
-									BUFF_ITER_I(Vec2, &path, i)
-									{
-										float dist = LenV2(SubV2(*it, from->pos));
-										if (dist < nearest_dist)
-										{
-											nearest_dist = dist;
-											nearest_index = i;
-										}
-									}
-									assert(nearest_index >= 0);
-									int target_index = (nearest_index + 1);
-
-									if (target_index >= path.cur_index)
-									{
-										next_point_on_path = to;
-									}
-									else
-									{
-										next_point_on_path = path.data[target_index];
-									}
-								}
-
-								BUFF_ITER_I(Vec2, &path, i)
-								{
-									if (i == 0)
-									{
-									}
-									else
-									{
-										dbgcol(BLUE) dbgline(*it, path.data[i-1]);
-									}
-								}
-
-								{
-									if (npc_attacks_with_sword(it))
-									{
-										if (fabsf(it->vel.x) > 0.01f)
-											it->facing_left = it->vel.x < 0.0f;
-
-										it->pos = move_and_slide((MoveSlideParams) { it, it->pos, MulV2F(it->vel, pixels_per_meter * dt) });
-										AABB weapon_aabb = entity_sword_aabb(it, 30.0f, 18.0f);
-										Vec2 target_vel = { 0 };
-										Overlapping overlapping_weapon = get_overlapping(cur_level, weapon_aabb);
-										if (it->swing_timer > 0.0)
-										{
-											player_in_combat = true;
-											it->swing_timer += dt;
-											if (it->swing_timer >= anim_sprite_duration(ANIM_skeleton_swing_sword))
+											float dist = LenV2(SubV2(*it, from->pos));
+											if (dist < nearest_dist)
 											{
-												it->swing_timer = 0.0;
+												nearest_dist = dist;
+												nearest_index = i;
 											}
-											if (it->swing_timer >= 0.4f)
-											{
-												SwordToDamage to_damage = entity_sword_to_do_damage(it, overlapping_weapon);
-												Entity *from = it;
-												BUFF_ITER(Entity *, &to_damage)
-												{
-													request_do_damage(*it, from, DAMAGE_SWORD);
-												}
-											}
+										}
+										assert(nearest_index >= 0);
+										int target_index = (nearest_index + 1);
+
+										if (target_index >= path.cur_index)
+										{
+											next_point_on_path = to;
 										}
 										else
 										{
-											// in huntin' range
-											//it->walking = LenV2(SubV2(player->pos, it->pos)) < 250.0f;
-											it->walking = true;
-											if (it->walking)
-											{
-												player_in_combat = true;
-												Entity *skele = it;
-												BUFF_ITER(Overlap, &overlapping_weapon)
-												{
-													if (it->e && it->e->is_character)
-													{
-														skele->swing_timer += dt;
-														BUFF_CLEAR(&skele->done_damage_to_this_swing);
-													}
-												}
-												target_vel = MulV2F(NormV2(SubV2(next_point_on_path, it->pos)), PLAYER_ROLL_SPEED);
-											}
-											else
-											{
-											}
+											next_point_on_path = path.data[target_index];
 										}
-										it->vel = LerpV2(it->vel, dt*8.0f, target_vel);
 									}
 
-									if (npc_attacks_with_shotgun(it))
-										if (succeeded)
+									BUFF_ITER_I(Vec2, &path, i)
+									{
+										if (i == 0)
 										{
-											Vec2 to_player = NormV2(SubV2(targeting->pos, it->pos));
-											Vec2 rotate_direction;
-											if (it->direction_of_spiral_pattern)
-											{
-												rotate_direction = rotate_counter_clockwise(to_player);
-											}
-											else
-											{
-												rotate_direction = rotate_clockwise(to_player);
-											}
-											Vec2 target_vel = NormV2(SubV2(next_point_on_path, it->pos));
-											target_vel = MulV2F(target_vel, 3.0f);
-											it->vel = LerpV2(it->vel, 15.0f * dt, target_vel);
-											CollisionInfo col = { 0 };
-											it->pos = move_and_slide((MoveSlideParams) { it, it->pos, MulV2F(it->vel, pixels_per_meter * dt), .col_info_out = &col });
-											if (col.happened)
-											{
-												it->direction_of_spiral_pattern = !it->direction_of_spiral_pattern;
-											}
+										}
+										else
+										{
+											dbgcol(BLUE) dbgline(*it, path.data[i-1]);
+										}
+									}
 
-											if (it->standing == STANDING_FIGHTING)
+									{
+										if (npc_attacks_with_sword(it))
+										{
+											if (fabsf(it->vel.x) > 0.01f)
+												it->facing_left = it->vel.x < 0.0f;
+
+											it->pos = move_and_slide((MoveSlideParams) { it, it->pos, MulV2F(it->vel, pixels_per_meter * dt) });
+											AABB weapon_aabb = entity_sword_aabb(it, 30.0f, 18.0f);
+											Vec2 target_vel = { 0 };
+											Overlapping overlapping_weapon = get_overlapping(cur_level, weapon_aabb);
+											if (it->swing_timer > 0.0)
 											{
-												it->shotgun_timer += dt;
-												Vec2 to_player = NormV2(SubV2(targeting->pos, it->pos));
-												if (it->shotgun_timer >= 1.0f)
+												player_in_combat = true;
+												it->swing_timer += dt;
+												if (it->swing_timer >= anim_sprite_duration(ANIM_skeleton_swing_sword))
 												{
-													it->shotgun_timer = 0.0f;
-													const float spread = (float)PI / 4.0f;
-													// shoot shotgun
-													int num_bullets = 5;
-													for (int i = 0; i < num_bullets; i++)
+													it->swing_timer = 0.0;
+												}
+												if (it->swing_timer >= 0.4f)
+												{
+													SwordToDamage to_damage = entity_sword_to_do_damage(it, overlapping_weapon);
+													Entity *from = it;
+													BUFF_ITER(Entity *, &to_damage)
 													{
-														Vec2 dir = to_player;
-														float theta = Lerp(-spread / 2.0f, ((float)i / (float)(num_bullets - 1)), spread / 2.0f);
-														dir = RotateV2(dir, theta);
-														Entity *new_bullet = new_entity();
-														new_bullet->is_bullet = true;
-														new_bullet->pos = AddV2(it->pos, MulV2F(dir, 20.0f));
-														new_bullet->vel = MulV2F(dir, 15.0f);
-														it->vel = AddV2(it->vel, MulV2F(dir, -3.0f));
+														request_do_damage(*it, from, DAMAGE_SWORD);
 													}
 												}
 											}
-
+											else
+											{
+												// in huntin' range
+												//it->walking = LenV2(SubV2(player->pos, it->pos)) < 250.0f;
+												it->walking = true;
+												if (it->walking)
+												{
+													player_in_combat = true;
+													Entity *skele = it;
+													BUFF_ITER(Overlap, &overlapping_weapon)
+													{
+														if (it->e && it->e->is_character)
+														{
+															skele->swing_timer += dt;
+															BUFF_CLEAR(&skele->done_damage_to_this_swing);
+														}
+													}
+													target_vel = MulV2F(NormV2(SubV2(next_point_on_path, it->pos)), PLAYER_ROLL_SPEED);
+												}
+												else
+												{
+												}
+											}
+											it->vel = LerpV2(it->vel, dt*8.0f, target_vel);
 										}
+
+										if (npc_attacks_with_shotgun(it))
+											if (succeeded)
+											{
+												Vec2 to_player = NormV2(SubV2(targeting->pos, it->pos));
+												Vec2 rotate_direction;
+												if (it->direction_of_spiral_pattern)
+												{
+													rotate_direction = rotate_counter_clockwise(to_player);
+												}
+												else
+												{
+													rotate_direction = rotate_clockwise(to_player);
+												}
+												Vec2 target_vel = NormV2(SubV2(next_point_on_path, it->pos));
+												target_vel = MulV2F(target_vel, 3.0f);
+												it->vel = LerpV2(it->vel, 15.0f * dt, target_vel);
+												CollisionInfo col = { 0 };
+												it->pos = move_and_slide((MoveSlideParams) { it, it->pos, MulV2F(it->vel, pixels_per_meter * dt), .col_info_out = &col });
+												if (col.happened)
+												{
+													it->direction_of_spiral_pattern = !it->direction_of_spiral_pattern;
+												}
+
+												if (it->standing == STANDING_FIGHTING)
+												{
+													it->shotgun_timer += dt;
+													Vec2 to_player = NormV2(SubV2(targeting->pos, it->pos));
+													if (it->shotgun_timer >= 1.0f)
+													{
+														it->shotgun_timer = 0.0f;
+														const float spread = (float)PI / 4.0f;
+														// shoot shotgun
+														int num_bullets = 5;
+														for (int i = 0; i < num_bullets; i++)
+														{
+															Vec2 dir = to_player;
+															float theta = Lerp(-spread / 2.0f, ((float)i / (float)(num_bullets - 1)), spread / 2.0f);
+															dir = RotateV2(dir, theta);
+															Entity *new_bullet = new_entity();
+															new_bullet->is_bullet = true;
+															new_bullet->pos = AddV2(it->pos, MulV2F(dir, 20.0f));
+															new_bullet->vel = MulV2F(dir, 15.0f);
+															it->vel = AddV2(it->vel, MulV2F(dir, -3.0f));
+														}
+													}
+												}
+
+											}
+									}
 								}
-							}
 							if (it->npc_kind == NPC_OldMan)
 							{
 								/*
@@ -3436,69 +3436,69 @@ F cost: G + H
 						{
 							assert(false);
 						}
-						}
 					}
+				}
 
-					PROFILE_SCOPE("Destroy gs.entities, maybe send generation requests")
+				PROFILE_SCOPE("Destroy gs.entities, maybe send generation requests")
+				{
+					ENTITIES_ITER(gs.entities)
 					{
-						ENTITIES_ITER(gs.entities)
+						if (it->destroy)
 						{
-							if (it->destroy)
-							{
-								int gen = it->generation;
-								*it = (Entity) { 0 };
-								it->generation = gen;
-							}
-							if (it->perceptions_dirty && !npc_does_dialog(it))
-							{
-								it->perceptions_dirty = false;
-							}
-							if (it->perceptions_dirty)
-							{
-								it->perceptions_dirty = false; // needs to be in beginning because they might be redirtied by the new perception
-								PromptBuff prompt = { 0 };
+							int gen = it->generation;
+							*it = (Entity) { 0 };
+							it->generation = gen;
+						}
+						if (it->perceptions_dirty && !npc_does_dialog(it))
+						{
+							it->perceptions_dirty = false;
+						}
+						if (it->perceptions_dirty)
+						{
+							it->perceptions_dirty = false; // needs to be in beginning because they might be redirtied by the new perception
+							PromptBuff prompt = { 0 };
 #ifdef DO_CHATGPT_PARSING
-								generate_chatgpt_prompt(it, &prompt);
+							generate_chatgpt_prompt(it, &prompt);
 #else
-								generate_prompt(it, &prompt);
+							generate_prompt(it, &prompt);
 #endif
-								Log("Sending request with prompt `%s`\n", prompt.data);
+							Log("Sending request with prompt `%s`\n", prompt.data);
 
 #ifdef WEB
-								// fire off generation request, save id
-								BUFF(char, 512) completion_server_url = { 0 };
-								printf_buff(&completion_server_url, "%s/completion", SERVER_URL);
-								int req_id = EM_ASM_INT( {
-										return make_generation_request(UTF8ToString($1), UTF8ToString($0));
-										}, completion_server_url.data, prompt.data);
-								it->gen_request_id = req_id;
+							// fire off generation request, save id
+							BUFF(char, 512) completion_server_url = { 0 };
+							printf_buff(&completion_server_url, "%s/completion", SERVER_URL);
+							int req_id = EM_ASM_INT( {
+									return make_generation_request(UTF8ToString($1), UTF8ToString($0));
+									}, completion_server_url.data, prompt.data);
+							it->gen_request_id = req_id;
 #endif
 
 #ifdef DESKTOP
-								const char *argument = 0;
-								BUFF(char, 512) dialog_string = {0};
-								Action act = ACT_none;
+							const char *argument = 0;
+							BUFF(char, 512) dialog_string = {0};
+							Action act = ACT_none;
 
-								it->times_talked_to++;
-								if(it->remembered_perceptions.data[it->remembered_perceptions.cur_index-1].was_eavesdropped)
-								{
-									printf_buff(&dialog_string, "Responding to eavesdropped: ");
-								}
-								if(it->npc_kind == NPC_TheBlacksmith && it->standing != STANDING_JOINED)
-								{
-									assert(it->times_talked_to == 1);
-									act = ACT_joins_player;
-									printf_buff(&dialog_string, "Joining you...");
-								}
-								else
-								{
-									printf_buff(&dialog_string, "%d times talked", it->times_talked_to);
-								}
+							it->times_talked_to++;
+							if(it->remembered_perceptions.data[it->remembered_perceptions.cur_index-1].was_eavesdropped)
+							{
+								printf_buff(&dialog_string, "Responding to eavesdropped: ");
+							}
+							if(it->npc_kind == NPC_TheBlacksmith && it->standing != STANDING_JOINED)
+							{
+								assert(it->times_talked_to == 1);
+								act = ACT_joins_player;
+								printf_buff(&dialog_string, "Joining you...");
+							}
+							else
+							{
+								printf_buff(&dialog_string, "%d times talked", it->times_talked_to);
+							}
 
-								BUFF(char, 1024) mocked_ai_response = { 0 };
+							BUFF(char, 1024) mocked_ai_response = { 0 };
 
-								if(true)
-								{
+							if(true)
+							{
 								if (argument)
 								{
 									printf_buff(&mocked_ai_response, "ACT_%s(%s) \"%s\"", actions[act].name, argument, dialog_string.data);
@@ -3507,1243 +3507,1243 @@ F cost: G + H
 								{
 									printf_buff(&mocked_ai_response, "ACT_%s \"%s\"", actions[act].name, dialog_string.data);
 								}
-								}
-								Perception p = { 0 };
-								ChatgptParse parsed = parse_chatgpt_response(it, mocked_ai_response.data, &p);
-								assert(parsed.succeeded);
-								process_perception(it, p, player, &gs);
+							}
+							Perception p = { 0 };
+							ChatgptParse parsed = parse_chatgpt_response(it, mocked_ai_response.data, &p);
+							assert(parsed.succeeded);
+							process_perception(it, p, player, &gs);
 #undef SAY
 #endif
-							}
 						}
 					}
+				}
 
-					PROFILE_SCOPE("process player")
+				PROFILE_SCOPE("process player")
+				{
+					// do dialog
+					Entity *closest_interact_with = 0;
 					{
-						// do dialog
-						Entity *closest_interact_with = 0;
+						// find closest to talk to
 						{
-							// find closest to talk to
+							AABB dialog_rect = centered_aabb(player->pos, V2(dialog_interact_size , dialog_interact_size));
+							dbgrect(dialog_rect);
+							Overlapping possible_dialogs = get_overlapping(cur_level, dialog_rect);
+							float closest_interact_with_dist = INFINITY;
+							BUFF_ITER(Overlap, &possible_dialogs)
 							{
-								AABB dialog_rect = centered_aabb(player->pos, V2(dialog_interact_size , dialog_interact_size));
-								dbgrect(dialog_rect);
-								Overlapping possible_dialogs = get_overlapping(cur_level, dialog_rect);
-								float closest_interact_with_dist = INFINITY;
-								BUFF_ITER(Overlap, &possible_dialogs)
-								{
-									bool entity_talkable = true;
-									if (entity_talkable) entity_talkable = entity_talkable && !it->is_tile;
-									if (entity_talkable) entity_talkable = entity_talkable && it->e->is_npc;
-									//if(entity_talkable) entity_talkable = entity_talkable && !(it->e->npc_kind == NPC_Skeleton);
+								bool entity_talkable = true;
+								if (entity_talkable) entity_talkable = entity_talkable && !it->is_tile;
+								if (entity_talkable) entity_talkable = entity_talkable && it->e->is_npc;
+								//if(entity_talkable) entity_talkable = entity_talkable && !(it->e->npc_kind == NPC_Skeleton);
 #ifdef WEB
-									if (entity_talkable) entity_talkable = entity_talkable && it->e->gen_request_id == 0;
+								if (entity_talkable) entity_talkable = entity_talkable && it->e->gen_request_id == 0;
 #endif
 
-									bool entity_pickupable = !it->is_tile && !gete(player->holding_item) && it->e->is_item;
+								bool entity_pickupable = !it->is_tile && !gete(player->holding_item) && it->e->is_item;
 
-									if (entity_talkable || entity_pickupable)
+								if (entity_talkable || entity_pickupable)
+								{
+									float dist = LenV2(SubV2(it->e->pos, player->pos));
+									if (dist < closest_interact_with_dist)
 									{
-										float dist = LenV2(SubV2(it->e->pos, player->pos));
-										if (dist < closest_interact_with_dist)
-										{
-											closest_interact_with_dist = dist;
-											closest_interact_with = it->e;
-										}
+										closest_interact_with_dist = dist;
+										closest_interact_with = it->e;
 									}
 								}
 							}
-
-
-							interacting_with = closest_interact_with;
-							if (player->state == CHARACTER_TALKING)
-							{
-								interacting_with = gete(player->talking_to);
-								assert(interacting_with);
-							}
-
-
-							// maybe get rid of talking to
-							if (player->state == CHARACTER_TALKING)
-							{
-								if (gete(player->talking_to) == 0)
-								{
-									player->state = CHARACTER_IDLE;
-								}
-							}
-							else
-							{
-								player->talking_to = (EntityRef) { 0 };
-							}
 						}
 
-						if (interact)
+
+						interacting_with = closest_interact_with;
+						if (player->state == CHARACTER_TALKING)
 						{
-							if (player->state == CHARACTER_TALKING)
+							interacting_with = gete(player->talking_to);
+							assert(interacting_with);
+						}
+
+
+						// maybe get rid of talking to
+						if (player->state == CHARACTER_TALKING)
+						{
+							if (gete(player->talking_to) == 0)
 							{
-								// don't add extra stuff to be done when changing state because in several
-								// places it's assumed to end dialog I can just do player->state = CHARACTER_IDLE
 								player->state = CHARACTER_IDLE;
 							}
-							else if (closest_interact_with)
-							{
-								if (closest_interact_with->is_npc)
-								{
-									// begin dialog with closest npc
-									player->state = CHARACTER_TALKING;
-									player->talking_to = frome(closest_interact_with);
-								}
-								else if (closest_interact_with->is_item)
-								{
-									// pick up item
-									closest_interact_with->held_by_player = true;
-									player->holding_item = frome(closest_interact_with);
-								}
-								else
-								{
-									assert(false);
-								}
-							}
-							else
-							{
-								if (gete(player->holding_item))
-								{
-									// throw item if not talking to somebody with item
-									Entity *thrown = gete(player->holding_item);
-									assert(thrown);
-									thrown->vel = MulV2F(player->to_throw_direction, 20.0f);
-									thrown->held_by_player = false;
-									player->holding_item = (EntityRef) { 0 };
-								}
-							}
-						}
-
-						float speed = 0.0f;
-						{
-							if (roll && !player->is_rolling && player->time_not_rolling > 0.3f && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
-							{
-								player->is_rolling = true;
-								player->roll_progress = 0.0;
-							}
-							if (attack && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
-							{
-								player->state = CHARACTER_ATTACK;
-								BUFF_CLEAR(&player->done_damage_to_this_swing);
-								player->swing_progress = 0.0;
-							}
-							// after images
-							BUFF_ITER(PlayerAfterImage, &player->after_images)
-							{
-								it->alive_for += dt;
-							}
-							if (player->after_images.data[0].alive_for >= AFTERIMAGE_LIFETIME)
-							{
-								BUFF_REMOVE_FRONT(&player->after_images);
-							}
-
-							// roll processing
-							{
-								if (player->state != CHARACTER_IDLE && player->state != CHARACTER_WALKING)
-								{
-									player->roll_progress = 0.0;
-									player->is_rolling = false;
-								}
-								if (player->is_rolling)
-								{
-									player->after_image_timer += dt;
-									player->time_not_rolling = 0.0f;
-									player->roll_progress += dt;
-									if (player->roll_progress > anim_sprite_duration(ANIM_knight_rolling))
-									{
-										player->is_rolling = false;
-									}
-								}
-								if (!player->is_rolling) player->time_not_rolling += dt;
-							}
-
-							Vec2 target_vel = { 0 };
-
-							if (LenV2(movement) > 0.01f) player->to_throw_direction = NormV2(movement);
-							if (player->state == CHARACTER_WALKING)
-							{
-								speed = PLAYER_SPEED;
-								if (player->is_rolling) speed = PLAYER_ROLL_SPEED;
-
-								if (gete(player->holding_item) && gete(player->holding_item)->item_kind == ITEM_Boots)
-								{
-									speed *= 2.0f;
-								}
-
-								if (LenV2(movement) == 0.0)
-								{
-									player->state = CHARACTER_IDLE;
-								}
-								else
-								{
-								}
-							}
-							else if (player->state == CHARACTER_IDLE)
-							{
-								if (LenV2(movement) > 0.01) player->state = CHARACTER_WALKING;
-							}
-							else if (player->state == CHARACTER_ATTACK)
-							{
-								AABB weapon_aabb = entity_sword_aabb(player, 40.0f, 25.0f);
-								dbgrect(weapon_aabb);
-								SwordToDamage to_damage = entity_sword_to_do_damage(player, get_overlapping(cur_level, weapon_aabb));
-								BUFF_ITER(Entity*, &to_damage)
-								{
-									request_do_damage(*it, player, DAMAGE_SWORD);
-								}
-								player->swing_progress += dt;
-								if (player->swing_progress > anim_sprite_duration(ANIM_knight_attack))
-								{
-									player->state = CHARACTER_IDLE;
-								}
-							}
-							else if (player->state == CHARACTER_TALKING)
-							{
-							}
-							else
-							{
-								assert(false); // unknown character state? not defined how to process
-							}
-						} // not time stopped
-
-						// velocity processing
-						{
-							Vec2 target_vel = MulV2F(movement, pixels_per_meter * speed);
-							player->vel = LerpV2(player->vel, dt * 15.0f, target_vel);
-							player->pos = move_and_slide((MoveSlideParams) { player, player->pos, MulV2F(player->vel, dt) });
-
-							bool should_append = false;
-
-							// make it so no snap when new points added
-							if(player->position_history.cur_index > 0)
-							{
-								player->position_history.data[player->position_history.cur_index - 1] = player->pos;
-							}
-
-							if(player->position_history.cur_index > 2)
-							{
-								should_append = LenV2(SubV2(player->position_history.data[player->position_history.cur_index - 2], player->pos)) > TILE_SIZE;
-							}
-							else
-							{
-								should_append = true;
-							}
-							if(should_append) BUFF_QUEUE_APPEND(&player->position_history, player->pos);
-
-						}
-						// health
-						if (player->damage >= 1.0)
-						{
-							reset_level();
-						}
-					}
-					pressed = (PressedState) { 0 };
-					interact = false;
-				} // while loop
-			}
-			pressed = before_gameplay_loops;
-
-
-			PROFILE_SCOPE("render player") // draw character draw player render character
-			{
-				DrawnAnimatedSprite to_draw = { 0 };
-
-				if(player->position_history.cur_index > 0)
-				{
-					float trail_len = get_total_trail_len(BUFF_MAKEREF(&player->position_history));
-					if(trail_len > 0.0f) // fmodf returns nan
-					{
-						float along = fmodf((float)elapsed_time*100.0f, 200.0f);
-						Vec2 at = get_point_along_trail(BUFF_MAKEREF(&player->position_history), along);
-						dbgbigsquare(at);
-						dbgbigsquare(get_point_along_trail(BUFF_MAKEREF(&player->position_history), 50.0f));
-					}
-					BUFF_ITER_I(Vec2, &player->position_history, i)
-					{
-						if(i == player->position_history.cur_index - 1) 
-						{
 						}
 						else
 						{
-							dbgline(*it, player->position_history.data[i + 1]);
+							player->talking_to = (EntityRef) { 0 };
 						}
 					}
-				}
 
-				Vec2 character_sprite_pos = AddV2(player->pos, V2(0.0, 20.0f));
-				// if somebody, show their dialog panel
-				if (interacting_with)
-				{
-					// interaction keyboard hint
-					if (!mobile_controls)
+					if (interact)
 					{
-						float size = 100.0f;
-						Vec2 midpoint = MulV2F(AddV2(interacting_with->pos, player->pos), 0.5f);
-						draw_quad((DrawParams) { true, quad_centered(AddV2(midpoint, V2(0.0, 5.0f + sinf((float)elapsed_time*3.0f)*5.0f)), V2(size, size)), IMG(image_e_icon), blendalpha(WHITE, clamp01(1.0f - learned_e)), .layer = LAYER_UI_FG });
-					}
-
-					// interaction circle
-					draw_quad((DrawParams) { true, quad_centered(interacting_with->pos, V2(TILE_SIZE, TILE_SIZE)), image_hovering_circle, full_region(image_hovering_circle), WHITE });
-				}
-
-				if (player->state == CHARACTER_WALKING)
-				{
-					if (player->is_rolling)
-					{
-						to_draw = (DrawnAnimatedSprite) { ANIM_knight_running, player->roll_progress, player->facing_left, character_sprite_pos, WHITE };
-					}
-					else
-					{
-						to_draw = (DrawnAnimatedSprite) { ANIM_knight_running, elapsed_time, player->facing_left, character_sprite_pos, WHITE };
-					}
-				}
-				else if (player->state == CHARACTER_IDLE)
-				{
-					if (player->is_rolling)
-					{
-						to_draw = (DrawnAnimatedSprite) { ANIM_knight_running, player->roll_progress, player->facing_left, character_sprite_pos, WHITE };
-					}
-					else
-					{
-						to_draw = (DrawnAnimatedSprite) { ANIM_knight_idle, elapsed_time, player->facing_left, character_sprite_pos, WHITE };
-					}
-				}
-				else if (player->state == CHARACTER_ATTACK)
-				{
-					to_draw = (DrawnAnimatedSprite) { ANIM_knight_attack, player->swing_progress, player->facing_left, character_sprite_pos, WHITE };
-				}
-				else if (player->state == CHARACTER_TALKING)
-				{
-					to_draw = (DrawnAnimatedSprite) { ANIM_knight_idle, elapsed_time, player->facing_left, character_sprite_pos, WHITE };
-				}
-				else
-				{
-					assert(false); // unknown character state? not defined how to draw
-				}
-
-				// hurt vignette
-				if (player->damage > 0.0)
-				{
-					draw_quad((DrawParams) { false, (Quad) { .ul = V2(0.0f, screen_size().Y), .ur = screen_size(), .lr = V2(screen_size().X, 0.0f) }, image_hurt_vignette, full_region(image_hurt_vignette), (Color) { 1.0f, 1.0f, 1.0f, player->damage }, .layer = LAYER_SCREENSPACE_EFFECTS, });
-				}
-
-				player->anim_change_timer += dt;
-				if (player->anim_change_timer >= 0.05f)
-				{
-					player->anim_change_timer = 0.0f;
-					player->cur_animation = to_draw.anim;
-				}
-				to_draw.anim = player->cur_animation;
-
-				Vec2 target_sprite_pos = to_draw.pos;
-
-				BUFF_ITER_I(PlayerAfterImage, &player->after_images, i)
-				{
-					{
-						DrawnAnimatedSprite to_draw = it->drawn;
-						to_draw.tint.a = 0.5f;
-						float progress_through_life = it->alive_for / AFTERIMAGE_LIFETIME;
-
-						if (progress_through_life > 0.5f)
+						if (player->state == CHARACTER_TALKING)
 						{
-							float fade_amount = (progress_through_life - 0.5f) / 0.5f;
-
-							to_draw.tint.a = Lerp(0.8f, fade_amount, 0.0f);
-							Vec2 target;
-							if (i != player->after_images.cur_index-1) target = player->after_images.data[i + 1].drawn.pos;
-							else target = target_sprite_pos;
-							to_draw.pos = LerpV2(to_draw.pos, fade_amount, target);
+							// don't add extra stuff to be done when changing state because in several
+							// places it's assumed to end dialog I can just do player->state = CHARACTER_IDLE
+							player->state = CHARACTER_IDLE;
 						}
-						to_draw.no_shadow = true;
-						draw_animated_sprite(to_draw);
-					}
-				}
-
-				//if(player->is_rolling^) to_draw.tint.a = 0.5f;
-
-				if (to_draw.anim)
-				{
-					draw_animated_sprite(to_draw);
-
-					if (player->after_image_timer >= TIME_TO_GEN_AFTERIMAGE)
-					{
-						player->after_image_timer = 0.0;
-						if (BUFF_HAS_SPACE(&player->after_images))
-							BUFF_APPEND(&player->after_images, (PlayerAfterImage) { .drawn = to_draw });
-					}
-				}
-			}
-
-			// render gs.entities render entities
-			PROFILE_SCOPE("entity rendering")
-				ENTITIES_ITER(gs.entities)
-				{
-#ifdef WEB
-					if (it->gen_request_id != 0)
-					{
-						draw_quad((DrawParams) { true, quad_centered(AddV2(it->pos, V2(0.0, 50.0)), V2(100.0, 100.0)), IMG(image_thinking), WHITE });
-					}
-#endif
-
-					Color col = LerpV4(WHITE, it->damage, RED);
-					if (it->is_npc)
-					{
-						// health bar
+						else if (closest_interact_with)
 						{
-							Vec2 health_bar_size = V2(TILE_SIZE, 0.1f * TILE_SIZE);
-							float health_bar_progress = 1.0f - (it->damage / entity_max_damage(it));
-							Vec2 health_bar_center = AddV2(it->pos, V2(0.0f, -entity_aabb_size(it).y));
-							Vec2 bar_upper_left = AddV2(health_bar_center, MulV2F(health_bar_size, -0.5f));
-							draw_quad((DrawParams) { true, quad_at(bar_upper_left, health_bar_size), IMG(image_white_square), BROWN });
-							draw_quad((DrawParams) { true, quad_at(bar_upper_left, V2(health_bar_size.x * health_bar_progress, health_bar_size.y)), IMG(image_white_square), GREEN });
-						}
-
-						float dist = LenV2(SubV2(it->pos, player->pos));
-						dist -= 10.0f; // radius around point where dialog is completely opaque
-						float max_dist = dialog_interact_size / 2.0f;
-						float alpha = 1.0f - (float)clamp(dist / max_dist, 0.0, 1.0);
-						if (gete(player->talking_to) == it && player->state == CHARACTER_TALKING) alpha = 0.0f;
-						if (it->being_hovered)
-						{
-							draw_quad((DrawParams) { true, quad_centered(it->pos, V2(TILE_SIZE, TILE_SIZE)), IMG(image_hovering_circle), WHITE });
-							alpha = 1.0f;
-						}
-
-
-						it->dialog_panel_opacity = Lerp(it->dialog_panel_opacity, unwarped_dt*10.0f, alpha);
-						draw_dialog_panel(it, it->dialog_panel_opacity);
-
-						if (it->npc_kind == NPC_OldMan)
-						{
-							bool face_left = SubV2(player->pos, it->pos).x < 0.0f;
-							draw_animated_sprite((DrawnAnimatedSprite) { ANIM_old_man_idle, elapsed_time, face_left, it->pos, col });
-						}
-						else if (npc_is_skeleton(it))
-						{
-							Color col = WHITE;
-							if (it->dead)
+							if (closest_interact_with->is_npc)
 							{
-								draw_animated_sprite((DrawnAnimatedSprite) { ANIM_skeleton_die, it->dead_time, it->facing_left, it->pos, col });
+								// begin dialog with closest npc
+								player->state = CHARACTER_TALKING;
+								player->talking_to = frome(closest_interact_with);
 							}
-							else
+							else if (closest_interact_with->is_item)
 							{
-								if (it->swing_timer > 0.0)
-								{
-									// swinging sword
-									draw_animated_sprite((DrawnAnimatedSprite) { ANIM_skeleton_swing_sword, it->swing_timer, it->facing_left, it->pos, col });
-								}
-								else
-								{
-									if (it->walking)
-									{
-										draw_animated_sprite((DrawnAnimatedSprite) { ANIM_skeleton_run, elapsed_time, it->facing_left, it->pos, col });
-									}
-									else
-									{
-										draw_animated_sprite((DrawnAnimatedSprite) { ANIM_skeleton_idle, elapsed_time, it->facing_left, it->pos, col });
-									}
-								}
-							}
-						}
-						else if (it->npc_kind == NPC_Death)
-						{
-							draw_animated_sprite((DrawnAnimatedSprite) { ANIM_death_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col });
-						}
-						else if (it->npc_kind == NPC_GodRock)
-						{
-							Vec2 prop_size = V2(46.0f, 40.0f);
-							DrawParams d = (DrawParams) { true, quad_centered(AddV2(it->pos, V2(-0.0f, 0.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(15.0f, 219.0f), prop_size), WHITE, .sorting_key = sorting_key_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.7f, .layer = LAYER_WORLD, };
-							draw_shadow_for(d);
-							draw_quad(d);
-						}
-						else if (npc_is_knight_sprite(it))
-						{
-							Color tint = WHITE;
-							if (it->npc_kind == NPC_TheGuard)
-							{
-								tint = colhex(0xa84032);
-							}
-							else if (it->npc_kind == NPC_Edeline)
-							{
-								tint = colhex(0x8c34eb);
-							}
-							else if (it->npc_kind == NPC_TheKing)
-							{
-								tint = colhex(0xf0be1d);
-							}
-							else if (it->npc_kind == NPC_TheBlacksmith)
-							{
-								tint = colhex(0x5c5c5c);
-							}
-							else if (it->npc_kind == NPC_Red)
-							{
-								tint = colhex(0xf56f42);
-							}
-							else if (it->npc_kind == NPC_Blue)
-							{
-								tint = colhex(0x1153d6);
-							}
-							else if (it->npc_kind == NPC_Davis)
-							{
-								tint = colhex(0x8f8f8f);
+								// pick up item
+								closest_interact_with->held_by_player = true;
+								player->holding_item = frome(closest_interact_with);
 							}
 							else
 							{
 								assert(false);
 							}
-							draw_animated_sprite((DrawnAnimatedSprite) { ANIM_knight_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), tint });
 						}
 						else
 						{
-							assert(false);
+							if (gete(player->holding_item))
+							{
+								// throw item if not talking to somebody with item
+								Entity *thrown = gete(player->holding_item);
+								assert(thrown);
+								thrown->vel = MulV2F(player->to_throw_direction, 20.0f);
+								thrown->held_by_player = false;
+								player->holding_item = (EntityRef) { 0 };
+							}
 						}
 					}
-					else if (it->is_item)
+
+					float speed = 0.0f;
 					{
-						draw_item(true, it->item_kind, centered_aabb(it->pos, V2(15.0f, 15.0f)), 1.0f);
-					}
-					else if (it->is_bullet)
-					{
-						AABB normal_aabb = entity_aabb(it);
-						Quad drawn = quad_centered(aabb_center(normal_aabb), MulV2F(aabb_size(normal_aabb), 1.5f));
-						draw_quad((DrawParams) { true, drawn, IMG(image_bullet), WHITE });
-					}
-					else if (it->is_character)
-					{
-					}
-					else if (it->is_prop)
-					{
-						DrawParams d = { 0 };
-						if (it->prop_kind == TREE0)
+						if (roll && !player->is_rolling && player->time_not_rolling > 0.3f && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
 						{
-							Vec2 prop_size = V2(74.0f, 122.0f);
-							d = (DrawParams) { true, quad_centered(AddV2(it->pos, V2(-5.0f, 45.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(2.0f, 4.0f), prop_size), WHITE, .sorting_key = sorting_key_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.7f };
+							player->is_rolling = true;
+							player->roll_progress = 0.0;
 						}
-						else if (it->prop_kind == TREE1)
+						if (attack && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
 						{
-							Vec2 prop_size = V2(94.0f, 120.0f);
-							d = ((DrawParams) { true, quad_centered(AddV2(it->pos, V2(-4.0f, 55.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(105.0f, 4.0f), prop_size), WHITE, .sorting_key = sorting_key_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f });
+							player->state = CHARACTER_ATTACK;
+							BUFF_CLEAR(&player->done_damage_to_this_swing);
+							player->swing_progress = 0.0;
 						}
-						else if (it->prop_kind == TREE2)
+						// after images
+						BUFF_ITER(PlayerAfterImage, &player->after_images)
 						{
-							Vec2 prop_size = V2(128.0f, 192.0f);
-							d = ((DrawParams) { true, quad_centered(AddV2(it->pos, V2(-2.5f, 70.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(385.0f, 479.0f), prop_size), WHITE, .sorting_key = sorting_key_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f });
+							it->alive_for += dt;
 						}
-						else if (it->prop_kind == ROCK0)
+						if (player->after_images.data[0].alive_for >= AFTERIMAGE_LIFETIME)
 						{
-							Vec2 prop_size = V2(30.0f, 22.0f);
-							d = (DrawParams) { true, quad_centered(AddV2(it->pos, V2(0.0f, 25.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(66.0f, 235.0f), prop_size), WHITE, .sorting_key = sorting_key_at(AddV2(it->pos, V2(0.0f, 0.0f))), .alpha_clip_threshold = 0.7f };
+							BUFF_REMOVE_FRONT(&player->after_images);
+						}
+
+						// roll processing
+						{
+							if (player->state != CHARACTER_IDLE && player->state != CHARACTER_WALKING)
+							{
+								player->roll_progress = 0.0;
+								player->is_rolling = false;
+							}
+							if (player->is_rolling)
+							{
+								player->after_image_timer += dt;
+								player->time_not_rolling = 0.0f;
+								player->roll_progress += dt;
+								if (player->roll_progress > anim_sprite_duration(ANIM_knight_rolling))
+								{
+									player->is_rolling = false;
+								}
+							}
+							if (!player->is_rolling) player->time_not_rolling += dt;
+						}
+
+						Vec2 target_vel = { 0 };
+
+						if (LenV2(movement) > 0.01f) player->to_throw_direction = NormV2(movement);
+						if (player->state == CHARACTER_WALKING)
+						{
+							speed = PLAYER_SPEED;
+							if (player->is_rolling) speed = PLAYER_ROLL_SPEED;
+
+							if (gete(player->holding_item) && gete(player->holding_item)->item_kind == ITEM_Boots)
+							{
+								speed *= 2.0f;
+							}
+
+							if (LenV2(movement) == 0.0)
+							{
+								player->state = CHARACTER_IDLE;
+							}
+							else
+							{
+							}
+						}
+						else if (player->state == CHARACTER_IDLE)
+						{
+							if (LenV2(movement) > 0.01) player->state = CHARACTER_WALKING;
+						}
+						else if (player->state == CHARACTER_ATTACK)
+						{
+							AABB weapon_aabb = entity_sword_aabb(player, 40.0f, 25.0f);
+							dbgrect(weapon_aabb);
+							SwordToDamage to_damage = entity_sword_to_do_damage(player, get_overlapping(cur_level, weapon_aabb));
+							BUFF_ITER(Entity*, &to_damage)
+							{
+								request_do_damage(*it, player, DAMAGE_SWORD);
+							}
+							player->swing_progress += dt;
+							if (player->swing_progress > anim_sprite_duration(ANIM_knight_attack))
+							{
+								player->state = CHARACTER_IDLE;
+							}
+						}
+						else if (player->state == CHARACTER_TALKING)
+						{
 						}
 						else
 						{
-							assert(false);
+							assert(false); // unknown character state? not defined how to process
 						}
+					} // not time stopped
+
+					// velocity processing
+					{
+						Vec2 target_vel = MulV2F(movement, pixels_per_meter * speed);
+						player->vel = LerpV2(player->vel, dt * 15.0f, target_vel);
+						player->pos = move_and_slide((MoveSlideParams) { player, player->pos, MulV2F(player->vel, dt) });
+
+						bool should_append = false;
+
+						// make it so no snap when new points added
+						if(player->position_history.cur_index > 0)
+						{
+							player->position_history.data[player->position_history.cur_index - 1] = player->pos;
+						}
+
+						if(player->position_history.cur_index > 2)
+						{
+							should_append = LenV2(SubV2(player->position_history.data[player->position_history.cur_index - 2], player->pos)) > TILE_SIZE;
+						}
+						else
+						{
+							should_append = true;
+						}
+						if(should_append) BUFF_QUEUE_APPEND(&player->position_history, player->pos);
+
+					}
+					// health
+					if (player->damage >= 1.0)
+					{
+						reset_level();
+					}
+				}
+				pressed = (PressedState) { 0 };
+				interact = false;
+			} // while loop
+		}
+		pressed = before_gameplay_loops;
+
+
+		PROFILE_SCOPE("render player") // draw character draw player render character
+		{
+			DrawnAnimatedSprite to_draw = { 0 };
+
+			if(player->position_history.cur_index > 0)
+			{
+				float trail_len = get_total_trail_len(BUFF_MAKEREF(&player->position_history));
+				if(trail_len > 0.0f) // fmodf returns nan
+				{
+					float along = fmodf((float)elapsed_time*100.0f, 200.0f);
+					Vec2 at = get_point_along_trail(BUFF_MAKEREF(&player->position_history), along);
+					dbgbigsquare(at);
+					dbgbigsquare(get_point_along_trail(BUFF_MAKEREF(&player->position_history), 50.0f));
+				}
+				BUFF_ITER_I(Vec2, &player->position_history, i)
+				{
+					if(i == player->position_history.cur_index - 1) 
+					{
+					}
+					else
+					{
+						dbgline(*it, player->position_history.data[i + 1]);
+					}
+				}
+			}
+
+			Vec2 character_sprite_pos = AddV2(player->pos, V2(0.0, 20.0f));
+			// if somebody, show their dialog panel
+			if (interacting_with)
+			{
+				// interaction keyboard hint
+				if (!mobile_controls)
+				{
+					float size = 100.0f;
+					Vec2 midpoint = MulV2F(AddV2(interacting_with->pos, player->pos), 0.5f);
+					draw_quad((DrawParams) { true, quad_centered(AddV2(midpoint, V2(0.0, 5.0f + sinf((float)elapsed_time*3.0f)*5.0f)), V2(size, size)), IMG(image_e_icon), blendalpha(WHITE, clamp01(1.0f - learned_e)), .layer = LAYER_UI_FG });
+				}
+
+				// interaction circle
+				draw_quad((DrawParams) { true, quad_centered(interacting_with->pos, V2(TILE_SIZE, TILE_SIZE)), image_hovering_circle, full_region(image_hovering_circle), WHITE });
+			}
+
+			if (player->state == CHARACTER_WALKING)
+			{
+				if (player->is_rolling)
+				{
+					to_draw = (DrawnAnimatedSprite) { ANIM_knight_running, player->roll_progress, player->facing_left, character_sprite_pos, WHITE };
+				}
+				else
+				{
+					to_draw = (DrawnAnimatedSprite) { ANIM_knight_running, elapsed_time, player->facing_left, character_sprite_pos, WHITE };
+				}
+			}
+			else if (player->state == CHARACTER_IDLE)
+			{
+				if (player->is_rolling)
+				{
+					to_draw = (DrawnAnimatedSprite) { ANIM_knight_running, player->roll_progress, player->facing_left, character_sprite_pos, WHITE };
+				}
+				else
+				{
+					to_draw = (DrawnAnimatedSprite) { ANIM_knight_idle, elapsed_time, player->facing_left, character_sprite_pos, WHITE };
+				}
+			}
+			else if (player->state == CHARACTER_ATTACK)
+			{
+				to_draw = (DrawnAnimatedSprite) { ANIM_knight_attack, player->swing_progress, player->facing_left, character_sprite_pos, WHITE };
+			}
+			else if (player->state == CHARACTER_TALKING)
+			{
+				to_draw = (DrawnAnimatedSprite) { ANIM_knight_idle, elapsed_time, player->facing_left, character_sprite_pos, WHITE };
+			}
+			else
+			{
+				assert(false); // unknown character state? not defined how to draw
+			}
+
+			// hurt vignette
+			if (player->damage > 0.0)
+			{
+				draw_quad((DrawParams) { false, (Quad) { .ul = V2(0.0f, screen_size().Y), .ur = screen_size(), .lr = V2(screen_size().X, 0.0f) }, image_hurt_vignette, full_region(image_hurt_vignette), (Color) { 1.0f, 1.0f, 1.0f, player->damage }, .layer = LAYER_SCREENSPACE_EFFECTS, });
+			}
+
+			player->anim_change_timer += dt;
+			if (player->anim_change_timer >= 0.05f)
+			{
+				player->anim_change_timer = 0.0f;
+				player->cur_animation = to_draw.anim;
+			}
+			to_draw.anim = player->cur_animation;
+
+			Vec2 target_sprite_pos = to_draw.pos;
+
+			BUFF_ITER_I(PlayerAfterImage, &player->after_images, i)
+			{
+				{
+					DrawnAnimatedSprite to_draw = it->drawn;
+					to_draw.tint.a = 0.5f;
+					float progress_through_life = it->alive_for / AFTERIMAGE_LIFETIME;
+
+					if (progress_through_life > 0.5f)
+					{
+						float fade_amount = (progress_through_life - 0.5f) / 0.5f;
+
+						to_draw.tint.a = Lerp(0.8f, fade_amount, 0.0f);
+						Vec2 target;
+						if (i != player->after_images.cur_index-1) target = player->after_images.data[i + 1].drawn.pos;
+						else target = target_sprite_pos;
+						to_draw.pos = LerpV2(to_draw.pos, fade_amount, target);
+					}
+					to_draw.no_shadow = true;
+					draw_animated_sprite(to_draw);
+				}
+			}
+
+			//if(player->is_rolling^) to_draw.tint.a = 0.5f;
+
+			if (to_draw.anim)
+			{
+				draw_animated_sprite(to_draw);
+
+				if (player->after_image_timer >= TIME_TO_GEN_AFTERIMAGE)
+				{
+					player->after_image_timer = 0.0;
+					if (BUFF_HAS_SPACE(&player->after_images))
+						BUFF_APPEND(&player->after_images, (PlayerAfterImage) { .drawn = to_draw });
+				}
+			}
+		}
+
+		// render gs.entities render entities
+		PROFILE_SCOPE("entity rendering")
+			ENTITIES_ITER(gs.entities)
+			{
+#ifdef WEB
+				if (it->gen_request_id != 0)
+				{
+					draw_quad((DrawParams) { true, quad_centered(AddV2(it->pos, V2(0.0, 50.0)), V2(100.0, 100.0)), IMG(image_thinking), WHITE });
+				}
+#endif
+
+				Color col = LerpV4(WHITE, it->damage, RED);
+				if (it->is_npc)
+				{
+					// health bar
+					{
+						Vec2 health_bar_size = V2(TILE_SIZE, 0.1f * TILE_SIZE);
+						float health_bar_progress = 1.0f - (it->damage / entity_max_damage(it));
+						Vec2 health_bar_center = AddV2(it->pos, V2(0.0f, -entity_aabb_size(it).y));
+						Vec2 bar_upper_left = AddV2(health_bar_center, MulV2F(health_bar_size, -0.5f));
+						draw_quad((DrawParams) { true, quad_at(bar_upper_left, health_bar_size), IMG(image_white_square), BROWN });
+						draw_quad((DrawParams) { true, quad_at(bar_upper_left, V2(health_bar_size.x * health_bar_progress, health_bar_size.y)), IMG(image_white_square), GREEN });
+					}
+
+					float dist = LenV2(SubV2(it->pos, player->pos));
+					dist -= 10.0f; // radius around point where dialog is completely opaque
+					float max_dist = dialog_interact_size / 2.0f;
+					float alpha = 1.0f - (float)clamp(dist / max_dist, 0.0, 1.0);
+					if (gete(player->talking_to) == it && player->state == CHARACTER_TALKING) alpha = 0.0f;
+					if (it->being_hovered)
+					{
+						draw_quad((DrawParams) { true, quad_centered(it->pos, V2(TILE_SIZE, TILE_SIZE)), IMG(image_hovering_circle), WHITE });
+						alpha = 1.0f;
+					}
+
+
+					it->dialog_panel_opacity = Lerp(it->dialog_panel_opacity, unwarped_dt*10.0f, alpha);
+					draw_dialog_panel(it, it->dialog_panel_opacity);
+
+					if (it->npc_kind == NPC_OldMan)
+					{
+						bool face_left = SubV2(player->pos, it->pos).x < 0.0f;
+						draw_animated_sprite((DrawnAnimatedSprite) { ANIM_old_man_idle, elapsed_time, face_left, it->pos, col });
+					}
+					else if (npc_is_skeleton(it))
+					{
+						Color col = WHITE;
+						if (it->dead)
+						{
+							draw_animated_sprite((DrawnAnimatedSprite) { ANIM_skeleton_die, it->dead_time, it->facing_left, it->pos, col });
+						}
+						else
+						{
+							if (it->swing_timer > 0.0)
+							{
+								// swinging sword
+								draw_animated_sprite((DrawnAnimatedSprite) { ANIM_skeleton_swing_sword, it->swing_timer, it->facing_left, it->pos, col });
+							}
+							else
+							{
+								if (it->walking)
+								{
+									draw_animated_sprite((DrawnAnimatedSprite) { ANIM_skeleton_run, elapsed_time, it->facing_left, it->pos, col });
+								}
+								else
+								{
+									draw_animated_sprite((DrawnAnimatedSprite) { ANIM_skeleton_idle, elapsed_time, it->facing_left, it->pos, col });
+								}
+							}
+						}
+					}
+					else if (it->npc_kind == NPC_Death)
+					{
+						draw_animated_sprite((DrawnAnimatedSprite) { ANIM_death_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col });
+					}
+					else if (it->npc_kind == NPC_GodRock)
+					{
+						Vec2 prop_size = V2(46.0f, 40.0f);
+						DrawParams d = (DrawParams) { true, quad_centered(AddV2(it->pos, V2(-0.0f, 0.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(15.0f, 219.0f), prop_size), WHITE, .sorting_key = sorting_key_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.7f, .layer = LAYER_WORLD, };
 						draw_shadow_for(d);
 						draw_quad(d);
+					}
+					else if (npc_is_knight_sprite(it))
+					{
+						Color tint = WHITE;
+						if (it->npc_kind == NPC_TheGuard)
+						{
+							tint = colhex(0xa84032);
+						}
+						else if (it->npc_kind == NPC_Edeline)
+						{
+							tint = colhex(0x8c34eb);
+						}
+						else if (it->npc_kind == NPC_TheKing)
+						{
+							tint = colhex(0xf0be1d);
+						}
+						else if (it->npc_kind == NPC_TheBlacksmith)
+						{
+							tint = colhex(0x5c5c5c);
+						}
+						else if (it->npc_kind == NPC_Red)
+						{
+							tint = colhex(0xf56f42);
+						}
+						else if (it->npc_kind == NPC_Blue)
+						{
+							tint = colhex(0x1153d6);
+						}
+						else if (it->npc_kind == NPC_Davis)
+						{
+							tint = colhex(0x8f8f8f);
+						}
+						else
+						{
+							assert(false);
+						}
+						draw_animated_sprite((DrawnAnimatedSprite) { ANIM_knight_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), tint });
 					}
 					else
 					{
 						assert(false);
 					}
 				}
-
-			PROFILE_SCOPE("dialog menu") // big dialog panel draw big dialog panel
-			{
-				static float on_screen = 0.0f;
-				Entity *talking_to = gete(player->talking_to);
-				on_screen = Lerp(on_screen, unwarped_dt*9.0f, talking_to ? 1.0f : 0.0f);
+				else if (it->is_item)
 				{
-					float panel_width = screen_size().x * 0.4f * on_screen;
-					AABB panel_aabb = (AABB) { .upper_left = V2(0.0f, screen_size().y), .lower_right = V2(panel_width, 0.0f) };
-					float alpha = 1.0f;
-
-					if (aabb_is_valid(panel_aabb))
+					draw_item(true, it->item_kind, centered_aabb(it->pos, V2(15.0f, 15.0f)), 1.0f);
+				}
+				else if (it->is_bullet)
+				{
+					AABB normal_aabb = entity_aabb(it);
+					Quad drawn = quad_centered(aabb_center(normal_aabb), MulV2F(aabb_size(normal_aabb), 1.5f));
+					draw_quad((DrawParams) { true, drawn, IMG(image_bullet), WHITE });
+				}
+				else if (it->is_character)
+				{
+				}
+				else if (it->is_prop)
+				{
+					DrawParams d = { 0 };
+					if (it->prop_kind == TREE0)
 					{
-						if (!choosing_item_grid && pressed.mouse_down && !has_point(panel_aabb, mouse_pos))
-						{
-							player->state = CHARACTER_IDLE;
-						}
-						draw_quad((DrawParams) { false, quad_aabb(panel_aabb), IMG(image_white_square), blendalpha(BLACK, 0.7f) });
-
-						// apply padding
-						float padding = 0.1f * screen_size().y;
-						panel_width -= padding * 2.0f;
-						panel_aabb.upper_left = AddV2(panel_aabb.upper_left, V2(padding, -padding));
-						panel_aabb.lower_right = AddV2(panel_aabb.lower_right, V2(-padding, padding));
-
-						// draw button
-						float space_btwn_buttons = 20.0f;
-						float text_scale = 1.0f;
-						const float num_buttons = 2.0f;
-						Vec2 button_size = V2(
-								(panel_width - (num_buttons - 1.0f)*space_btwn_buttons) / num_buttons,
-								(panel_aabb.upper_left.y - panel_aabb.lower_right.y)*0.2f
-								);
-						float button_grid_width = button_size.x*num_buttons + space_btwn_buttons * (num_buttons - 1.0f);
-						Vec2 cur_upper_left = V2((panel_aabb.upper_left.x + panel_aabb.lower_right.x) / 2.0f - button_grid_width / 2.0f, panel_aabb.lower_right.y + button_size.y);
-						if(receiving_text_input && pressed.speak_shortcut)
-						{
-							end_text_input("");
-							pressed.speak_shortcut = false;
-						}
-						if (imbutton_key(aabb_at(cur_upper_left, button_size), text_scale, MD_S8Lit("Speak"), __LINE__, unwarped_dt, receiving_text_input) || (talking_to && pressed.speak_shortcut))
-						{
-							begin_text_input();
-						}
-
-
-						// draw keyboard hint
-						{
-							Vec2 keyboard_helper_at = V2(cur_upper_left.x + button_size.x*0.5f, cur_upper_left.y - button_size.y*0.75f);
-							draw_quad((DrawParams){false, centered_quad(keyboard_helper_at, V2(40.0f, 40.0f)), IMG(image_white_square), blendalpha(GREY, 0.4f)});
-							draw_centered_text((TextParams){false, false, MD_S8Lit("S"), keyboard_helper_at, BLACK, 1.5f});
-						}
-
-						cur_upper_left.x += button_size.x + space_btwn_buttons;
-
-						if(choosing_item_grid && pressed.give_shortcut)
-						{
-							pressed.give_shortcut = false;
-							choosing_item_grid = false;
-						}
-
-						if (imbutton_key(aabb_at(cur_upper_left, button_size), text_scale, MD_S8Lit("Give Item"), __LINE__, unwarped_dt, choosing_item_grid) || (talking_to && pressed.give_shortcut))
-						{
-							choosing_item_grid = true;
-						}
-
-						
-						// draw keyboard hint
-						{
-							Vec2 keyboard_helper_at = V2(cur_upper_left.x + button_size.x*0.5f, cur_upper_left.y - button_size.y*0.75f);
-							draw_quad((DrawParams){false, centered_quad(keyboard_helper_at, V2(40.0f, 40.0f)), IMG(image_white_square), blendalpha(GREY, 0.4f)});
-							draw_centered_text((TextParams){false, false, MD_S8Lit("G"), keyboard_helper_at, BLACK, 1.5f});
-						}
-
-						const float dialog_text_scale = 1.0f;
-						float button_grid_height = button_size.y;
-						AABB dialog_text_aabb = panel_aabb;
-						dialog_text_aabb.lower_right.y += button_grid_height + 20.0f; // a little bit of padding because the buttons go up
-						float new_line_height = dialog_text_aabb.lower_right.y;
-
-						if (talking_to)
-						{
-							Dialog dialog = produce_dialog(talking_to, true);
-							{
-								for (int i = dialog.cur_index - 1; i >= 0; i--)
-								{
-									DialogElement *it = &dialog.data[i];
-									{
-										Color *colors = calloc(sizeof(*colors), it->s.cur_index);
-										for (int char_i = 0; char_i < it->s.cur_index; char_i++)
-										{
-											if(it->was_eavesdropped)
-											{
-												colors[char_i] = colhex(0xcb40e6);
-											}
-											else
-											{
-												if (it->kind == DELEM_PLAYER)
-												{
-													colors[char_i] = WHITE;
-												}
-												else if (it->kind == DELEM_NPC)
-												{
-													colors[char_i] = colhex(0x34e05c);
-												}
-												else if (it->kind == DELEM_ACTION_DESCRIPTION)
-												{
-													colors[char_i] = colhex(0xebc334);
-												}
-												else
-												{
-													assert(false);
-												}
-											}
-											colors[char_i] = blendalpha(colors[char_i], alpha);
-										}
-										float measured_line_height = draw_wrapped_text((WrappedTextParams) { true, V2(dialog_text_aabb.upper_left.X, new_line_height), dialog_text_aabb.lower_right.X - dialog_text_aabb.upper_left.X, it->s.data, colors, dialog_text_scale, dialog_text_aabb, .screen_space = true, .do_clipping = true});
-										new_line_height += (new_line_height - measured_line_height);
-										draw_wrapped_text((WrappedTextParams) { false, V2(dialog_text_aabb.upper_left.X, new_line_height), dialog_text_aabb.lower_right.X - dialog_text_aabb.upper_left.X, it->s.data, colors, dialog_text_scale, dialog_text_aabb, .screen_space = true, .do_clipping = true});
-
-										free(colors);
-									}
-								}
-							}
-						}
+						Vec2 prop_size = V2(74.0f, 122.0f);
+						d = (DrawParams) { true, quad_centered(AddV2(it->pos, V2(-5.0f, 45.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(2.0f, 4.0f), prop_size), WHITE, .sorting_key = sorting_key_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.7f };
 					}
-				}
-			}
-
-			// item grid modal draw item grid choose item pick item give item
-			{
-				static float visible = 0.0f;
-				static float hovered_state[ARRLEN(player->held_items.data)] = { 0 };
-				float target = 0.0f;
-				if (choosing_item_grid) target = 1.0f;
-				visible = Lerp(visible, unwarped_dt*9.0f, target);
-
-				if (player->state != CHARACTER_TALKING)
-				{
-					choosing_item_grid = false;
-				}
-
-				draw_quad((DrawParams) { false, quad_at(V2(0.0, screen_size().y), screen_size()), IMG(image_white_square), blendalpha(oflightness(0.2f), visible*0.4f), .layer = LAYER_UI });
-
-				Vec2 grid_panel_size = LerpV2(V2(0.0f, 0.0f), visible, V2(screen_size().x*0.75f, screen_size().y * 0.75f));
-				AABB grid_aabb = centered_aabb(MulV2F(screen_size(), 0.5f), grid_panel_size);
-				if (choosing_item_grid && pressed.mouse_down && !has_point(grid_aabb, mouse_pos))
-				{
-					choosing_item_grid = false;
-				}
-				if (aabb_is_valid(grid_aabb))
-				{
-					draw_quad((DrawParams) { false, quad_aabb(grid_aabb), IMG(image_white_square), blendalpha(BLACK, visible * 0.7f), .layer = LAYER_UI });
-
-					if (imbutton(centered_aabb(AddV2(grid_aabb.upper_left, V2(aabb_size(grid_aabb).x / 2.0f, -aabb_size(grid_aabb).y)), V2(100.f*visible, 50.0f*visible)), 1.0f, MD_S8Lit("Cancel")))
+					else if (it->prop_kind == TREE1)
 					{
-						choosing_item_grid = false;
+						Vec2 prop_size = V2(94.0f, 120.0f);
+						d = ((DrawParams) { true, quad_centered(AddV2(it->pos, V2(-4.0f, 55.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(105.0f, 4.0f), prop_size), WHITE, .sorting_key = sorting_key_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f });
 					}
-
-					const float padding = 30.0f; // between border of panel and the items
-					const float padding_btwn_items = 10.0f;
-
-					const int horizontal_item_count = 10;
-					const int vertical_item_count = 6;
-					assert(ARRLEN(player->held_items.data) < horizontal_item_count * vertical_item_count);
-
-					Vec2 space_for_items = SubV2(aabb_size(grid_aabb), V2(padding*2.0f, padding*2.0f));
-					float item_icon_width = (space_for_items.x - (horizontal_item_count - 1)*padding_btwn_items) / horizontal_item_count;
-					Vec2 item_icon_size = V2(item_icon_width, item_icon_width);
-
-					Vec2 cursor = AddV2(grid_aabb.upper_left, V2(padding, -padding));
-					int to_give = -1; // don't modify the item array while iterating
-					BUFF_ITER_I(ItemKind, &player->held_items, i)
+					else if (it->prop_kind == TREE2)
 					{
-						Vec2 real_size = LerpV2(item_icon_size, hovered_state[i], MulV2F(item_icon_size, 1.25f));
-						Vec2 item_center = AddV2(cursor, MulV2F(V2(item_icon_size.x, -item_icon_size.y), 0.5f));
-						AABB item_icon = centered_aabb(item_center, real_size);
-
-
-						float target = 0.0f;
-						if (aabb_is_valid(item_icon))
-						{
-							draw_quad((DrawParams) { false, quad_aabb(item_icon), IMG(image_white_square), blendalpha(WHITE, Lerp(0.0f, hovered_state[i], 0.4f)), .layer = LAYER_UI_FG });
-							bool hovered = has_point(item_icon, mouse_pos);
-							if (hovered)
-							{
-								target = 1.0f;
-								if (pressed.mouse_down)
-								{
-									if (gete(player->talking_to))
-									{
-										to_give = i;
-									}
-								}
-							}
-
-							in_screen_space = true;
-							dbgrect(item_icon);
-							in_screen_space = false;
-							draw_item(false, *it, item_icon, clamp01(visible*visible));
-						}
-
-						hovered_state[i] = Lerp(hovered_state[i], dt*12.0f, target);
-
-						cursor.x += item_icon_size.x + padding_btwn_items;
-						if ((i + 1) % horizontal_item_count == 0 && i != 0)
-						{
-							cursor.y -= item_icon_size.y + padding_btwn_items;
-							cursor.x = grid_aabb.upper_left.x + padding;
-						}
+						Vec2 prop_size = V2(128.0f, 192.0f);
+						d = ((DrawParams) { true, quad_centered(AddV2(it->pos, V2(-2.5f, 70.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(385.0f, 479.0f), prop_size), WHITE, .sorting_key = sorting_key_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f });
 					}
-					if (to_give > -1)
+					else if (it->prop_kind == ROCK0)
 					{
-						choosing_item_grid = false;
-
-						Entity *to = gete(player->talking_to);
-						assert(to);
-
-						ItemKind given_item_kind = player->held_items.data[to_give];
-						BUFF_REMOVE_AT_INDEX(&player->held_items, to_give);
-
-						process_perception(to, (Perception) { .type = PlayerAction, .player_action_type = ACT_give_item, .given_item = given_item_kind }, player, &gs);
-					}
-
-				}
-			}
-
-			// win screen
-			{
-				static float visible = 0.0f;
-				float target = 0.0f;
-				if(gs.won)
-				{
-					target = 1.0f;
-				}
-				visible = Lerp(visible, unwarped_dt*9.0f, target);
-
-				draw_quad((DrawParams) {false, quad_at(V2(0,screen_size().y), screen_size()), IMG(image_white_square), blendalpha(BLACK, visible*0.7f), .layer = LAYER_UI});
-				float shake_speed = 9.0f;
-				Vec2 win_offset = V2(sinf((float)unwarped_elapsed_time * shake_speed * 1.5f + 0.1f), sinf((float)unwarped_elapsed_time * shake_speed + 0.3f));
-				win_offset = MulV2F(win_offset, 10.0f);
-				draw_centered_text((TextParams){false, false, MD_S8Lit("YOU WON"), AddV2(MulV2F(screen_size(), 0.5f), win_offset), WHITE, 9.0f*visible});
-
-				if(imbutton(centered_aabb(V2(screen_size().x/2.0f, screen_size().y*0.25f), MulV2F(V2(170.0f, 60.0f), visible)), 1.5f*visible, MD_S8Lit("Restart")))
-				{
-					reset_level();
-				}
-			}
-
-
-			// ui
-#define HELPER_SIZE 250.0f
-			if (!mobile_controls)
-			{
-				float total_height = HELPER_SIZE * 2.0f;
-				float vertical_spacing = HELPER_SIZE / 2.0f;
-				total_height -= (total_height - (vertical_spacing + HELPER_SIZE));
-				const float padding = 50.0f;
-				float y = screen_size().y / 2.0f + total_height / 2.0f;
-				float x = screen_size().x - padding - HELPER_SIZE;
-				draw_quad((DrawParams) { false, quad_at(V2(x, y), V2(HELPER_SIZE, HELPER_SIZE)), IMG(image_shift_icon), (Color) { 1.0f, 1.0f, 1.0f, fmaxf(0.0f, 1.0f-learned_shift) }, .layer = LAYER_UI_FG });
-				y -= vertical_spacing;
-				draw_quad((DrawParams) { false, quad_at(V2(x, y), V2(HELPER_SIZE, HELPER_SIZE)), IMG(image_space_icon), (Color) { 1.0f, 1.0f, 1.0f, fmaxf(0.0f, 1.0f-learned_space) }, .layer = LAYER_UI_FG });
-			}
-
-
-			if (mobile_controls)
-			{
-				float thumbstick_nub_size = (img_size(image_mobile_thumbstick_nub).x / img_size(image_mobile_thumbstick_base).x) * thumbstick_base_size();
-				draw_quad((DrawParams) { false, quad_centered(thumbstick_base_pos, V2(thumbstick_base_size(), thumbstick_base_size())), IMG(image_mobile_thumbstick_base), WHITE, .layer = LAYER_UI_FG });
-				draw_quad((DrawParams) { false, quad_centered(thumbstick_nub_pos, V2(thumbstick_nub_size, thumbstick_nub_size)), IMG(image_mobile_thumbstick_nub), WHITE, .layer = LAYER_UI_FG });
-
-				if (interacting_with || gete(player->holding_item))
-				{
-					draw_quad((DrawParams) { false, quad_centered(interact_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .layer = LAYER_UI_FG });
-				}
-				draw_quad((DrawParams) { false, quad_centered(roll_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .layer = LAYER_UI_FG });
-				draw_quad((DrawParams) { false, quad_centered(attack_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .layer = LAYER_UI_FG });
-			}
-
-#ifdef DEVTOOLS
-			dbgsquare(screen_to_world(mouse_pos));
-
-			// tile coord
-			if (show_devtools)
-			{
-				TileCoord hovering = world_to_tilecoord(screen_to_world(mouse_pos));
-				Vec2 points[4] = { 0 };
-				AABB q = tile_aabb(hovering);
-				dbgrect(q);
-				draw_text((TextParams) { false, false, tprint("%d", get_tile(&level_level0, hovering).kind), world_to_screen(tilecoord_to_world(hovering)), BLACK, 1.0f });
-			}
-
-			// debug draw font image
-			{
-				draw_quad((DrawParams) { true, quad_centered(V2(0.0, 0.0), V2(250.0, 250.0)), image_font, full_region(image_font), WHITE });
-			}
-
-			// statistics
-			if (show_devtools)
-				PROFILE_SCOPE("statistics")
-				{
-					Vec2 pos = V2(0.0, screen_size().Y);
-					int num_entities = 0;
-					ENTITIES_ITER(gs.entities) num_entities++;
-					MD_String8 stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nEntities: %d\nDraw calls: %d\nProfiling: %s\nNumber gameplay processing loops: %d\n", dt*1000.0, last_frame_processing_time*1000.0, num_entities, num_draw_calls, profiling ? "yes" : "no", num_timestep_loops);
-					AABB bounds = draw_text((TextParams) { false, true, stats, pos, BLACK, 1.0f });
-					pos.Y -= bounds.upper_left.Y - screen_size().Y;
-					bounds = draw_text((TextParams) { false, true, stats, pos, BLACK, 1.0f });
-					// background panel
-					colorquad(false, quad_aabb(bounds), (Color) { 1.0, 1.0, 1.0, 0.3f });
-					draw_text((TextParams) { false, false, stats, pos, BLACK, 1.0f });
-					num_draw_calls = 0;
-				}
-#endif // devtools
-
-
-			// update camera position
-			{
-				Vec2 target = MulV2F(player->pos, -1.0f * cam.scale);
-				if (LenV2(SubV2(target, cam.pos)) <= 0.2)
-				{
-					cam.pos = target;
-				}
-				else
-				{
-					cam.pos = LerpV2(cam.pos, unwarped_dt*8.0f, target);
-				}
-			}
-
-			PROFILE_SCOPE("flush rendering")
-			{
-				ARR_ITER_I(RenderingQueue, rendering_queues, i)
-				{
-					Layer layer = (Layer)i;
-					RenderingQueue *rendering_queue = it;
-					qsort(&rendering_queue->data[0], rendering_queue->cur_index, sizeof(rendering_queue->data[0]), rendering_compare);
-
-					BUFF_ITER(DrawParams, rendering_queue)
-					{
-						DrawParams d = *it;
-						PROFILE_SCOPE("Draw quad")
-						{
-							assert(!d.world_space); // world space already applied when queued for drawing
-							Vec2 *points = d.quad.points;
-							quad_fs_params_t params = { 0 };
-							params.tint[0] = d.tint.R;
-							params.tint[1] = d.tint.G;
-							params.tint[2] = d.tint.B;
-							params.tint[3] = d.tint.A;
-							params.alpha_clip_threshold = d.alpha_clip_threshold;
-							if (d.do_clipping)
-							{
-								Vec2 aabb_clip_ul = into_clip_space(d.clip_to.upper_left);
-								Vec2 aabb_clip_lr = into_clip_space(d.clip_to.lower_right);
-								params.clip_ul[0] = aabb_clip_ul.x;
-								params.clip_ul[1] = aabb_clip_ul.y;
-								params.clip_lr[0] = aabb_clip_lr.x;
-								params.clip_lr[1] = aabb_clip_lr.y;
-							}
-							else
-							{
-								params.clip_ul[0] = -1.0;
-								params.clip_ul[1] = 1.0;
-								params.clip_lr[0] = 1.0;
-								params.clip_lr[1] = -1.0;
-							}
-							// if the rendering call is different, and the batch must be flushed
-							if (d.image.id != cur_batch_image.id || memcmp(&params, &cur_batch_params, sizeof(params)) != 0)
-							{
-								flush_quad_batch();
-								cur_batch_image = d.image;
-								cur_batch_params = params;
-							}
-
-
-
-							float new_vertices[ FLOATS_PER_VERTEX*4 ] = { 0 };
-							Vec2 region_size = SubV2(d.image_region.lower_right, d.image_region.upper_left);
-							assert(region_size.X > 0.0);
-							assert(region_size.Y > 0.0);
-							Vec2 tex_coords[4] =
-							{
-								AddV2(d.image_region.upper_left, V2(0.0,                     0.0)),
-								AddV2(d.image_region.upper_left, V2(region_size.X,           0.0)),
-								AddV2(d.image_region.upper_left, V2(region_size.X, region_size.Y)),
-								AddV2(d.image_region.upper_left, V2(0.0,           region_size.Y)),
-							};
-
-							// convert to uv space
-							sg_image_info info = sg_query_image_info(d.image);
-							for (int i = 0; i < 4; i++)
-							{
-								tex_coords[i] = DivV2(tex_coords[i], V2((float)info.width, (float)info.height));
-							}
-							for (int i = 0; i < 4; i++)
-							{
-								Vec2 in_clip_space = into_clip_space(points[i]);
-								new_vertices[i*FLOATS_PER_VERTEX + 0] = in_clip_space.X;
-								new_vertices[i*FLOATS_PER_VERTEX + 1] = in_clip_space.Y;
-								// update Y_COORD_IN_BACK, Y_COORD_IN_FRONT when this changes
-								/*
-									 float unmapped = (clampf(d.y_coord_sorting, -1.0f, 2.0f));
-									 float mapped = (unmapped + 1.0f)/3.0f;
-									 new_vertices[i*FLOATS_PER_VERTEX + 2] = 1.0f - (float)clamp(mapped, 0.0, 1.0);
-									 */
-								new_vertices[i*FLOATS_PER_VERTEX + 2] = 0.0f;
-								new_vertices[i*FLOATS_PER_VERTEX + 3] = tex_coords[i].X;
-								new_vertices[i*FLOATS_PER_VERTEX + 4] = tex_coords[i].Y;
-							}
-
-							// two triangles drawn, six vertices
-							size_t total_size = 6*FLOATS_PER_VERTEX;
-
-							// batched a little too close to the sun
-							if (cur_batch_data_index + total_size >= ARRLEN(cur_batch_data))
-							{
-								flush_quad_batch();
-								cur_batch_image = d.image;
-								cur_batch_params = params;
-							}
-
-#define PUSH_VERTEX(vert) { memcpy(&cur_batch_data[cur_batch_data_index], &vert, FLOATS_PER_VERTEX*sizeof(float)); cur_batch_data_index += FLOATS_PER_VERTEX; }
-							PUSH_VERTEX(new_vertices[0*FLOATS_PER_VERTEX]);
-							PUSH_VERTEX(new_vertices[1*FLOATS_PER_VERTEX]);
-							PUSH_VERTEX(new_vertices[2*FLOATS_PER_VERTEX]);
-							PUSH_VERTEX(new_vertices[0*FLOATS_PER_VERTEX]);
-							PUSH_VERTEX(new_vertices[2*FLOATS_PER_VERTEX]);
-							PUSH_VERTEX(new_vertices[3*FLOATS_PER_VERTEX]);
-#undef PUSH_VERTEX
-
-						}
-					}
-					BUFF_CLEAR(rendering_queue);
-
-				}
-
-				// end of rendering
-				flush_quad_batch();
-				sg_end_pass();
-				sg_commit();
-			}
-
-			last_frame_processing_time = stm_sec(stm_diff(stm_now(), time_start_frame));
-
-			MD_ArenaClear(frame_arena);
-
-			pressed = (PressedState) { 0 };
-		}
-	}
-
-	void cleanup(void)
-	{
-		sg_shutdown();
-		hmfree(imui_state);
-		Log("Cleaning up\n");
-	}
-
-	void event(const sapp_event *e)
-	{
-		if (e->key_repeat) return;
-		if (e->type == SAPP_EVENTTYPE_TOUCHES_BEGAN)
-		{
-			if (!mobile_controls)
-			{
-				thumbstick_base_pos = V2(screen_size().x * 0.25f, screen_size().y * 0.25f);
-				thumbstick_nub_pos = thumbstick_base_pos;
-			}
-			mobile_controls = true;
-		}
-
-#ifdef DESKTOP
-		// the desktop text backend, for debugging purposes
-		if (receiving_text_input)
-		{
-			if (e->type == SAPP_EVENTTYPE_CHAR)
-			{
-				if (BUFF_HAS_SPACE(&text_input_buffer))
-				{
-					BUFF_APPEND(&text_input_buffer, (char)e->char_code);
-				}
-			}
-			if (e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_code == SAPP_KEYCODE_ENTER)
-			{
-				end_text_input(text_input_buffer.data);
-			}
-		}
-#endif
-
-
-		// mobile handling touch controls handling touch input
-		if (mobile_controls)
-		{
-			if (e->type == SAPP_EVENTTYPE_TOUCHES_BEGAN)
-			{
-#define TOUCHPOINT_SCREEN(point) V2(point.pos_x, screen_size().y - point.pos_y)
-				for (int i = 0; i < e->num_touches; i++)
-				{
-					sapp_touchpoint point = e->touches[i];
-					Vec2 touchpoint_screen_pos = TOUCHPOINT_SCREEN(point);
-					if (touchpoint_screen_pos.x < screen_size().x*0.4f)
-					{
-						if (!movement_touch.active)
-						{
-							//if(LenV2(SubV2(touchpoint_screen_pos, thumbstick_base_pos)) > 1.25f * thumbstick_base_size())
-							if (true)
-							{
-								thumbstick_base_pos = touchpoint_screen_pos;
-							}
-							movement_touch = activate(point.identifier);
-							thumbstick_nub_pos = thumbstick_base_pos;
-						}
-					}
-					if (LenV2(SubV2(touchpoint_screen_pos, roll_button_pos())) < mobile_button_size()*0.5f)
-					{
-						roll_pressed_by = activate(point.identifier);
-						mobile_roll_pressed = true;
-					}
-					if (LenV2(SubV2(touchpoint_screen_pos, interact_button_pos())) < mobile_button_size()*0.5f)
-					{
-						interact_pressed_by = activate(point.identifier);
-						mobile_interact_pressed = true;
-						pressed.interact = true;
-					}
-					if (LenV2(SubV2(touchpoint_screen_pos, attack_button_pos())) < mobile_button_size()*0.5f)
-					{
-						attack_pressed_by = activate(point.identifier);
-						mobile_attack_pressed = true;
-					}
-				}
-			}
-			if (e->type == SAPP_EVENTTYPE_TOUCHES_MOVED)
-			{
-				for (int i = 0; i < e->num_touches; i++)
-				{
-					if (movement_touch.active)
-					{
-						if (e->touches[i].identifier == movement_touch.identifier)
-						{
-							thumbstick_nub_pos = TOUCHPOINT_SCREEN(e->touches[i]);
-							Vec2 move_vec = SubV2(thumbstick_nub_pos, thumbstick_base_pos);
-							float clampto_size = thumbstick_base_size() / 2.0f;
-							if (LenV2(move_vec) > clampto_size)
-							{
-								thumbstick_nub_pos = AddV2(thumbstick_base_pos, MulV2F(NormV2(move_vec), clampto_size));
-							}
-						}
-					}
-				}
-			}
-			if (e->type == SAPP_EVENTTYPE_TOUCHES_ENDED)
-			{
-				for (int i = 0; i < e->num_touches; i++)
-					if (e->touches[i].changed) // only some of the touch events are released
-					{
-						if (maybe_deactivate(&interact_pressed_by, e->touches[i].identifier))
-						{
-							mobile_interact_pressed = false;
-						}
-						if (maybe_deactivate(&roll_pressed_by, e->touches[i].identifier))
-						{
-							mobile_roll_pressed = false;
-						}
-						if (maybe_deactivate(&attack_pressed_by, e->touches[i].identifier))
-						{
-							mobile_attack_pressed = false;
-						}
-						if (maybe_deactivate(&movement_touch, e->touches[i].identifier))
-						{
-							thumbstick_nub_pos = thumbstick_base_pos;
-						}
-					}
-			}
-		}
-
-		if (e->type == SAPP_EVENTTYPE_MOUSE_DOWN)
-		{
-			if (e->mouse_button == SAPP_MOUSEBUTTON_LEFT)
-			{
-				pressed.mouse_down = true;
-				mouse_down = true;
-			}
-		}
-
-		if (e->type == SAPP_EVENTTYPE_MOUSE_UP)
-		{
-			if (e->mouse_button == SAPP_MOUSEBUTTON_LEFT)
-			{
-				mouse_down = false;
-				pressed.mouse_up = true;
-			}
-		}
-
-		if (e->type == SAPP_EVENTTYPE_KEY_DOWN)
-#ifdef DESKTOP
-			if (!receiving_text_input)
-#endif
-			{
-				mobile_controls = false;
-				assert(e->key_code < sizeof(keydown) / sizeof(*keydown));
-				keydown[e->key_code] = true;
-
-				if (e->key_code == SAPP_KEYCODE_E)
-				{
-					pressed.interact = true;
-				}
-
-				if (e->key_code == SAPP_KEYCODE_S)
-				{
-					pressed.speak_shortcut = true;
-				}
-				if (e->key_code == SAPP_KEYCODE_G)
-				{
-					pressed.give_shortcut = true;
-				}
-
-				if (e->key_code == SAPP_KEYCODE_LEFT_SHIFT)
-				{
-					learned_shift += 0.15f;
-				}
-				if (e->key_code == SAPP_KEYCODE_SPACE)
-				{
-					learned_space += 0.15f;
-				}
-				if (e->key_code == SAPP_KEYCODE_E)
-				{
-					learned_e += 0.15f;
-				}
-#ifdef DESKTOP // very nice for my run from cmdline workflow, escape to quit
-				if (e->key_code == SAPP_KEYCODE_ESCAPE)
-				{
-					sapp_quit();
-				}
-#endif
-#ifdef DEVTOOLS
-				if (e->key_code == SAPP_KEYCODE_T)
-				{
-					mouse_frozen = !mouse_frozen;
-				}
-				if (e->key_code == SAPP_KEYCODE_9)
-				{
-					gs.won = true;
-				}
-				if (e->key_code == SAPP_KEYCODE_M)
-				{
-					mobile_controls = true;
-				}
-				if (e->key_code == SAPP_KEYCODE_P)
-				{
-					profiling = !profiling;
-					if (profiling)
-					{
-						init_profiling("rpgpt.spall");
-						init_profiling_mythread(0);
+						Vec2 prop_size = V2(30.0f, 22.0f);
+						d = (DrawParams) { true, quad_centered(AddV2(it->pos, V2(0.0f, 25.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(66.0f, 235.0f), prop_size), WHITE, .sorting_key = sorting_key_at(AddV2(it->pos, V2(0.0f, 0.0f))), .alpha_clip_threshold = 0.7f };
 					}
 					else
 					{
-						end_profiling_mythread();
-						end_profiling();
+						assert(false);
+					}
+					draw_shadow_for(d);
+					draw_quad(d);
+				}
+				else
+				{
+					assert(false);
+				}
+			}
+
+		PROFILE_SCOPE("dialog menu") // big dialog panel draw big dialog panel
+		{
+			static float on_screen = 0.0f;
+			Entity *talking_to = gete(player->talking_to);
+			on_screen = Lerp(on_screen, unwarped_dt*9.0f, talking_to ? 1.0f : 0.0f);
+			{
+				float panel_width = screen_size().x * 0.4f * on_screen;
+				AABB panel_aabb = (AABB) { .upper_left = V2(0.0f, screen_size().y), .lower_right = V2(panel_width, 0.0f) };
+				float alpha = 1.0f;
+
+				if (aabb_is_valid(panel_aabb))
+				{
+					if (!choosing_item_grid && pressed.mouse_down && !has_point(panel_aabb, mouse_pos))
+					{
+						player->state = CHARACTER_IDLE;
+					}
+					draw_quad((DrawParams) { false, quad_aabb(panel_aabb), IMG(image_white_square), blendalpha(BLACK, 0.7f) });
+
+					// apply padding
+					float padding = 0.1f * screen_size().y;
+					panel_width -= padding * 2.0f;
+					panel_aabb.upper_left = AddV2(panel_aabb.upper_left, V2(padding, -padding));
+					panel_aabb.lower_right = AddV2(panel_aabb.lower_right, V2(-padding, padding));
+
+					// draw button
+					float space_btwn_buttons = 20.0f;
+					float text_scale = 1.0f;
+					const float num_buttons = 2.0f;
+					Vec2 button_size = V2(
+							(panel_width - (num_buttons - 1.0f)*space_btwn_buttons) / num_buttons,
+							(panel_aabb.upper_left.y - panel_aabb.lower_right.y)*0.2f
+							);
+					float button_grid_width = button_size.x*num_buttons + space_btwn_buttons * (num_buttons - 1.0f);
+					Vec2 cur_upper_left = V2((panel_aabb.upper_left.x + panel_aabb.lower_right.x) / 2.0f - button_grid_width / 2.0f, panel_aabb.lower_right.y + button_size.y);
+					if(receiving_text_input && pressed.speak_shortcut)
+					{
+						end_text_input("");
+						pressed.speak_shortcut = false;
+					}
+					if (imbutton_key(aabb_at(cur_upper_left, button_size), text_scale, MD_S8Lit("Speak"), __LINE__, unwarped_dt, receiving_text_input) || (talking_to && pressed.speak_shortcut))
+					{
+						begin_text_input();
+					}
+
+
+					// draw keyboard hint
+					{
+						Vec2 keyboard_helper_at = V2(cur_upper_left.x + button_size.x*0.5f, cur_upper_left.y - button_size.y*0.75f);
+						draw_quad((DrawParams){false, centered_quad(keyboard_helper_at, V2(40.0f, 40.0f)), IMG(image_white_square), blendalpha(GREY, 0.4f)});
+						draw_centered_text((TextParams){false, false, MD_S8Lit("S"), keyboard_helper_at, BLACK, 1.5f});
+					}
+
+					cur_upper_left.x += button_size.x + space_btwn_buttons;
+
+					if(choosing_item_grid && pressed.give_shortcut)
+					{
+						pressed.give_shortcut = false;
+						choosing_item_grid = false;
+					}
+
+					if (imbutton_key(aabb_at(cur_upper_left, button_size), text_scale, MD_S8Lit("Give Item"), __LINE__, unwarped_dt, choosing_item_grid) || (talking_to && pressed.give_shortcut))
+					{
+						choosing_item_grid = true;
+					}
+
+
+					// draw keyboard hint
+					{
+						Vec2 keyboard_helper_at = V2(cur_upper_left.x + button_size.x*0.5f, cur_upper_left.y - button_size.y*0.75f);
+						draw_quad((DrawParams){false, centered_quad(keyboard_helper_at, V2(40.0f, 40.0f)), IMG(image_white_square), blendalpha(GREY, 0.4f)});
+						draw_centered_text((TextParams){false, false, MD_S8Lit("G"), keyboard_helper_at, BLACK, 1.5f});
+					}
+
+					const float dialog_text_scale = 1.0f;
+					float button_grid_height = button_size.y;
+					AABB dialog_text_aabb = panel_aabb;
+					dialog_text_aabb.lower_right.y += button_grid_height + 20.0f; // a little bit of padding because the buttons go up
+					float new_line_height = dialog_text_aabb.lower_right.y;
+
+					if (talking_to)
+					{
+						Dialog dialog = produce_dialog(talking_to, true);
+						{
+							for (int i = dialog.cur_index - 1; i >= 0; i--)
+							{
+								DialogElement *it = &dialog.data[i];
+								{
+									Color *colors = calloc(sizeof(*colors), it->s.cur_index);
+									for (int char_i = 0; char_i < it->s.cur_index; char_i++)
+									{
+										if(it->was_eavesdropped)
+										{
+											colors[char_i] = colhex(0xcb40e6);
+										}
+										else
+										{
+											if (it->kind == DELEM_PLAYER)
+											{
+												colors[char_i] = WHITE;
+											}
+											else if (it->kind == DELEM_NPC)
+											{
+												colors[char_i] = colhex(0x34e05c);
+											}
+											else if (it->kind == DELEM_ACTION_DESCRIPTION)
+											{
+												colors[char_i] = colhex(0xebc334);
+											}
+											else
+											{
+												assert(false);
+											}
+										}
+										colors[char_i] = blendalpha(colors[char_i], alpha);
+									}
+									float measured_line_height = draw_wrapped_text((WrappedTextParams) { true, V2(dialog_text_aabb.upper_left.X, new_line_height), dialog_text_aabb.lower_right.X - dialog_text_aabb.upper_left.X, it->s.data, colors, dialog_text_scale, dialog_text_aabb, .screen_space = true, .do_clipping = true});
+									new_line_height += (new_line_height - measured_line_height);
+									draw_wrapped_text((WrappedTextParams) { false, V2(dialog_text_aabb.upper_left.X, new_line_height), dialog_text_aabb.lower_right.X - dialog_text_aabb.upper_left.X, it->s.data, colors, dialog_text_scale, dialog_text_aabb, .screen_space = true, .do_clipping = true});
+
+									free(colors);
+								}
+							}
+						}
 					}
 				}
-				if (e->key_code == SAPP_KEYCODE_7)
-				{
-					show_devtools = !show_devtools;
-				}
-#endif
 			}
-		if (e->type == SAPP_EVENTTYPE_KEY_UP)
-		{
-			keydown[e->key_code] = false;
 		}
-		if (e->type == SAPP_EVENTTYPE_MOUSE_MOVE)
+
+		// item grid modal draw item grid choose item pick item give item
 		{
-			bool ignore_movement = false;
+			static float visible = 0.0f;
+			static float hovered_state[ARRLEN(player->held_items.data)] = { 0 };
+			float target = 0.0f;
+			if (choosing_item_grid) target = 1.0f;
+			visible = Lerp(visible, unwarped_dt*9.0f, target);
+
+			if (player->state != CHARACTER_TALKING)
+			{
+				choosing_item_grid = false;
+			}
+
+			draw_quad((DrawParams) { false, quad_at(V2(0.0, screen_size().y), screen_size()), IMG(image_white_square), blendalpha(oflightness(0.2f), visible*0.4f), .layer = LAYER_UI });
+
+			Vec2 grid_panel_size = LerpV2(V2(0.0f, 0.0f), visible, V2(screen_size().x*0.75f, screen_size().y * 0.75f));
+			AABB grid_aabb = centered_aabb(MulV2F(screen_size(), 0.5f), grid_panel_size);
+			if (choosing_item_grid && pressed.mouse_down && !has_point(grid_aabb, mouse_pos))
+			{
+				choosing_item_grid = false;
+			}
+			if (aabb_is_valid(grid_aabb))
+			{
+				draw_quad((DrawParams) { false, quad_aabb(grid_aabb), IMG(image_white_square), blendalpha(BLACK, visible * 0.7f), .layer = LAYER_UI });
+
+				if (imbutton(centered_aabb(AddV2(grid_aabb.upper_left, V2(aabb_size(grid_aabb).x / 2.0f, -aabb_size(grid_aabb).y)), V2(100.f*visible, 50.0f*visible)), 1.0f, MD_S8Lit("Cancel")))
+				{
+					choosing_item_grid = false;
+				}
+
+				const float padding = 30.0f; // between border of panel and the items
+				const float padding_btwn_items = 10.0f;
+
+				const int horizontal_item_count = 10;
+				const int vertical_item_count = 6;
+				assert(ARRLEN(player->held_items.data) < horizontal_item_count * vertical_item_count);
+
+				Vec2 space_for_items = SubV2(aabb_size(grid_aabb), V2(padding*2.0f, padding*2.0f));
+				float item_icon_width = (space_for_items.x - (horizontal_item_count - 1)*padding_btwn_items) / horizontal_item_count;
+				Vec2 item_icon_size = V2(item_icon_width, item_icon_width);
+
+				Vec2 cursor = AddV2(grid_aabb.upper_left, V2(padding, -padding));
+				int to_give = -1; // don't modify the item array while iterating
+				BUFF_ITER_I(ItemKind, &player->held_items, i)
+				{
+					Vec2 real_size = LerpV2(item_icon_size, hovered_state[i], MulV2F(item_icon_size, 1.25f));
+					Vec2 item_center = AddV2(cursor, MulV2F(V2(item_icon_size.x, -item_icon_size.y), 0.5f));
+					AABB item_icon = centered_aabb(item_center, real_size);
+
+
+					float target = 0.0f;
+					if (aabb_is_valid(item_icon))
+					{
+						draw_quad((DrawParams) { false, quad_aabb(item_icon), IMG(image_white_square), blendalpha(WHITE, Lerp(0.0f, hovered_state[i], 0.4f)), .layer = LAYER_UI_FG });
+						bool hovered = has_point(item_icon, mouse_pos);
+						if (hovered)
+						{
+							target = 1.0f;
+							if (pressed.mouse_down)
+							{
+								if (gete(player->talking_to))
+								{
+									to_give = i;
+								}
+							}
+						}
+
+						in_screen_space = true;
+						dbgrect(item_icon);
+						in_screen_space = false;
+						draw_item(false, *it, item_icon, clamp01(visible*visible));
+					}
+
+					hovered_state[i] = Lerp(hovered_state[i], dt*12.0f, target);
+
+					cursor.x += item_icon_size.x + padding_btwn_items;
+					if ((i + 1) % horizontal_item_count == 0 && i != 0)
+					{
+						cursor.y -= item_icon_size.y + padding_btwn_items;
+						cursor.x = grid_aabb.upper_left.x + padding;
+					}
+				}
+				if (to_give > -1)
+				{
+					choosing_item_grid = false;
+
+					Entity *to = gete(player->talking_to);
+					assert(to);
+
+					ItemKind given_item_kind = player->held_items.data[to_give];
+					BUFF_REMOVE_AT_INDEX(&player->held_items, to_give);
+
+					process_perception(to, (Perception) { .type = PlayerAction, .player_action_type = ACT_give_item, .given_item = given_item_kind }, player, &gs);
+				}
+
+			}
+		}
+
+		// win screen
+		{
+			static float visible = 0.0f;
+			float target = 0.0f;
+			if(gs.won)
+			{
+				target = 1.0f;
+			}
+			visible = Lerp(visible, unwarped_dt*9.0f, target);
+
+			draw_quad((DrawParams) {false, quad_at(V2(0,screen_size().y), screen_size()), IMG(image_white_square), blendalpha(BLACK, visible*0.7f), .layer = LAYER_UI});
+			float shake_speed = 9.0f;
+			Vec2 win_offset = V2(sinf((float)unwarped_elapsed_time * shake_speed * 1.5f + 0.1f), sinf((float)unwarped_elapsed_time * shake_speed + 0.3f));
+			win_offset = MulV2F(win_offset, 10.0f);
+			draw_centered_text((TextParams){false, false, MD_S8Lit("YOU WON"), AddV2(MulV2F(screen_size(), 0.5f), win_offset), WHITE, 9.0f*visible});
+
+			if(imbutton(centered_aabb(V2(screen_size().x/2.0f, screen_size().y*0.25f), MulV2F(V2(170.0f, 60.0f), visible)), 1.5f*visible, MD_S8Lit("Restart")))
+			{
+				reset_level();
+			}
+		}
+
+
+		// ui
+#define HELPER_SIZE 250.0f
+		if (!mobile_controls)
+		{
+			float total_height = HELPER_SIZE * 2.0f;
+			float vertical_spacing = HELPER_SIZE / 2.0f;
+			total_height -= (total_height - (vertical_spacing + HELPER_SIZE));
+			const float padding = 50.0f;
+			float y = screen_size().y / 2.0f + total_height / 2.0f;
+			float x = screen_size().x - padding - HELPER_SIZE;
+			draw_quad((DrawParams) { false, quad_at(V2(x, y), V2(HELPER_SIZE, HELPER_SIZE)), IMG(image_shift_icon), (Color) { 1.0f, 1.0f, 1.0f, fmaxf(0.0f, 1.0f-learned_shift) }, .layer = LAYER_UI_FG });
+			y -= vertical_spacing;
+			draw_quad((DrawParams) { false, quad_at(V2(x, y), V2(HELPER_SIZE, HELPER_SIZE)), IMG(image_space_icon), (Color) { 1.0f, 1.0f, 1.0f, fmaxf(0.0f, 1.0f-learned_space) }, .layer = LAYER_UI_FG });
+		}
+
+
+		if (mobile_controls)
+		{
+			float thumbstick_nub_size = (img_size(image_mobile_thumbstick_nub).x / img_size(image_mobile_thumbstick_base).x) * thumbstick_base_size();
+			draw_quad((DrawParams) { false, quad_centered(thumbstick_base_pos, V2(thumbstick_base_size(), thumbstick_base_size())), IMG(image_mobile_thumbstick_base), WHITE, .layer = LAYER_UI_FG });
+			draw_quad((DrawParams) { false, quad_centered(thumbstick_nub_pos, V2(thumbstick_nub_size, thumbstick_nub_size)), IMG(image_mobile_thumbstick_nub), WHITE, .layer = LAYER_UI_FG });
+
+			if (interacting_with || gete(player->holding_item))
+			{
+				draw_quad((DrawParams) { false, quad_centered(interact_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .layer = LAYER_UI_FG });
+			}
+			draw_quad((DrawParams) { false, quad_centered(roll_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .layer = LAYER_UI_FG });
+			draw_quad((DrawParams) { false, quad_centered(attack_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .layer = LAYER_UI_FG });
+		}
+
 #ifdef DEVTOOLS
-			if (mouse_frozen) ignore_movement = true;
+		dbgsquare(screen_to_world(mouse_pos));
+
+		// tile coord
+		if (show_devtools)
+		{
+			TileCoord hovering = world_to_tilecoord(screen_to_world(mouse_pos));
+			Vec2 points[4] = { 0 };
+			AABB q = tile_aabb(hovering);
+			dbgrect(q);
+			draw_text((TextParams) { false, false, tprint("%d", get_tile(&level_level0, hovering).kind), world_to_screen(tilecoord_to_world(hovering)), BLACK, 1.0f });
+		}
+
+		// debug draw font image
+		{
+			draw_quad((DrawParams) { true, quad_centered(V2(0.0, 0.0), V2(250.0, 250.0)), image_font, full_region(image_font), WHITE });
+		}
+
+		// statistics
+		if (show_devtools)
+			PROFILE_SCOPE("statistics")
+			{
+				Vec2 pos = V2(0.0, screen_size().Y);
+				int num_entities = 0;
+				ENTITIES_ITER(gs.entities) num_entities++;
+				MD_String8 stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nEntities: %d\nDraw calls: %d\nProfiling: %s\nNumber gameplay processing loops: %d\n", dt*1000.0, last_frame_processing_time*1000.0, num_entities, num_draw_calls, profiling ? "yes" : "no", num_timestep_loops);
+				AABB bounds = draw_text((TextParams) { false, true, stats, pos, BLACK, 1.0f });
+				pos.Y -= bounds.upper_left.Y - screen_size().Y;
+				bounds = draw_text((TextParams) { false, true, stats, pos, BLACK, 1.0f });
+				// background panel
+				colorquad(false, quad_aabb(bounds), (Color) { 1.0, 1.0, 1.0, 0.3f });
+				draw_text((TextParams) { false, false, stats, pos, BLACK, 1.0f });
+				num_draw_calls = 0;
+			}
+#endif // devtools
+
+
+		// update camera position
+		{
+			Vec2 target = MulV2F(player->pos, -1.0f * cam.scale);
+			if (LenV2(SubV2(target, cam.pos)) <= 0.2)
+			{
+				cam.pos = target;
+			}
+			else
+			{
+				cam.pos = LerpV2(cam.pos, unwarped_dt*8.0f, target);
+			}
+		}
+
+		PROFILE_SCOPE("flush rendering")
+		{
+			ARR_ITER_I(RenderingQueue, rendering_queues, i)
+			{
+				Layer layer = (Layer)i;
+				RenderingQueue *rendering_queue = it;
+				qsort(&rendering_queue->data[0], rendering_queue->cur_index, sizeof(rendering_queue->data[0]), rendering_compare);
+
+				BUFF_ITER(DrawParams, rendering_queue)
+				{
+					DrawParams d = *it;
+					PROFILE_SCOPE("Draw quad")
+					{
+						assert(!d.world_space); // world space already applied when queued for drawing
+						Vec2 *points = d.quad.points;
+						quad_fs_params_t params = { 0 };
+						params.tint[0] = d.tint.R;
+						params.tint[1] = d.tint.G;
+						params.tint[2] = d.tint.B;
+						params.tint[3] = d.tint.A;
+						params.alpha_clip_threshold = d.alpha_clip_threshold;
+						if (d.do_clipping)
+						{
+							Vec2 aabb_clip_ul = into_clip_space(d.clip_to.upper_left);
+							Vec2 aabb_clip_lr = into_clip_space(d.clip_to.lower_right);
+							params.clip_ul[0] = aabb_clip_ul.x;
+							params.clip_ul[1] = aabb_clip_ul.y;
+							params.clip_lr[0] = aabb_clip_lr.x;
+							params.clip_lr[1] = aabb_clip_lr.y;
+						}
+						else
+						{
+							params.clip_ul[0] = -1.0;
+							params.clip_ul[1] = 1.0;
+							params.clip_lr[0] = 1.0;
+							params.clip_lr[1] = -1.0;
+						}
+						// if the rendering call is different, and the batch must be flushed
+						if (d.image.id != cur_batch_image.id || memcmp(&params, &cur_batch_params, sizeof(params)) != 0)
+						{
+							flush_quad_batch();
+							cur_batch_image = d.image;
+							cur_batch_params = params;
+						}
+
+
+
+						float new_vertices[ FLOATS_PER_VERTEX*4 ] = { 0 };
+						Vec2 region_size = SubV2(d.image_region.lower_right, d.image_region.upper_left);
+						assert(region_size.X > 0.0);
+						assert(region_size.Y > 0.0);
+						Vec2 tex_coords[4] =
+						{
+							AddV2(d.image_region.upper_left, V2(0.0,                     0.0)),
+							AddV2(d.image_region.upper_left, V2(region_size.X,           0.0)),
+							AddV2(d.image_region.upper_left, V2(region_size.X, region_size.Y)),
+							AddV2(d.image_region.upper_left, V2(0.0,           region_size.Y)),
+						};
+
+						// convert to uv space
+						sg_image_info info = sg_query_image_info(d.image);
+						for (int i = 0; i < 4; i++)
+						{
+							tex_coords[i] = DivV2(tex_coords[i], V2((float)info.width, (float)info.height));
+						}
+						for (int i = 0; i < 4; i++)
+						{
+							Vec2 in_clip_space = into_clip_space(points[i]);
+							new_vertices[i*FLOATS_PER_VERTEX + 0] = in_clip_space.X;
+							new_vertices[i*FLOATS_PER_VERTEX + 1] = in_clip_space.Y;
+							// update Y_COORD_IN_BACK, Y_COORD_IN_FRONT when this changes
+							/*
+								 float unmapped = (clampf(d.y_coord_sorting, -1.0f, 2.0f));
+								 float mapped = (unmapped + 1.0f)/3.0f;
+								 new_vertices[i*FLOATS_PER_VERTEX + 2] = 1.0f - (float)clamp(mapped, 0.0, 1.0);
+								 */
+							new_vertices[i*FLOATS_PER_VERTEX + 2] = 0.0f;
+							new_vertices[i*FLOATS_PER_VERTEX + 3] = tex_coords[i].X;
+							new_vertices[i*FLOATS_PER_VERTEX + 4] = tex_coords[i].Y;
+						}
+
+						// two triangles drawn, six vertices
+						size_t total_size = 6*FLOATS_PER_VERTEX;
+
+						// batched a little too close to the sun
+						if (cur_batch_data_index + total_size >= ARRLEN(cur_batch_data))
+						{
+							flush_quad_batch();
+							cur_batch_image = d.image;
+							cur_batch_params = params;
+						}
+
+#define PUSH_VERTEX(vert) { memcpy(&cur_batch_data[cur_batch_data_index], &vert, FLOATS_PER_VERTEX*sizeof(float)); cur_batch_data_index += FLOATS_PER_VERTEX; }
+						PUSH_VERTEX(new_vertices[0*FLOATS_PER_VERTEX]);
+						PUSH_VERTEX(new_vertices[1*FLOATS_PER_VERTEX]);
+						PUSH_VERTEX(new_vertices[2*FLOATS_PER_VERTEX]);
+						PUSH_VERTEX(new_vertices[0*FLOATS_PER_VERTEX]);
+						PUSH_VERTEX(new_vertices[2*FLOATS_PER_VERTEX]);
+						PUSH_VERTEX(new_vertices[3*FLOATS_PER_VERTEX]);
+#undef PUSH_VERTEX
+
+					}
+				}
+				BUFF_CLEAR(rendering_queue);
+
+			}
+
+			// end of rendering
+			flush_quad_batch();
+			sg_end_pass();
+			sg_commit();
+		}
+
+		last_frame_processing_time = stm_sec(stm_diff(stm_now(), time_start_frame));
+
+		MD_ArenaClear(frame_arena);
+
+		pressed = (PressedState) { 0 };
+	}
+}
+
+void cleanup(void)
+{
+	sg_shutdown();
+	hmfree(imui_state);
+	Log("Cleaning up\n");
+}
+
+void event(const sapp_event *e)
+{
+	if (e->key_repeat) return;
+	if (e->type == SAPP_EVENTTYPE_TOUCHES_BEGAN)
+	{
+		if (!mobile_controls)
+		{
+			thumbstick_base_pos = V2(screen_size().x * 0.25f, screen_size().y * 0.25f);
+			thumbstick_nub_pos = thumbstick_base_pos;
+		}
+		mobile_controls = true;
+	}
+
+#ifdef DESKTOP
+	// the desktop text backend, for debugging purposes
+	if (receiving_text_input)
+	{
+		if (e->type == SAPP_EVENTTYPE_CHAR)
+		{
+			if (BUFF_HAS_SPACE(&text_input_buffer))
+			{
+				BUFF_APPEND(&text_input_buffer, (char)e->char_code);
+			}
+		}
+		if (e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_code == SAPP_KEYCODE_ENTER)
+		{
+			end_text_input(text_input_buffer.data);
+		}
+	}
 #endif
-			if (!ignore_movement) mouse_pos = V2(e->mouse_x, (float)sapp_height() - e->mouse_y);
+
+
+	// mobile handling touch controls handling touch input
+	if (mobile_controls)
+	{
+		if (e->type == SAPP_EVENTTYPE_TOUCHES_BEGAN)
+		{
+#define TOUCHPOINT_SCREEN(point) V2(point.pos_x, screen_size().y - point.pos_y)
+			for (int i = 0; i < e->num_touches; i++)
+			{
+				sapp_touchpoint point = e->touches[i];
+				Vec2 touchpoint_screen_pos = TOUCHPOINT_SCREEN(point);
+				if (touchpoint_screen_pos.x < screen_size().x*0.4f)
+				{
+					if (!movement_touch.active)
+					{
+						//if(LenV2(SubV2(touchpoint_screen_pos, thumbstick_base_pos)) > 1.25f * thumbstick_base_size())
+						if (true)
+						{
+							thumbstick_base_pos = touchpoint_screen_pos;
+						}
+						movement_touch = activate(point.identifier);
+						thumbstick_nub_pos = thumbstick_base_pos;
+					}
+				}
+				if (LenV2(SubV2(touchpoint_screen_pos, roll_button_pos())) < mobile_button_size()*0.5f)
+				{
+					roll_pressed_by = activate(point.identifier);
+					mobile_roll_pressed = true;
+				}
+				if (LenV2(SubV2(touchpoint_screen_pos, interact_button_pos())) < mobile_button_size()*0.5f)
+				{
+					interact_pressed_by = activate(point.identifier);
+					mobile_interact_pressed = true;
+					pressed.interact = true;
+				}
+				if (LenV2(SubV2(touchpoint_screen_pos, attack_button_pos())) < mobile_button_size()*0.5f)
+				{
+					attack_pressed_by = activate(point.identifier);
+					mobile_attack_pressed = true;
+				}
+			}
+		}
+		if (e->type == SAPP_EVENTTYPE_TOUCHES_MOVED)
+		{
+			for (int i = 0; i < e->num_touches; i++)
+			{
+				if (movement_touch.active)
+				{
+					if (e->touches[i].identifier == movement_touch.identifier)
+					{
+						thumbstick_nub_pos = TOUCHPOINT_SCREEN(e->touches[i]);
+						Vec2 move_vec = SubV2(thumbstick_nub_pos, thumbstick_base_pos);
+						float clampto_size = thumbstick_base_size() / 2.0f;
+						if (LenV2(move_vec) > clampto_size)
+						{
+							thumbstick_nub_pos = AddV2(thumbstick_base_pos, MulV2F(NormV2(move_vec), clampto_size));
+						}
+					}
+				}
+			}
+		}
+		if (e->type == SAPP_EVENTTYPE_TOUCHES_ENDED)
+		{
+			for (int i = 0; i < e->num_touches; i++)
+				if (e->touches[i].changed) // only some of the touch events are released
+				{
+					if (maybe_deactivate(&interact_pressed_by, e->touches[i].identifier))
+					{
+						mobile_interact_pressed = false;
+					}
+					if (maybe_deactivate(&roll_pressed_by, e->touches[i].identifier))
+					{
+						mobile_roll_pressed = false;
+					}
+					if (maybe_deactivate(&attack_pressed_by, e->touches[i].identifier))
+					{
+						mobile_attack_pressed = false;
+					}
+					if (maybe_deactivate(&movement_touch, e->touches[i].identifier))
+					{
+						thumbstick_nub_pos = thumbstick_base_pos;
+					}
+				}
 		}
 	}
 
-	sapp_desc sokol_main(int argc, char* argv[])
+	if (e->type == SAPP_EVENTTYPE_MOUSE_DOWN)
 	{
-		(void)argc; (void)argv;
-		return (sapp_desc) {
-			.init_cb = init,
-				.frame_cb = frame,
-				.cleanup_cb = cleanup,
-				.event_cb = event,
-				.width = 800,
-				.height = 600,
-				//.gl_force_gles2 = true, not sure why this was here in example, look into
-				.window_title = "RPGPT",
-				.win32_console_attach = true,
-				.win32_console_create = true,
-				.icon.sokol_default = true,
-		};
+		if (e->mouse_button == SAPP_MOUSEBUTTON_LEFT)
+		{
+			pressed.mouse_down = true;
+			mouse_down = true;
+		}
 	}
+
+	if (e->type == SAPP_EVENTTYPE_MOUSE_UP)
+	{
+		if (e->mouse_button == SAPP_MOUSEBUTTON_LEFT)
+		{
+			mouse_down = false;
+			pressed.mouse_up = true;
+		}
+	}
+
+	if (e->type == SAPP_EVENTTYPE_KEY_DOWN)
+#ifdef DESKTOP
+		if (!receiving_text_input)
+#endif
+		{
+			mobile_controls = false;
+			assert(e->key_code < sizeof(keydown) / sizeof(*keydown));
+			keydown[e->key_code] = true;
+
+			if (e->key_code == SAPP_KEYCODE_E)
+			{
+				pressed.interact = true;
+			}
+
+			if (e->key_code == SAPP_KEYCODE_S)
+			{
+				pressed.speak_shortcut = true;
+			}
+			if (e->key_code == SAPP_KEYCODE_G)
+			{
+				pressed.give_shortcut = true;
+			}
+
+			if (e->key_code == SAPP_KEYCODE_LEFT_SHIFT)
+			{
+				learned_shift += 0.15f;
+			}
+			if (e->key_code == SAPP_KEYCODE_SPACE)
+			{
+				learned_space += 0.15f;
+			}
+			if (e->key_code == SAPP_KEYCODE_E)
+			{
+				learned_e += 0.15f;
+			}
+#ifdef DESKTOP // very nice for my run from cmdline workflow, escape to quit
+			if (e->key_code == SAPP_KEYCODE_ESCAPE)
+			{
+				sapp_quit();
+			}
+#endif
+#ifdef DEVTOOLS
+			if (e->key_code == SAPP_KEYCODE_T)
+			{
+				mouse_frozen = !mouse_frozen;
+			}
+			if (e->key_code == SAPP_KEYCODE_9)
+			{
+				gs.won = true;
+			}
+			if (e->key_code == SAPP_KEYCODE_M)
+			{
+				mobile_controls = true;
+			}
+			if (e->key_code == SAPP_KEYCODE_P)
+			{
+				profiling = !profiling;
+				if (profiling)
+				{
+					init_profiling("rpgpt.spall");
+					init_profiling_mythread(0);
+				}
+				else
+				{
+					end_profiling_mythread();
+					end_profiling();
+				}
+			}
+			if (e->key_code == SAPP_KEYCODE_7)
+			{
+				show_devtools = !show_devtools;
+			}
+#endif
+		}
+	if (e->type == SAPP_EVENTTYPE_KEY_UP)
+	{
+		keydown[e->key_code] = false;
+	}
+	if (e->type == SAPP_EVENTTYPE_MOUSE_MOVE)
+	{
+		bool ignore_movement = false;
+#ifdef DEVTOOLS
+		if (mouse_frozen) ignore_movement = true;
+#endif
+		if (!ignore_movement) mouse_pos = V2(e->mouse_x, (float)sapp_height() - e->mouse_y);
+	}
+}
+
+sapp_desc sokol_main(int argc, char* argv[])
+{
+	(void)argc; (void)argv;
+	return (sapp_desc) {
+		.init_cb = init,
+			.frame_cb = frame,
+			.cleanup_cb = cleanup,
+			.event_cb = event,
+			.width = 800,
+			.height = 600,
+			//.gl_force_gles2 = true, not sure why this was here in example, look into
+			.window_title = "RPGPT",
+			.win32_console_attach = true,
+			.win32_console_create = true,
+			.icon.sokol_default = true,
+	};
+}
