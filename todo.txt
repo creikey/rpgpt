@@ -1,48 +1,9 @@
-Happening by END OF STREAM:
- - Replace "ACT_" or other input like emojis with text like "the player ist rying to utter arcane matgick spells to hyptnoize them"
+DONE - Refactor string parsing and chat dumping to use MD_String8
+ - Delete old perception types and sources, like from an enemy or player item changed
+ - Refactor perceptions to come from multiple places and format correctly
+ - Perceptions happen in physical space, propagate in physical space.
+ - Add two more characters, and 4 more items. Make the drama in the town better
+ - Make eavesdropping happen much more "correctly"; draw correctly in party viewing
+ - Talk to party button
+ - Move tuning from makeprompt.h into tuning.h
 
-
-DONE - Payment working
-DONE - Fixed timesep the gameplay (which means separate player rendering)
-DONE - Maybe factor actions! into the game to replace ** stuff. In beginning of each line before quotes, have ACT@fights_player, or other actions, and by default ACT@nothing to force AI to say something about what action is performed
-DONE - Help you fight and fight you actions
- DONE- Handle wanting another request, dirty perception, when already waiting on a request
-DONE - Do not use webhooks (shitty, bad idea propagated by bad docs) query stripe for if the payment went through on request if not fulfilled yet
-DONE - New art in
-DON'T NEED - Old man in beginning is invincible
-DONE - Add cancel button
-DONE - Style buttons
-DONE - nockin git thing 
-DONE - Make TREE1 prop work
-DONE - Enemy hitting NPC is enemy perception not player peception of player hitting them
-DONE - Third button for dialog/item stuff, not roll button. E on desktop. Touchscreen button only visible when appropriate to let player know what it's for
-DON'T NEED, SET BACKGROUND COLOR - Clamp camera to boundaries of level
-DONE - Ignore keyrepeat events
-DONE - Remove control attack key as devtools
-DONE - Tune fade popping at dist when you go too far awy
-DONE - Fade dialog with distance
-DONE - Make vignette in front
- - Make new openai key (it was leaked)
- - Animate text characters coming in
- - Instead of roll animation, 5 sprite long trail of past moves for juice
- - Cells interlinked (interlinked)
- - Particle fx and sound fx for when hit
- - Max text length on text input
- - Sword combat for sword npcs 
- - Fade for dialog not tied to interacting, starts when outside of interacting range, when begin conversation fades completely in
-
-SHIP BETA
- - Make ANOTHER tiktok if you can. Por favor
- - Make map better, add new characters/items from fate
-
-Later:
- - Respond to cancel with stripe, redirect to ?cancelled=true that clears day pass ticket cookie and ui value
- - Strange ring item from braid that slows down time?
- - GodRock spawns skeletons like a boss when he fights you
- - Put playgpt.io in twitch title
- - Portal at end, exit level
- - Keep people away from skeletons, make aggroed/chase state where you can't talk to people
- - Perfect dodge roll just after you roll, sound effect
- and particles. Lets you keep momentum. Each dodge roll
- takes slightly different amount of time so you have to
- judge it
