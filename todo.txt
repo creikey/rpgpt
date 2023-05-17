@@ -1,5 +1,5 @@
 DONE - Refactor string parsing and chat dumping to use MD_String8
- - Delete old perception types and sources, like from an enemy or player item changed
+DONE - Delete old perception types and sources, like from an enemy or player item changed
  - Refactor perceptions to come from multiple places and format correctly
  - Perceptions happen in physical space, propagate in physical space.
  - Add two more characters, and 4 more items. Make the drama in the town better

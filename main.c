@@ -233,6 +233,35 @@ void do_metadesk_tests()
 
 	Log("Testing passed!\n");
 }
+void do_parsing_tests()
+{
+	Log("Testing chatgpt parsing...\n");
+
+	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+
+	Entity e = {0};
+	e.npc_kind = NPC_TheBlacksmith;
+	e.exists = true;
+	Perception p = {0};
+	MD_String8 error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \"Here you go\""), &p);
+	assert(error.size > 0);
+	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \""), &p);
+	assert(error.size > 0);
+	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Cha \""), &p);
+	assert(error.size > 0);
+
+	BUFF_APPEND(&e.held_items, ITEM_Chalice);
+
+	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice \""), &p);
+	assert(error.size > 0);
+	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \"Here you go\""), &p);
+	assert(error.size == 0);
+	assert(p.type == NPCDialog);
+	assert(p.npc_action_type == ACT_give_item);
+	assert(p.given_item == ITEM_Chalice);
+
+	MD_ReleaseScratch(scratch);
+}
 #endif
 
 typedef struct Overlap
@@ -970,6 +999,7 @@ void init(void)
 
 #ifdef DEVTOOLS
 	do_metadesk_tests();
+	do_parsing_tests();
 #endif
 
 	frame_arena = MD_ArenaAlloc();
@@ -2527,7 +2557,6 @@ void frame(void)
 		flush_quad_batch();
 		sg_end_pass();
 		sg_commit();
-		reset(&scratch);
 	}
 	return;
 #endif
@@ -3257,43 +3286,50 @@ void frame(void)
 #endif
 
 #ifdef DESKTOP
+							MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+
 							const char *argument = 0;
-							BUFF(char, 512) dialog_string = {0};
+							MD_String8List dialog_elems = {0};
 							Action act = ACT_none;
 
 							it->times_talked_to++;
 							if(it->remembered_perceptions.data[it->remembered_perceptions.cur_index-1].was_eavesdropped)
 							{
-								printf_buff(&dialog_string, "Responding to eavesdropped: ");
+								MD_S8ListPushFmt(scratch.arena, &dialog_elems, "Responding to eavesdropped: ");
 							}
 							if(it->npc_kind == NPC_TheBlacksmith && it->standing != STANDING_JOINED)
 							{
 								assert(it->times_talked_to == 1);
 								act = ACT_joins_player;
-								printf_buff(&dialog_string, "Joining you...");
+								MD_S8ListPushFmt(scratch.arena, &dialog_elems, "Joining you...");
 							}
 							else
 							{
-								printf_buff(&dialog_string, "%d times talked", it->times_talked_to);
+								MD_S8ListPushFmt(scratch.arena, &dialog_elems, "%d times talked", it->times_talked_to);
 							}
 
-							BUFF(char, 1024) mocked_ai_response = { 0 };
+							MD_String8 mocked_ai_response = {0};
 
 							if(true)
 							{
+								MD_StringJoin join = {0};
+								MD_String8 dialog = MD_S8ListJoin(scratch.arena, dialog_elems, &join);
 								if (argument)
 								{
-									printf_buff(&mocked_ai_response, "ACT_%s(%s) \"%s\"", actions[act].name, argument, dialog_string.data);
+									mocked_ai_response = MD_S8Fmt(scratch.arena, "ACT_%s(%s) \"%.*s\"", actions[act].name, argument, MD_S8VArg(dialog));
 								}
 								else
 								{
-									printf_buff(&mocked_ai_response, "ACT_%s \"%s\"", actions[act].name, dialog_string.data);
+									mocked_ai_response = MD_S8Fmt(scratch.arena, "ACT_%s \"%.*s\"", actions[act].name, MD_S8VArg(dialog));
 								}
 							}
 							Perception p = { 0 };
-							ChatgptParse parsed = parse_chatgpt_response(it, mocked_ai_response.data, &p);
-							assert(parsed.succeeded);
+
+							MD_String8 error_message = parse_chatgpt_response(scratch.arena, it, mocked_ai_response, &p);
+							assert(error_message.size == 0);
 							process_perception(it, p, player, &gs);
+
+							MD_ReleaseScratch(scratch);
 #undef SAY
 #endif
 						}

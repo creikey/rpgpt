@@ -15,7 +15,7 @@ const char *top_of_header = ""
 
 typedef struct 
 {
-	const char *name; // the same as enum name
+	char *name; // the same as enum name
 	bool takes_argument;
 } ActionInfo;
 

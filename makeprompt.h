@@ -956,150 +956,157 @@ bool char_in_str(char c, const char *str)
 	return false;
 }
 
-typedef struct
-{
-	bool succeeded;
-	Sentence error_message;
-} ChatgptParse;
 
-ChatgptParse parse_chatgpt_response(Entity *it, char *sentence_str, Perception *out)
+// if returned string has size greater than 0, it's the error message. Allocated
+// on arena passed into it
+MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentence, Perception *out)
 {
-	ChatgptParse to_return = {0};
+	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
+
+	MD_String8 error_message = {0};
 
 	*out = (Perception) { 0 };
 	out->type = NPCDialog;
 
-	size_t sentence_length = strlen(sentence_str);
-
-	// dialog begins at ACT_
-	const char *to_find = "ACT_";
-	size_t to_find_len = strlen(to_find);
-	bool found = false;
-	while(true)
+	MD_String8 action_prefix = MD_S8Lit("ACT_");
+	MD_u64 act_pos = MD_S8FindSubstring(sentence, action_prefix, 0, 0);
+	if(act_pos == sentence.size)
 	{
-		if(*sentence_str == '\0') break;
-		if(strncmp(sentence_str, to_find, to_find_len) == 0)
-		{
-			sentence_str += to_find_len;
-			found = true;
-			break;
-		}
-		sentence_str += 1;
+		error_message = MD_S8Fmt(arena, "Couldn't find beginning of action '%.*s' in sentence", MD_S8VArg(action_prefix));
+		goto endofparsing;
 	}
 
-	if(!found)
+	MD_u64 beginning_of_action = act_pos + action_prefix.size;
+
+	MD_u64 parenth = MD_S8FindSubstring(sentence, MD_S8Lit("("), 0, 0);
+	MD_u64 space = MD_S8FindSubstring(sentence, MD_S8Lit(" "), 0, 0);
+
+	MD_u64 end_of_action = parenth < space ? parenth : space;
+	if(end_of_action == sentence.size)
 	{
-		printf_buff(&to_return.error_message, "Couldn't find action beginning with 'ACT_'.\n");
-		return to_return;
+		error_message = MD_S8Fmt(arena, "'%.*s' prefix doesn't end with a ' ' or a '(', like how 'ACT_none ' or 'ACT_give_item(ITEM_sandwich) does.", MD_S8VArg(action_prefix));
+		goto endofparsing;
 	}
+	MD_String8 given_action_string = MD_S8Substring(sentence, beginning_of_action, end_of_action);
 
-	SmallTextChunk action_string = { 0 };
-	sentence_str += get_until(&action_string, sentence_str, "( ");
-
-	bool found_action = false;
 	AvailableActions available = { 0 };
-	fill_available_actions(it, &available);
+	fill_available_actions(e, &available);
+	bool found_action = false;
+	MD_String8List given_action_strings = {0};
 	BUFF_ITER(Action, &available)
 	{
-		if (strcmp(actions[*it].name, action_string.data) == 0)
+		MD_String8 action_str = MD_S8CString(actions[*it].name);
+		MD_S8ListPush(scratch.arena, &given_action_strings, action_str);
+		if(MD_S8Match(action_str, given_action_string, 0))
 		{
 			found_action = true;
 			out->npc_action_type = *it;
 		}
 	}
 
-	if (!found_action)
+	if(!found_action)
 	{
-		printf_buff(&to_return.error_message, "Could not find action associated with parsed 'ACT_' string `%s`\n", action_string.data);
-		out->npc_action_type = ACT_none;
-		return to_return;
-	}
-	else
-	{
-		SmallTextChunk dialog_str = { 0 };
-		if (actions[out->npc_action_type].takes_argument)
-		{
-#define EXPECT(chr, val) if (chr != val) { printf_buff(&to_return.error_message, "Improperly formatted sentence, expected character '%c' but got '%c'\n", val, chr); return to_return; }
-
-			EXPECT(*sentence_str, '(');
-			sentence_str += 1;
-
-			SmallTextChunk argument = { 0 };
-			sentence_str += get_until(&argument, sentence_str, ")");
-
-			if (out->npc_action_type == ACT_give_item)
-			{
-				Entity *e = it;
-				bool found = false;
-				BUFF_ITER(ItemKind, &e->held_items)
-				{
-					const char *without_item_prefix = &argument.data[0];
-					EXPECT(*without_item_prefix, 'I');
-					without_item_prefix += 1;
-					EXPECT(*without_item_prefix, 'T');
-					without_item_prefix += 1;
-					EXPECT(*without_item_prefix, 'E');
-					without_item_prefix += 1;
-					EXPECT(*without_item_prefix, 'M');
-					without_item_prefix += 1;
-					EXPECT(*without_item_prefix, '_');
-					without_item_prefix += 1;
-					if (strcmp(items[*it].enum_name, without_item_prefix) == 0)
-					{
-						out->given_item = *it;
-						if (found)
-						{
-							Log("Duplicate item enum name? Really weird...\n");
-						}
-						found = true;
-					}
-				}
-				if (!found)
-				{
-					printf_buff(&to_return.error_message, "Couldn't find item in the inventory of the NPC to give. You said `%s`, but you have [%s] in your inventory \n", argument.data, item_string(it).data);
-					return to_return;
-				}
-			}
-			else
-			{
-				printf_buff(&to_return.error_message, "Don't know how to handle argument in action of type `%s`\n", actions[out->npc_action_type].name);
-#ifdef DEVTOOLS
-				// not sure if this should never happen or not, need more sleep...
-				assert(false);
-#endif
-				return to_return;
-			}
-
-			EXPECT(*sentence_str, ')');
-			sentence_str += 1;
-		}
-		EXPECT(*sentence_str, ' ');
-		sentence_str += 1;
-		EXPECT(*sentence_str, '"');
-		sentence_str += 1;
-
-		sentence_str += get_until(&dialog_str, sentence_str, "\"\n");
-		if (dialog_str.cur_index >= ARRLEN(out->npc_dialog.data))
-		{
-			printf_buff(&to_return.error_message, "Dialog string `%s` too big to fit in sentence size %d\n", dialog_str.data,
-			    (int) ARRLEN(out->npc_dialog.data));
-			return to_return;
-		}
-
-		char next_char = *(sentence_str + 1);
-		if(!(next_char == '\0' || next_char == '\n'))
-		{
-			printf_buff(&to_return.error_message, "Expected dialog to end after the last quote, but instead found character '%c'\n", next_char);
-			return to_return;
-		}
-
-		memcpy(out->npc_dialog.data, dialog_str.data, dialog_str.cur_index);
-		out->npc_dialog.cur_index = dialog_str.cur_index;
-
-		to_return.succeeded = true;
-		return to_return;
+		MD_StringJoin join = {.pre = MD_S8Lit(""), .mid = MD_S8Lit(", "), .post = MD_S8Lit("")};
+		MD_String8 possible_actions_str = MD_S8ListJoin(scratch.arena, given_action_strings, &join);
+		error_message = MD_S8Fmt(arena, "Action string given is '%.*s', but available actions are: [%.*s]", MD_S8VArg(given_action_string), MD_S8VArg(possible_actions_str));
+		goto endofparsing;
 	}
 
-	to_return.succeeded = false;
-	return to_return;
+	MD_u64 start_looking_for_quote = end_of_action;
+
+	if(actions[out->npc_action_type].takes_argument)
+	{
+		if(end_of_action >= sentence.size)
+		{
+			error_message = MD_S8Fmt(arena, "Expected '(' after the given action '%.*s%.*s' which takes an argument, but sentence ended prematurely", MD_S8VArg(action_prefix), MD_S8VArg(MD_S8CString(actions[out->npc_action_type].name)));
+			goto endofparsing;
+		}
+		char should_be_paren = sentence.str[end_of_action];
+		if(should_be_paren != '(')
+		{
+			error_message = MD_S8Fmt(arena, "Expected '(' after the given action '%.*s%.*s' which takes an argument, but found character '%c'", MD_S8VArg(action_prefix), MD_S8VArg(MD_S8CString(actions[out->npc_action_type].name)), should_be_paren);
+			goto endofparsing;
+		}
+		MD_u64 beginning_of_arg = end_of_action;
+		MD_u64 end_of_arg = MD_S8FindSubstring(sentence, MD_S8Lit(")"), beginning_of_arg, 0);
+		if(end_of_arg == sentence.size)
+		{
+			error_message = MD_S8Fmt(arena, "Expected ')' to close the action string's argument, but couldn't find one");
+			goto endofparsing;
+		}
+
+		MD_String8 argument = MD_S8Substring(sentence, beginning_of_arg, end_of_arg);
+		start_looking_for_quote = end_of_arg + 1;
+
+		if(out->npc_action_type == ACT_give_item)
+		{
+			MD_String8 item_prefix = MD_S8Lit("ITEM_");
+			MD_u64 item_prefix_begin = MD_S8FindSubstring(argument, item_prefix, 0, 0);
+			if(item_prefix_begin == argument.size)
+			{
+				error_message = MD_S8Fmt(arena, "Expected prefix 'ITEM_' before the give_item action, but found '%.*s' instead", MD_S8VArg(argument));
+				goto endofparsing;
+			}
+			MD_u64 item_name_begin = item_prefix_begin + item_prefix.size;
+			MD_u64 item_name_end = argument.size;
+
+			MD_String8 item_name = MD_S8Substring(argument, item_name_begin, item_name_end);
+
+			bool item_found = false;
+			MD_String8List possible_item_strings = {0};
+			BUFF_ITER(ItemKind, &e->held_items)
+			{
+				MD_String8 item_str = MD_S8CString(items[*it].enum_name);
+				MD_S8ListPush(scratch.arena, &possible_item_strings, item_str);
+				if(MD_S8Match(item_str, item_name, 0))
+				{
+					item_found = true;
+					out->given_item = *it;
+				}
+			}
+
+			if(!item_found)
+			{
+				MD_StringJoin join = {.pre = MD_S8Lit(""), .mid = MD_S8Lit(", "), .post = MD_S8Lit("")};
+				MD_String8 possible_items_str = MD_S8ListJoin(scratch.arena, possible_item_strings, &join);
+				error_message = MD_S8Fmt(arena, "Item string given is '%.*s', but available items to give are: [%.*s]", MD_S8VArg(item_name), MD_S8VArg(possible_items_str));
+				goto endofparsing;
+			}
+
+		}
+		else
+		{
+			assert(false); // if action takes an argument but we don't handle it, this should be a terrible crash
+		}
+	}
+
+	if(start_looking_for_quote >= sentence.size)
+	{
+		error_message = MD_S8Fmt(arena, "Wanted to start looking for quote for NPC speech, but sentence ended prematurely");
+		goto endofparsing;
+	}
+
+	MD_u64 beginning_of_speech = MD_S8FindSubstring(sentence, MD_S8Lit("\""), 0, 0);
+	MD_u64 end_of_speech = MD_S8FindSubstring(sentence, MD_S8Lit("\""), beginning_of_speech + 1, 0);
+
+	if(beginning_of_speech == sentence.size || end_of_speech == sentence.size)
+	{
+		error_message = MD_S8Fmt(arena, "Expected dialog enclosed by two quotes (i.e \"My name is greg\") after the action, but couldn't find anything!");
+		goto endofparsing;
+	}
+
+	MD_String8 speech = MD_S8Substring(sentence, beginning_of_speech + 1, end_of_speech);
+
+	if(speech.size >= ARRLEN(out->npc_dialog.data))
+	{
+		error_message = MD_S8Fmt(arena, "The speech given is %llu bytes big, but the maximum allowed is %llu bytes.", speech.size, ARRLEN(out->npc_dialog.data));
+		goto endofparsing;
+	}
+
+	memcpy(out->npc_dialog.data, speech.str, speech.size);
+	out->npc_dialog.cur_index = (int)speech.size;
+
+endofparsing:
+	MD_ReleaseScratch(scratch);
+	return error_message;
 }
