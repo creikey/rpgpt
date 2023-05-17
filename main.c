@@ -454,10 +454,6 @@ Vec2 entity_aabb_size(Entity *e)
 			return (Vec2) { 0 };
 		}
 	}
-	else if (e->is_bullet)
-	{
-		return V2(TILE_SIZE*0.25f, TILE_SIZE*0.25f);
-	}
 	else if (e->is_prop)
 	{
 		return V2(TILE_SIZE*0.5f, TILE_SIZE*0.5f);
@@ -872,15 +868,6 @@ void end_text_input(char *what_player_said)
 
 		Entity *talking = gete(player->talking_to);
 		assert(talking);
-		ItemKind player_holding = ITEM_none;
-		if (gete(player->holding_item) != 0)
-		{
-			player_holding = gete(player->holding_item)->item_kind;
-		}
-		if (talking->last_seen_holding_kind != player_holding)
-		{
-			process_perception(talking, (Perception) { .type = PlayerHeldItemChanged, .holding = player_holding, }, player, &gs);
-		}
 		process_perception(talking, (Perception) { .type = PlayerDialog, .player_dialog = what_player_said_sentence, }, player, &gs);
 	}
 }
@@ -939,39 +926,6 @@ void audio_stream_callback(float *buffer, int num_frames, int num_channels)
 		}
 		buffer[i] = output_frame;
 	}
-}
-
-
-typedef BUFF(Entity*, 16) SwordToDamage;
-SwordToDamage entity_sword_to_do_damage(Entity *from, Overlapping o)
-{
-	SwordToDamage to_return = { 0 };
-	BUFF_ITER(Overlap, &o)
-	{
-		if (!it->is_tile && it->e != from)
-		{
-			bool done_damage = false;
-			Entity *looking_for = it->e;
-			BUFF_ITER(EntityRef, &from->done_damage_to_this_swing)
-			{
-				EntityRef ref = *it;
-				Entity *it = gete(ref);
-				if (it == looking_for) done_damage = true;
-			}
-			if (!done_damage)
-			{
-				if (!BUFF_HAS_SPACE(&from->done_damage_to_this_swing))
-				{
-					BUFF_REMOVE_FRONT(&from->done_damage_to_this_swing);
-					Log("Too many things to do damage to...\n");
-					assert(false);
-				}
-				BUFF_APPEND(&to_return, looking_for);
-				BUFF_APPEND(&from->done_damage_to_this_swing, frome(looking_for));
-			}
-		}
-	}
-	return to_return;
 }
 
 
@@ -1740,46 +1694,6 @@ void dbgrect(AABB rect)
 	(void)rect;
 #endif
 }
-
-// from_point is for knockback
-void request_do_damage(Entity *to, Entity *from, float damage)
-{
-	Vec2 from_point = from->pos;
-	if (to == NULL) return;
-	if (to->is_bullet)
-	{
-		Vec2 norm = NormV2(SubV2(to->pos, from_point));
-		dbgvec(from_point, norm);
-		to->vel = ReflectV2(to->vel, norm);
-		dbgprint("deflecitng\n");
-	}
-	else if (true)
-	{
-		// damage processing is done in process perception so in training, has accurate values for
-		// NPC health
-		if (to->is_character)
-		{
-			to->damage += damage;
-		}
-		else
-		{
-			if (from->is_character)
-			{
-				process_perception(to, (Perception) { .type = PlayerAction, .player_action_type = ACT_hits_npc, .damage_done = damage, }, player, &gs);
-			}
-			else
-			{
-				process_perception(to, (Perception) { .type = EnemyAction, .enemy_action_type = ACT_hits_npc, .damage_done = damage, }, player, &gs);
-			}
-		}
-		to->vel = MulV2F(NormV2(SubV2(to->pos, from_point)), 15.0f);
-	}
-	else
-	{
-		Log("Can't do damage to npc...\n");
-	}
-}
-
 
 typedef struct TextParams
 {
@@ -2635,8 +2549,6 @@ void frame(void)
 		uint64_t time_start_frame = stm_now();
 
 		Vec2 movement = { 0 };
-		bool attack = false;
-		bool roll = false;
 		bool interact = false;
 		if (mobile_controls)
 		{
@@ -2645,8 +2557,6 @@ void frame(void)
 			{
 				movement = MulV2F(NormV2(movement), LenV2(movement) / (thumbstick_base_size()*0.5f));
 			}
-			attack = mobile_attack_pressed;
-			roll = mobile_roll_pressed;
 			interact = pressed.interact;
 		}
 		else
@@ -2655,11 +2565,6 @@ void frame(void)
 					(float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A],
 					(float)keydown[SAPP_KEYCODE_W] - (float)keydown[SAPP_KEYCODE_S]
 					);
-			attack = keydown[SAPP_KEYCODE_SPACE];
-#ifdef DEVTOOLS
-			attack = attack || keydown[SAPP_KEYCODE_LEFT_CONTROL];
-#endif
-			roll = keydown[ROLL_KEY];
 			interact = pressed.interact;
 		}
 		if (LenV2(movement) > 1.0)
@@ -2930,7 +2835,7 @@ void frame(void)
 							}
 
 
-							// A* and shotgun movement code
+							// A* code
 							if(false)
 								if (it->standing == STANDING_FIGHTING || it->standing == STANDING_JOINED)
 								{
@@ -3177,110 +3082,6 @@ void frame(void)
 											dbgcol(BLUE) dbgline(*it, path.data[i-1]);
 										}
 									}
-
-									{
-										if (npc_attacks_with_sword(it))
-										{
-											if (fabsf(it->vel.x) > 0.01f)
-												it->facing_left = it->vel.x < 0.0f;
-
-											it->pos = move_and_slide((MoveSlideParams) { it, it->pos, MulV2F(it->vel, pixels_per_meter * dt) });
-											AABB weapon_aabb = entity_sword_aabb(it, 30.0f, 18.0f);
-											Vec2 target_vel = { 0 };
-											Overlapping overlapping_weapon = get_overlapping(cur_level, weapon_aabb);
-											if (it->swing_timer > 0.0)
-											{
-												player_in_combat = true;
-												it->swing_timer += dt;
-												if (it->swing_timer >= anim_sprite_duration(ANIM_skeleton_swing_sword))
-												{
-													it->swing_timer = 0.0;
-												}
-												if (it->swing_timer >= 0.4f)
-												{
-													SwordToDamage to_damage = entity_sword_to_do_damage(it, overlapping_weapon);
-													Entity *from = it;
-													BUFF_ITER(Entity *, &to_damage)
-													{
-														request_do_damage(*it, from, DAMAGE_SWORD);
-													}
-												}
-											}
-											else
-											{
-												// in huntin' range
-												//it->walking = LenV2(SubV2(player->pos, it->pos)) < 250.0f;
-												it->walking = true;
-												if (it->walking)
-												{
-													player_in_combat = true;
-													Entity *skele = it;
-													BUFF_ITER(Overlap, &overlapping_weapon)
-													{
-														if (it->e && it->e->is_character)
-														{
-															skele->swing_timer += dt;
-															BUFF_CLEAR(&skele->done_damage_to_this_swing);
-														}
-													}
-													target_vel = MulV2F(NormV2(SubV2(next_point_on_path, it->pos)), PLAYER_ROLL_SPEED);
-												}
-												else
-												{
-												}
-											}
-											it->vel = LerpV2(it->vel, dt*8.0f, target_vel);
-										}
-
-										if (npc_attacks_with_shotgun(it))
-											if (succeeded)
-											{
-												Vec2 to_player = NormV2(SubV2(targeting->pos, it->pos));
-												Vec2 rotate_direction;
-												if (it->direction_of_spiral_pattern)
-												{
-													rotate_direction = rotate_counter_clockwise(to_player);
-												}
-												else
-												{
-													rotate_direction = rotate_clockwise(to_player);
-												}
-												Vec2 target_vel = NormV2(SubV2(next_point_on_path, it->pos));
-												target_vel = MulV2F(target_vel, 3.0f);
-												it->vel = LerpV2(it->vel, 15.0f * dt, target_vel);
-												CollisionInfo col = { 0 };
-												it->pos = move_and_slide((MoveSlideParams) { it, it->pos, MulV2F(it->vel, pixels_per_meter * dt), .col_info_out = &col });
-												if (col.happened)
-												{
-													it->direction_of_spiral_pattern = !it->direction_of_spiral_pattern;
-												}
-
-												if (it->standing == STANDING_FIGHTING)
-												{
-													it->shotgun_timer += dt;
-													Vec2 to_player = NormV2(SubV2(targeting->pos, it->pos));
-													if (it->shotgun_timer >= 1.0f)
-													{
-														it->shotgun_timer = 0.0f;
-														const float spread = (float)PI / 4.0f;
-														// shoot shotgun
-														int num_bullets = 5;
-														for (int i = 0; i < num_bullets; i++)
-														{
-															Vec2 dir = to_player;
-															float theta = Lerp(-spread / 2.0f, ((float)i / (float)(num_bullets - 1)), spread / 2.0f);
-															dir = RotateV2(dir, theta);
-															Entity *new_bullet = new_entity();
-															new_bullet->is_bullet = true;
-															new_bullet->pos = AddV2(it->pos, MulV2F(dir, 20.0f));
-															new_bullet->vel = MulV2F(dir, 15.0f);
-															it->vel = AddV2(it->vel, MulV2F(dir, -3.0f));
-														}
-													}
-												}
-
-											}
-									}
 								}
 							if (it->npc_kind == NPC_OldMan)
 							{
@@ -3407,25 +3208,6 @@ void frame(void)
 
 							//draw_quad((DrawParams){true, it->pos, IMG(image_white_square)
 						}
-						else if (it->is_bullet)
-						{
-							it->pos = AddV2(it->pos, MulV2F(it->vel, pixels_per_meter * dt));
-							dbgvec(it->pos, it->vel);
-							Overlapping over = get_overlapping(cur_level, entity_aabb(it));
-							Entity *from_bullet = it;
-							bool destroy_bullet = false;
-							BUFF_ITER(Overlap, &over) if (it->e != from_bullet)
-							{
-								if (!it->is_tile && !(it->e->is_bullet))
-								{
-									// knockback and damage
-									request_do_damage(it->e, from_bullet, DAMAGE_BULLET);
-									destroy_bullet = true;
-								}
-							}
-							if (destroy_bullet) *from_bullet = (Entity) { 0 };
-							if (!has_point(level_aabb, it->pos)) *it = (Entity) { 0 };
-						}
 						else if (it->is_character)
 						{
 						}
@@ -3539,9 +3321,7 @@ void frame(void)
 								if (entity_talkable) entity_talkable = entity_talkable && it->e->gen_request_id == 0;
 #endif
 
-								bool entity_pickupable = !it->is_tile && !gete(player->holding_item) && it->e->is_item;
-
-								if (entity_talkable || entity_pickupable)
+								if (entity_talkable)
 								{
 									float dist = LenV2(SubV2(it->e->pos, player->pos));
 									if (dist < closest_interact_with_dist)
@@ -3592,86 +3372,21 @@ void frame(void)
 								player->state = CHARACTER_TALKING;
 								player->talking_to = frome(closest_interact_with);
 							}
-							else if (closest_interact_with->is_item)
-							{
-								// pick up item
-								closest_interact_with->held_by_player = true;
-								player->holding_item = frome(closest_interact_with);
-							}
 							else
 							{
 								assert(false);
-							}
-						}
-						else
-						{
-							if (gete(player->holding_item))
-							{
-								// throw item if not talking to somebody with item
-								Entity *thrown = gete(player->holding_item);
-								assert(thrown);
-								thrown->vel = MulV2F(player->to_throw_direction, 20.0f);
-								thrown->held_by_player = false;
-								player->holding_item = (EntityRef) { 0 };
 							}
 						}
 					}
 
 					float speed = 0.0f;
 					{
-						if (roll && !player->is_rolling && player->time_not_rolling > 0.3f && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
-						{
-							player->is_rolling = true;
-							player->roll_progress = 0.0;
-						}
-						if (attack && (player->state == CHARACTER_IDLE || player->state == CHARACTER_WALKING))
-						{
-							player->state = CHARACTER_ATTACK;
-							BUFF_CLEAR(&player->done_damage_to_this_swing);
-							player->swing_progress = 0.0;
-						}
-						// after images
-						BUFF_ITER(PlayerAfterImage, &player->after_images)
-						{
-							it->alive_for += dt;
-						}
-						if (player->after_images.data[0].alive_for >= AFTERIMAGE_LIFETIME)
-						{
-							BUFF_REMOVE_FRONT(&player->after_images);
-						}
-
-						// roll processing
-						{
-							if (player->state != CHARACTER_IDLE && player->state != CHARACTER_WALKING)
-							{
-								player->roll_progress = 0.0;
-								player->is_rolling = false;
-							}
-							if (player->is_rolling)
-							{
-								player->after_image_timer += dt;
-								player->time_not_rolling = 0.0f;
-								player->roll_progress += dt;
-								if (player->roll_progress > anim_sprite_duration(ANIM_knight_rolling))
-								{
-									player->is_rolling = false;
-								}
-							}
-							if (!player->is_rolling) player->time_not_rolling += dt;
-						}
-
 						Vec2 target_vel = { 0 };
 
-						if (LenV2(movement) > 0.01f) player->to_throw_direction = NormV2(movement);
 						if (player->state == CHARACTER_WALKING)
 						{
 							speed = PLAYER_SPEED;
 							if (player->is_rolling) speed = PLAYER_ROLL_SPEED;
-
-							if (gete(player->holding_item) && gete(player->holding_item)->item_kind == ITEM_Boots)
-							{
-								speed *= 2.0f;
-							}
 
 							if (LenV2(movement) == 0.0)
 							{
@@ -3684,21 +3399,6 @@ void frame(void)
 						else if (player->state == CHARACTER_IDLE)
 						{
 							if (LenV2(movement) > 0.01) player->state = CHARACTER_WALKING;
-						}
-						else if (player->state == CHARACTER_ATTACK)
-						{
-							AABB weapon_aabb = entity_sword_aabb(player, 40.0f, 25.0f);
-							dbgrect(weapon_aabb);
-							SwordToDamage to_damage = entity_sword_to_do_damage(player, get_overlapping(cur_level, weapon_aabb));
-							BUFF_ITER(Entity*, &to_damage)
-							{
-								request_do_damage(*it, player, DAMAGE_SWORD);
-							}
-							player->swing_progress += dt;
-							if (player->swing_progress > anim_sprite_duration(ANIM_knight_attack))
-							{
-								player->state = CHARACTER_IDLE;
-							}
 						}
 						else if (player->state == CHARACTER_TALKING)
 						{
@@ -3791,29 +3491,11 @@ void frame(void)
 
 			if (player->state == CHARACTER_WALKING)
 			{
-				if (player->is_rolling)
-				{
-					to_draw = (DrawnAnimatedSprite) { ANIM_knight_running, player->roll_progress, player->facing_left, character_sprite_pos, WHITE };
-				}
-				else
-				{
-					to_draw = (DrawnAnimatedSprite) { ANIM_knight_running, elapsed_time, player->facing_left, character_sprite_pos, WHITE };
-				}
+				to_draw = (DrawnAnimatedSprite) { ANIM_knight_running, elapsed_time, player->facing_left, character_sprite_pos, WHITE };
 			}
 			else if (player->state == CHARACTER_IDLE)
 			{
-				if (player->is_rolling)
-				{
-					to_draw = (DrawnAnimatedSprite) { ANIM_knight_running, player->roll_progress, player->facing_left, character_sprite_pos, WHITE };
-				}
-				else
-				{
-					to_draw = (DrawnAnimatedSprite) { ANIM_knight_idle, elapsed_time, player->facing_left, character_sprite_pos, WHITE };
-				}
-			}
-			else if (player->state == CHARACTER_ATTACK)
-			{
-				to_draw = (DrawnAnimatedSprite) { ANIM_knight_attack, player->swing_progress, player->facing_left, character_sprite_pos, WHITE };
+				to_draw = (DrawnAnimatedSprite) { ANIM_knight_idle, elapsed_time, player->facing_left, character_sprite_pos, WHITE };
 			}
 			else if (player->state == CHARACTER_TALKING)
 			{
@@ -3838,42 +3520,9 @@ void frame(void)
 			}
 			to_draw.anim = player->cur_animation;
 
-			Vec2 target_sprite_pos = to_draw.pos;
-
-			BUFF_ITER_I(PlayerAfterImage, &player->after_images, i)
-			{
-				{
-					DrawnAnimatedSprite to_draw = it->drawn;
-					to_draw.tint.a = 0.5f;
-					float progress_through_life = it->alive_for / AFTERIMAGE_LIFETIME;
-
-					if (progress_through_life > 0.5f)
-					{
-						float fade_amount = (progress_through_life - 0.5f) / 0.5f;
-
-						to_draw.tint.a = Lerp(0.8f, fade_amount, 0.0f);
-						Vec2 target;
-						if (i != player->after_images.cur_index-1) target = player->after_images.data[i + 1].drawn.pos;
-						else target = target_sprite_pos;
-						to_draw.pos = LerpV2(to_draw.pos, fade_amount, target);
-					}
-					to_draw.no_shadow = true;
-					draw_animated_sprite(to_draw);
-				}
-			}
-
-			//if(player->is_rolling^) to_draw.tint.a = 0.5f;
-
 			if (to_draw.anim)
 			{
 				draw_animated_sprite(to_draw);
-
-				if (player->after_image_timer >= TIME_TO_GEN_AFTERIMAGE)
-				{
-					player->after_image_timer = 0.0;
-					if (BUFF_HAS_SPACE(&player->after_images))
-						BUFF_APPEND(&player->after_images, (PlayerAfterImage) { .drawn = to_draw });
-				}
 			}
 		}
 
@@ -4004,12 +3653,6 @@ void frame(void)
 				else if (it->is_item)
 				{
 					draw_item(true, it->item_kind, centered_aabb(it->pos, V2(15.0f, 15.0f)), 1.0f);
-				}
-				else if (it->is_bullet)
-				{
-					AABB normal_aabb = entity_aabb(it);
-					Quad drawn = quad_centered(aabb_center(normal_aabb), MulV2F(aabb_size(normal_aabb), 1.5f));
-					draw_quad((DrawParams) { true, drawn, IMG(image_bullet), WHITE });
 				}
 				else if (it->is_character)
 				{
@@ -4321,7 +3964,7 @@ void frame(void)
 			draw_quad((DrawParams) { false, quad_centered(thumbstick_base_pos, V2(thumbstick_base_size(), thumbstick_base_size())), IMG(image_mobile_thumbstick_base), WHITE, .layer = LAYER_UI_FG });
 			draw_quad((DrawParams) { false, quad_centered(thumbstick_nub_pos, V2(thumbstick_nub_size, thumbstick_nub_size)), IMG(image_mobile_thumbstick_nub), WHITE, .layer = LAYER_UI_FG });
 
-			if (interacting_with || gete(player->holding_item))
+			if (interacting_with)
 			{
 				draw_quad((DrawParams) { false, quad_centered(interact_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .layer = LAYER_UI_FG });
 			}

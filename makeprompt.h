@@ -105,8 +105,6 @@ typedef enum PerceptionType
 	PlayerAction,
 	PlayerDialog,
 	NPCDialog, // includes an npc action in every npc dialog. So it's often ACT_none
-	EnemyAction, // An enemy performed an action against the NPC
-	PlayerHeldItemChanged,
 } PerceptionType;
 
 typedef struct Perception
@@ -139,12 +137,6 @@ typedef struct Perception
 			Action npc_action_type;
 			Sentence npc_dialog;
 		};
-
-		// enemy action
-		Action enemy_action_type;
-
-		// player holding item. MUST precede any perceptions which come after the player is holding the item
-		ItemKind holding;
 	};
 } Perception;
 
@@ -166,7 +158,6 @@ typedef enum CharacterState
 {
 	CHARACTER_WALKING,
 	CHARACTER_IDLE,
-	CHARACTER_ATTACK,
 	CHARACTER_TALKING,
 } CharacterState;
 
@@ -233,13 +224,9 @@ typedef struct Entity
 	bool facing_left;
 	double dead_time;
 	bool dead;
-	// multiple gs.entities have a sword swing
-	BUFF(EntityRef, 8) done_damage_to_this_swing; // only do damage once, but hitbox stays around
 
 	// npcs and player
 	BUFF(ItemKind, 32) held_items;
-
-	bool is_bullet;
 
 	// props
 	bool is_prop;
@@ -266,7 +253,6 @@ typedef struct Entity
 	NPCPlayerStanding standing;
 	NpcKind npc_kind;
 	PathCacheHandle cached_path;
-	ItemKind last_seen_holding_kind;
 #ifdef WEB
 	int gen_request_id;
 #endif
@@ -280,7 +266,6 @@ typedef struct Entity
 	// character
 	bool is_character;
 	bool knighted;
-	EntityRef holding_item;
 	bool in_conversation_mode;
 	Vec2 to_throw_direction;
 
@@ -294,11 +279,6 @@ typedef struct Entity
 	// so doesn't change animations while time is stopped
 	AnimKind cur_animation;
 	float anim_change_timer;
-
-	BUFF(PlayerAfterImage, MAX_AFTERIMAGES) after_images;
-	double after_image_timer;
-	double roll_progress;
-	double swing_progress;
 } Entity;
 
 bool npc_is_knight_sprite(Entity *it)
@@ -485,10 +465,6 @@ void process_perception(Entity *happened_to_npc, Perception p, Entity *player, G
 	else if (p.type == PlayerDialog)
 	{
 
-	}
-	else if (p.type == PlayerHeldItemChanged)
-	{
-		happened_to_npc->last_seen_holding_kind = p.holding;
 	}
 	else if (p.type == NPCDialog)
 	{
@@ -750,10 +726,6 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *it)
 
 			sent_type = MSG_ASSISTANT;
 		}
-		else if (it->type == PlayerHeldItemChanged)
-		{
-				// @TODO delete this branch and delete held item changed
-		}
 		else
 		{
 				assert(false);
@@ -806,7 +778,7 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *it)
 
 	MD_String8List latest_state = {0};
 
-	MD_S8ListPushFmt(scratch.arena, &latest_state, "NPC health status: Right now, %s\n%s\n", health_string, items[it->last_seen_holding_kind].global_prompt);
+	MD_S8ListPushFmt(scratch.arena, &latest_state, "NPC health status: Right now, %s\n", health_string);
 
 	if(e->held_items.cur_index > 0)
 	{
