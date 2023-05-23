@@ -115,6 +115,11 @@ CharacterGen characters[] = {
 		.prompt = "There has been an internal error.",
 	},
 	{
+		.name = "Player",
+		.enum_name = "Player",
+		.prompt = "There has been an internal error.",
+	},
+	{
 		.name = "Fredrick",
 		.enum_name = "OldMan",
 		.prompt = "\n"

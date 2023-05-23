@@ -17,4 +17,21 @@
 #define SERVER_URL "https://rpgpt.duckdns.org"
 #endif
 
+// REFACTORING:: also have to update in javascript!!!!!!!!
+#define MAX_SENTENCE_LENGTH 400 // LOOOK AT AGBOVE COMMENT GBEFORE CHANGING
+#define SENTENCE_CONST(txt) { .data = txt, .cur_index = sizeof(txt) }
+#define SENTENCE_CONST_CAST(txt) (Sentence)SENTENCE_CONST(txt)
+
+#define REMEMBERED_MEMORIES 32
+
+#define MAX_AFTERIMAGES 6
+#define TIME_TO_GEN_AFTERIMAGE (0.09f)
+#define AFTERIMAGE_LIFETIME (0.5f)
+
+#define DAMAGE_SWORD 0.05f
+#define DAMAGE_BULLET 0.2f
+
+// A* tuning
+#define MAX_ASTAR_NODES 512
+#define TIME_BETWEEN_PATH_GENS (0.5f)
 

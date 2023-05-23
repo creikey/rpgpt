@@ -242,23 +242,22 @@ void do_parsing_tests()
 	Entity e = {0};
 	e.npc_kind = NPC_TheBlacksmith;
 	e.exists = true;
-	Perception p = {0};
-	MD_String8 error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \"Here you go\""), &p);
+	Action a = {0};
+	MD_String8 error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \"Here you go\""), &a);
 	assert(error.size > 0);
-	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \""), &p);
+	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \""), &a);
 	assert(error.size > 0);
-	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Cha \""), &p);
+	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Cha \""), &a);
 	assert(error.size > 0);
 
 	BUFF_APPEND(&e.held_items, ITEM_Chalice);
 
-	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice \""), &p);
+	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice \""), &a);
 	assert(error.size > 0);
-	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \"Here you go\""), &p);
+	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \"Here you go\""), &a);
 	assert(error.size == 0);
-	assert(p.type == NPCDialog);
-	assert(p.npc_action_type == ACT_give_item);
-	assert(p.given_item == ITEM_Chalice);
+	assert(a.kind == ACT_give_item);
+	assert(a.item_to_give == ITEM_Chalice);
 
 	MD_ReleaseScratch(scratch);
 }
@@ -367,7 +366,8 @@ bool is_receiving_text_input()
 }
 
 #ifdef DESKTOP
-Sentence text_input_buffer = { 0 };
+char text_input_buffer[MAX_SENTENCE_LENGTH] = {0};
+int text_input_buffer_length = 0;
 #else
 #ifdef WEB
 	EMSCRIPTEN_KEEPALIVE
@@ -392,7 +392,7 @@ void begin_text_input()
 {
 	receiving_text_input = true;
 #ifdef DESKTOP
-	BUFF_CLEAR(&text_input_buffer);
+	text_input_buffer_length = 0;
 #endif
 }
 
@@ -757,6 +757,171 @@ Entity *gete(EntityRef ref)
 	}
 }
 
+void push_memory(Entity *e, MD_String8 speech, ActionKind a_kind, MemoryContext context)
+{
+	Memory new_memory = {.action_taken = a_kind};
+	assert(speech.size <= ARRLEN(new_memory.speech));
+	new_memory.tick_happened = gs.tick;
+	new_memory.context = context;
+	memcpy(new_memory.speech, speech.str, speech.size);
+	new_memory.speech_length = (int)speech.size;
+	if(!BUFF_HAS_SPACE(&e->memories))
+	{
+		BUFF_REMOVE_FRONT(&e->memories);
+	}
+	BUFF_APPEND(&e->memories, new_memory);
+
+	if(!context.i_said_this)
+	{
+		// self speech doesn't dirty
+		e->perceptions_dirty = true;
+	}
+}
+
+void remember_error(Entity *to_modify, MD_String8 error_message)
+{
+	assert(!to_modify->is_character); // this is a game logic bug if a player action is invalid
+
+	push_memory(to_modify, error_message, ACT_none, (MemoryContext){0});
+}
+
+void remember_action(Entity *to_modify, Action a, MemoryContext context)
+{
+	push_memory(to_modify, MD_S8(a.speech, a.speech_length), a.kind, context);
+}
+
+// from must not be null, to can be null if the action isn't directed at anybody
+// the action must have been validated to be valid if you're calling this
+void cause_action_side_effects(Entity *from, Entity *to, Action a)
+{
+	assert(from);
+	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+
+	MD_String8 failure_reason = is_action_valid(scratch.arena, from, to, a);
+	if(failure_reason.size > 0)
+	{
+		Log("Failed to process action, invalid action: `%.*s`\n", MD_S8VArg(failure_reason));
+		assert(false);
+	}
+
+	if(a.kind == ACT_give_item)
+	{
+		assert(a.item_to_give != ITEM_none);
+		assert(to);
+
+		int item_to_remove = -1;
+		Entity *e = from;
+		BUFF_ITER_I(ItemKind, &e->held_items, i)
+		{
+			if (*it == a.item_to_give)
+			{
+				item_to_remove = i;
+				break;
+			}
+		}
+		if (item_to_remove < 0)
+		{
+			Log("Can't find item %s to give from NPC %s to the player\n", items[a.item_to_give].name, characters[e->npc_kind].name);
+			assert(false);
+		}
+		else
+		{
+			BUFF_REMOVE_AT_INDEX(&e->held_items, item_to_remove);
+			BUFF_APPEND(&to->held_items, a.item_to_give);
+		}
+
+	}
+
+	if(a.kind == ACT_fights_player)
+	{
+		from->standing = STANDING_FIGHTING;
+	}
+	if(a.kind == ACT_stops_fighting_player || a.kind == ACT_leaves_player)
+	{
+		from->standing = STANDING_INDIFFERENT;
+	}
+	if(a.kind == ACT_joins_player)
+	{
+		from->standing = STANDING_JOINED;
+	}
+
+	MD_ReleaseScratch(scratch);
+}
+
+// only called when the action is instantiated, correctly propagates the information
+// of the action physically and through the party
+// If the action is invalid, remembers the error if it's an NPC, and does nothing else
+// Returns if the action was valid or not
+bool perform_action(Entity *from, Action a)
+{
+	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+
+	MemoryContext context = {0};
+	context.author_npc_kind = from->npc_kind;
+
+	Entity *action_target = 0;
+	if(from == player && gete(from->talking_to))
+	{
+		action_target = gete(from->talking_to);
+		assert(action_target->is_npc);
+	}
+	else if(gete(player->talking_to) == from)
+		action_target = player;
+
+	if(action_target)
+	{
+		context.was_directed_at_somebody = true;
+		context.directed_at_kind = action_target->npc_kind;
+	}
+
+	MD_String8 is_valid = is_action_valid(scratch.arena, from, action_target, a);
+	bool proceed_propagating = true;
+	if(is_valid.size > 0)
+	{
+		remember_error(from, is_valid);
+		proceed_propagating = false;
+	}
+
+	if(proceed_propagating)
+	{
+		cause_action_side_effects(from, action_target, a);
+		// self memory
+		if(!from->is_character)
+		{
+			MemoryContext my_context = context;
+			my_context.i_said_this = true;
+			remember_action(from, a, my_context); 
+		}
+
+		// memory of target
+		if(action_target)
+		{
+			remember_action(action_target, a, context);
+		}
+
+		bool propagate_to_party = from->is_character || (from->is_npc && from->standing == STANDING_JOINED);
+
+		if(context.eavesdropped_from_party) propagate_to_party = false;
+
+		if(propagate_to_party)
+		{
+			ENTITIES_ITER(gs.entities)
+			{
+				if(it->is_npc && it->standing == STANDING_JOINED && it != from && it != action_target)
+				{
+					MemoryContext eavesdropped_context = context;
+					eavesdropped_context.eavesdropped_from_party = true;
+					remember_action(it, a, eavesdropped_context);
+				}
+			}
+		}
+		// TODO Propagate physically
+	}
+
+	MD_ReleaseScratch(scratch);
+	return proceed_propagating;
+}
+
 bool eq(EntityRef ref1, EntityRef ref2)
 {
 	return ref1.index == ref2.index && ref1.generation == ref2.generation;
@@ -792,6 +957,7 @@ void update_player_from_entities()
 		}
 	}
 	assert(player != 0);
+	player->npc_kind = NPC_Player; // bad
 }
 
 void reset_level()
@@ -858,8 +1024,9 @@ void read_from_save_data(char *data, size_t length)
 #endif
 
 // a callback, when 'text backend' has finished making text. End dialog
-void end_text_input(char *what_player_said)
+void end_text_input(char *what_player_said_cstr)
 {
+	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 	// avoid double ending text input
 	if (!receiving_text_input)
 	{
@@ -867,38 +1034,27 @@ void end_text_input(char *what_player_said)
 	}
 	receiving_text_input = false;
 
-	size_t player_said_len = strlen(what_player_said);
+	size_t player_said_len = strlen(what_player_said_cstr);
 	int actual_len = 0;
-	for (int i = 0; i < player_said_len; i++) if (what_player_said[i] != '\n') actual_len++;
+	for (int i = 0; i < player_said_len; i++) if (what_player_said_cstr[i] != '\n') actual_len++;
 	if (actual_len == 0)
 	{
 		// this just means cancel the dialog
 	}
 	else
 	{
-		Sentence what_player_said_sentence = { 0 };
-		assert(player_said_len < ARRLEN(what_player_said_sentence.data)); // should be made sure of in the html5 layer
-		for (int i = 0; i < player_said_len; i++)
-		{
-			char c = what_player_said[i];
-			if (!BUFF_HAS_SPACE(&what_player_said_sentence))
-			{
-				break;
-			}
-			else if (c == '\n')
-			{
-				break;
-			}
-			else
-			{
-				BUFF_APPEND(&what_player_said_sentence, c);
-			}
-		}
+		MD_String8 what_player_said = MD_S8CString(what_player_said_cstr);
+		what_player_said = MD_S8ListJoin(scratch.arena, MD_S8Split(scratch.arena, what_player_said, 1, &MD_S8Lit("\n")), &(MD_StringJoin){0});
 
-		Entity *talking = gete(player->talking_to);
-		assert(talking);
-		process_perception(talking, (Perception) { .type = PlayerDialog, .player_dialog = what_player_said_sentence, }, player, &gs);
+		Action to_perform = {0};
+		what_player_said = MD_S8Substring(what_player_said, 0, ARRLEN(to_perform.speech));
+
+		memcpy(to_perform.speech, what_player_said.str, what_player_said.size);
+		to_perform.speech_length = (int)what_player_said.size;
+
+		perform_action(player, to_perform);
 	}
+	MD_ReleaseScratch(scratch);
 }
 /*
 	 AnimatedSprite moose_idle = 
@@ -959,7 +1115,7 @@ void audio_stream_callback(float *buffer, int num_frames, int num_channels)
 
 
 #define WHITE ((Color) { 1.0f, 1.0f, 1.0f, 1.0f })
-#define GREY ((Color) { 0.4f, 0.4f, 0.4f, 1.0f })
+#define GREY  ((Color) { 0.4f, 0.4f, 0.4f, 1.0f })
 #define BLACK ((Color) { 0.0f, 0.0f, 0.0f, 1.0f })
 #define RED   ((Color) { 1.0f, 0.0f, 0.0f, 1.0f })
 #define PINK  ((Color) { 1.0f, 0.0f, 1.0f, 1.0f })
@@ -987,7 +1143,6 @@ Color blendalpha(Color c, float alpha)
 	to_return.a = alpha;
 	return to_return;
 }
-
 
 void init(void)
 {
@@ -2120,7 +2275,7 @@ typedef struct
 	bool dry_run;
 	Vec2 at_point;
 	float max_width;
-	char *text;
+	MD_String8 text;
 	Color *colors;
 	float text_scale;
 	AABB clip_to;
@@ -2132,8 +2287,8 @@ typedef struct
 // returns next vertical cursor position
 float draw_wrapped_text(WrappedTextParams p)
 {
-	char *sentence_to_draw = p.text;
-	size_t sentence_len = strlen(sentence_to_draw);
+	char * sentence_to_draw = (char*)p.text.str;
+	size_t sentence_len = p.text.size;
 
 	Vec2 cursor = p.at_point;
 	while (sentence_len > 0)
@@ -2183,17 +2338,26 @@ float draw_wrapped_text(WrappedTextParams p)
 	return cursor.Y;
 }
 
-Sentence *last_said_sentence(Entity *npc)
+MD_String8 last_said_sentence(Entity *npc)
 {
-	BUFF_ITER_I(Perception, &npc->remembered_perceptions, i)
+	assert(npc->is_npc);
+	int last_speech_index = -1;
+	BUFF_ITER_I(Memory, &npc->memories, i)
 	{
-		bool is_last_said = i == npc->remembered_perceptions.cur_index - 1;
-		if (is_last_said && it->type == NPCDialog)
+		if(it->context.author_npc_kind == npc->npc_kind)
 		{
-			return &it->npc_dialog;
+			last_speech_index = i;
 		}
 	}
-	return 0;
+	
+	if(last_speech_index == -1)
+	{
+		return (MD_String8){0};
+	}
+	else
+	{
+		return MD_S8(npc->memories.data[last_speech_index].speech, npc->memories.data[last_speech_index].speech_length);
+	}
 }
 
 typedef enum
@@ -2205,7 +2369,8 @@ typedef enum
 
 typedef struct
 {
-	Sentence s;
+	MD_u8 speech[MAX_SENTENCE_LENGTH];
+	int speech_length;
 	DialogElementKind kind;
 	bool was_eavesdropped;
 	NpcKind who_said_it;
@@ -2215,67 +2380,39 @@ typedef struct
 // Like item give perceptions that have an action with both dialog
 // and an argument. So worst case every perception has 2 dialog
 // elements right now is why it's *2
-typedef BUFF(DialogElement, REMEMBERED_PERCEPTIONS*2) Dialog;
+typedef BUFF(DialogElement, REMEMBERED_MEMORIES*2) Dialog;
 Dialog produce_dialog(Entity *talking_to, bool character_names)
 {
+	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 	assert(talking_to->is_npc);
 	Dialog to_return = { 0 };
-	BUFF_ITER(Perception, &talking_to->remembered_perceptions)
+	BUFF_ITER(Memory, &talking_to->memories)
 	{
-		DialogElement new_element = { .who_said_it = it->who_said_it, .was_eavesdropped = it->was_eavesdropped };
-		if (it->type == NPCDialog)
+		if(!it->is_error)
 		{
-			Sentence to_say = (Sentence) { 0 };
-
-			if (it->npc_action_type == ACT_give_item)
+			if(it->speech_length > 0)
 			{
-				DialogElement new = { 0 };
-				printf_buff(&new_element.s, "%s gave %s to you", characters[talking_to->npc_kind].name, items[it->given_item].name);
-				new_element.kind = DELEM_ACTION_DESCRIPTION;
-			}
+				DialogElement new_element = { .who_said_it = it->context.author_npc_kind, .was_eavesdropped = it->context.eavesdropped_from_party };
 
-			if (character_names)
-			{
-				append_str(&to_say, characters[it->who_said_it].name);
-				append_str(&to_say, ": ");
-			}
+				MD_String8 dialog_speech = MD_S8Fmt(scratch.arena, "%s: %.*s", characters[it->context.author_npc_kind].name, it->speech_length, it->speech);
 
-			Sentence *last_said = last_said_sentence(talking_to);
-			if (last_said == &it->npc_dialog)
-			{
-				for (int i = 0; i < min(it->npc_dialog.cur_index, (int)talking_to->characters_said); i++)
+				memcpy(new_element.speech, dialog_speech.str, dialog_speech.size);
+				new_element.speech_length = (int)dialog_speech.size;
+
+				if(it->context.author_npc_kind == NPC_Player)
 				{
-					BUFF_APPEND(&to_say, it->npc_dialog.data[i]);
+					new_element.kind = DELEM_PLAYER;
 				}
-			}
-			else
-			{
-				append_str(&to_say, it->npc_dialog.data);
-			}
-			new_element.s = to_say;
-			new_element.kind = DELEM_NPC;
-		}
-		else if (it->type == PlayerAction)
-		{
-			if (it->player_action_type == ACT_give_item)
-			{
-				printf_buff(&new_element.s, "You gave %s to the NPC", items[it->given_item].name);
-				new_element.kind = DELEM_ACTION_DESCRIPTION;
+				else
+				{
+					new_element.kind = DELEM_NPC;
+				}
+
+				BUFF_APPEND(&to_return, new_element);
 			}
 		}
-		else if (it->type == PlayerDialog)
-		{
-			Sentence to_say = (Sentence) { 0 };
-			if (character_names)
-			{
-				append_str(&to_say, "Player: ");
-			}
-			append_str(&to_say, it->player_dialog.data);
-			new_element.s = to_say;
-			new_element.kind = DELEM_PLAYER;
-		}
-		BUFF_APPEND(&to_return, new_element);
 	}
+	MD_ReleaseScratch(scratch);
 	return to_return;
 }
 
@@ -2379,8 +2516,8 @@ void draw_dialog_panel(Entity *talking_to, float alpha)
 				{
 					DialogElement *it = &dialog.data[i];
 					{
-						Color *colors = calloc(sizeof(*colors), it->s.cur_index);
-						for (int char_i = 0; char_i < it->s.cur_index; char_i++)
+						Color *colors = calloc(sizeof(*colors), it->speech_length);
+						for (int char_i = 0; char_i < it->speech_length; char_i++)
 						{
 							if(it->was_eavesdropped)
 							{
@@ -2407,9 +2544,9 @@ void draw_dialog_panel(Entity *talking_to, float alpha)
 							}
 							colors[char_i] = blendalpha(colors[char_i], alpha);
 						}
-						float measured_line_height = draw_wrapped_text((WrappedTextParams) { true, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->s.data, colors, 0.5f, .clip_to = dialog_panel, .do_clipping = true});
+						float measured_line_height = draw_wrapped_text((WrappedTextParams) { true, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, MD_S8(it->speech, it->speech_length), colors, 0.5f, .clip_to = dialog_panel, .do_clipping = true});
 						new_line_height += (new_line_height - measured_line_height);
-						draw_wrapped_text((WrappedTextParams) { false, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, it->s.data, colors, 0.5f, dialog_panel, .do_clipping = true });
+						draw_wrapped_text((WrappedTextParams) { false, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, MD_S8(it->speech, it->speech_length), colors, 0.5f, dialog_panel, .do_clipping = true });
 
 						free(colors);
 					}
@@ -2718,6 +2855,8 @@ void frame(void)
 				float unwarped_dt = timestep;
 				float dt = unwarped_dt*speed_factor;
 
+				gs.tick += 1;
+
 				// process gs.entities
 				player_in_combat = false; // in combat set by various enemies when they fight the player
 				PROFILE_SCOPE("entity processing")
@@ -2826,7 +2965,7 @@ void frame(void)
 								double before = it->characters_said;
 
 								int length = 0;
-								if (last_said_sentence(it)) length = last_said_sentence(it)->cur_index;
+								if (last_said_sentence(it).size) length = (int)last_said_sentence(it).size;
 								if ((int)before < length)
 								{
 									it->characters_said += characters_per_sec*unwarped_dt;
@@ -3266,72 +3405,83 @@ void frame(void)
 						}
 						if (it->perceptions_dirty)
 						{
-							it->perceptions_dirty = false; // needs to be in beginning because they might be redirtied by the new perception
-							MD_String8 prompt_str = {0};
+							if(it->is_character)
+							{
+								it->perceptions_dirty = false;
+							}
+							else if(it->is_npc)
+							{
+								it->perceptions_dirty = false; // needs to be in beginning because they might be redirtied by the new perception
+								MD_String8 prompt_str = {0};
 #ifdef DO_CHATGPT_PARSING
-							prompt_str = generate_chatgpt_prompt(frame_arena, it);
+								prompt_str = generate_chatgpt_prompt(frame_arena, it);
 #else
-							generate_prompt(it, &prompt);
+								generate_prompt(it, &prompt);
 #endif
-							Log("Sending request with prompt `%.*s`\n", MD_S8VArg(prompt_str));
+								Log("Sending request with prompt `%.*s`\n", MD_S8VArg(prompt_str));
 
 #ifdef WEB
-							// fire off generation request, save id
-							BUFF(char, 512) completion_server_url = { 0 };
-							printf_buff(&completion_server_url, "%s/completion", SERVER_URL);
-							int req_id = EM_ASM_INT( {
-									return make_generation_request(UTF8ToString($1, $2), UTF8ToString($0));
-									}, completion_server_url.data, prompt_str.str, prompt_str.size);
-							it->gen_request_id = req_id;
+								// fire off generation request, save id
+								BUFF(char, 512) completion_server_url = { 0 };
+								printf_buff(&completion_server_url, "%s/completion", SERVER_URL);
+								int req_id = EM_ASM_INT( {
+										return make_generation_request(UTF8ToString($1, $2), UTF8ToString($0));
+										}, completion_server_url.data, prompt_str.str, prompt_str.size);
+								it->gen_request_id = req_id;
 #endif
 
 #ifdef DESKTOP
-							MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+								MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 
-							const char *argument = 0;
-							MD_String8List dialog_elems = {0};
-							Action act = ACT_none;
+								const char *argument = 0;
+								MD_String8List dialog_elems = {0};
+								ActionKind act = ACT_none;
 
-							it->times_talked_to++;
-							if(it->remembered_perceptions.data[it->remembered_perceptions.cur_index-1].was_eavesdropped)
-							{
-								MD_S8ListPushFmt(scratch.arena, &dialog_elems, "Responding to eavesdropped: ");
-							}
-							if(it->npc_kind == NPC_TheBlacksmith && it->standing != STANDING_JOINED)
-							{
-								assert(it->times_talked_to == 1);
-								act = ACT_joins_player;
-								MD_S8ListPushFmt(scratch.arena, &dialog_elems, "Joining you...");
-							}
-							else
-							{
-								MD_S8ListPushFmt(scratch.arena, &dialog_elems, "%d times talked", it->times_talked_to);
-							}
-
-							MD_String8 mocked_ai_response = {0};
-
-							if(true)
-							{
-								MD_StringJoin join = {0};
-								MD_String8 dialog = MD_S8ListJoin(scratch.arena, dialog_elems, &join);
-								if (argument)
+								it->times_talked_to++;
+								if(it->memories.data[it->memories.cur_index-1].context.eavesdropped_from_party)
 								{
-									mocked_ai_response = MD_S8Fmt(scratch.arena, "ACT_%s(%s) \"%.*s\"", actions[act].name, argument, MD_S8VArg(dialog));
+									MD_S8ListPushFmt(scratch.arena, &dialog_elems, "Responding to eavesdropped: ");
+								}
+								if(it->npc_kind == NPC_TheBlacksmith && it->standing != STANDING_JOINED)
+								{
+									assert(it->times_talked_to == 1);
+									act = ACT_joins_player;
+									MD_S8ListPushFmt(scratch.arena, &dialog_elems, "Joining you...");
 								}
 								else
 								{
-									mocked_ai_response = MD_S8Fmt(scratch.arena, "ACT_%s \"%.*s\"", actions[act].name, MD_S8VArg(dialog));
+									MD_S8ListPushFmt(scratch.arena, &dialog_elems, "%d times talked", it->times_talked_to);
 								}
-							}
-							Perception p = { 0 };
 
-							MD_String8 error_message = parse_chatgpt_response(scratch.arena, it, mocked_ai_response, &p);
-							assert(error_message.size == 0);
-							process_perception(it, p, player, &gs);
+								MD_String8 mocked_ai_response = {0};
 
-							MD_ReleaseScratch(scratch);
+								if(true)
+								{
+									MD_StringJoin join = {0};
+									MD_String8 dialog = MD_S8ListJoin(scratch.arena, dialog_elems, &join);
+									if (argument)
+									{
+										mocked_ai_response = MD_S8Fmt(scratch.arena, "ACT_%s(%s) \"%.*s\"", actions[act].name, argument, MD_S8VArg(dialog));
+									}
+									else
+									{
+										mocked_ai_response = MD_S8Fmt(scratch.arena, "ACT_%s \"%.*s\"", actions[act].name, MD_S8VArg(dialog));
+									}
+								}
+
+								Action a = {0};
+								MD_String8 error_message = parse_chatgpt_response(scratch.arena, it, mocked_ai_response, &a);
+								assert(error_message.size == 0);
+								perform_action(it, a);
+
+								MD_ReleaseScratch(scratch);
 #undef SAY
 #endif
+							}
+							else
+							{
+								assert(false);
+							}
 						}
 					}
 				}
@@ -3816,8 +3966,8 @@ void frame(void)
 							{
 								DialogElement *it = &dialog.data[i];
 								{
-									Color *colors = calloc(sizeof(*colors), it->s.cur_index);
-									for (int char_i = 0; char_i < it->s.cur_index; char_i++)
+									Color *colors = calloc(sizeof(*colors), it->speech_length);
+									for (int char_i = 0; char_i < it->speech_length; char_i++)
 									{
 										if(it->was_eavesdropped)
 										{
@@ -3844,9 +3994,9 @@ void frame(void)
 										}
 										colors[char_i] = blendalpha(colors[char_i], alpha);
 									}
-									float measured_line_height = draw_wrapped_text((WrappedTextParams) { true, V2(dialog_text_aabb.upper_left.X, new_line_height), dialog_text_aabb.lower_right.X - dialog_text_aabb.upper_left.X, it->s.data, colors, dialog_text_scale, dialog_text_aabb, .screen_space = true, .do_clipping = true});
+									float measured_line_height = draw_wrapped_text((WrappedTextParams) { true, V2(dialog_text_aabb.upper_left.X, new_line_height), dialog_text_aabb.lower_right.X - dialog_text_aabb.upper_left.X, MD_S8(it->speech, it->speech_length), colors, dialog_text_scale, dialog_text_aabb, .screen_space = true, .do_clipping = true});
 									new_line_height += (new_line_height - measured_line_height);
-									draw_wrapped_text((WrappedTextParams) { false, V2(dialog_text_aabb.upper_left.X, new_line_height), dialog_text_aabb.lower_right.X - dialog_text_aabb.upper_left.X, it->s.data, colors, dialog_text_scale, dialog_text_aabb, .screen_space = true, .do_clipping = true});
+									draw_wrapped_text((WrappedTextParams) { false, V2(dialog_text_aabb.upper_left.X, new_line_height), dialog_text_aabb.lower_right.X - dialog_text_aabb.upper_left.X, MD_S8(it->speech, it->speech_length), colors, dialog_text_scale, dialog_text_aabb, .screen_space = true, .do_clipping = true});
 
 									free(colors);
 								}
@@ -3949,7 +4099,8 @@ void frame(void)
 					ItemKind given_item_kind = player->held_items.data[to_give];
 					BUFF_REMOVE_AT_INDEX(&player->held_items, to_give);
 
-					process_perception(to, (Perception) { .type = PlayerAction, .player_action_type = ACT_give_item, .given_item = given_item_kind }, player, &gs);
+					Action give_action = {.kind = ACT_give_item, .item_to_give = given_item_kind};
+					perform_action(player, give_action);
 				}
 
 			}
@@ -4205,14 +4356,20 @@ void event(const sapp_event *e)
 	{
 		if (e->type == SAPP_EVENTTYPE_CHAR)
 		{
-			if (BUFF_HAS_SPACE(&text_input_buffer))
+			if (text_input_buffer_length < ARRLEN(text_input_buffer))
 			{
-				BUFF_APPEND(&text_input_buffer, (char)e->char_code);
+				APPEND_TO_NAME(text_input_buffer, text_input_buffer_length, ARRLEN(text_input_buffer), (char)e->char_code);
 			}
 		}
 		if (e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_code == SAPP_KEYCODE_ENTER)
 		{
-			end_text_input(text_input_buffer.data);
+			// doesn't account for, if the text input buffer is completely full and doesn't have a null terminator.
+			if(text_input_buffer_length >= ARRLEN(text_input_buffer))
+			{
+				text_input_buffer_length = ARRLEN(text_input_buffer) - 1;
+			}
+			text_input_buffer[text_input_buffer_length] = '\0';
+			end_text_input(text_input_buffer);
 		}
 	}
 #endif
