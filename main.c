@@ -243,7 +243,16 @@ void do_parsing_tests()
 	e.npc_kind = NPC_TheBlacksmith;
 	e.exists = true;
 	Action a = {0};
-	MD_String8 error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \"Here you go\""), &a);
+	MD_String8 error;
+	MD_String8 speech;
+
+	speech = MD_S8Lit("Better have a good reason for bothering me.");
+	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Fmt(scratch.arena, " Within the player's party, while the player is talking to Meld, you hear: ACT_none \"%.*s\"", MD_S8VArg(speech)), &a);
+	assert(error.size == 0);
+	assert(a.kind == ACT_none);
+	assert(MD_S8Match(speech, MD_S8(a.speech, a.speech_length), 0));
+
+	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \"Here you go\""), &a);
 	assert(error.size > 0);
 	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \""), &a);
 	assert(error.size > 0);
@@ -257,7 +266,7 @@ void do_parsing_tests()
 	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \"Here you go\""), &a);
 	assert(error.size == 0);
 	assert(a.kind == ACT_give_item);
-	assert(a.item_to_give == ITEM_Chalice);
+	assert(a.argument.item_to_give == ITEM_Chalice);
 
 	MD_ReleaseScratch(scratch);
 }
@@ -757,12 +766,14 @@ Entity *gete(EntityRef ref)
 	}
 }
 
-void push_memory(Entity *e, MD_String8 speech, ActionKind a_kind, MemoryContext context)
+void push_memory(Entity *e, MD_String8 speech, ActionKind a_kind, ActionArgument a_argument, MemoryContext context, bool is_error)
 {
 	Memory new_memory = {.action_taken = a_kind};
 	assert(speech.size <= ARRLEN(new_memory.speech));
 	new_memory.tick_happened = gs.tick;
 	new_memory.context = context;
+	new_memory.is_error = is_error;
+	new_memory.action_argument = a_argument;
 	memcpy(new_memory.speech, speech.str, speech.size);
 	new_memory.speech_length = (int)speech.size;
 	if(!BUFF_HAS_SPACE(&e->memories))
@@ -782,12 +793,12 @@ void remember_error(Entity *to_modify, MD_String8 error_message)
 {
 	assert(!to_modify->is_character); // this is a game logic bug if a player action is invalid
 
-	push_memory(to_modify, error_message, ACT_none, (MemoryContext){0});
+	push_memory(to_modify, error_message, ACT_none, (ActionArgument){0}, (MemoryContext){0}, true);
 }
 
 void remember_action(Entity *to_modify, Action a, MemoryContext context)
 {
-	push_memory(to_modify, MD_S8(a.speech, a.speech_length), a.kind, context);
+	push_memory(to_modify, MD_S8(a.speech, a.speech_length), a.kind, (ActionArgument){0}, context, false);
 }
 
 // from must not be null, to can be null if the action isn't directed at anybody
@@ -806,14 +817,14 @@ void cause_action_side_effects(Entity *from, Entity *to, Action a)
 
 	if(a.kind == ACT_give_item)
 	{
-		assert(a.item_to_give != ITEM_none);
+		assert(a.argument.item_to_give != ITEM_none);
 		assert(to);
 
 		int item_to_remove = -1;
 		Entity *e = from;
 		BUFF_ITER_I(ItemKind, &e->held_items, i)
 		{
-			if (*it == a.item_to_give)
+			if (*it == a.argument.item_to_give)
 			{
 				item_to_remove = i;
 				break;
@@ -821,13 +832,13 @@ void cause_action_side_effects(Entity *from, Entity *to, Action a)
 		}
 		if (item_to_remove < 0)
 		{
-			Log("Can't find item %s to give from NPC %s to the player\n", items[a.item_to_give].name, characters[e->npc_kind].name);
+			Log("Can't find item %s to give from NPC %s to the player\n", items[a.argument.item_to_give].name, characters[e->npc_kind].name);
 			assert(false);
 		}
 		else
 		{
 			BUFF_REMOVE_AT_INDEX(&e->held_items, item_to_remove);
-			BUFF_APPEND(&to->held_items, a.item_to_give);
+			BUFF_APPEND(&to->held_items, a.argument.item_to_give);
 		}
 
 	}
@@ -2886,27 +2897,30 @@ void frame(void)
 									if (status == 1)
 									{
 										// done! we can get the string
-										char sentence_str[MAX_SENTENCE_LENGTH] = { 0 };
+										char sentence_cstr[MAX_SENTENCE_LENGTH] = { 0 };
 										EM_ASM( {
 											let generation = get_generation_request_content($0);
 											stringToUTF8(generation, $1, $2);
-										}, it->gen_request_id, sentence_str, ARRLEN(sentence_str));
+										}, it->gen_request_id, sentence_cstr, ARRLEN(sentence_cstr) - 1); // I think minus one for null terminator...
 
+										MD_String8 sentence_str = MD_S8CString(sentence_cstr);
 
 										// parse out from the sentence NPC action and dialog
-										Perception out = { 0 };
+										Action out = {0};
 
-										ChatgptParse parse_response = parse_chatgpt_response(it, sentence_str, &out);
+										MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+										MD_String8 parse_response = parse_chatgpt_response(scratch.arena, it, sentence_str, &out);
 
-										if (parse_response.succeeded)
+										if (parse_response.size == 0)
 										{
-											process_perception(it, out, player, &gs);
+											perform_action(it, out);
 										}
 										else
 										{
-											process_perception(it, (Perception){.type = ErrorMessage, .error = parse_response.error_message}, player, &gs);
-											it->perceptions_dirty = true; // on poorly formatted AI, just retry request. Explain to it why it's wrong. Adapt, improve, overcome. Time stops for nothing!
+											remember_error(it, parse_response);
 										}
+
+										MD_ReleaseScratch(scratch);
 
 										EM_ASM( {
 											done_with_generation_request($0);
@@ -2916,7 +2930,11 @@ void frame(void)
 									{
 										Log("Failed to generate dialog! Fuck!\n");
 										// need somethin better here. Maybe each sentence has to know if it's player or NPC, that way I can remove the player's dialog
-										process_perception(it, (Perception) { .type = NPCDialog, .npc_action_type = ACT_none, .npc_dialog = SENTENCE_CONST("I'm not sure...") }, player, &gs);
+										Action to_perform = {0};
+										MD_String8 speech_mdstring = MD_S8Lit("I'm not sure...");
+										memcpy(to_perform.speech, speech_mdstring.str, speech_mdstring.size);
+										to_perform.speech_length = speech_mdstring.size;
+										perform_action(it, to_perform);
 									}
 									else if (status == -1)
 									{
@@ -3422,12 +3440,13 @@ void frame(void)
 
 #ifdef WEB
 								// fire off generation request, save id
-								BUFF(char, 512) completion_server_url = { 0 };
-								printf_buff(&completion_server_url, "%s/completion", SERVER_URL);
+								MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+								MD_String8 terminated_completion_url = MD_S8Fmt(scratch.arena, "%s/completion\0", SERVER_URL);
 								int req_id = EM_ASM_INT( {
 										return make_generation_request(UTF8ToString($1, $2), UTF8ToString($0));
-										}, completion_server_url.data, prompt_str.str, prompt_str.size);
+										}, terminated_completion_url.str, prompt_str.str, prompt_str.size);
 								it->gen_request_id = req_id;
+								MD_ReleaseScratch(scratch);
 #endif
 
 #ifdef DESKTOP
@@ -3455,7 +3474,7 @@ void frame(void)
 
 								MD_String8 mocked_ai_response = {0};
 
-								if(true)
+								if(false)
 								{
 									MD_StringJoin join = {0};
 									MD_String8 dialog = MD_S8ListJoin(scratch.arena, dialog_elems, &join);
@@ -3467,6 +3486,10 @@ void frame(void)
 									{
 										mocked_ai_response = MD_S8Fmt(scratch.arena, "ACT_%s \"%.*s\"", actions[act].name, MD_S8VArg(dialog));
 									}
+								}
+								else
+								{
+									mocked_ai_response = MD_S8Lit(" Within the player's party, while the player is talking to Meld, you hear: ACT_none \"Better have a good reason for bothering me.\"");
 								}
 
 								Action a = {0};
@@ -4099,7 +4122,7 @@ void frame(void)
 					ItemKind given_item_kind = player->held_items.data[to_give];
 					BUFF_REMOVE_AT_INDEX(&player->held_items, to_give);
 
-					Action give_action = {.kind = ACT_give_item, .item_to_give = given_item_kind};
+					Action give_action = {.kind = ACT_give_item, .argument = { .item_to_give = given_item_kind }};
 					perform_action(player, give_action);
 				}
 

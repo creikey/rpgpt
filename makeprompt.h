@@ -82,13 +82,18 @@ MD_String8 escape_for_json(MD_Arena *arena, MD_String8 from)
 	return output;
 }
 
+typedef struct
+{
+	ItemKind item_to_give;
+} ActionArgument;
+
 typedef struct Action
 {
 	ActionKind kind;
+	ActionArgument argument;
 	MD_u8 speech[MAX_SENTENCE_LENGTH];
 	int speech_length;
 
-	ItemKind item_to_give; // only when giving items (duh)
 } Action;
 typedef struct 
 {
@@ -105,6 +110,7 @@ typedef struct Memory
 	uint64_t tick_happened; // can sort memories by time for some modes of display
 	// if action_taken is none, there might still be speech. If speech_length == 0 and action_taken == none, it's an invalid memory and something has gone wrong
 	ActionKind action_taken;
+	ActionArgument action_argument;
 	
 	bool is_error; // if is an error message then no context is relevant
 
@@ -412,11 +418,11 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Entity *to_might_be_nu
 
 	if(a.kind == ACT_give_item)
 	{
-		assert(a.item_to_give >= 0 && a.item_to_give < ARRLEN(items));
+		assert(a.argument.item_to_give >= 0 && a.argument.item_to_give < ARRLEN(items));
 		bool has_it = false;
 		BUFF_ITER(ItemKind, &from->held_items)
 		{
-			if(*it == a.item_to_give)
+			if(*it == a.argument.item_to_give)
 			{
 				has_it = true;
 				break;
@@ -426,7 +432,7 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Entity *to_might_be_nu
 		if(!has_it)
 		{
 			MD_StringJoin join = {.mid = MD_S8Lit(", ")};
-			return MD_S8Fmt(arena, "Can't give item `ITEM_%s`, you only have [%.*s] in your inventory", items[a.item_to_give].enum_name, MD_S8VArg(MD_S8ListJoin(arena, held_item_strings(arena, from), &join)));
+			return MD_S8Fmt(arena, "Can't give item `ITEM_%s`, you only have [%.*s] in your inventory", items[a.argument.item_to_give].enum_name, MD_S8VArg(MD_S8ListJoin(arena, held_item_strings(arena, from), &join)));
 		}
 
 		if(!to_might_be_null)
@@ -518,7 +524,21 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e)
 				sent_type = it->context.author_npc_kind == e->npc_kind ? MSG_ASSISTANT : MSG_USER;
 			}
 
-			current_string = MD_S8Fmt(scratch.arena, "%.*s ACT_%s %.*s", MD_S8VArg(context_string), actions[it->action_taken].name, it->speech_length, it->speech);
+			if(actions[it->action_taken].takes_argument)
+			{
+				if(it->action_taken == ACT_give_item)
+				{
+					current_string = MD_S8Fmt(scratch.arena, "%.*s ACT_%s(ITEM_%s) \"%.*s\"", MD_S8VArg(context_string), actions[it->action_taken].name, items[it->action_argument.item_to_give].enum_name, it->speech_length, it->speech);
+				}
+				else
+				{
+					assert(false); // don't know how to serialize this action with argument into text
+				}
+			}
+			else
+			{
+				current_string = MD_S8Fmt(scratch.arena, "%.*s ACT_%s \"%.*s\"", MD_S8VArg(context_string), actions[it->action_taken].name, it->speech_length, it->speech);
+			}
 		}
 
 		assert(sent_type != -1);
@@ -603,8 +623,8 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 
 	MD_u64 beginning_of_action = act_pos + action_prefix.size;
 
-	MD_u64 parenth = MD_S8FindSubstring(sentence, MD_S8Lit("("), 0, 0);
-	MD_u64 space = MD_S8FindSubstring(sentence, MD_S8Lit(" "), 0, 0);
+	MD_u64 parenth = MD_S8FindSubstring(sentence, MD_S8Lit("("), beginning_of_action, 0);
+	MD_u64 space = MD_S8FindSubstring(sentence, MD_S8Lit(" "), beginning_of_action, 0);
 
 	MD_u64 end_of_action = parenth < space ? parenth : space;
 	if(end_of_action == sentence.size)
@@ -686,7 +706,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 				if(MD_S8Match(item_str, item_name, 0))
 				{
 					item_found = true;
-					out->item_to_give = *it;
+					out->argument.item_to_give = *it;
 				}
 			}
 
