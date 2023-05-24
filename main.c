@@ -1082,9 +1082,14 @@ void end_text_input(char *what_player_said_cstr)
 
 
 sg_image image_font = { 0 };
+Vec2 image_font_size = { 0 }; // this image's size is queried a lot, and img_size seems to be slow when profiled
+
 float font_line_advance = 0.0f;
 const float font_size = 32.0;
+float font_scale;
+unsigned char *fontBuffer = 0; // font file data. Can't be freed until program quits, because used to get character width
 stbtt_bakedchar cdata[96]; // ASCII 32..126 is 95 glyphs
+stbtt_fontinfo font;
 
 
 static struct
@@ -1155,6 +1160,13 @@ Color blendalpha(Color c, float alpha)
 	return to_return;
 }
 
+// in pixels
+Vec2 img_size(sg_image img)
+{
+	sg_image_info info = sg_query_image_info(img);
+	return V2((float)info.width, (float)info.height);
+}
+
 void init(void)
 {
 #ifdef WEB
@@ -1200,7 +1212,7 @@ void init(void)
 		size_t size = ftell(fontFile); /* how long is the file ? */
 		fseek(fontFile, 0, SEEK_SET); /* reset */
 
-		unsigned char *fontBuffer = malloc(size);
+		fontBuffer = calloc(size, 1);
 
 		fread(fontBuffer, size, 1, fontFile);
 		fclose(fontFile);
@@ -1230,17 +1242,17 @@ void init(void)
 				}
 				});
 
-		stbtt_fontinfo font;
+		image_font_size = img_size(image_font);
+
 		stbtt_InitFont(&font, fontBuffer, 0);
 		int ascent = 0;
 		int descent = 0;
 		int lineGap = 0;
-		float scale = stbtt_ScaleForPixelHeight(&font, font_size);
+		font_scale = stbtt_ScaleForPixelHeight(&font, font_size);
 		stbtt_GetFontVMetrics(&font, &ascent, &descent, &lineGap);
-		font_line_advance = (float)(ascent - descent + lineGap) * scale * 0.75f;
+		font_line_advance = (float)(ascent - descent + lineGap) * font_scale * 0.75f;
 
 		free(font_bitmap_rgba);
-		free(fontBuffer);
 	}
 
 	state.bind.vertex_buffers[0] = sg_make_buffer(&(sg_buffer_desc)
@@ -1397,12 +1409,6 @@ Vec2 cam_offset()
 	return to_return;
 }
 
-// in pixels
-Vec2 img_size(sg_image img)
-{
-	sg_image_info info = sg_query_image_info(img);
-	return V2((float)info.width, (float)info.height);
-}
 
 #define IMG(img) img, full_region(img)
 
@@ -1907,93 +1913,111 @@ typedef struct TextParams
 // returns bounds. To measure text you can set dry run to true and get the bounds
 AABB draw_text(TextParams t)
 {
-	size_t text_len = t.text.size;
 	AABB bounds = { 0 };
-	float y = 0.0;
-	float x = 0.0;
-	for (int i = 0; i < text_len; i++)
+	PROFILE_SCOPE("draw text")
 	{
-		stbtt_aligned_quad q;
-		float old_y = y;
-		stbtt_GetBakedQuad(cdata, 512, 512, t.text.str[i]-32, &x, &y, &q, 1);
-		float difference = y - old_y;
-		y = old_y + difference;
-
-		Vec2 size = V2(q.x1 - q.x0, q.y1 - q.y0);
-		if (t.text.str[i] == '\n')
+		size_t text_len = t.text.size;
+		float y = 0.0;
+		float x = 0.0;
+		for (int i = 0; i < text_len; i++)
 		{
+			stbtt_aligned_quad q;
+			float old_y = y;
+			PROFILE_SCOPE("get baked quad")
+				stbtt_GetBakedQuad(cdata, 512, 512, t.text.str[i]-32, &x, &y, &q, 1);
+			float difference = y - old_y;
+			y = old_y + difference;
+
+			Vec2 size = V2(q.x1 - q.x0, q.y1 - q.y0);
+			if (t.text.str[i] == '\n')
+			{
 #ifdef DEVTOOLS
-			y += font_size*0.75f; // arbitrary, only debug t.text has newlines
-			x = 0.0;
+				y += font_size*0.75f; // arbitrary, only debug t.text has newlines
+				x = 0.0;
 #else
-			assert(false);
+				assert(false);
 #endif
-		}
-		if (size.Y > 0.0 && size.X > 0.0)
-		{ // spaces (and maybe other characters) produce quads of size 0
-			Quad to_draw = {
-				.points = {
-					AddV2(V2(q.x0, -q.y0), V2(0.0f, 0.0f)),
-					AddV2(V2(q.x0, -q.y0), V2(size.X, 0.0f)),
-					AddV2(V2(q.x0, -q.y0), V2(size.X, -size.Y)),
-					AddV2(V2(q.x0, -q.y0), V2(0.0f, -size.Y)),
-				},
-			};
-
-			for (int i = 0; i < 4; i++)
-			{
-				to_draw.points[i] = MulV2F(to_draw.points[i], t.scale);
 			}
-
-			AABB font_atlas_region = (AABB)
-			{
-				.upper_left = V2(q.s0, q.t0),
-					.lower_right = V2(q.s1, q.t1),
-			};
-			font_atlas_region.upper_left.X *= img_size(image_font).X;
-			font_atlas_region.lower_right.X *= img_size(image_font).X;
-			font_atlas_region.upper_left.Y *= img_size(image_font).Y;
-			font_atlas_region.lower_right.Y *= img_size(image_font).Y;
-
-			for (int i = 0; i < 4; i++)
-			{
-				bounds.upper_left.X = fminf(bounds.upper_left.X, to_draw.points[i].X);
-				bounds.upper_left.Y = fmaxf(bounds.upper_left.Y, to_draw.points[i].Y);
-				bounds.lower_right.X = fmaxf(bounds.lower_right.X, to_draw.points[i].X);
-				bounds.lower_right.Y = fminf(bounds.lower_right.Y, to_draw.points[i].Y);
-			}
-
-			for (int i = 0; i < 4; i++)
-			{
-				to_draw.points[i] = AddV2(to_draw.points[i], t.pos);
-			}
-
-			if (!t.dry_run)
-			{
-				Color col = t.color;
-				if (t.colors)
+			if (size.Y > 0.0 && size.X > 0.0)
+			{ // spaces (and maybe other characters) produce quads of size 0
+				Quad to_draw;
+				PROFILE_SCOPE("Calculate to draw quad")
 				{
-					col = t.colors[i];
+					to_draw = (Quad){
+						.points = {
+							AddV2(V2(q.x0, -q.y0), V2(0.0f, 0.0f)),
+							AddV2(V2(q.x0, -q.y0), V2(size.X, 0.0f)),
+							AddV2(V2(q.x0, -q.y0), V2(size.X, -size.Y)),
+							AddV2(V2(q.x0, -q.y0), V2(0.0f, -size.Y)),
+						},
+					};
 				}
 
-				if (false) // drop shadow, don't really like it
-					if (t.world_space)
+				PROFILE_SCOPE("Scale points")
+				for (int i = 0; i < 4; i++)
+				{
+					to_draw.points[i] = MulV2F(to_draw.points[i], t.scale);
+				}
+
+				AABB font_atlas_region = (AABB)
+				{
+					.upper_left = V2(q.s0, q.t0),
+						.lower_right = V2(q.s1, q.t1),
+				};
+				PROFILE_SCOPE("Scaling font atlas region to img font size")
+				{
+					font_atlas_region.upper_left.X *= image_font_size.X;
+					font_atlas_region.lower_right.X *= image_font_size.X;
+					font_atlas_region.upper_left.Y *= image_font_size.Y;
+					font_atlas_region.lower_right.Y *= image_font_size.Y;
+				}
+
+				PROFILE_SCOPE("bounds computation")
+					for (int i = 0; i < 4; i++)
 					{
-						Quad shadow_quad = to_draw;
-						for (int i = 0; i < 4; i++)
-						{
-							shadow_quad.points[i] = AddV2(shadow_quad.points[i], V2(0.0, -1.0));
-						}
-						draw_quad((DrawParams) { t.world_space, shadow_quad, image_font, font_atlas_region, (Color) { 0.0f, 0.0f, 0.0f, 0.4f }, t.clip_to, .layer = LAYER_UI_FG, .do_clipping = t.do_clipping });
+						bounds.upper_left.X = fminf(bounds.upper_left.X, to_draw.points[i].X);
+						bounds.upper_left.Y = fmaxf(bounds.upper_left.Y, to_draw.points[i].Y);
+						bounds.lower_right.X = fmaxf(bounds.lower_right.X, to_draw.points[i].X);
+						bounds.lower_right.Y = fminf(bounds.lower_right.Y, to_draw.points[i].Y);
 					}
 
-				draw_quad((DrawParams) { t.world_space, to_draw, image_font, font_atlas_region, col, t.clip_to, .layer = LAYER_UI_FG, .do_clipping = t.do_clipping });
+				PROFILE_SCOPE("shifting points")
+				for (int i = 0; i < 4; i++)
+				{
+					to_draw.points[i] = AddV2(to_draw.points[i], t.pos);
+				}
+
+				if (!t.dry_run)
+				{
+					PROFILE_SCOPE("Actually drawing")
+					{
+						Color col = t.color;
+						if (t.colors)
+						{
+							col = t.colors[i];
+						}
+
+						if (false) // drop shadow, don't really like it
+							if (t.world_space)
+							{
+								Quad shadow_quad = to_draw;
+								for (int i = 0; i < 4; i++)
+								{
+									shadow_quad.points[i] = AddV2(shadow_quad.points[i], V2(0.0, -1.0));
+								}
+								draw_quad((DrawParams) { t.world_space, shadow_quad, image_font, font_atlas_region, (Color) { 0.0f, 0.0f, 0.0f, 0.4f }, t.clip_to, .layer = LAYER_UI_FG, .do_clipping = t.do_clipping });
+							}
+
+						draw_quad((DrawParams) { t.world_space, to_draw, image_font, font_atlas_region, col, t.clip_to, .layer = LAYER_UI_FG, .do_clipping = t.do_clipping });
+					}
+				}
 			}
 		}
+
+		bounds.upper_left = AddV2(bounds.upper_left, t.pos);
+		bounds.lower_right = AddV2(bounds.lower_right, t.pos);
 	}
 
-	bounds.upper_left = AddV2(bounds.upper_left, t.pos);
-	bounds.lower_right = AddV2(bounds.lower_right, t.pos);
 	return bounds;
 }
 
@@ -2281,6 +2305,13 @@ Vec2 move_and_slide(MoveSlideParams p)
 	return result_pos;
 }
 
+float character_width(int ascii_letter, float text_scale)
+{
+	int advanceWidth;
+	stbtt_GetCodepointHMetrics(&font, ascii_letter, &advanceWidth, 0);
+	return (float)advanceWidth * font_scale * text_scale;
+}
+
 typedef struct
 {
 	bool dry_run;
@@ -2308,13 +2339,11 @@ float draw_wrapped_text(WrappedTextParams p)
 		Color colors_to_draw[MAX_SENTENCE_LENGTH] = { 0 };
 		size_t chars_from_sentence = 0;
 		AABB line_bounds = { 0 };
+		float current_line_width = 0.0f;
 		while (chars_from_sentence <= sentence_len)
 		{
-			memset(line_to_draw, 0, MAX_SENTENCE_LENGTH);
-			memcpy(line_to_draw, sentence_to_draw, chars_from_sentence);
-
-			line_bounds = draw_text((TextParams) { !p.screen_space, true, MD_S8CString(line_to_draw), cursor, BLACK, p.text_scale, p.clip_to, .do_clipping = p.do_clipping});
-			if (line_bounds.lower_right.X > p.at_point.X + p.max_width)
+			//line_bounds = draw_text((TextParams) { !p.screen_space, true, MD_S8CString(line_to_draw), cursor, BLACK, p.text_scale, p.clip_to, .do_clipping = p.do_clipping});
+			if (current_line_width >= p.max_width)
 			{
 				// too big
 				if (chars_from_sentence <= 0) chars_from_sentence = 1; // @CREDIT(warehouse56) always draw at least one character, if there's not enough room
@@ -2322,6 +2351,11 @@ float draw_wrapped_text(WrappedTextParams p)
 				break;
 			}
 			chars_from_sentence += 1;
+			memset(line_to_draw, 0, MAX_SENTENCE_LENGTH);
+			memcpy(line_to_draw, sentence_to_draw, chars_from_sentence);
+			//AABB next_character_bounds = draw_text((TextParams) { !p.screen_space, true, MD_S8((MD_u8*)line_to_draw + chars_from_sentence - 1, 1), cursor, BLACK, p.text_scale, p.clip_to, .do_clipping = p.do_clipping});
+			//current_line_width += aabb_size(next_character_bounds).x;
+			current_line_width += character_width( *(line_to_draw + chars_from_sentence - 1), p.text_scale);
 		}
 		if (chars_from_sentence > sentence_len) chars_from_sentence--;
 		memset(line_to_draw, 0, MAX_SENTENCE_LENGTH);
@@ -3455,30 +3489,30 @@ void frame(void)
 #ifdef DESKTOP
 								MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 
-								const char *argument = 0;
-								MD_String8List dialog_elems = {0};
-								ActionKind act = ACT_none;
-
-								it->times_talked_to++;
-								if(it->memories.data[it->memories.cur_index-1].context.eavesdropped_from_party)
-								{
-									MD_S8ListPushFmt(scratch.arena, &dialog_elems, "Responding to eavesdropped: ");
-								}
-								if(it->npc_kind == NPC_TheBlacksmith && it->standing != STANDING_JOINED)
-								{
-									assert(it->times_talked_to == 1);
-									act = ACT_joins_player;
-									MD_S8ListPushFmt(scratch.arena, &dialog_elems, "Joining you...");
-								}
-								else
-								{
-									MD_S8ListPushFmt(scratch.arena, &dialog_elems, "%d times talked", it->times_talked_to);
-								}
-
 								MD_String8 mocked_ai_response = {0};
-
 								if(false)
 								{
+									const char *argument = 0;
+									MD_String8List dialog_elems = {0};
+									ActionKind act = ACT_none;
+
+									it->times_talked_to++;
+									if(it->memories.data[it->memories.cur_index-1].context.eavesdropped_from_party)
+									{
+										MD_S8ListPushFmt(scratch.arena, &dialog_elems, "Responding to eavesdropped: ");
+									}
+									if(it->npc_kind == NPC_TheBlacksmith && it->standing != STANDING_JOINED)
+									{
+										assert(it->times_talked_to == 1);
+										act = ACT_joins_player;
+										MD_S8ListPushFmt(scratch.arena, &dialog_elems, "Joining you...");
+									}
+									else
+									{
+										MD_S8ListPushFmt(scratch.arena, &dialog_elems, "%d times talked", it->times_talked_to);
+									}
+
+
 									MD_StringJoin join = {0};
 									MD_String8 dialog = MD_S8ListJoin(scratch.arena, dialog_elems, &join);
 									if (argument)
@@ -4360,6 +4394,7 @@ void frame(void)
 
 void cleanup(void)
 {
+	free(fontBuffer);
 	sg_shutdown();
 	hmfree(imui_state);
 	Log("Cleaning up\n");
