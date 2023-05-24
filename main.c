@@ -1,4 +1,4 @@
-// you will die someday
+
 #include "tuning.h"
 
 #define SOKOL_IMPL
@@ -2574,6 +2574,7 @@ void draw_dialog_panel(Entity *talking_to, float alpha)
 double elapsed_time = 0.0;
 double unwarped_elapsed_time = 0.0;
 double last_frame_processing_time = 0.0;
+double last_frame_gameplay_processing_time = 0.0;
 uint64_t last_frame_time;
 
 typedef struct
@@ -2856,7 +2857,9 @@ void frame(void)
 		// restore the pressed state after gameplay loop so pressed input events can be processed in the
 		// rendering correctly as well
 		PressedState before_gameplay_loops = pressed;
-		{
+		PROFILE_SCOPE("gameplay processing")
+        {
+            uint64_t time_start_gameplay_processing = stm_now();
 			unprocessed_gameplay_time += unwarped_dt;
 			float timestep = fminf(unwarped_dt, (float)MINIMUM_TIMESTEP);
 			while (unprocessed_gameplay_time >= timestep)
@@ -3652,6 +3655,8 @@ void frame(void)
 				pressed = (PressedState) { 0 };
 				interact = false;
 			} // while loop
+
+            last_frame_gameplay_processing_time = stm_sec(stm_diff(stm_now(), time_start_gameplay_processing));
 		}
 		pressed = before_gameplay_loops;
 
@@ -4207,7 +4212,7 @@ void frame(void)
 				Vec2 pos = V2(0.0, screen_size().Y);
 				int num_entities = 0;
 				ENTITIES_ITER(gs.entities) num_entities++;
-				MD_String8 stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nEntities: %d\nDraw calls: %d\nProfiling: %s\nNumber gameplay processing loops: %d\n", dt*1000.0, last_frame_processing_time*1000.0, num_entities, num_draw_calls, profiling ? "yes" : "no", num_timestep_loops);
+				MD_String8 stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nGameplay processing: %.1f ms\nEntities: %d\nDraw calls: %d\nProfiling: %s\nNumber gameplay processing loops: %d\n", dt*1000.0, last_frame_processing_time*1000.0, last_frame_gameplay_processing_time*1000.0, num_entities, num_draw_calls, profiling ? "yes" : "no", num_timestep_loops);
 				AABB bounds = draw_text((TextParams) { false, true, stats, pos, BLACK, 1.0f });
 				pos.Y -= bounds.upper_left.Y - screen_size().Y;
 				bounds = draw_text((TextParams) { false, true, stats, pos, BLACK, 1.0f });
