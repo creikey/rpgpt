@@ -3397,6 +3397,9 @@ void frame(void)
 							else if (it->npc_kind == NPC_TheBlacksmith)
 							{
 							}
+							else if (it->npc_kind == NPC_Bill)
+							{
+							}
 							else
 							{
 								assert(false);
@@ -3886,6 +3889,10 @@ void frame(void)
 						else if (it->npc_kind == NPC_Davis)
 						{
 							tint = colhex(0x8f8f8f);
+						}
+						else if (it->npc_kind == NPC_Bill)
+						{
+							tint = colhex(0x49d14b);
 						}
 						else
 						{

@@ -271,6 +271,7 @@ bool npc_is_knight_sprite(Entity *it)
 		|| it->npc_kind == NPC_Red 
 		|| it->npc_kind == NPC_Blue
 		|| it->npc_kind == NPC_Davis
+		|| it->npc_kind == NPC_Bill
 		);
 }
 
@@ -617,7 +618,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 	MD_u64 act_pos = MD_S8FindSubstring(sentence, action_prefix, 0, 0);
 	if(act_pos == sentence.size)
 	{
-		error_message = MD_S8Fmt(arena, "Couldn't find beginning of action '%.*s' in sentence", MD_S8VArg(action_prefix));
+		error_message = MD_S8Fmt(arena, "Expected an `ACT_` somewhere in your sentence, followed by the action you want to perform, but couldnt' find one", MD_S8VArg(action_prefix));
 		goto endofparsing;
 	}
 

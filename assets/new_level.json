@@ -365,8 +365,8 @@
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":1954.33333333334,
-                 "y":2263.33333333333
+                 "x":1504.33333333334,
+                 "y":2658
                 }, 
                 {
                  "class":"",
@@ -410,8 +410,8 @@
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":1510,
-                 "y":2659
+                 "x":1800,
+                 "y":2263
                 }, 
                 {
                  "class":"",
@@ -434,6 +434,17 @@
                  "width":32,
                  "x":467,
                  "y":2444
+                }, 
+                {
+                 "class":"",
+                 "height":32,
+                 "id":28,
+                 "name":"Bill",
+                 "rotation":0,
+                 "visible":true,
+                 "width":32,
+                 "x":1470,
+                 "y":2534
                 }],
          "opacity":1,
          "type":"objectgroup",
@@ -442,7 +453,7 @@
          "y":0
         }],
  "nextlayerid":5,
- "nextobjectid":28,
+ "nextobjectid":29,
  "orientation":"orthogonal",
  "renderorder":"right-down",
  "tiledversion":"1.9.2",
