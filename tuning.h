@@ -12,9 +12,14 @@
 #define ARENA_SIZE (1024*1024)
 
 #ifdef DEVTOOLS
-#define SERVER_URL "http://localhost:8090"
+// server url cannot have trailing slash
+#define SERVER_DOMAIN "localhost"
+#define SERVER_PORT 8090
+#define IS_SERVER_SECURE 0
 #else
-#define SERVER_URL "https://rpgpt.duckdns.org"
+#define SERVER_DOMAIN "rpgpt.duckdns.org"
+#define SERVER_PORT 443
+#define IS_SERVER_SECURE 1
 #endif
 
 // REFACTORING:: also have to update in javascript!!!!!!!!

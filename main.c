@@ -20,6 +20,9 @@
 #include <dbghelp.h>
 #endif
 
+#define STRINGIZE(x) STRINGIZE2(x)
+#define STRINGIZE2(x) #x
+
 #include "buff.h"
 #include "sokol_app.h"
 #include "sokol_gfx.h"
@@ -126,6 +129,16 @@ void web_arena_set_auto_align(WebArena *arena, size_t align)
 #endif
 #endif
 #include "profiling.h"
+
+
+#ifdef DESKTOP
+#ifdef WINDOWS
+#include <WinHttp.h>
+#else
+#error "Only know how to do desktop http requests on windows"
+#endif // WINDOWS
+#endif // DESKTOP
+
 
 double clamp(double d, double min, double max)
 {
@@ -412,6 +425,18 @@ Vec2 FloorV2(Vec2 v)
 }
 
 MD_Arena *frame_arena = 0;
+
+#ifdef WINDOWS
+// uses frame arena
+LPCWSTR windows_string(MD_String8 s)
+{
+	int num_characters = MultiByteToWideChar(CP_UTF8, 0, (LPCCH)s.str, (int)s.size, 0, 0);
+	wchar_t *to_return = MD_PushArray(frame_arena, wchar_t, num_characters + 1); // also allocate for null terminating character
+	assert(MultiByteToWideChar(CP_UTF8, 0, (LPCCH)s.str, (int)s.size, to_return, num_characters) == num_characters);
+	to_return[num_characters] = '\0';
+	return to_return;
+}
+#endif
 
 MD_String8 tprint(char *format, ...)
 {
@@ -3490,52 +3515,152 @@ void frame(void)
 #endif
 
 #ifdef DESKTOP
+								// desktop http request, no more mocking
 								MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 
-								MD_String8 mocked_ai_response = {0};
-								if(false)
+								MD_String8 ai_response = {0};
+								bool mocking_the_ai_response = false;
+								bool succeeded = true; // couldn't get AI response if false
+								if(mocking_the_ai_response)
 								{
-									const char *argument = 0;
-									MD_String8List dialog_elems = {0};
-									ActionKind act = ACT_none;
+									if(false)
+									{
+										const char *argument = 0;
+										MD_String8List dialog_elems = {0};
+										ActionKind act = ACT_none;
 
-									it->times_talked_to++;
-									if(it->memories.data[it->memories.cur_index-1].context.eavesdropped_from_party)
-									{
-										MD_S8ListPushFmt(scratch.arena, &dialog_elems, "Responding to eavesdropped: ");
-									}
-									if(it->npc_kind == NPC_TheBlacksmith && it->standing != STANDING_JOINED)
-									{
-										assert(it->times_talked_to == 1);
-										act = ACT_joins_player;
-										MD_S8ListPushFmt(scratch.arena, &dialog_elems, "Joining you...");
+										it->times_talked_to++;
+										if(it->memories.data[it->memories.cur_index-1].context.eavesdropped_from_party)
+										{
+											MD_S8ListPushFmt(scratch.arena, &dialog_elems, "Responding to eavesdropped: ");
+										}
+										if(it->npc_kind == NPC_TheBlacksmith && it->standing != STANDING_JOINED)
+										{
+											assert(it->times_talked_to == 1);
+											act = ACT_joins_player;
+											MD_S8ListPushFmt(scratch.arena, &dialog_elems, "Joining you...");
+										}
+										else
+										{
+											MD_S8ListPushFmt(scratch.arena, &dialog_elems, "%d times talked", it->times_talked_to);
+										}
+
+
+										MD_StringJoin join = {0};
+										MD_String8 dialog = MD_S8ListJoin(scratch.arena, dialog_elems, &join);
+										if (argument)
+										{
+											ai_response = MD_S8Fmt(scratch.arena, "ACT_%s(%s) \"%.*s\"", actions[act].name, argument, MD_S8VArg(dialog));
+										}
+										else
+										{
+											ai_response = MD_S8Fmt(scratch.arena, "ACT_%s \"%.*s\"", actions[act].name, MD_S8VArg(dialog));
+										}
 									}
 									else
 									{
-										MD_S8ListPushFmt(scratch.arena, &dialog_elems, "%d times talked", it->times_talked_to);
-									}
-
-
-									MD_StringJoin join = {0};
-									MD_String8 dialog = MD_S8ListJoin(scratch.arena, dialog_elems, &join);
-									if (argument)
-									{
-										mocked_ai_response = MD_S8Fmt(scratch.arena, "ACT_%s(%s) \"%.*s\"", actions[act].name, argument, MD_S8VArg(dialog));
-									}
-									else
-									{
-										mocked_ai_response = MD_S8Fmt(scratch.arena, "ACT_%s \"%.*s\"", actions[act].name, MD_S8VArg(dialog));
+										ai_response = MD_S8Lit(" Within the player's party, while the player is talking to Meld, you hear: ACT_none \"Better have a good reason for bothering me.\"");
 									}
 								}
 								else
 								{
-									mocked_ai_response = MD_S8Lit(" Within the player's party, while the player is talking to Meld, you hear: ACT_none \"Better have a good reason for bothering me.\"");
+									MD_String8 post_request_body = MD_S8Fmt(scratch.arena, "|%.*s", MD_S8VArg(prompt_str));
+
+#define WinAssertWithErrorCode(X) if( !( X ) ) { unsigned int error = GetLastError(); Log("Error %u in %s\n", error, #X); assert(false); }
+
+
+
+									HINTERNET hSession = WinHttpOpen(L"PlayGPT winhttp backend", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+									WinAssertWithErrorCode(hSession);
+
+									LPCWSTR windows_server_name = windows_string(MD_S8Lit(SERVER_DOMAIN));
+									HINTERNET hConnect = WinHttpConnect(hSession, windows_server_name, SERVER_PORT, 0);
+									WinAssertWithErrorCode(hConnect);
+									int security_flags = 0;
+									if(IS_SERVER_SECURE)
+									{
+										security_flags = WINHTTP_FLAG_SECURE;
+									}
+
+									HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"POST", L"completion", 0, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, security_flags); 
+									WinAssertWithErrorCode(hRequest);
+
+									// @IMPORTANT @TODO the windows_string allocates on the frame arena, but
+									// according to https://learn.microsoft.com/en-us/windows/win32/api/winhttp/nf-winhttp-winhttpsendrequest
+									// the buffer needs to remain available as long as the http request is running, so to make this async and do the loading thing need some other way to allocate the winndows string.... arenas bad?
+									succeeded = WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, (LPVOID)post_request_body.str, (DWORD)post_request_body.size, (DWORD)post_request_body.size, 0);
+									if(!succeeded)
+									{
+										Log("Couldn't do the web: %u\n", GetLastError());
+									}
+									if(succeeded)
+									{
+										WinAssertWithErrorCode(WinHttpReceiveResponse(hRequest, 0));
+
+										DWORD status_code;
+										DWORD status_code_size = sizeof(status_code);
+										WinAssertWithErrorCode(WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &status_code, &status_code_size, WINHTTP_NO_HEADER_INDEX));
+										Log("Status code: %u\n", status_code);
+
+										DWORD dwSize = 0;
+										MD_String8List received_data_list = {0};
+										do
+										{
+											dwSize = 0;
+											WinAssertWithErrorCode(WinHttpQueryDataAvailable(hRequest, &dwSize));
+
+											if(dwSize == 0)
+											{
+												Log("Didn't get anything back.\n");
+											}
+											else
+											{
+												MD_u8* out_buffer = MD_PushArray(scratch.arena, MD_u8, dwSize + 1);
+												DWORD dwDownloaded = 0;
+												WinAssertWithErrorCode(WinHttpReadData(hRequest, (LPVOID)out_buffer, dwSize, &dwDownloaded));
+												out_buffer[dwDownloaded - 1] = '\0';
+												Log("Got this from http, size %d: %s\n", dwDownloaded, out_buffer);
+												MD_S8ListPush(scratch.arena, &received_data_list, MD_S8(out_buffer, dwDownloaded)); 
+											}
+										} while (dwSize > 0);
+										MD_String8 received_data = MD_S8ListJoin(scratch.arena, received_data_list, &(MD_StringJoin){0});
+
+										ai_response = MD_S8Substring(received_data, 1, received_data.size);
+									}
+									else
+									{
+										it->perceptions_dirty = true;
+									}
 								}
 
 								Action a = {0};
-								MD_String8 error_message = parse_chatgpt_response(scratch.arena, it, mocked_ai_response, &a);
-								assert(error_message.size == 0);
-								perform_action(it, a);
+								MD_String8 error_message = MD_S8Lit("Something really bad happened bro. File " STRINGIZE(__FILE__) " Line " STRINGIZE(__LINE__));
+								if(succeeded)
+								{
+									error_message = parse_chatgpt_response(scratch.arena, it, ai_response, &a);
+								}
+
+								if(mocking_the_ai_response)
+								{
+									assert(succeeded);
+									assert(error_message.size == 0);
+									perform_action(it, a);
+								}
+								else
+								{
+									if(succeeded)
+									{
+										if (error_message.size == 0)
+										{
+											perform_action(it, a);
+										}
+										else
+										{
+											Log("There was an error with the AI: %.*s", MD_S8VArg(error_message));
+											remember_error(it, error_message);
+										}
+									}
+								}
 
 								MD_ReleaseScratch(scratch);
 #undef SAY

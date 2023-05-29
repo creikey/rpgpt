@@ -50,7 +50,7 @@ MD_String8 escape_for_json(MD_Arena *arena, MD_String8 from)
 	}
 
 	MD_String8 output = {
-		.str = MD_ArenaPush(arena, output_size),
+		.str = MD_PushArray(arena, MD_u8, output_size),
 		.size = output_size,
 	};
 	MD_u64 output_cursor = 0;
