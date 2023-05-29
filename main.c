@@ -951,6 +951,19 @@ bool perform_action(Entity *from, Action a)
 				}
 			}
 		}
+
+		if(from->is_npc && from->standing == STANDING_JOINED)
+		{
+			if(gete(player->talking_to) && gete(player->talking_to) != from)
+			{
+				assert(gete(player->talking_to));
+				assert(gete(player->talking_to)->is_npc);
+				MemoryContext from_party_context = context;
+				from_party_context.directed_at_kind = gete(player->talking_to)->npc_kind;
+				remember_action(gete(player->talking_to), a, from_party_context);
+			}
+		}
+
 		// TODO Propagate physically
 	}
 
