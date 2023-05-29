@@ -362,12 +362,13 @@
 (zchk(f)?\
 ((f)=(l)=(n),zset((n)->next),zset((n)->prev)):\
 ((n)->prev=(l),(l)->next=(n),(l)=(n),zset((n)->next)))
-#define MD_DblRemove_NPZ(f,l,n,next,prev,zset) (((f)==(n)?\
-((f)=(f)->next,zset((f)->prev)):\
-(l)==(n)?\
-((l)=(l)->prev,zset((l)->next)):\
-((n)->next->prev=(n)->prev,\
-(n)->prev->next=(n)->next)))
+#define MD_DblRemove_NPZ(f,l,n,next,prev,zchk,zset) (((f)==(n))?\
+((f)=(f)->next, (zchk(f) ? (zset(l)) : zset((f)->prev))):\
+((l)==(n))?\
+((l)=(l)->prev, (zchk(l) ? (zset(f)) : zset((l)->next))):\
+((zchk((n)->next) ? (0) : ((n)->next->prev=(n)->prev)),\
+(zchk((n)->prev) ? (0) : ((n)->prev->next=(n)->next))))
+
 
 // compositions
 #define MD_QueuePush(f,l,n) MD_QueuePush_NZ(f,l,n,next,MD_CheckNull,MD_SetNull)
@@ -376,11 +377,11 @@
 #define MD_StackPop(f)      MD_StackPop_NZ(f,next,MD_CheckNull)
 #define MD_DblPushBack(f,l,n)  MD_DblPushBack_NPZ(f,l,n,next,prev,MD_CheckNull,MD_SetNull)
 #define MD_DblPushFront(f,l,n) MD_DblPushBack_NPZ(l,f,n,prev,next,MD_CheckNull,MD_SetNull)
-#define MD_DblRemove(f,l,n)    MD_DblRemove_NPZ(f,l,n,next,prev,MD_SetNull)
+#define MD_DblRemove(f,l,n)    MD_DblRemove_NPZ(f,l,n,next,prev,MD_CheckNull,MD_SetNull)
 
 #define MD_NodeDblPushBack(f,l,n)  MD_DblPushBack_NPZ(f,l,n,next,prev,MD_CheckNil,MD_SetNil)
 #define MD_NodeDblPushFront(f,l,n) MD_DblPushBack_NPZ(l,f,n,prev,next,MD_CheckNil,MD_SetNil)
-#define MD_NodeDblRemove(f,l,n)    MD_DblRemove_NPZ(f,l,n,next,prev,MD_SetNil)
+#define MD_NodeDblRemove(f,l,n)    MD_DblRemove_NPZ(f,l,n,next,prev,MD_CheckNil,MD_SetNil)
 
 
 //~ Memory Operations

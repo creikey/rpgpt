@@ -236,9 +236,7 @@ typedef struct Entity
 	NPCPlayerStanding standing;
 	NpcKind npc_kind;
 	PathCacheHandle cached_path;
-#ifdef WEB
 	int gen_request_id;
-#endif
 	bool walking;
 	double shotgun_timer;
 	bool moved;
