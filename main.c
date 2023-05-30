@@ -363,7 +363,7 @@ void play_audio(AudioSample *sample, float volume)
 	*to_use = (AudioPlayer) { 0 };
 	to_use->sample = sample;
 	to_use->volume = volume;
-	to_use->pitch = float_rand(0.9f, 1.1f);
+	to_use->pitch = float_rand(-0.1f, 0.1f);
 }
 // keydown needs to be referenced when begin text input,
 // on web it disables event handling so the button up event isn't received
@@ -978,6 +978,10 @@ void remember_error(Entity *to_modify, MD_String8 error_message)
 void remember_action(Entity *to_modify, Action a, MemoryContext context)
 {
 	push_memory(to_modify, MD_S8(a.speech, a.speech_length), a.kind, (ActionArgument){0}, context, false);
+	if(context.i_said_this)
+	{
+		to_modify->words_said = 0.0;
+	}
 }
 
 // from must not be null, to can be null if the action isn't directed at anybody
@@ -2525,6 +2529,14 @@ float character_width(int ascii_letter, float text_scale)
 	return (float)advanceWidth * font_scale * text_scale;
 }
 
+// they're always joined by spaces anyways, so even if you add more delims
+// spaces will be added between them inshallah.
+MD_String8List split_by_word(MD_Arena *arena, MD_String8 string)
+{
+	MD_String8 word_delimeters[] = { MD_S8Lit(" ") };
+	return MD_S8Split(arena, string, ARRLEN(word_delimeters), word_delimeters);
+}
+
 typedef struct PlacedWord
 {
 	struct PlacedWord *next;
@@ -2544,8 +2556,7 @@ PlacedWordList place_wrapped_words(MD_Arena *arena, MD_String8 text, float text_
 	PlacedWordList to_return = {0};
 	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
 
-	MD_String8 word_delimeters[] = { MD_S8Lit(" ") };
-	MD_String8List words = MD_S8Split(scratch.arena, text, ARRLEN(word_delimeters), word_delimeters);
+	MD_String8List words = split_by_word(scratch.arena, text);
 	Vec2 at_position = V2(0.0, 0.0);
 	Vec2 cur = at_position;
 	float space_size = character_width((int)' ', text_scale);
@@ -2619,6 +2630,7 @@ typedef struct
 	DialogElementKind kind;
 	bool was_eavesdropped;
 	NpcKind who_said_it;
+	bool was_last_said;
 } DialogElement;
 
 // Some perceptions can have multiple dialog elements.
@@ -2639,7 +2651,30 @@ Dialog produce_dialog(Entity *talking_to, bool character_names)
 			{
 				DialogElement new_element = { .who_said_it = it->context.author_npc_kind, .was_eavesdropped = it->context.eavesdropped_from_party };
 
-				MD_String8 dialog_speech = MD_S8Fmt(scratch.arena, "%s: %.*s", characters[it->context.author_npc_kind].name, it->speech_length, it->speech);
+				MD_String8 my_speech = MD_S8(it->speech, it->speech_length);
+				if(last_said_sentence(talking_to).str == it->speech)
+				{
+					new_element.was_last_said = true;
+					MD_String8List by_word = split_by_word(scratch.arena, MD_S8(it->speech, it->speech_length));
+					MD_String8Node *cur = by_word.first;
+					MD_String8List without_unsaid_words = {0};
+					for(int i = 0; i < by_word.node_count; i++)
+					{
+						if(i >= (int)talking_to->words_said)
+						{
+							break;
+						}
+						else
+						{
+							assert(cur);
+							MD_S8ListPush(scratch.arena, &without_unsaid_words, cur->string);
+							cur = cur->next;
+						}
+					}
+					my_speech = MD_S8ListJoin(scratch.arena, without_unsaid_words, &(MD_StringJoin){.mid = MD_S8Lit(" ")});
+				}
+
+				MD_String8 dialog_speech = MD_S8Fmt(scratch.arena, "%s: %.*s", characters[it->context.author_npc_kind].name, MD_S8VArg(my_speech));
 
 				memcpy(new_element.speech, dialog_speech.str, dialog_speech.size);
 				new_element.speech_length = (int)dialog_speech.size;
@@ -3247,25 +3282,29 @@ void frame(void)
 							// character speech animation text input
 							if (true)
 							{
-								const float characters_per_sec = 35.0f;
-								double before = it->characters_said;
+								int before = (int)it->words_said;
 
-								int length = 0;
-								if (last_said_sentence(it).size) length = (int)last_said_sentence(it).size;
-								if ((int)before < length)
-								{
-									it->characters_said += characters_per_sec*unwarped_dt;
-								}
-								else
-								{
-									it->characters_said = (double)length;
-								}
+								it->word_anim_in = Lerp((float)it->word_anim_in, unwarped_dt * 15.0f, 1.0f);
 
-								if ((int)it->characters_said > (int)before)
+								MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+								if(before < split_by_word(scratch.arena, last_said_sentence(it)).node_count)
+								{
+									it->words_said += WORDS_PER_SEC * unwarped_dt;
+								}
+								MD_ReleaseScratch(scratch);
+
+								if( (int)it->words_said > before)
 								{
 									float dist = LenV2(SubV2(it->pos, player->pos));
 									float volume = Lerp(-0.6f, clamp01(dist / 70.0f), -1.0f);
-									play_audio(&sound_simple_talk, volume);
+									AudioSample * possible_grunts[] = {
+										&sound_grunt_0,
+										&sound_grunt_1,
+										&sound_grunt_2,
+										&sound_grunt_3,
+									};
+									play_audio(possible_grunts[rand() % ARRLEN(possible_grunts)], volume);
+									it->word_anim_in = 0.0;
 								}
 							}
 
@@ -3725,7 +3764,7 @@ void frame(void)
 								MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 
 								MD_String8 ai_response = {0};
-								bool mocking_the_ai_response = false;
+								bool mocking_the_ai_response = true;
 								bool succeeded = true; // couldn't get AI response if false
 								if(mocking_the_ai_response)
 								{
@@ -4339,11 +4378,17 @@ void frame(void)
 									translate_words_by(wrapped, V2(dialog_panel.upper_left.x, new_line_height));
 									new_line_height += line_vertical_offset + font_line_advance * text_scale;
 
+
 									for(PlacedWord *cur = wrapped.first; cur; cur = cur->next)
 									{
+										float this_text_scale = text_scale;
+										if(it->was_last_said && cur->next == 0)
+										{
+											this_text_scale *= talking_to->word_anim_in;
+										}
 										AABB clipping_aabb = dialog_panel;
 										clipping_aabb.lower_right.y -= 50.0f;
-										draw_text((TextParams){false, false, cur->text, cur->lower_left_corner, color, text_scale, .clip_to = clipping_aabb, .do_clipping = true,});
+										draw_text((TextParams){false, false, cur->text, cur->lower_left_corner, color, this_text_scale, .clip_to = clipping_aabb, .do_clipping = true,});
 									}
 
 									if(i != 0)

@@ -2,6 +2,22 @@
 {
  filepath: "simple_text_chirp.wav",
 }
+@sound grunt_0:
+{
+ filepath: "grunt_0.wav",
+}
+@sound grunt_1:
+{
+ filepath: "grunt_1.wav",
+}
+@sound grunt_2:
+{
+ filepath: "grunt_2.wav",
+}
+@sound grunt_3:
+{
+ filepath: "grunt_3.wav",
+}
 @image merchant:
 {
  filepath: "copyrighted/merchant.png",

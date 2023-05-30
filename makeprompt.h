@@ -232,7 +232,8 @@ typedef struct Entity
 	BUFF(Memory, REMEMBERED_MEMORIES) memories;
 	bool direction_of_spiral_pattern;
 	float dialog_panel_opacity;
-	double characters_said;
+	double words_said;
+	float word_anim_in;
 	NPCPlayerStanding standing;
 	NpcKind npc_kind;
 	PathCacheHandle cached_path;
