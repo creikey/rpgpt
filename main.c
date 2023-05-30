@@ -1196,6 +1196,13 @@ void reset_level()
 	{
 		if (it->npc_kind == NPC_TheBlacksmith)
 		{
+			Memory test_memory = {0};
+			test_memory.context.author_npc_kind = NPC_TheBlacksmith;
+			MD_String8 speech = MD_S8Lit("This is some very important testing dialog. Too important to count. Very very very very important. Super caliafradgalisticexpelaladosis");
+			memcpy(test_memory.speech, speech.str, speech.size);
+			test_memory.speech_length = (int)speech.size;
+			RANGE_ITER(0, 15)
+				BUFF_APPEND(&it->memories, test_memory);
 			//RANGE_ITER(0, 20)
 			//BUFF_APPEND(&it->remembered_perceptions, ((Perception) { .type = PlayerDialog, .player_dialog = SENTENCE_CONST("Testing dialog") }));
 
@@ -1405,7 +1412,7 @@ void init(void)
 
 	// load font
 	{
-		FILE* fontFile = fopen("assets/orange kid.ttf", "rb");
+		FILE* fontFile = fopen("assets/Roboto-Regular.ttf", "rb");
 		fseek(fontFile, 0, SEEK_END);
 		size_t size = ftell(fontFile); /* how long is the file ? */
 		fseek(fontFile, 0, SEEK_SET); /* reset */
@@ -1431,8 +1438,8 @@ void init(void)
 				.width = 512,
 				.height = 512,
 				.pixel_format = SG_PIXELFORMAT_RGBA8,
-				.min_filter = SG_FILTER_NEAREST,
-				.mag_filter = SG_FILTER_NEAREST,
+				.min_filter = SG_FILTER_LINEAR,
+				.mag_filter = SG_FILTER_LINEAR,
 				.data.subimage[0][0] =
 				{
 				.ptr = font_bitmap_rgba,
@@ -1635,6 +1642,11 @@ Vec2 screen_to_world(Vec2 screen)
 	to_return = SubV2(to_return, cam_offset());
 	to_return = MulV2F(to_return, 1.0f / cam.scale);
 	return to_return;
+}
+
+AABB aabb_screen_to_world(AABB screen)
+{
+	return (AABB) { .upper_left = screen_to_world(screen.upper_left), .lower_right = screen_to_world(screen.lower_right ), };
 }
 
 AABB aabb_at(Vec2 at, Vec2 size)
@@ -2003,14 +2015,11 @@ Vec2 NormV2_or_zero(Vec2 v)
 	}
 }
 
-
-// in world coordinates
-bool in_screen_space = false;
-void line(Vec2 from, Vec2 to, float line_width, Color color)
+Quad line_quad(Vec2 from, Vec2 to, float line_width)
 {
 	Vec2 normal = rotate_counter_clockwise(NormV2_or_zero(SubV2(to, from)));
 
-	Quad line_quad = {
+	return (Quad){
 		.points = {
 			AddV2(from, MulV2F(normal, line_width)),  // upper left
 			AddV2(to, MulV2F(normal, line_width)),    // upper right
@@ -2018,7 +2027,13 @@ void line(Vec2 from, Vec2 to, float line_width, Color color)
 			AddV2(from, MulV2F(normal, -line_width)), // lower left
 		}
 	};
-	colorquad(!in_screen_space, line_quad, color);
+}
+
+// in world coordinates
+bool in_screen_space = false;
+void line(Vec2 from, Vec2 to, float line_width, Color color)
+{
+	colorquad(!in_screen_space, line_quad(from, to, line_width), color);
 }
 
 #ifdef DEVTOOLS
@@ -2510,75 +2525,62 @@ float character_width(int ascii_letter, float text_scale)
 	return (float)advanceWidth * font_scale * text_scale;
 }
 
+typedef struct PlacedWord
+{
+	struct PlacedWord *next;
+	struct PlacedWord *prev;
+	MD_String8 text;
+	Vec2 lower_left_corner;
+} PlacedWord;
+
 typedef struct
 {
-	bool dry_run;
-	Vec2 at_point;
-	float max_width;
-	MD_String8 text;
-	Color *colors;
-	float text_scale;
-	AABB clip_to;
-	bool do_clipping;
+	PlacedWord *first;
+	PlacedWord *last;
+} PlacedWordList;
 
-	bool screen_space;
-} WrappedTextParams;
-
-// returns next vertical cursor position
-float draw_wrapped_text(WrappedTextParams p)
+PlacedWordList place_wrapped_words(MD_Arena *arena, MD_String8 text, float text_scale, float maximum_width)
 {
-	char * sentence_to_draw = (char*)p.text.str;
-	size_t sentence_len = p.text.size;
+	PlacedWordList to_return = {0};
+	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
 
-	Vec2 cursor = p.at_point;
-	while (sentence_len > 0)
+	MD_String8 word_delimeters[] = { MD_S8Lit(" ") };
+	MD_String8List words = MD_S8Split(scratch.arena, text, ARRLEN(word_delimeters), word_delimeters);
+	Vec2 at_position = V2(0.0, 0.0);
+	Vec2 cur = at_position;
+	float space_size = character_width((int)' ', text_scale);
+	float current_vertical_offset = 0.0f; // goes negative
+	for(MD_String8Node *next_word = words.first; next_word; next_word = next_word->next)
 	{
-		char line_to_draw[MAX_SENTENCE_LENGTH] = { 0 };
-		Color colors_to_draw[MAX_SENTENCE_LENGTH] = { 0 };
-		size_t chars_from_sentence = 0;
-		AABB line_bounds = { 0 };
-		float current_line_width = 0.0f;
-		while (chars_from_sentence <= sentence_len)
+		AABB word_bounds = draw_text((TextParams){false, true, next_word->string, V2(0.0, 0.0), .scale = text_scale});
+		word_bounds.lower_right.x += space_size;
+		float next_x_position = cur.x + aabb_size(word_bounds).x;
+		if(next_x_position - at_position.x > maximum_width)
 		{
-			//line_bounds = draw_text((TextParams) { !p.screen_space, true, MD_S8CString(line_to_draw), cursor, BLACK, p.text_scale, p.clip_to, .do_clipping = p.do_clipping});
-			if (current_line_width >= p.max_width)
-			{
-				// too big
-				if (chars_from_sentence <= 0) chars_from_sentence = 1; // @CREDIT(warehouse56) always draw at least one character, if there's not enough room
-				chars_from_sentence -= 1;
-				break;
-			}
-			chars_from_sentence += 1;
-			memset(line_to_draw, 0, MAX_SENTENCE_LENGTH);
-			memcpy(line_to_draw, sentence_to_draw, chars_from_sentence);
-			//AABB next_character_bounds = draw_text((TextParams) { !p.screen_space, true, MD_S8((MD_u8*)line_to_draw + chars_from_sentence - 1, 1), cursor, BLACK, p.text_scale, p.clip_to, .do_clipping = p.do_clipping});
-			//current_line_width += aabb_size(next_character_bounds).x;
-			current_line_width += character_width( *(line_to_draw + chars_from_sentence - 1), p.text_scale);
-		}
-		if (chars_from_sentence > sentence_len) chars_from_sentence--;
-		memset(line_to_draw, 0, MAX_SENTENCE_LENGTH);
-		memcpy(line_to_draw, sentence_to_draw, chars_from_sentence);
-		memcpy(colors_to_draw, p.colors, chars_from_sentence*sizeof(Color));
-
-		//float line_height = line_bounds.upper_left.Y - line_bounds.lower_right.Y;
-		float line_height = font_line_advance * p.text_scale;
-		AABB drawn_bounds = draw_text((TextParams) { !p.screen_space, p.dry_run, MD_S8CString(line_to_draw), AddV2(cursor, V2(0.0f, -line_height)), BLACK, p.text_scale, p.clip_to, colors_to_draw, .do_clipping = p.do_clipping});
-		if (!p.dry_run) dbgrect(drawn_bounds);
-
-		// caught a random infinite loop in the debugger, this will stop it
-		assert(chars_from_sentence >= 0); // defensive programming
-		if (chars_from_sentence == 0)
-		{
-			break;
+			current_vertical_offset -= font_line_advance*text_scale*1.1f; // the 1.1 is just arbitrary padding because it looks too crowded otherwise
+			cur = AddV2(at_position, V2(0.0f, current_vertical_offset));
+			next_x_position = cur.x + aabb_size(word_bounds).x;
 		}
 
-		sentence_len -= chars_from_sentence;
-		sentence_to_draw += chars_from_sentence;
-		p.colors += chars_from_sentence;
-		cursor = V2(drawn_bounds.upper_left.X, drawn_bounds.lower_right.Y);
+		PlacedWord *new_placed = MD_PushArray(arena, PlacedWord, 1);
+		new_placed->text = next_word->string;
+		new_placed->lower_left_corner = cur;
+
+		MD_DblPushBack(to_return.first, to_return.last, new_placed);
+
+		cur.x = next_x_position;
 	}
 
-	return cursor.Y;
+	MD_ReleaseScratch(scratch);
+	return to_return;
+}
+
+void translate_words_by(PlacedWordList words, Vec2 translation)
+{
+	for(PlacedWord *cur = words.first; cur; cur = cur->next)
+	{
+		cur->lower_left_corner = AddV2(cur->lower_left_corner, translation);
+	}
 }
 
 MD_String8 last_said_sentence(Entity *npc)
@@ -2710,6 +2712,8 @@ Vec2 mouse_pos = { 0 }; // in screen space
 
 void draw_dialog_panel(Entity *talking_to, float alpha)
 {
+	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+
 	float panel_width = 250.0f;
 	float panel_height = 150.0f;
 	float panel_vert_offset = 30.0f;
@@ -2759,39 +2763,48 @@ void draw_dialog_panel(Entity *talking_to, float alpha)
 				{
 					DialogElement *it = &dialog.data[i];
 					{
-						Color *colors = calloc(sizeof(*colors), it->speech_length);
-						for (int char_i = 0; char_i < it->speech_length; char_i++)
+						Color color;
+						// decide color
 						{
 							if(it->was_eavesdropped)
 							{
-								colors[char_i] = colhex(0x9341a3);
+								color = colhex(0x9341a3);
 							}
 							else
 							{
 								if (it->kind == DELEM_PLAYER)
 								{
-									colors[char_i] = BLACK;
+									color = BLACK;
 								}
 								else if (it->kind == DELEM_NPC)
 								{
-									colors[char_i] = colhex(0x345e22);
+									color = colhex(0x345e22);
 								}
 								else if (it->kind == DELEM_ACTION_DESCRIPTION)
 								{
-									colors[char_i] = colhex(0xb5910e);
+									color = colhex(0xb5910e);
 								}
 								else
 								{
 									assert(false);
 								}
 							}
-							colors[char_i] = blendalpha(colors[char_i], alpha);
 						}
-						float measured_line_height = draw_wrapped_text((WrappedTextParams) { true, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, MD_S8(it->speech, it->speech_length), colors, 0.5f, .clip_to = dialog_panel, .do_clipping = true});
-						new_line_height += (new_line_height - measured_line_height);
-						draw_wrapped_text((WrappedTextParams) { false, V2(dialog_panel.upper_left.X, new_line_height), dialog_panel.lower_right.X - dialog_panel.upper_left.X, MD_S8(it->speech, it->speech_length), colors, 0.5f, dialog_panel, .do_clipping = true });
 
-						free(colors);
+						color = blendalpha(color, alpha);
+						const float text_scale = 0.5f;
+						PlacedWordList wrapped = place_wrapped_words(scratch.arena, MD_S8(it->speech, it->speech_length), text_scale, dialog_panel.lower_right.x - dialog_panel.upper_left.x);
+						float line_vertical_offset = -wrapped.last->lower_left_corner.y;
+						translate_words_by(wrapped, V2(0.0, line_vertical_offset));
+						translate_words_by(wrapped, V2(dialog_panel.upper_left.x, new_line_height));
+						new_line_height += line_vertical_offset + font_line_advance * text_scale;
+
+						AABB no_clip_curly_things = dialog_panel;
+						no_clip_curly_things.lower_right.y -= padding;
+						for(PlacedWord *cur = wrapped.first; cur; cur = cur->next)
+						{
+							draw_text((TextParams){true, false, cur->text, cur->lower_left_corner, color, text_scale, .clip_to = no_clip_curly_things, .do_clipping = true,});
+						}
 					}
 				}
 			}
@@ -2799,6 +2812,8 @@ void draw_dialog_panel(Entity *talking_to, float alpha)
 			dbgrect(dialog_panel);
 		}
 	}
+
+	MD_ReleaseScratch(scratch);
 }
 
 
@@ -4277,54 +4292,75 @@ void frame(void)
 
 					const float dialog_text_scale = 1.0f;
 					float button_grid_height = button_size.y;
-					AABB dialog_text_aabb = panel_aabb;
-					dialog_text_aabb.lower_right.y += button_grid_height + 20.0f; // a little bit of padding because the buttons go up
-					float new_line_height = dialog_text_aabb.lower_right.y;
+					AABB dialog_panel = panel_aabb;
+					dialog_panel.lower_right.y += button_grid_height + 20.0f; // a little bit of padding because the buttons go up
+					float new_line_height = dialog_panel.lower_right.y;
 
-					if (talking_to)
+					// talking to dialog text
+					if (talking_to && aabb_is_valid(dialog_panel))
 					{
+						MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 						Dialog dialog = produce_dialog(talking_to, true);
 						{
 							for (int i = dialog.cur_index - 1; i >= 0; i--)
 							{
 								DialogElement *it = &dialog.data[i];
 								{
-									Color *colors = calloc(sizeof(*colors), it->speech_length);
-									for (int char_i = 0; char_i < it->speech_length; char_i++)
+									Color color;
+									if(it->was_eavesdropped)
 									{
-										if(it->was_eavesdropped)
+										color = colhex(0xcb40e6);
+									}
+									else
+									{
+										if (it->kind == DELEM_PLAYER)
 										{
-											colors[char_i] = colhex(0xcb40e6);
+											color = WHITE;
+										}
+										else if (it->kind == DELEM_NPC)
+										{
+											color = colhex(0x34e05c);
+										}
+										else if (it->kind == DELEM_ACTION_DESCRIPTION)
+										{
+											color = colhex(0xebc334);
 										}
 										else
 										{
-											if (it->kind == DELEM_PLAYER)
-											{
-												colors[char_i] = WHITE;
-											}
-											else if (it->kind == DELEM_NPC)
-											{
-												colors[char_i] = colhex(0x34e05c);
-											}
-											else if (it->kind == DELEM_ACTION_DESCRIPTION)
-											{
-												colors[char_i] = colhex(0xebc334);
-											}
-											else
-											{
-												assert(false);
-											}
+											assert(false);
 										}
-										colors[char_i] = blendalpha(colors[char_i], alpha);
 									}
-									float measured_line_height = draw_wrapped_text((WrappedTextParams) { true, V2(dialog_text_aabb.upper_left.X, new_line_height), dialog_text_aabb.lower_right.X - dialog_text_aabb.upper_left.X, MD_S8(it->speech, it->speech_length), colors, dialog_text_scale, dialog_text_aabb, .screen_space = true, .do_clipping = true});
-									new_line_height += (new_line_height - measured_line_height);
-									draw_wrapped_text((WrappedTextParams) { false, V2(dialog_text_aabb.upper_left.X, new_line_height), dialog_text_aabb.lower_right.X - dialog_text_aabb.upper_left.X, MD_S8(it->speech, it->speech_length), colors, dialog_text_scale, dialog_text_aabb, .screen_space = true, .do_clipping = true});
+									color = blendalpha(color, alpha);
 
-									free(colors);
+									const float text_scale = 1.0f;
+									PlacedWordList wrapped = place_wrapped_words(scratch.arena, MD_S8(it->speech, it->speech_length), text_scale, dialog_panel.lower_right.x - dialog_panel.upper_left.x);
+									float line_vertical_offset = -wrapped.last->lower_left_corner.y;
+									translate_words_by(wrapped, V2(0.0, line_vertical_offset));
+									translate_words_by(wrapped, V2(dialog_panel.upper_left.x, new_line_height));
+									new_line_height += line_vertical_offset + font_line_advance * text_scale;
+
+									for(PlacedWord *cur = wrapped.first; cur; cur = cur->next)
+									{
+										AABB clipping_aabb = dialog_panel;
+										clipping_aabb.lower_right.y -= 50.0f;
+										draw_text((TextParams){false, false, cur->text, cur->lower_left_corner, color, text_scale, .clip_to = clipping_aabb, .do_clipping = true,});
+									}
+
+									if(i != 0)
+									{
+										float separator_height = 40.0f; // how much vertical space the whole separation, including padding, takes
+										float line_height = 1.0f;
+										Vec2 line_from = AddV2(wrapped.first->lower_left_corner, V2(0, font_line_advance*text_scale + separator_height/2.0f));
+										Vec2 line_to = AddV2(line_from, V2(aabb_size(dialog_panel).x, 0));
+										draw_quad((DrawParams){false, line_quad(line_from, line_to, line_height), IMG(image_white_square), blendalpha(WHITE, 0.6f), .clip_to = dialog_panel, .do_clipping = true});
+
+										new_line_height += separator_height;
+									}
+
 								}
 							}
 						}
+						MD_ReleaseScratch(scratch);
 					}
 				}
 			}
@@ -4483,6 +4519,7 @@ void frame(void)
 		}
 
 #ifdef DEVTOOLS
+
 		dbgsquare(screen_to_world(mouse_pos));
 
 		// tile coord
