@@ -232,8 +232,8 @@ typedef struct Entity
 	BUFF(Memory, REMEMBERED_MEMORIES) memories;
 	bool direction_of_spiral_pattern;
 	float dialog_panel_opacity;
-	double words_said;
-	float word_anim_in;
+	int words_said;
+	float word_anim_in; // in characters, the fraction a word is animated in is this over its length.
 	NPCPlayerStanding standing;
 	NpcKind npc_kind;
 	PathCacheHandle cached_path;

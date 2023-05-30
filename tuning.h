@@ -8,12 +8,13 @@
 #define PLAYER_SPEED 3.5f // in meters per second
 #define PLAYER_ROLL_SPEED 7.0f
 #define PERCEPTION_HEARING_RAGE (TILE_SIZE*4.0f)
-#define WORDS_PER_SEC 7.0f
+#define CHARACTERS_PER_SEC 45.0f
 
 #define ARENA_SIZE (1024*1024)
 
 #ifdef DEVTOOLS
 // server url cannot have trailing slash
+//#define MOCK_AI_RESPONSE
 #define SERVER_DOMAIN "localhost"
 #define SERVER_PORT 8090
 #define IS_SERVER_SECURE 0

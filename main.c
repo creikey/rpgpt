@@ -980,7 +980,8 @@ void remember_action(Entity *to_modify, Action a, MemoryContext context)
 	push_memory(to_modify, MD_S8(a.speech, a.speech_length), a.kind, (ActionArgument){0}, context, false);
 	if(context.i_said_this)
 	{
-		to_modify->words_said = 0.0;
+		to_modify->words_said = 0;
+		to_modify->word_anim_in = 0;
 	}
 }
 
@@ -2633,6 +2634,29 @@ typedef struct
 	bool was_last_said;
 } DialogElement;
 
+MD_String8List last_said_without_unsaid_words(MD_Arena *arena, Entity *it)
+{
+	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
+	MD_String8List by_word = split_by_word(scratch.arena, last_said_sentence(it));
+	MD_String8Node *cur = by_word.first;
+	MD_String8List without_unsaid_words = {0};
+	for(int i = 0; i < by_word.node_count; i++)
+	{
+		if(i >= it->words_said)
+		{
+			break;
+		}
+		else
+		{
+			assert(cur);
+			MD_S8ListPush(arena, &without_unsaid_words, cur->string);
+			cur = cur->next;
+		}
+	}
+	MD_ReleaseScratch(scratch);
+	return without_unsaid_words;
+}
+
 // Some perceptions can have multiple dialog elements.
 // Like item give perceptions that have an action with both dialog
 // and an argument. So worst case every perception has 2 dialog
@@ -2655,23 +2679,7 @@ Dialog produce_dialog(Entity *talking_to, bool character_names)
 				if(last_said_sentence(talking_to).str == it->speech)
 				{
 					new_element.was_last_said = true;
-					MD_String8List by_word = split_by_word(scratch.arena, MD_S8(it->speech, it->speech_length));
-					MD_String8Node *cur = by_word.first;
-					MD_String8List without_unsaid_words = {0};
-					for(int i = 0; i < by_word.node_count; i++)
-					{
-						if(i >= (int)talking_to->words_said)
-						{
-							break;
-						}
-						else
-						{
-							assert(cur);
-							MD_S8ListPush(scratch.arena, &without_unsaid_words, cur->string);
-							cur = cur->next;
-						}
-					}
-					my_speech = MD_S8ListJoin(scratch.arena, without_unsaid_words, &(MD_StringJoin){.mid = MD_S8Lit(" ")});
+					my_speech = MD_S8ListJoin(scratch.arena, last_said_without_unsaid_words(scratch.arena, talking_to), &(MD_StringJoin){.mid = MD_S8Lit(" ")});
 				}
 
 				MD_String8 dialog_speech = MD_S8Fmt(scratch.arena, "%s: %.*s", characters[it->context.author_npc_kind].name, MD_S8VArg(my_speech));
@@ -3282,29 +3290,43 @@ void frame(void)
 							// character speech animation text input
 							if (true)
 							{
-								int before = (int)it->words_said;
-
-								it->word_anim_in = Lerp((float)it->word_anim_in, unwarped_dt * 15.0f, 1.0f);
-
 								MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-								if(before < split_by_word(scratch.arena, last_said_sentence(it)).node_count)
-								{
-									it->words_said += WORDS_PER_SEC * unwarped_dt;
-								}
-								MD_ReleaseScratch(scratch);
 
-								if( (int)it->words_said > before)
+								MD_String8List split = split_by_word(scratch.arena, last_said_sentence(it));
+								if(it->words_said <= split.node_count)
 								{
-									float dist = LenV2(SubV2(it->pos, player->pos));
-									float volume = Lerp(-0.6f, clamp01(dist / 70.0f), -1.0f);
-									AudioSample * possible_grunts[] = {
-										&sound_grunt_0,
-										&sound_grunt_1,
-										&sound_grunt_2,
-										&sound_grunt_3,
-									};
-									play_audio(possible_grunts[rand() % ARRLEN(possible_grunts)], volume);
-									it->word_anim_in = 0.0;
+									it->word_anim_in += CHARACTERS_PER_SEC * unwarped_dt;
+									int characters_in_animating_word = 0;
+									MD_String8Node *cur = split.first;
+									for(int i = 0; i < it->words_said + 1; i++)
+									{
+										if(cur)
+										{
+											if(i >= it->words_said - 1)
+											{
+												characters_in_animating_word = (int)cur->string.size;
+												break;
+											}
+											cur = cur->next;
+										}
+									}
+									if((int)it->word_anim_in + 1 > characters_in_animating_word)
+									{
+										it->words_said += 1;
+										if(it->words_said < split.node_count)
+										{
+											it->word_anim_in = 0;
+										}
+										float dist = LenV2(SubV2(it->pos, player->pos));
+										float volume = Lerp(-0.6f, clamp01(dist / 70.0f), -1.0f);
+										AudioSample * possible_grunts[] = {
+											&sound_grunt_0,
+											&sound_grunt_1,
+											&sound_grunt_2,
+											&sound_grunt_3,
+										};
+										play_audio(possible_grunts[rand() % ARRLEN(possible_grunts)], volume);
+									}
 								}
 							}
 
@@ -3764,7 +3786,12 @@ void frame(void)
 								MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 
 								MD_String8 ai_response = {0};
-								bool mocking_the_ai_response = true;
+								bool mocking_the_ai_response = false;
+#ifdef DEVTOOLS
+#ifdef MOCK_AI_RESPONSE
+								mocking_the_ai_response = true;
+#endif
+#endif
 								bool succeeded = true; // couldn't get AI response if false
 								if(mocking_the_ai_response)
 								{
@@ -3804,7 +3831,7 @@ void frame(void)
 									}
 									else
 									{
-										ai_response = MD_S8Lit(" Within the player's party, while the player is talking to Meld, you hear: ACT_none \"Better have a good reason for bothering me.\"");
+										ai_response = MD_S8Lit(" Within the player's party, while the player is talking to Meld, you hear: ACT_none \"Better have a good reason for bothering me. fjdskfjdsakfjsdakf\"");
 									}
 								}
 								else
@@ -4384,7 +4411,7 @@ void frame(void)
 										float this_text_scale = text_scale;
 										if(it->was_last_said && cur->next == 0)
 										{
-											this_text_scale *= talking_to->word_anim_in;
+											this_text_scale *= clamp01(talking_to->word_anim_in / (float)cur->text.size);
 										}
 										AABB clipping_aabb = dialog_panel;
 										clipping_aabb.lower_right.y -= 50.0f;
