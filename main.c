@@ -1381,7 +1381,7 @@ void init(void)
 #ifdef WEB
 	EM_ASM( {
 			set_server_url(UTF8ToString($0));
-			}, SERVER_URL);
+			}, SERVER_DOMAIN );
 #endif
 
 #ifdef DEVTOOLS
@@ -3773,7 +3773,7 @@ void frame(void)
 #ifdef WEB
 								// fire off generation request, save id
 								MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-								MD_String8 terminated_completion_url = MD_S8Fmt(scratch.arena, "%s/completion\0", SERVER_URL);
+								MD_String8 terminated_completion_url = MD_S8Fmt(scratch.arena, "%s:%d/completion\0", SERVER_DOMAIN, SERVER_PORT);
 								int req_id = EM_ASM_INT( {
 										return make_generation_request(UTF8ToString($1, $2), UTF8ToString($0));
 										}, terminated_completion_url.str, prompt_str.str, prompt_str.size);
