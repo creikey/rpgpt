@@ -1199,6 +1199,7 @@ void reset_level()
 
 	ENTITIES_ITER(gs.entities)
 	{
+		if(false)
 		if (it->npc_kind == NPC_TheBlacksmith)
 		{
 			Memory test_memory = {0};

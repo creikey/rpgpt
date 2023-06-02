@@ -95,11 +95,28 @@ ItemInfo items[] = {
 	},
 };
 
+typedef enum
+{
+	MSG_SYSTEM,
+	MSG_USER,
+	MSG_ASSISTANT,
+} MessageType;
+
+typedef struct
+{
+	MessageType type;
+	char *character_name; // not the enum name
+	char *dialog;
+	char *action_taken; // has the ACT prefix, so ACT_action. If it's null it means ACT_none
+	char *action_argument; // if not null then action argument provided in parenthesis
+} ChatHistoryElem;
+
 typedef struct 
 {
 	char *name;
 	char *enum_name;
 	char *prompt;
+	ChatHistoryElem previous_conversation[32];
 } CharacterGen;
 CharacterGen characters[] = {
 #define NUMEROLOGIST "They are a 'numberoligist' who believes in the sacred power of numbers, that if you have the number 8 in your birthday you are magic and destined for success. "
@@ -260,17 +277,16 @@ CharacterGen characters[] = {
 #define NPC_NAME "Bill"
 		.name = NPC_NAME,
 		.enum_name = "Bill",
-		.prompt = "\n"
-			"The NPC you will be acting as is named " NPC_NAME ". Unlike other NPCs, he's not from around this medieval fantasy land. He's a divorced car insurance accountant from Philadelphia with a receding hairline in his mid 40s. He lives in a one bedroom studio and his kids don't talk to him. An example of an interaction between the player and the NPC, " NPC_NAME ":\n"
-			"\n"
-			PLAYERSAY("Hey what's up")
-			NPCSAY("Oh...Oh my gosh JESUS FUCKING CHRIST WHERE AM I")
-			PLAYERSAY("Calm down dude")
-			NPCSAY("First I was at home, now all the sudden there's all these monsters and FREAKS! GET ME THE FUCK OUT!!")
-			PLAYERSAY("Freaks? What is the point of this world, where are we?")
-			NPCDOSAY("ACT_joins_player", "I have no idea man, but I'm freaked out and don't know where I am. I'm like you, from the normal world, not like these crazy fantasy people. Get me out of here GET ME OUT OF HERE!")
-			"\n"
-			"You, " NPC_NAME ", are very eager to join the player out of fear for your own survival. You will do anything to escape this weird fantasy world.",
+		.prompt =  "He's not from around this medieval fantasy land, instead " NPC_NAME " is a divorced car insurance accountant from Philadelphia with a receding hairline in his mid 40s. He lives in a one bedroom studio and his kids don't talk to him. " NPC_NAME " is terrified and will immediately insist on joining the player's party via ACT_join_player upon meeting them.",
+		.previous_conversation = {
+			{ .type = MSG_USER,      .character_name = "Jester", .dialog = "Hehehe! Quit quant, a peasant from the mortal realm!" },
+			{ .type = MSG_ASSISTANT, .character_name = NPC_NAME, .dialog = "No...Please! Stay away from me! Who the Hell are you!" },
+			{ .type = MSG_USER,      .character_name = "Jester", .dialog = "Poor Bill, I'm sure your wife says the same..." },
+			{ .type = MSG_ASSISTANT, .character_name = NPC_NAME, .dialog = "You evil BASTARD!! What is this place???" },
+			{ .type = MSG_USER, .action_taken = "ACT_causes_testicular_torsion",      .character_name = "Jester", .dialog = "I'll leave that for you to find out ;)" },
+			{ .type = MSG_ASSISTANT, .character_name = NPC_NAME, .dialog = "AUGGHGHHH!!! THE PAIN IS UNBEARABLE" },
+			{ .type = MSG_USER, .action_taken = "ACT_undoes_testicular_torsion",      .character_name = "Jester", .dialog = "That's just a taste of what's to come! Bye bye~" },
+		},
 	},
 	{
 #undef NPC_NAME

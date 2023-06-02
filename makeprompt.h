@@ -370,13 +370,6 @@ bool npc_does_dialog(Entity *it)
 	return it->npc_kind < ARRLEN(characters);
 }
 
-typedef enum
-{
-	MSG_SYSTEM,
-	MSG_USER,
-	MSG_ASSISTANT,
-} MessageType;
-
 // for no trailing comma just trim the last character
 MD_String8 make_json_node(MD_Arena *arena, MessageType type, MD_String8 content)
 {
@@ -460,8 +453,30 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e)
 	MD_String8List list = {0};
 
 	MD_S8ListPushFmt(scratch.arena, &list, "[");
+	
+	MD_String8List first_system_string = {0};
 
-	MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, MSG_SYSTEM, MD_S8Fmt(scratch.arena, "%s\n%s\n", global_prompt, characters[e->npc_kind].prompt)));
+	MD_S8ListPushFmt(scratch.arena, &first_system_string, "%s\n", global_prompt);
+	MD_S8ListPushFmt(scratch.arena, &first_system_string, "The NPC you will be acting as is named \"%s\". %s", characters[e->npc_kind].name, characters[e->npc_kind].prompt);
+	MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, MSG_SYSTEM, MD_S8ListJoin(scratch.arena, first_system_string, &(MD_StringJoin){0})));
+
+	for(int i = 0; i < ARRLEN(characters[e->npc_kind].previous_conversation); i++)
+	{
+		ChatHistoryElem *cur = &characters[e->npc_kind].previous_conversation[i];
+		if(!cur->character_name) break;
+
+		MD_String8List cur_node_string = {0};
+		char *action_string = "ACT_none";
+		if(cur->action_taken)  action_string = cur->action_taken;
+		MD_S8ListPushFmt(scratch.arena, &cur_node_string, "%s: %s", cur->character_name, action_string);
+		if(cur->action_argument)
+		{
+			MD_S8ListPushFmt(scratch.arena, &cur_node_string, "(%s)", cur->action_argument);
+		}
+		MD_S8ListPushFmt(scratch.arena, &cur_node_string, " \"%s\"", cur->dialog);
+
+		MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, cur->type, MD_S8ListJoin(scratch.arena, cur_node_string, &(MD_StringJoin){0})));
+	}
 
 	ItemKind last_holding = ITEM_none;
 	BUFF_ITER(Memory, &e->memories)
