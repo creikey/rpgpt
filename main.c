@@ -254,10 +254,12 @@ void do_parsing_tests()
 	MD_String8 speech;
 
 	speech = MD_S8Lit("Better have a good reason for bothering me.");
-	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Fmt(scratch.arena, " Within the player's party, while the player is talking to Meld, you hear: ACT_none \"%.*s\"", MD_S8VArg(speech)), &a);
+	MD_String8 thoughts = MD_S8Lit("Man I'm tired today\" Whatever.");
+	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Fmt(scratch.arena, " Within the player's party, while the player is talking to Meld, you hear: ACT_none \"%.*s\" [%.*s]", MD_S8VArg(speech), MD_S8VArg(thoughts)), &a);
 	assert(error.size == 0);
 	assert(a.kind == ACT_none);
 	assert(MD_S8Match(speech, MD_S8(a.speech, a.speech_length), 0));
+	assert(MD_S8Match(thoughts, MD_S8(a.internal_monologue, a.internal_monologue_length), 0));
 
 	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \"Here you go\""), &a);
 	assert(error.size > 0);
@@ -270,7 +272,7 @@ void do_parsing_tests()
 
 	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice \""), &a);
 	assert(error.size > 0);
-	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \"Here you go\""), &a);
+	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \"Here you go\" [Man I'm gonna miss that chalice]"), &a);
 	assert(error.size == 0);
 	assert(a.kind == ACT_give_item);
 	assert(a.argument.item_to_give == ITEM_Chalice);
@@ -945,7 +947,7 @@ Entity *gete(EntityRef ref)
 	}
 }
 
-void push_memory(Entity *e, MD_String8 speech, ActionKind a_kind, ActionArgument a_argument, MemoryContext context, bool is_error)
+void push_memory(Entity *e, MD_String8 speech, MD_String8 monologue, ActionKind a_kind, ActionArgument a_argument, MemoryContext context, bool is_error)
 {
 	Memory new_memory = {.action_taken = a_kind};
 	assert(speech.size <= ARRLEN(new_memory.speech));
@@ -955,6 +957,8 @@ void push_memory(Entity *e, MD_String8 speech, ActionKind a_kind, ActionArgument
 	new_memory.action_argument = a_argument;
 	memcpy(new_memory.speech, speech.str, speech.size);
 	new_memory.speech_length = (int)speech.size;
+	memcpy(new_memory.internal_monologue, monologue.str, monologue.size);
+	new_memory.internal_monologue_length = (int)monologue.size;
 	if(!BUFF_HAS_SPACE(&e->memories))
 	{
 		BUFF_REMOVE_FRONT(&e->memories);
@@ -972,12 +976,12 @@ void remember_error(Entity *to_modify, MD_String8 error_message)
 {
 	assert(!to_modify->is_character); // this is a game logic bug if a player action is invalid
 
-	push_memory(to_modify, error_message, ACT_none, (ActionArgument){0}, (MemoryContext){0}, true);
+	push_memory(to_modify, error_message, MD_S8(0, 0), ACT_none, (ActionArgument){0}, (MemoryContext){0}, true);
 }
 
 void remember_action(Entity *to_modify, Action a, MemoryContext context)
 {
-	push_memory(to_modify, MD_S8(a.speech, a.speech_length), a.kind, (ActionArgument){0}, context, false);
+	push_memory(to_modify, MD_S8(a.speech, a.speech_length), MD_S8(a.internal_monologue, a.internal_monologue_length), a.kind, (ActionArgument){0}, context, false);
 	if(context.i_said_this)
 	{
 		to_modify->words_said = 0;
@@ -3329,6 +3333,8 @@ void frame(void)
 										play_audio(possible_grunts[rand() % ARRLEN(possible_grunts)], volume);
 									}
 								}
+
+								MD_ReleaseScratch(scratch);
 							}
 
 

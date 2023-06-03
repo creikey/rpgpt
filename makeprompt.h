@@ -94,6 +94,8 @@ typedef struct Action
 	MD_u8 speech[MAX_SENTENCE_LENGTH];
 	int speech_length;
 
+	MD_u8 internal_monologue[MAX_SENTENCE_LENGTH];
+	int internal_monologue_length;
 } Action;
 typedef struct 
 {
@@ -119,6 +121,10 @@ typedef struct Memory
 
 	MD_u8 speech[MAX_SENTENCE_LENGTH];
 	int speech_length;
+
+	// internal monologue is only valid if context.is_said_this is true
+	MD_u8 internal_monologue[MAX_SENTENCE_LENGTH];
+	int internal_monologue_length;
 
 	ItemKind given_or_received_item;
 } Memory;
@@ -474,6 +480,10 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e)
 			MD_S8ListPushFmt(scratch.arena, &cur_node_string, "(%s)", cur->action_argument);
 		}
 		MD_S8ListPushFmt(scratch.arena, &cur_node_string, " \"%s\"", cur->dialog);
+		if(cur->internal_monologue)
+		{
+			MD_S8ListPushFmt(scratch.arena, &cur_node_string, " [%s]", cur->internal_monologue);
+		}
 
 		MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, cur->type, MD_S8ListJoin(scratch.arena, cur_node_string, &(MD_StringJoin){0})));
 	}
@@ -539,6 +549,7 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e)
 				sent_type = it->context.author_npc_kind == e->npc_kind ? MSG_ASSISTANT : MSG_USER;
 			}
 
+
 			if(actions[it->action_taken].takes_argument)
 			{
 				if(it->action_taken == ACT_give_item)
@@ -553,6 +564,11 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e)
 			else
 			{
 				current_string = MD_S8Fmt(scratch.arena, "%.*s ACT_%s \"%.*s\"", MD_S8VArg(context_string), actions[it->action_taken].name, it->speech_length, it->speech);
+			}
+
+			if(it->context.i_said_this)
+			{
+				current_string = MD_S8Fmt(scratch.arena, "%.*s [%.*s]", MD_S8VArg(current_string), it->internal_monologue_length, it->internal_monologue);
 			}
 		}
 
@@ -765,6 +781,20 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 
 	memcpy(out->speech, speech.str, speech.size);
 	out->speech_length = (int)speech.size;
+
+	MD_u64 beginning_of_monologue = MD_S8FindSubstring(sentence, MD_S8Lit("["), end_of_speech, 0);
+	MD_u64 end_of_monologue = MD_S8FindSubstring(sentence, MD_S8Lit("]"), beginning_of_monologue, 0);
+
+	if(beginning_of_monologue == sentence.size || end_of_monologue == sentence.size)
+	{
+		error_message = MD_S8Fmt(arena, "Expected an internal monologue for your character enclosed by '[' and ']' after the speech in quotes, but couldn't find anything!");
+		goto endofparsing;
+	}
+
+	MD_String8 monologue = MD_S8Substring(sentence, beginning_of_monologue + 1, end_of_monologue);
+	memcpy(out->internal_monologue, monologue.str, monologue.size);
+	out->internal_monologue_length = (int)monologue.size;
+
 
 endofparsing:
 	MD_ReleaseScratch(scratch);
