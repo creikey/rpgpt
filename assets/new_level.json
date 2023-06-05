@@ -344,12 +344,12 @@
                  "class":"",
                  "height":32,
                  "id":4,
-                 "name":"TheKing",
+                 "name":"PeaceTotem",
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":1523.72727272728,
-                 "y":1729.15151515151
+                 "x":1522.39393939395,
+                 "y":1570.48484848484
                 }, 
                 {
                  "class":"",
@@ -365,8 +365,8 @@
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":1504.33333333334,
-                 "y":2658
+                 "x":1601.66666666667,
+                 "y":1647.33333333333
                 }, 
                 {
                  "class":"",
@@ -382,8 +382,8 @@
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":1540.66666666668,
-                 "y":2094.33333333334
+                 "x":1383.33333333335,
+                 "y":2095.66666666667
                 }, 
                 {
                  "class":"",
@@ -421,8 +421,8 @@
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":1271,
-                 "y":2100
+                 "x":1128.33333333333,
+                 "y":2089.33333333333
                 }, 
                 {
                  "class":"",
@@ -439,12 +439,34 @@
                  "class":"",
                  "height":32,
                  "id":28,
+                 "name":"Jester",
+                 "rotation":0,
+                 "visible":true,
+                 "width":32,
+                 "x":3296.66666666667,
+                 "y":3270.33333333333
+                }, 
+                {
+                 "class":"",
+                 "height":32,
+                 "id":29,
                  "name":"Bill",
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":1523.33333333334,
-                 "y":2551.33333333333
+                 "x":1511,
+                 "y":2513
+                }, 
+                {
+                 "class":"",
+                 "height":32,
+                 "id":30,
+                 "name":"TheKing",
+                 "rotation":0,
+                 "visible":true,
+                 "width":32,
+                 "x":1516,
+                 "y":1720
                 }],
          "opacity":1,
          "type":"objectgroup",
@@ -453,7 +475,7 @@
          "y":0
         }],
  "nextlayerid":5,
- "nextobjectid":29,
+ "nextobjectid":31,
  "orientation":"orthogonal",
  "renderorder":"right-down",
  "tiledversion":"1.9.2",

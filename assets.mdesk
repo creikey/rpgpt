@@ -18,6 +18,10 @@
 {
  filepath: "grunt_3.wav",
 }
+@image peace_totem:
+{
+ filepath: "peace_totem.png",
+}
 @image merchant:
 {
  filepath: "copyrighted/merchant.png",

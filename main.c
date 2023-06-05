@@ -667,6 +667,10 @@ Vec2 entity_aabb_size(Entity *e)
 		{
 			return V2(TILE_SIZE*0.5f, TILE_SIZE*0.5f);
 		}
+		else if (e->npc_kind == NPC_PeaceTotem)
+		{
+			return V2(TILE_SIZE, TILE_SIZE);
+		}
 		else
 		{
 			assert(false);
@@ -1177,6 +1181,128 @@ void update_player_from_entities()
 	player->npc_kind = NPC_Player; // bad
 }
 
+typedef struct ToVisit {
+	struct ToVisit *next;
+	struct ToVisit *prev;
+	MD_Node *ptr;
+	int depth;
+} ToVisit ;
+
+bool in_arr(ToVisit *arr, MD_Node *n)
+{
+	for(ToVisit *cur = arr; cur; cur = cur->next)
+	{
+		if(cur->ptr == n) return true;
+	}
+	return false;
+}
+
+void dump_nodes(MD_Node *node)
+{
+	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+	ToVisit *horizon_first = 0;
+	ToVisit *horizon_last = 0;
+
+	ToVisit *visited = 0;
+
+	ToVisit *first = MD_PushArrayZero(scratch.arena, ToVisit, 1);
+	first->ptr = node;
+	MD_DblPushBack(horizon_first, horizon_last, first);
+
+	while(horizon_first)
+	{
+		ToVisit *cur_tovisit = horizon_first;
+		MD_DblRemove(horizon_first, horizon_last, cur_tovisit);
+		MD_StackPush(visited, cur_tovisit);
+		char *tagstr = "   ";
+		if(cur_tovisit->ptr->kind == MD_NodeKind_Tag) tagstr = "TAG";
+		printf("%s", tagstr);
+
+		for(int i = 0; i < cur_tovisit->depth; i++) printf(" |");
+
+		printf(" `%.*s`\n", MD_S8VArg(cur_tovisit->ptr->string));
+
+		ToVisit new = {.depth = cur_tovisit->depth + 1};
+		for(MD_Node *cur = cur_tovisit->ptr->first_child; !MD_NodeIsNil(cur); cur = cur->next)
+		{
+			if(!in_arr(visited, cur))
+			{
+				ToVisit *new = MD_PushArrayZero(scratch.arena, ToVisit, 1);
+				new->depth = cur_tovisit->depth + 1;
+				new->ptr = cur;
+				MD_DblPushFront(horizon_first, horizon_last, new);
+			}
+		}
+		for(MD_Node *cur = cur_tovisit->ptr->first_tag; !MD_NodeIsNil(cur); cur = cur->next)
+		{
+			if(!in_arr(visited, cur))
+			{
+				ToVisit *new = MD_PushArrayZero(scratch.arena, ToVisit, 1);
+				new->depth = cur_tovisit->depth + 1;
+				new->ptr = cur;
+				MD_DblPushFront(horizon_first, horizon_last, new);
+			}
+		}
+	}
+
+	MD_ReleaseScratch(scratch);
+}
+
+// allocates the error on the arena
+MD_Node *expect_childnode(MD_Arena *arena, MD_Node *parent, MD_String8 string, MD_String8List *errors)
+{
+	MD_Node *to_return = MD_NilNode();
+	if(errors->node_count == 0)
+	{
+		MD_Node *child_node = MD_ChildFromString(parent, string, 0);
+		if(MD_NodeIsNil(child_node))
+		{
+			MD_S8ListPushFmt(arena, errors, "Couldn't find expected field %.*s", MD_S8VArg(string));
+		}
+		else
+		{
+			to_return = child_node;
+		}
+	}
+	return to_return;
+}
+
+int parse_enumstr_impl(MD_Arena *arena, MD_String8 enum_str, char **enumstr_array, int enumstr_array_length, MD_String8List *errors, char *enum_kind_name, char *prefix)
+{
+	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
+	NpcKind to_return = NPC_Invalid;
+	if(errors->node_count == 0)
+	{
+		MD_String8 enum_name_looking_for = enum_str;
+		if(enum_name_looking_for.size == 0)
+		{
+			MD_S8ListPushFmt(arena, errors, "`%s` string must be of size greater than 0", enum_kind_name);
+		}
+		else
+		{
+			for(int i = 0; i < enumstr_array_length; i++)
+			{
+				if(MD_S8Match(MD_S8Fmt(scratch.arena, "%s%s", prefix, enumstr_array[i]), enum_name_looking_for, 0))
+				{
+					to_return = i;
+					break;
+				}
+			}
+		}
+	}
+
+	if(to_return == NPC_Invalid)
+	{
+		MD_S8ListPushFmt(arena, errors, "The %s `%.*s` could not be recognized in the game", enum_kind_name, MD_S8VArg(enum_str));
+	}
+
+	MD_ReleaseScratch(scratch);
+
+	return to_return;
+}
+
+#define parse_enumstr(arena, enum_str, errors, string_array, enum_kind_name, prefix) parse_enumstr_impl(arena, enum_str, string_array, ARRLEN(string_array), errors, enum_kind_name, prefix)
+
 void reset_level()
 {
 	// load level
@@ -1220,6 +1346,133 @@ void reset_level()
 		}
 	}
 #endif
+
+
+	// parse and enact the drama document
+	{
+		MD_String8List drama_errors = {0};
+
+		MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+		MD_String8 filename = MD_S8Lit("assets/drama.mdesk");
+		MD_String8 drama_document = MD_LoadEntireFile(scratch.arena, filename);
+		assert(drama_document.size != 0);
+		MD_ParseResult parse = MD_ParseWholeString(scratch.arena, filename, drama_document);
+		if(parse.errors.first)
+		{
+			for(MD_Message *cur = parse.errors.first; cur; cur = cur->next)
+			{
+				MD_String8 to_print = MD_FormatMessage(scratch.arena, MD_CodeLocFromNode(cur->node), cur->kind, cur->string);
+				MD_S8ListPushFmt(scratch.arena, &drama_errors, "Failed to parse: `%.*s`\n", MD_S8VArg(to_print));
+			}
+		}
+
+		if(drama_errors.node_count == 0)
+		{
+			MD_Node *can_hear = MD_NilNode();
+			for(MD_Node *cur = parse.node->first_child->first_child; !MD_NodeIsNil(cur) && drama_errors.node_count == 0; cur = cur->next)
+			{
+				MD_Node *cur_can_hear = MD_ChildFromString(cur, MD_S8Lit("can_hear"), 0);
+				if(!MD_NodeIsNil(cur_can_hear))
+				{
+					if(MD_NodeIsNil(cur_can_hear->first_child))
+					{
+						MD_S8ListPushFmt(scratch.arena, &drama_errors, "`can_hear` must be followed by a valid array of NPC kinds who can hear the following conversation");
+					}
+					else
+					{
+						can_hear = cur_can_hear->first_child;
+					}
+				}
+				else
+				{
+					if(MD_NodeIsNil(can_hear))
+					{
+						MD_S8ListPushFmt(scratch.arena, &drama_errors, "Expected a statement with `can_hear` before any speech that says who can hear the current speech");
+					}
+
+					Action current_action = {0};
+					MemoryContext current_context = {0};
+					current_context.dont_show_to_player = true;
+					if(drama_errors.node_count == 0)
+					{
+						MD_String8 enum_str = expect_childnode(scratch.arena, cur, MD_S8Lit("enum"), &drama_errors)->first_child->string;
+						MD_String8 dialog = expect_childnode(scratch.arena, cur, MD_S8Lit("dialog"), &drama_errors)->first_child->string;
+						MD_String8 thoughts = MD_ChildFromString(cur, MD_S8Lit("thoughts"), 0)->first_child->string;
+						MD_String8 action = MD_ChildFromString(cur, MD_S8Lit("action"), 0)->first_child->string; 
+
+						current_context.author_npc_kind = parse_enumstr(scratch.arena, enum_str, &drama_errors, NpcKind_names, "NpcKind", "NPC_");
+						if(action.size > 0)
+						{
+							current_action.kind = parse_enumstr(scratch.arena, action, &drama_errors,ActionKind_names, "ActionKind", "ACT_");
+						}
+
+						if(dialog.size >= ARRLEN(current_action.speech))
+						{
+							MD_S8ListPushFmt(scratch.arena, &drama_errors, "Current action's speech is of size %d, bigger than allowed size %d", dialog.size, ARRLEN(current_action.speech));
+						}
+						if(thoughts.size >= ARRLEN(current_action.internal_monologue))
+						{
+							MD_S8ListPushFmt(scratch.arena, &drama_errors, "Current thought's speech is of size %d, bigger than allowed size %d", thoughts.size, ARRLEN(current_action.internal_monologue));
+						}
+						if(drama_errors.node_count == 0)
+						{
+							memcpy(current_action.speech, dialog.str, dialog.size);
+							current_action.speech_length = (int)dialog.size;
+
+							memcpy(current_action.internal_monologue, thoughts.str, thoughts.size);
+							current_action.internal_monologue_length = (int)thoughts.size;
+						}
+					}
+
+					if(drama_errors.node_count == 0)
+					{
+						for(MD_Node *cur_kind_node = can_hear; !MD_NodeIsNil(cur_kind_node); cur_kind_node = cur_kind_node->next)
+						{
+							NpcKind want = parse_enumstr(scratch.arena, cur_kind_node->string, &drama_errors, NpcKind_names, "NpcKind", "NPC_");
+							if(drama_errors.node_count == 0)
+							{
+								bool found = false;
+								ENTITIES_ITER(gs.entities)
+								{
+									if(it->is_npc && it->npc_kind == want)
+									{
+										MemoryContext this_context = current_context;
+										if(it->npc_kind == current_context.author_npc_kind)
+										{
+											this_context.i_said_this = true;
+										}
+										remember_action(it, current_action, this_context);
+										found = true;
+										break;
+									}
+								}
+
+								if(!found)
+								{
+									MD_S8ListPushFmt(scratch.arena, &drama_errors, "Couldn't find NPC of kind %s in the current map", characters[want].enum_name);
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if(drama_errors.node_count > 0)
+		{
+			for(MD_String8Node *cur = drama_errors.first; cur; cur = cur->next)
+			{
+				fprintf(stderr, "Error: %.*s\n", MD_S8VArg(cur->string));
+			}
+			assert(false);
+		}
+
+
+		ENTITIES_ITER(gs.entities)
+		{
+			it->perceptions_dirty = false; // nobody should say anything about jester memories
+		}
+	}
 }
 
 
@@ -2674,7 +2927,7 @@ Dialog produce_dialog(Entity *talking_to, bool character_names)
 	Dialog to_return = { 0 };
 	BUFF_ITER(Memory, &talking_to->memories)
 	{
-		if(!it->is_error)
+		if(!it->is_error && !it->context.dont_show_to_player)
 		{
 			if(it->speech_length > 0)
 			{
@@ -3605,6 +3858,7 @@ void frame(void)
 										}
 									}
 								}
+
 							if (it->npc_kind == NPC_OldMan)
 							{
 								/*
@@ -3697,6 +3951,12 @@ void frame(void)
 							{
 							}
 							else if (it->npc_kind == NPC_Bill)
+							{
+							}
+							else if (it->npc_kind == NPC_Jester)
+							{
+							}
+							else if (it->npc_kind == NPC_PeaceTotem)
 							{
 							}
 							else
@@ -4236,11 +4496,21 @@ void frame(void)
 						{
 							tint = colhex(0x49d14b);
 						}
+						else if (it->npc_kind == NPC_Jester)
+						{
+							tint = colhex(0x49d14b);
+						}
 						else
 						{
 							assert(false);
 						}
 						draw_animated_sprite((DrawnAnimatedSprite) { ANIM_knight_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), tint });
+					}
+					else if(it->npc_kind == NPC_PeaceTotem)
+					{
+						DrawParams d = (DrawParams) { true, quad_centered(AddV2(it->pos, V2(-0.0f, 0.0)), V2(64, 64)), IMG(image_peace_totem), WHITE, .layer = LAYER_WORLD, };
+						draw_shadow_for(d);
+						draw_quad(d);
 					}
 					else
 					{

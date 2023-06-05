@@ -104,6 +104,7 @@ typedef struct
 	NpcKind author_npc_kind; // only valid if author is AuthorNpc
 	bool was_directed_at_somebody;
 	NpcKind directed_at_kind;
+	bool dont_show_to_player; // jester and past memories are hidden to the player when made into dialog
 } MemoryContext;
 
 // memories are subjective to an individual NPC
@@ -226,6 +227,9 @@ typedef struct Entity
 	bool held_by_player;
 	ItemKind item_kind;
 
+	// peace totem
+	float red_fade;
+
 	// npcs
 	bool is_npc;
 	bool being_hovered;
@@ -255,10 +259,9 @@ typedef struct Entity
 	bool is_character;
 	bool knighted;
 	bool in_conversation_mode;
+	int peace_tokens;
 	Vec2 to_throw_direction;
-
 	BUFF(Vec2, 8) position_history; // so npcs can follow behind the player
-
 	CharacterState state;
 	EntityRef talking_to;
 	bool is_rolling; // can only roll in idle or walk states
@@ -277,6 +280,7 @@ bool npc_is_knight_sprite(Entity *it)
 		|| it->npc_kind == NPC_Blue
 		|| it->npc_kind == NPC_Davis
 		|| it->npc_kind == NPC_Bill
+		|| it->npc_kind == NPC_Jester
 		);
 }
 
@@ -465,28 +469,6 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e)
 	MD_S8ListPushFmt(scratch.arena, &first_system_string, "%s\n", global_prompt);
 	MD_S8ListPushFmt(scratch.arena, &first_system_string, "The NPC you will be acting as is named \"%s\". %s", characters[e->npc_kind].name, characters[e->npc_kind].prompt);
 	MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, MSG_SYSTEM, MD_S8ListJoin(scratch.arena, first_system_string, &(MD_StringJoin){0})));
-
-	for(int i = 0; i < ARRLEN(characters[e->npc_kind].previous_conversation); i++)
-	{
-		ChatHistoryElem *cur = &characters[e->npc_kind].previous_conversation[i];
-		if(!cur->character_name) break;
-
-		MD_String8List cur_node_string = {0};
-		char *action_string = "ACT_none";
-		if(cur->action_taken)  action_string = cur->action_taken;
-		MD_S8ListPushFmt(scratch.arena, &cur_node_string, "%s: %s", cur->character_name, action_string);
-		if(cur->action_argument)
-		{
-			MD_S8ListPushFmt(scratch.arena, &cur_node_string, "(%s)", cur->action_argument);
-		}
-		MD_S8ListPushFmt(scratch.arena, &cur_node_string, " \"%s\"", cur->dialog);
-		if(cur->internal_monologue)
-		{
-			MD_S8ListPushFmt(scratch.arena, &cur_node_string, " [%s]", cur->internal_monologue);
-		}
-
-		MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, cur->type, MD_S8ListJoin(scratch.arena, cur_node_string, &(MD_StringJoin){0})));
-	}
 
 	ItemKind last_holding = ITEM_none;
 	BUFF_ITER(Memory, &e->memories)
