@@ -26,7 +26,7 @@
 #endif
 
 // REFACTORING:: also have to update in javascript!!!!!!!!
-#define MAX_SENTENCE_LENGTH 400 // LOOOK AT AGBOVE COMMENT GBEFORE CHANGING
+#define MAX_SENTENCE_LENGTH 600 // LOOOK AT AGBOVE COMMENT GBEFORE CHANGING
 #define SENTENCE_CONST(txt) { .data = txt, .cur_index = sizeof(txt) }
 #define SENTENCE_CONST_CAST(txt) (Sentence)SENTENCE_CONST(txt)
 

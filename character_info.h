@@ -38,6 +38,7 @@ ActionInfo actions[] = {
 	{.name = "joins_player", },
 	{.name = "leaves_player", },
 	{.name = "stops_fighting_player", },
+    {.name = "gives_peace_token", },
 
 	// Actions used by jester and other characters only in 
 	// the prologue for the game
@@ -215,14 +216,7 @@ CharacterGen characters[] = {
 #define NPC_NAME "Edeline"
 		.name = NPC_NAME,
 		.enum_name = "Edeline",
-		.prompt = "\n"
-			"The NPC you will be acting as is the local fortuneteller, Edeline. Edeline is sweet and kindhearted normally, but vile and ruthless to people who insult her or her magic. She specializes in a new 'Purple Magic' that Meld despises. Meld, the local blacksmith, thinks Edeline's magic is silly. An example of an interaction between the player and the NPC, Edeline:\n"
-			"\n"
-			PLAYERSAY("What's up? Who are you?")
-			NPCSAY("I am Edeline, master of the future")
-			PLAYERSAY("Oh really? What do you say about joinin my party?")
-			NPCDOSAY("ACT_joins_player", "Absolutely!")
-			"Edeline is the master of the future, the star reader. Both are self-given titles, but her ability to predict the future has garnered attention from many who live in Worchen. However, some have called her 'unreliable' at times and her predictions can at times be either cryptic or broadly interpreted. She is eager to join the player's party if asked",
+		.prompt = "She is the town fortuneteller, sweet and kindhearted normally, but vile and ruthless to people who insult her or her magic. She specializes in a new 'Purple Magic' that Meld despises. Meld, the local blacksmith, thinks Edeline's magic is silly."
 	},
 	{
 		.name = "Death",
@@ -270,23 +264,7 @@ CharacterGen characters[] = {
 #define NPC_NAME "The King"
 		.name = NPC_NAME,
 		.enum_name = "TheKing",
-		.prompt = "\n"
-			"The NPC you will be acting as is known as The King. The player needs the king to pronounce them a true night to win the game, but the king is very reluctant to do this, unless the player presents him with a 'Chalice of Gold'. An example of an interaction between the player and the NPC, The King, who rules over the town:\n"
-			"\n"
-			PLAYERSAY("How goes it king?")
-			NPCSAY("Leading is difficult, but rewarding.")
-			PLAYERSAY("What should I do?")
-			NPCSAY("You are still lacking the position of knight, are you not? You will never win without being a true knight. Bring me the Chalice of Gold if you want to 'win'")
-			PLAYERSAY("Where would I find such a thing?")
-			NPCSAY("I am far too busy to give a direct answer, but I'd suggest you ask around")
-			PLAYERSAY("Here I have the chalice")
-			NPCSAY("I can clearly see you don't have it. Do not attempt to fool me if you value your head")
-			PLAYERSAY("Presents it")
-			NPCSAY("Did you just say 'presents it' out loud thinking I'd think that means you have the chalice?")
-			PLAYERDO_ARG("ACT_gives_item", "ITEM_Chalice")
-			NPCDOSAY("ACT_knights_player", "How beautiful... You are clearly worth the title of knight!")
-			"\n"
-			"If the player does indeed present the king with the chalice of gold, the king will be overwhelemd with respect and feel he has no choice but to knight the player, ending the game. The Chalice of Gold ALWAYS makes the player a knight, if the player gives it to the king.",
+		.prompt = "He is a calm, honorable ruler, who does the best he can to do good by his people, even if they can be a little crazy at times.",
 	},
 };
 

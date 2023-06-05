@@ -1007,6 +1007,13 @@ void cause_action_side_effects(Entity *from, Entity *to, Action a)
 		assert(false);
 	}
 
+    if(a.kind == ACT_gives_peace_token)
+    {
+        assert(!from->has_given_peace_token);
+        from->has_given_peace_token = true;
+				to->peace_tokens += 1;
+    }
+
 	if(a.kind == ACT_give_item)
 	{
 		assert(a.argument.item_to_give != ITEM_none);
@@ -2827,23 +2834,29 @@ PlacedWordList place_wrapped_words(MD_Arena *arena, MD_String8 text, float text_
 	float current_vertical_offset = 0.0f; // goes negative
 	for(MD_String8Node *next_word = words.first; next_word; next_word = next_word->next)
 	{
-		AABB word_bounds = draw_text((TextParams){false, true, next_word->string, V2(0.0, 0.0), .scale = text_scale});
-		word_bounds.lower_right.x += space_size;
-		float next_x_position = cur.x + aabb_size(word_bounds).x;
-		if(next_x_position - at_position.x > maximum_width)
+		if(next_word.size == 0)
 		{
-			current_vertical_offset -= font_line_advance*text_scale*1.1f; // the 1.1 is just arbitrary padding because it looks too crowded otherwise
-			cur = AddV2(at_position, V2(0.0f, current_vertical_offset));
-			next_x_position = cur.x + aabb_size(word_bounds).x;
 		}
+		else
+		{
+			AABB word_bounds = draw_text((TextParams){false, true, next_word->string, V2(0.0, 0.0), .scale = text_scale});
+			word_bounds.lower_right.x += space_size;
+			float next_x_position = cur.x + aabb_size(word_bounds).x;
+			if(next_x_position - at_position.x > maximum_width)
+			{
+				current_vertical_offset -= font_line_advance*text_scale*1.1f; // the 1.1 is just arbitrary padding because it looks too crowded otherwise
+				cur = AddV2(at_position, V2(0.0f, current_vertical_offset));
+				next_x_position = cur.x + aabb_size(word_bounds).x;
+			}
 
-		PlacedWord *new_placed = MD_PushArray(arena, PlacedWord, 1);
-		new_placed->text = next_word->string;
-		new_placed->lower_left_corner = cur;
+			PlacedWord *new_placed = MD_PushArray(arena, PlacedWord, 1);
+			new_placed->text = next_word->string;
+			new_placed->lower_left_corner = cur;
 
-		MD_DblPushBack(to_return.first, to_return.last, new_placed);
+			MD_DblPushBack(to_return.first, to_return.last, new_placed);
 
-		cur.x = next_x_position;
+			cur.x = next_x_position;
+		}
 	}
 
 	MD_ReleaseScratch(scratch);
@@ -4866,6 +4879,28 @@ void frame(void)
 
 		// ui
 #define HELPER_SIZE 250.0f
+
+		// how many peace tokens
+		{
+			MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+			const float to_screen_padding = 50.0f;
+			const float btwn_elems = 10.0f;
+			const float text_scale = 1.0f;
+			const float peace_token_icon_size = 50.0f;
+
+			TextParams t = {false, true, MD_S8Fmt(scratch.arena, "%d", player->peace_tokens), V2(0, 0), WHITE, text_scale};
+			AABB text_bounds = draw_text(t);
+			float total_elem_width = btwn_elems + peace_token_icon_size + aabb_size(text_bounds).x;
+			float elem_height = peace_token_icon_size;
+			AABB total_elem_box = aabb_at(V2(screen_size().x - to_screen_padding - total_elem_width, screen_size().y - to_screen_padding), V2(total_elem_width, elem_height));
+			draw_quad((DrawParams){false, quad_at(total_elem_box.upper_left, V2(peace_token_icon_size, peace_token_icon_size)), IMG(image_peace_orb), WHITE, .layer = LAYER_UI});
+			t.dry_run = false;
+			t.pos = AddV2(total_elem_box.upper_left, V2(peace_token_icon_size + btwn_elems + aabb_size(text_bounds).x/2.0f, -peace_token_icon_size/2.0f));
+			draw_text(t);
+			MD_ReleaseScratch(scratch);
+		}
+
+		// keyboard tutorial icons
 		if (!mobile_controls)
 		{
 			float total_height = HELPER_SIZE * 2.0f;

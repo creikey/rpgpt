@@ -234,6 +234,7 @@ typedef struct Entity
 	bool is_npc;
 	bool being_hovered;
 	bool perceptions_dirty;
+    bool has_given_peace_token;
 
 #ifdef DESKTOP
 	int times_talked_to; // for better mocked response string
@@ -323,6 +324,11 @@ void fill_available_actions(Entity *it, AvailableActions *a)
 	{
 		BUFF_APPEND(a, ACT_give_item);
 	}
+    
+    if (!it->has_given_peace_token)
+    {
+        BUFF_APPEND(a, ACT_gives_peace_token);
+    }
 	
 	if (it->npc_kind == NPC_TheKing)
 	{
@@ -443,6 +449,18 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Entity *to_might_be_nu
 			return MD_S8Lit("You can't give an item to nobody, you're currently not in conversation or targeting somebody.");
 		}
 	}
+
+    if(a.kind == ACT_gives_peace_token)
+    {
+        if(from->has_given_peace_token)
+        {
+            return MD_S8Lit("You can't give away a peace token when you've already given one away");
+        }
+        if(!to_might_be_null || !to_might_be_null->is_character)
+        {
+            return MD_S8Lit("Must be targeting the player to give away your peace token");
+        }
+    }
 
 	if(a.kind == ACT_leaves_player && from->standing != STANDING_JOINED)
 	{
@@ -604,6 +622,18 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e)
 		}
 	}
 	MD_S8ListPushFmt(scratch.arena, &latest_state, "]");
+
+    // peace token
+    {
+        if(e->has_given_peace_token)
+        {
+            MD_S8ListPushFmt(scratch.arena, &latest_state, "\nRight now you don't have your piece token so you can't give it anymore");
+        }
+        else
+        {
+            MD_S8ListPushFmt(scratch.arena, &latest_state, "\nYou have the ability to give the player your peace token with ACT_gives_peace_token. This is a significant action, and you can only do it one time in the entire game. Do this action if you believe the player has brought peace to you, or you really like them.");
+        }
+    }
 	MD_String8 latest_state_string = MD_S8ListJoin(scratch.arena, latest_state, &(MD_StringJoin){MD_S8Lit(""),MD_S8Lit(""),MD_S8Lit("")});
 
 	MD_S8ListPush(scratch.arena, &list, MD_S8Chop(make_json_node(scratch.arena, MSG_SYSTEM, latest_state_string), 1)); // trailing comma not allowed in json
