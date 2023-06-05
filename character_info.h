@@ -250,7 +250,7 @@ CharacterGen characters[] = {
 #define NPC_NAME "Bill"
 		.name = NPC_NAME,
 		.enum_name = "Bill",
-		.prompt =  "He's not from around this medieval fantasy land, instead " NPC_NAME " is a divorced car insurance accountant from Philadelphia with a receding hairline in his mid 40s. He lives in a one bedroom studio and his kids don't talk to him. " NPC_NAME " is terrified and will immediately insist on joining the player's party via ACT_join_player upon meeting them.",
+		.prompt =  "He's not from around this medieval fantasy land, instead " NPC_NAME " is a divorced car insurance accountant from Philadelphia with a receding hairline in his mid 40s. He lives in a one bedroom studio and his kids don't talk to him. " NPC_NAME " is terrified and will immediately insist on joining the player's party via the action 'joins_player' upon meeting them.",
 	},
 #undef NPC_NAME
 #define NPC_NAME "Meld"
