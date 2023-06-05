@@ -1620,6 +1620,11 @@ Color colhex(uint32_t hex)
 	return (Color) { (float)r / 255.0f, (float)g / 255.0f, (float)b / 255.0f, 1.0f };
 }
 
+Color blendcolors(Color a, float t, Color b)
+{
+	return LerpV4(a, t, b);
+}
+
 Color blendalpha(Color c, float alpha)
 {
 	Color to_return = c;
@@ -4221,9 +4226,23 @@ void frame(void)
 						{
 							if (closest_interact_with->is_npc)
 							{
-								// begin dialog with closest npc
-								player->state = CHARACTER_TALKING;
-								player->talking_to = frome(closest_interact_with);
+								if(closest_interact_with->npc_kind == NPC_PeaceTotem)
+								{
+									if(player->peace_tokens >= PEACE_TOKENS_NEEDED)
+									{
+										gs.won = true;
+									}
+									else
+									{
+										closest_interact_with->red_fade = 1.0f;
+									}
+								}
+								else
+								{
+									// begin dialog with closest npc
+									player->state = CHARACTER_TALKING;
+									player->talking_to = frome(closest_interact_with);
+								}
 							}
 							else
 							{
@@ -4511,6 +4530,14 @@ void frame(void)
 						DrawParams d = (DrawParams) { true, quad_centered(it->pos, V2(TILE_SIZE, TILE_SIZE)), IMG(image_peace_totem), WHITE, .layer = LAYER_WORLD, };
 						draw_shadow_for(d);
 						draw_quad(d);
+
+						it->red_fade = Lerp(it->red_fade, dt*2.0f, 0.0f);
+
+						float fade_requirements = Lerp(0.0f, 1.0f - clamp01(LenV2(SubV2(player->pos, it->pos))/(TILE_SIZE*4.0f)), 1.0f);
+
+						MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+						draw_centered_text((TextParams){true, false, MD_S8Fmt(scratch.arena, "%d/%d", player->peace_tokens, PEACE_TOKENS_NEEDED), AddV2(it->pos, V2(0.0, 32.0)), blendalpha(blendcolors(WHITE, it->red_fade, RED), fade_requirements), (1.0f / cam.scale)*(1.0f + it->red_fade*0.5f)});
+						MD_ReleaseScratch(scratch); 
 					}
 					else
 					{
