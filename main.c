@@ -2834,7 +2834,7 @@ PlacedWordList place_wrapped_words(MD_Arena *arena, MD_String8 text, float text_
 	float current_vertical_offset = 0.0f; // goes negative
 	for(MD_String8Node *next_word = words.first; next_word; next_word = next_word->next)
 	{
-		if(next_word.size == 0)
+		if(next_word->string.size == 0)
 		{
 		}
 		else

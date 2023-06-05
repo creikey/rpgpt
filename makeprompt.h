@@ -486,7 +486,7 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e)
 
 	MD_S8ListPushFmt(scratch.arena, &first_system_string, "%s\n", global_prompt);
 	MD_S8ListPushFmt(scratch.arena, &first_system_string, "The NPC you will be acting as is named \"%s\". %s", characters[e->npc_kind].name, characters[e->npc_kind].prompt);
-	MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, MSG_SYSTEM, MD_S8ListJoin(scratch.arena, first_system_string, &(MD_StringJoin){0})));
+	//MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, MSG_SYSTEM, MD_S8ListJoin(scratch.arena, first_system_string, &(MD_StringJoin){0})));
 
 	ItemKind last_holding = ITEM_none;
 	BUFF_ITER(Memory, &e->memories)
@@ -577,6 +577,9 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e)
 
 		MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, sent_type, current_string));
 	}
+
+	MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, MSG_SYSTEM, MD_S8ListJoin(scratch.arena, first_system_string, &(MD_StringJoin){0})));
+
 	const char *standing_string = 0;
 	{
 			if (e->standing == STANDING_INDIFFERENT)
@@ -634,6 +637,20 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e)
             MD_S8ListPushFmt(scratch.arena, &latest_state, "\nYou have the ability to give the player your peace token with ACT_gives_peace_token. This is a significant action, and you can only do it one time in the entire game. Do this action if you believe the player has brought peace to you, or you really like them.");
         }
     }
+
+	// last thought explanation and re-prompt
+	{
+		MD_String8 last_thought_string = {0};
+		BUFF_ITER(Memory, &e->memories)
+		{
+			if(it->internal_monologue_length > 0)
+			{
+				last_thought_string = MD_S8(it->internal_monologue, it->internal_monologue_length);
+			}
+		}
+		MD_S8ListPushFmt(scratch.arena, &latest_state, "\nYour last thought was: %.*s", last_thought_string);
+	}
+
 	MD_String8 latest_state_string = MD_S8ListJoin(scratch.arena, latest_state, &(MD_StringJoin){MD_S8Lit(""),MD_S8Lit(""),MD_S8Lit("")});
 
 	MD_S8ListPush(scratch.arena, &list, MD_S8Chop(make_json_node(scratch.arena, MSG_SYSTEM, latest_state_string), 1)); // trailing comma not allowed in json
@@ -694,9 +711,16 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 
 	if(!found_action)
 	{
-		MD_StringJoin join = {.pre = MD_S8Lit(""), .mid = MD_S8Lit(", "), .post = MD_S8Lit("")};
-		MD_String8 possible_actions_str = MD_S8ListJoin(scratch.arena, given_action_strings, &join);
-		error_message = MD_S8Fmt(arena, "ActionKind string given is '%.*s', but available actions are: [%.*s]", MD_S8VArg(given_action_string), MD_S8VArg(possible_actions_str));
+		if(MD_S8Match(given_action_string, MD_S8Lit("ACT_joins_player"), 0) && e->standing == STANDING_JOINED)
+		{
+			error_message = MD_S8Lit("Cannot join the player again when you've already joined them");
+		}
+		else
+		{
+			MD_StringJoin join = {.pre = MD_S8Lit(""), .mid = MD_S8Lit(", "), .post = MD_S8Lit("")};
+			MD_String8 possible_actions_str = MD_S8ListJoin(scratch.arena, given_action_strings, &join);
+			error_message = MD_S8Fmt(arena, "ActionKind string given is '%.*s', but available actions are: [%.*s]", MD_S8VArg(given_action_string), MD_S8VArg(possible_actions_str));
+		}
 		goto endofparsing;
 	}
 
