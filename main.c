@@ -4341,7 +4341,7 @@ void frame(void)
 				}
 
 				// interaction circle
-				draw_quad((DrawParams) { true, quad_centered(interacting_with->pos, V2(TILE_SIZE, TILE_SIZE)), image_hovering_circle, full_region(image_hovering_circle), WHITE });
+				draw_quad((DrawParams) { true, quad_centered(interacting_with->pos, V2(TILE_SIZE, TILE_SIZE)), image_hovering_circle, full_region(image_hovering_circle), WHITE, .layer = LAYER_UI });
 			}
 
 			if (player->state == CHARACTER_WALKING)
@@ -4508,7 +4508,7 @@ void frame(void)
 					}
 					else if(it->npc_kind == NPC_PeaceTotem)
 					{
-						DrawParams d = (DrawParams) { true, quad_centered(AddV2(it->pos, V2(-0.0f, 0.0)), V2(64, 64)), IMG(image_peace_totem), WHITE, .layer = LAYER_WORLD, };
+						DrawParams d = (DrawParams) { true, quad_centered(it->pos, V2(TILE_SIZE, TILE_SIZE)), IMG(image_peace_totem), WHITE, .layer = LAYER_WORLD, };
 						draw_shadow_for(d);
 						draw_quad(d);
 					}
