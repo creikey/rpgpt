@@ -1092,6 +1092,11 @@ bool perform_action(Entity *from, Action a)
 		proceed_propagating = false;
 	}
 
+	if(a.speech_length == 0 && a.kind == ACT_none)
+	{
+		proceed_propagating = false; // did nothing
+	}
+
 	if(proceed_propagating)
 	{
 		cause_action_side_effects(from, action_target, a);
