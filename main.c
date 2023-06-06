@@ -255,7 +255,7 @@ void do_parsing_tests()
 
 	speech = MD_S8Lit("Better have a good reason for bothering me.");
 	MD_String8 thoughts = MD_S8Lit("Man I'm tired today\" Whatever.");
-	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Fmt(scratch.arena, " Within the player's party, while the player is talking to Meld, you hear: ACT_none \"%.*s\" [%.*s]", MD_S8VArg(speech), MD_S8VArg(thoughts)), &a);
+	error = parse_chatgpt_response(scratch.arena, &e, FmtWithLint(scratch.arena, " Within the player's party, while the player is talking to Meld, you hear: ACT_none \"%.*s\" [%.*s]", MD_S8VArg(speech), MD_S8VArg(thoughts)), &a);
 	assert(error.size == 0);
 	assert(a.kind == ACT_none);
 	assert(MD_S8Match(speech, MD_S8(a.speech, a.speech_length), 0));
@@ -1264,7 +1264,7 @@ MD_Node *expect_childnode(MD_Arena *arena, MD_Node *parent, MD_String8 string, M
 		MD_Node *child_node = MD_ChildFromString(parent, string, 0);
 		if(MD_NodeIsNil(child_node))
 		{
-			MD_S8ListPushFmt(arena, errors, "Couldn't find expected field %.*s", MD_S8VArg(string));
+			PushWithLint(arena, errors, "Couldn't find expected field %.*s", MD_S8VArg(string));
 		}
 		else
 		{
@@ -1283,13 +1283,13 @@ int parse_enumstr_impl(MD_Arena *arena, MD_String8 enum_str, char **enumstr_arra
 		MD_String8 enum_name_looking_for = enum_str;
 		if(enum_name_looking_for.size == 0)
 		{
-			MD_S8ListPushFmt(arena, errors, "`%s` string must be of size greater than 0", enum_kind_name);
+			PushWithLint(arena, errors, "`%s` string must be of size greater than 0", enum_kind_name);
 		}
 		else
 		{
 			for(int i = 0; i < enumstr_array_length; i++)
 			{
-				if(MD_S8Match(MD_S8Fmt(scratch.arena, "%s%s", prefix, enumstr_array[i]), enum_name_looking_for, 0))
+				if(MD_S8Match(FmtWithLint(scratch.arena, "%s%s", prefix, enumstr_array[i]), enum_name_looking_for, 0))
 				{
 					to_return = i;
 					break;
@@ -1300,7 +1300,7 @@ int parse_enumstr_impl(MD_Arena *arena, MD_String8 enum_str, char **enumstr_arra
 
 	if(to_return == NPC_Invalid)
 	{
-		MD_S8ListPushFmt(arena, errors, "The %s `%.*s` could not be recognized in the game", enum_kind_name, MD_S8VArg(enum_str));
+		PushWithLint(arena, errors, "The %s `%.*s` could not be recognized in the game", enum_kind_name, MD_S8VArg(enum_str));
 	}
 
 	MD_ReleaseScratch(scratch);
@@ -1369,7 +1369,7 @@ void reset_level()
 			for(MD_Message *cur = parse.errors.first; cur; cur = cur->next)
 			{
 				MD_String8 to_print = MD_FormatMessage(scratch.arena, MD_CodeLocFromNode(cur->node), cur->kind, cur->string);
-				MD_S8ListPushFmt(scratch.arena, &drama_errors, "Failed to parse: `%.*s`\n", MD_S8VArg(to_print));
+				PushWithLint(scratch.arena, &drama_errors, "Failed to parse: `%.*s`\n", MD_S8VArg(to_print));
 			}
 		}
 
@@ -1383,7 +1383,7 @@ void reset_level()
 				{
 					if(MD_NodeIsNil(cur_can_hear->first_child))
 					{
-						MD_S8ListPushFmt(scratch.arena, &drama_errors, "`can_hear` must be followed by a valid array of NPC kinds who can hear the following conversation");
+						PushWithLint(scratch.arena, &drama_errors, "`can_hear` must be followed by a valid array of NPC kinds who can hear the following conversation");
 					}
 					else
 					{
@@ -1394,7 +1394,7 @@ void reset_level()
 				{
 					if(MD_NodeIsNil(can_hear))
 					{
-						MD_S8ListPushFmt(scratch.arena, &drama_errors, "Expected a statement with `can_hear` before any speech that says who can hear the current speech");
+						PushWithLint(scratch.arena, &drama_errors, "Expected a statement with `can_hear` before any speech that says who can hear the current speech");
 					}
 
 					Action current_action = {0};
@@ -1415,11 +1415,11 @@ void reset_level()
 
 						if(dialog.size >= ARRLEN(current_action.speech))
 						{
-							MD_S8ListPushFmt(scratch.arena, &drama_errors, "Current action's speech is of size %d, bigger than allowed size %d", dialog.size, ARRLEN(current_action.speech));
+							PushWithLint(scratch.arena, &drama_errors, "Current action's speech is of size %d, bigger than allowed size %d", (int)dialog.size, (int)ARRLEN(current_action.speech));
 						}
 						if(thoughts.size >= ARRLEN(current_action.internal_monologue))
 						{
-							MD_S8ListPushFmt(scratch.arena, &drama_errors, "Current thought's speech is of size %d, bigger than allowed size %d", thoughts.size, ARRLEN(current_action.internal_monologue));
+							PushWithLint(scratch.arena, &drama_errors, "Current thought's speech is of size %d, bigger than allowed size %d", (int)thoughts.size, (int)ARRLEN(current_action.internal_monologue));
 						}
 						if(drama_errors.node_count == 0)
 						{
@@ -1456,7 +1456,7 @@ void reset_level()
 
 								if(!found)
 								{
-									MD_S8ListPushFmt(scratch.arena, &drama_errors, "Couldn't find NPC of kind %s in the current map", characters[want].enum_name);
+									PushWithLint(scratch.arena, &drama_errors, "Couldn't find NPC of kind %s in the current map", characters[want].enum_name);
 								}
 							}
 						}
@@ -2958,7 +2958,7 @@ Dialog produce_dialog(Entity *talking_to, bool character_names)
 					my_speech = MD_S8ListJoin(scratch.arena, last_said_without_unsaid_words(scratch.arena, talking_to), &(MD_StringJoin){.mid = MD_S8Lit(" ")});
 				}
 
-				MD_String8 dialog_speech = MD_S8Fmt(scratch.arena, "%s: %.*s", characters[it->context.author_npc_kind].name, MD_S8VArg(my_speech));
+				MD_String8 dialog_speech = FmtWithLint(scratch.arena, "%s: %.*s", characters[it->context.author_npc_kind].name, MD_S8VArg(my_speech));
 
 				memcpy(new_element.speech, dialog_speech.str, dialog_speech.size);
 				new_element.speech_length = (int)dialog_speech.size;
@@ -4058,7 +4058,7 @@ void frame(void)
 #ifdef WEB
 								// fire off generation request, save id
 								MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-								MD_String8 terminated_completion_url = MD_S8Fmt(scratch.arena, "%s:%d/completion\0", SERVER_DOMAIN, SERVER_PORT);
+								MD_String8 terminated_completion_url = FmtWithLint(scratch.arena, "%s:%d/completion\0", SERVER_DOMAIN, SERVER_PORT);
 								int req_id = EM_ASM_INT( {
 										return make_generation_request(UTF8ToString($1, $2), UTF8ToString($0));
 										}, terminated_completion_url.str, prompt_str.str, prompt_str.size);
@@ -4089,17 +4089,17 @@ void frame(void)
 										it->times_talked_to++;
 										if(it->memories.data[it->memories.cur_index-1].context.eavesdropped_from_party)
 										{
-											MD_S8ListPushFmt(scratch.arena, &dialog_elems, "Responding to eavesdropped: ");
+											PushWithLint(scratch.arena, &dialog_elems, "Responding to eavesdropped: ");
 										}
 										if(it->npc_kind == NPC_TheBlacksmith && it->standing != STANDING_JOINED)
 										{
 											assert(it->times_talked_to == 1);
 											act = ACT_joins_player;
-											MD_S8ListPushFmt(scratch.arena, &dialog_elems, "Joining you...");
+											PushWithLint(scratch.arena, &dialog_elems, "Joining you...");
 										}
 										else
 										{
-											MD_S8ListPushFmt(scratch.arena, &dialog_elems, "%d times talked", it->times_talked_to);
+											PushWithLint(scratch.arena, &dialog_elems, "%d times talked", it->times_talked_to);
 										}
 
 
@@ -4107,11 +4107,11 @@ void frame(void)
 										MD_String8 dialog = MD_S8ListJoin(scratch.arena, dialog_elems, &join);
 										if (argument)
 										{
-											ai_response = MD_S8Fmt(scratch.arena, "ACT_%s(%s) \"%.*s\"", actions[act].name, argument, MD_S8VArg(dialog));
+											ai_response = FmtWithLint(scratch.arena, "ACT_%s(%s) \"%.*s\"", actions[act].name, argument, MD_S8VArg(dialog));
 										}
 										else
 										{
-											ai_response = MD_S8Fmt(scratch.arena, "ACT_%s \"%.*s\"", actions[act].name, MD_S8VArg(dialog));
+											ai_response = FmtWithLint(scratch.arena, "ACT_%s \"%.*s\"", actions[act].name, MD_S8VArg(dialog));
 										}
 									}
 									else
@@ -4121,7 +4121,7 @@ void frame(void)
 								}
 								else
 								{
-									MD_String8 post_request_body = MD_S8Fmt(scratch.arena, "|%.*s", MD_S8VArg(prompt_str));
+									MD_String8 post_request_body = FmtWithLint(scratch.arena, "|%.*s", MD_S8VArg(prompt_str));
 									it->gen_request_id = make_generation_request(post_request_body);
 								}
 
@@ -4549,7 +4549,7 @@ void frame(void)
 						float fade_requirements = Lerp(0.0f, 1.0f - clamp01(LenV2(SubV2(player->pos, it->pos))/(TILE_SIZE*4.0f)), 1.0f);
 
 						MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-						draw_centered_text((TextParams){true, false, MD_S8Fmt(scratch.arena, "%d/%d", player->peace_tokens, PEACE_TOKENS_NEEDED), AddV2(it->pos, V2(0.0, 32.0)), blendalpha(blendcolors(WHITE, it->red_fade, RED), fade_requirements), (1.0f / cam.scale)*(1.0f + it->red_fade*0.5f)});
+						draw_centered_text((TextParams){true, false, FmtWithLint(scratch.arena, "%d/%d", player->peace_tokens, PEACE_TOKENS_NEEDED), AddV2(it->pos, V2(0.0, 32.0)), blendalpha(blendcolors(WHITE, it->red_fade, RED), fade_requirements), (1.0f / cam.scale)*(1.0f + it->red_fade*0.5f)});
 						MD_ReleaseScratch(scratch); 
 					}
 					else
@@ -4888,7 +4888,7 @@ void frame(void)
 			const float text_scale = 1.0f;
 			const float peace_token_icon_size = 50.0f;
 
-			TextParams t = {false, true, MD_S8Fmt(scratch.arena, "%d", player->peace_tokens), V2(0, 0), WHITE, text_scale};
+			TextParams t = {false, true, FmtWithLint(scratch.arena, "%d", player->peace_tokens), V2(0, 0), WHITE, text_scale};
 			AABB text_bounds = draw_text(t);
 			float total_elem_width = btwn_elems + peace_token_icon_size + aabb_size(text_bounds).x;
 			float elem_height = peace_token_icon_size;

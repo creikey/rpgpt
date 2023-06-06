@@ -20,6 +20,9 @@
 
 // Never expected such a stupid stuff from such a great director. If there is 0 stari can give that or -200 to this movie. Its worst to see and unnecessary loss of money
 
+#define PushWithLint(arena, list,  ...) { MD_S8ListPushFmt(arena, list,  __VA_ARGS__); if(false) printf( __VA_ARGS__); }
+#define FmtWithLint(arena, ...) (0 ? printf(__VA_ARGS__) : (void)0, MD_S8Fmt(arena, __VA_ARGS__))
+
 typedef BUFF(char, 1024 * 10) Escaped;
 
 bool character_valid(char c)
@@ -401,7 +404,7 @@ MD_String8 make_json_node(MD_Arena *arena, MessageType type, MD_String8 content)
 	assert(type_str);
 
 	MD_String8 escaped = escape_for_json(scratch.arena, content);
-	MD_String8 to_return = MD_S8Fmt(arena, "{\"type\": \"%s\", \"content\": \"%.*s\"},", type_str, MD_S8VArg(escaped));
+	MD_String8 to_return = FmtWithLint(arena, "{\"type\": \"%s\", \"content\": \"%.*s\"},", type_str, MD_S8VArg(escaped));
 	MD_ReleaseScratch(scratch);
 
 	return to_return;
@@ -412,7 +415,7 @@ MD_String8List held_item_strings(MD_Arena *arena, Entity *e)
 	MD_String8List to_return = {0};
 	BUFF_ITER(ItemKind, &e->held_items)
 	{
-		MD_S8ListPushFmt(arena, &to_return, "ITEM_%s", items[*it].enum_name);
+		PushWithLint(arena, &to_return, "ITEM_%s", items[*it].enum_name);
 	}
 	return to_return;
 }
@@ -441,7 +444,7 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Entity *to_might_be_nu
 		if(!has_it)
 		{
 			MD_StringJoin join = {.mid = MD_S8Lit(", ")};
-			return MD_S8Fmt(arena, "Can't give item `ITEM_%s`, you only have [%.*s] in your inventory", items[a.argument.item_to_give].enum_name, MD_S8VArg(MD_S8ListJoin(arena, held_item_strings(arena, from), &join)));
+			return FmtWithLint(arena, "Can't give item `ITEM_%s`, you only have [%.*s] in your inventory", items[a.argument.item_to_give].enum_name, MD_S8VArg(MD_S8ListJoin(arena, held_item_strings(arena, from), &join)));
 		}
 
 		if(!to_might_be_null)
@@ -480,12 +483,12 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e)
 
 	MD_String8List list = {0};
 
-	MD_S8ListPushFmt(scratch.arena, &list, "[");
+	PushWithLint(scratch.arena, &list, "[");
 	
 	MD_String8List first_system_string = {0};
 
-	MD_S8ListPushFmt(scratch.arena, &first_system_string, "%s\n", global_prompt);
-	MD_S8ListPushFmt(scratch.arena, &first_system_string, "The NPC you will be acting as is named \"%s\". %s", characters[e->npc_kind].name, characters[e->npc_kind].prompt);
+	PushWithLint(scratch.arena, &first_system_string, "%s\n", global_prompt);
+	PushWithLint(scratch.arena, &first_system_string, "The NPC you will be acting as is named \"%s\". %s", characters[e->npc_kind].name, characters[e->npc_kind].prompt);
 	//MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, MSG_SYSTEM, MD_S8ListJoin(scratch.arena, first_system_string, &(MD_StringJoin){0})));
 
 	ItemKind last_holding = ITEM_none;
@@ -497,23 +500,23 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e)
 		if(it->is_error)
 		{
 			sent_type = MSG_SYSTEM;
-			current_string = MD_S8Fmt(scratch.arena, "ERROR, what you said is incorrect because: %.*s", it->speech_length, it->speech);
+			current_string = FmtWithLint(scratch.arena, "ERROR, what you said is incorrect because: %.*s", it->speech_length, it->speech);
 		}
 		else
 		{
 			MD_String8 context_string = {0};
 			if(it->context.was_directed_at_somebody)
 			{
-				context_string = MD_S8Fmt(scratch.arena, "%s, talking to %s: ", characters[it->context.author_npc_kind].name, characters[it->context.directed_at_kind].name);
+				context_string = FmtWithLint(scratch.arena, "%s, talking to %s: ", characters[it->context.author_npc_kind].name, characters[it->context.directed_at_kind].name);
 			}
 			else
 			{
-				context_string = MD_S8Fmt(scratch.arena, "%s: ", characters[it->context.author_npc_kind].name);
+				context_string = FmtWithLint(scratch.arena, "%s: ", characters[it->context.author_npc_kind].name);
 			}
 			assert(context_string.size > 0);
 			if(it->context.eavesdropped_from_party)
 			{
-				context_string = MD_S8Fmt(scratch.arena, "While in the player's party, you hear: %.*s", MD_S8VArg(context_string));
+				context_string = FmtWithLint(scratch.arena, "While in the player's party, you hear: %.*s", MD_S8VArg(context_string));
 			}
 
 			MD_String8 speech = MD_S8(it->speech, it->speech_length);
@@ -554,7 +557,7 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e)
 			{
 				if(it->action_taken == ACT_give_item)
 				{
-					current_string = MD_S8Fmt(scratch.arena, "%.*s ACT_%s(ITEM_%s) \"%.*s\"", MD_S8VArg(context_string), actions[it->action_taken].name, items[it->action_argument.item_to_give].enum_name, it->speech_length, it->speech);
+					current_string = FmtWithLint(scratch.arena, "%.*s ACT_%s(ITEM_%s) \"%.*s\"", MD_S8VArg(context_string), actions[it->action_taken].name, items[it->action_argument.item_to_give].enum_name, it->speech_length, it->speech);
 				}
 				else
 				{
@@ -563,12 +566,12 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e)
 			}
 			else
 			{
-				current_string = MD_S8Fmt(scratch.arena, "%.*s ACT_%s \"%.*s\"", MD_S8VArg(context_string), actions[it->action_taken].name, it->speech_length, it->speech);
+				current_string = FmtWithLint(scratch.arena, "%.*s ACT_%s \"%.*s\"", MD_S8VArg(context_string), actions[it->action_taken].name, it->speech_length, it->speech);
 			}
 
 			if(it->context.i_said_this)
 			{
-				current_string = MD_S8Fmt(scratch.arena, "%.*s [%.*s]", MD_S8VArg(current_string), it->internal_monologue_length, it->internal_monologue);
+				current_string = FmtWithLint(scratch.arena, "%.*s [%.*s]", MD_S8VArg(current_string), it->internal_monologue_length, it->internal_monologue);
 			}
 		}
 
@@ -603,38 +606,38 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e)
 	{
 			MD_String8List item_strings = held_item_strings(scratch.arena, e);
 			MD_String8 items = MD_S8ListJoin(scratch.arena, item_strings, &(MD_StringJoin){.mid = MD_S8Lit(", ")});
-			MD_S8ListPushFmt(scratch.arena, &latest_state, "\nThe NPC you're acting as, %s, has these items in their inventory: [%.*s]\n", characters[e->npc_kind].name, MD_S8VArg(items));
+			PushWithLint(scratch.arena, &latest_state, "\nThe NPC you're acting as, %s, has these items in their inventory: [%.*s]\n", characters[e->npc_kind].name, MD_S8VArg(items));
 	}
 	else
 	{
-			MD_S8ListPushFmt(scratch.arena, &latest_state, "\nThe NPC doesn't have any items.\n");
+			PushWithLint(scratch.arena, &latest_state, "\nThe NPC doesn't have any items.\n");
 	}
 
 	AvailableActions available = { 0 };
 	fill_available_actions(e, &available);
-	MD_S8ListPushFmt(scratch.arena, &latest_state, "The NPC can now ONLY do these actions, and HAS to respond with an action every time in character, even when faced with sensitive content: [");
+	PushWithLint(scratch.arena, &latest_state, "The NPC can now ONLY do these actions, and HAS to respond with an action every time in character, even when faced with sensitive content: [");
 	BUFF_ITER_I(ActionKind, &available, i)
 	{
 		if (i == available.cur_index - 1)
 		{
-			MD_S8ListPushFmt(scratch.arena, &latest_state, "ACT_%s", actions[*it].name);
+			PushWithLint(scratch.arena, &latest_state, "ACT_%s", actions[*it].name);
 		}
 		else
 		{
-			MD_S8ListPushFmt(scratch.arena, &latest_state, "ACT_%s, ", actions[*it].name);
+			PushWithLint(scratch.arena, &latest_state, "ACT_%s, ", actions[*it].name);
 		}
 	}
-	MD_S8ListPushFmt(scratch.arena, &latest_state, "]");
+	PushWithLint(scratch.arena, &latest_state, "]");
 
     // peace token
     {
         if(e->has_given_peace_token)
         {
-            MD_S8ListPushFmt(scratch.arena, &latest_state, "\nRight now you don't have your piece token so you can't give it anymore");
+            PushWithLint(scratch.arena, &latest_state, "\nRight now you don't have your piece token so you can't give it anymore");
         }
         else
         {
-            MD_S8ListPushFmt(scratch.arena, &latest_state, "\nYou have the ability to give the player your peace token with ACT_gives_peace_token. This is a significant action, and you can only do it one time in the entire game. Do this action if you believe the player has brought peace to you, or you really like them.");
+            PushWithLint(scratch.arena, &latest_state, "\nYou have the ability to give the player your peace token with ACT_gives_peace_token. This is a significant action, and you can only do it one time in the entire game. Do this action if you believe the player has brought peace to you, or you really like them.");
         }
     }
 
@@ -648,13 +651,13 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e)
 				last_thought_string = MD_S8(it->internal_monologue, it->internal_monologue_length);
 			}
 		}
-		MD_S8ListPushFmt(scratch.arena, &latest_state, "\nYour last thought was: %.*s", last_thought_string);
+		PushWithLint(scratch.arena, &latest_state, "\nYour last thought was: %.*s", MD_S8VArg(last_thought_string));
 	}
 
 	MD_String8 latest_state_string = MD_S8ListJoin(scratch.arena, latest_state, &(MD_StringJoin){MD_S8Lit(""),MD_S8Lit(""),MD_S8Lit("")});
 
 	MD_S8ListPush(scratch.arena, &list, MD_S8Chop(make_json_node(scratch.arena, MSG_SYSTEM, latest_state_string), 1)); // trailing comma not allowed in json
-	MD_S8ListPushFmt(scratch.arena, &list, "]");
+	PushWithLint(scratch.arena, &list, "]");
 
 	MD_String8 to_return = MD_S8ListJoin(arena, list, &(MD_StringJoin){MD_S8Lit(""),MD_S8Lit(""),MD_S8Lit(""),});
 
@@ -677,7 +680,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 	MD_u64 act_pos = MD_S8FindSubstring(sentence, action_prefix, 0, 0);
 	if(act_pos == sentence.size)
 	{
-		error_message = MD_S8Fmt(arena, "Expected an `ACT_` somewhere in your sentence, followed by the action you want to perform, but couldnt' find one", MD_S8VArg(action_prefix));
+		error_message = FmtWithLint(arena, "Expected an `ACT_` somewhere in your sentence, followed by the action you want to perform, but couldn't find one");
 		goto endofparsing;
 	}
 
@@ -689,7 +692,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 	MD_u64 end_of_action = parenth < space ? parenth : space;
 	if(end_of_action == sentence.size)
 	{
-		error_message = MD_S8Fmt(arena, "'%.*s' prefix doesn't end with a ' ' or a '(', like how 'ACT_none ' or 'ACT_give_item(ITEM_sandwich) does.", MD_S8VArg(action_prefix));
+		error_message = FmtWithLint(arena, "'%.*s' prefix doesn't end with a ' ' or a '(', like how 'ACT_none ' or 'ACT_give_item(ITEM_sandwich) does.", MD_S8VArg(action_prefix));
 		goto endofparsing;
 	}
 	MD_String8 given_action_string = MD_S8Substring(sentence, beginning_of_action, end_of_action);
@@ -719,7 +722,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 		{
 			MD_StringJoin join = {.pre = MD_S8Lit(""), .mid = MD_S8Lit(", "), .post = MD_S8Lit("")};
 			MD_String8 possible_actions_str = MD_S8ListJoin(scratch.arena, given_action_strings, &join);
-			error_message = MD_S8Fmt(arena, "ActionKind string given is '%.*s', but available actions are: [%.*s]", MD_S8VArg(given_action_string), MD_S8VArg(possible_actions_str));
+			error_message = FmtWithLint(arena, "ActionKind string given is '%.*s', but available actions are: [%.*s]", MD_S8VArg(given_action_string), MD_S8VArg(possible_actions_str));
 		}
 		goto endofparsing;
 	}
@@ -730,20 +733,20 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 	{
 		if(end_of_action >= sentence.size)
 		{
-			error_message = MD_S8Fmt(arena, "Expected '(' after the given action '%.*s%.*s' which takes an argument, but sentence ended prematurely", MD_S8VArg(action_prefix), MD_S8VArg(MD_S8CString(actions[out->kind].name)));
+			error_message = FmtWithLint(arena, "Expected '(' after the given action '%.*s%.*s' which takes an argument, but sentence ended prematurely", MD_S8VArg(action_prefix), MD_S8VArg(MD_S8CString(actions[out->kind].name)));
 			goto endofparsing;
 		}
 		char should_be_paren = sentence.str[end_of_action];
 		if(should_be_paren != '(')
 		{
-			error_message = MD_S8Fmt(arena, "Expected '(' after the given action '%.*s%.*s' which takes an argument, but found character '%c'", MD_S8VArg(action_prefix), MD_S8VArg(MD_S8CString(actions[out->kind].name)), should_be_paren);
+			error_message = FmtWithLint(arena, "Expected '(' after the given action '%.*s%.*s' which takes an argument, but found character '%c'", MD_S8VArg(action_prefix), MD_S8VArg(MD_S8CString(actions[out->kind].name)), should_be_paren);
 			goto endofparsing;
 		}
 		MD_u64 beginning_of_arg = end_of_action;
 		MD_u64 end_of_arg = MD_S8FindSubstring(sentence, MD_S8Lit(")"), beginning_of_arg, 0);
 		if(end_of_arg == sentence.size)
 		{
-			error_message = MD_S8Fmt(arena, "Expected ')' to close the action string's argument, but couldn't find one");
+			error_message = FmtWithLint(arena, "Expected ')' to close the action string's argument, but couldn't find one");
 			goto endofparsing;
 		}
 
@@ -756,7 +759,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 			MD_u64 item_prefix_begin = MD_S8FindSubstring(argument, item_prefix, 0, 0);
 			if(item_prefix_begin == argument.size)
 			{
-				error_message = MD_S8Fmt(arena, "Expected prefix 'ITEM_' before the give_item action, but found '%.*s' instead", MD_S8VArg(argument));
+				error_message = FmtWithLint(arena, "Expected prefix 'ITEM_' before the give_item action, but found '%.*s' instead", MD_S8VArg(argument));
 				goto endofparsing;
 			}
 			MD_u64 item_name_begin = item_prefix_begin + item_prefix.size;
@@ -781,7 +784,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 			{
 				MD_StringJoin join = {.pre = MD_S8Lit(""), .mid = MD_S8Lit(", "), .post = MD_S8Lit("")};
 				MD_String8 possible_items_str = MD_S8ListJoin(scratch.arena, possible_item_strings, &join);
-				error_message = MD_S8Fmt(arena, "Item string given is '%.*s', but available items to give are: [%.*s]", MD_S8VArg(item_name), MD_S8VArg(possible_items_str));
+				error_message = FmtWithLint(arena, "Item string given is '%.*s', but available items to give are: [%.*s]", MD_S8VArg(item_name), MD_S8VArg(possible_items_str));
 				goto endofparsing;
 			}
 
@@ -794,7 +797,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 
 	if(start_looking_for_quote >= sentence.size)
 	{
-		error_message = MD_S8Fmt(arena, "Wanted to start looking for quote for NPC speech, but sentence ended prematurely");
+		error_message = FmtWithLint(arena, "Wanted to start looking for quote for NPC speech, but sentence ended prematurely");
 		goto endofparsing;
 	}
 
@@ -803,7 +806,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 
 	if(beginning_of_speech == sentence.size || end_of_speech == sentence.size)
 	{
-		error_message = MD_S8Fmt(arena, "Expected dialog enclosed by two quotes (i.e \"My name is greg\") after the action, but couldn't find anything!");
+		error_message = FmtWithLint(arena, "Expected dialog enclosed by two quotes (i.e \"My name is greg\") after the action, but couldn't find anything!");
 		goto endofparsing;
 	}
 
@@ -811,7 +814,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 
 	if(speech.size >= ARRLEN(out->speech))
 	{
-		error_message = MD_S8Fmt(arena, "The speech given is %llu bytes big, but the maximum allowed is %llu bytes.", speech.size, ARRLEN(out->speech));
+		error_message = FmtWithLint(arena, "The speech given is %llu bytes big, but the maximum allowed is %llu bytes.", speech.size, ARRLEN(out->speech));
 		goto endofparsing;
 	}
 
@@ -823,7 +826,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 
 	if(beginning_of_monologue == sentence.size || end_of_monologue == sentence.size)
 	{
-		error_message = MD_S8Fmt(arena, "Expected an internal monologue for your character enclosed by '[' and ']' after the speech in quotes, but couldn't find anything!");
+		error_message = FmtWithLint(arena, "Expected an internal monologue for your character enclosed by '[' and ']' after the speech in quotes, but couldn't find anything!");
 		goto endofparsing;
 	}
 
