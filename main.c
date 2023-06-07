@@ -254,8 +254,9 @@ void do_parsing_tests()
 	MD_String8 speech;
 
 	speech = MD_S8Lit("Better have a good reason for bothering me.");
-	MD_String8 thoughts = MD_S8Lit("Man I'm tired today\" Whatever.");
-	error = parse_chatgpt_response(scratch.arena, &e, FmtWithLint(scratch.arena, " Within the player's party, while the player is talking to Meld, you hear: ACT_none \"%.*s\" [%.*s]", MD_S8VArg(speech), MD_S8VArg(thoughts)), &a);
+	MD_String8 thoughts = MD_S8Lit("Man I'm tired today Whatever.");
+	MD_String8 to_parse = FmtWithLint(scratch.arena, "{action: none, speech: \"%.*s\", thoughts: \"%.*s\"}", MD_S8VArg(speech), MD_S8VArg(thoughts));
+	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
 	assert(error.size == 0);
 	assert(a.kind == ACT_none);
 	assert(MD_S8Match(speech, MD_S8(a.speech, a.speech_length), 0));
@@ -270,9 +271,10 @@ void do_parsing_tests()
 
 	BUFF_APPEND(&e.held_items, ITEM_Chalice);
 
-	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice \""), &a);
+	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(Chalice \""), &a);
 	assert(error.size > 0);
-	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \"Here you go\" [Man I'm gonna miss that chalice]"), &a);
+	to_parse = MD_S8Lit("{action: give_item, action_arg: Chalice, speech: \"Here you go\", thoughts: \"Man I'm gonna miss that chalice\"}");
+	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
 	assert(error.size == 0);
 	assert(a.kind == ACT_give_item);
 	assert(a.argument.item_to_give == ITEM_Chalice);
