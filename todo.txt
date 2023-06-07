@@ -1,3 +1,13 @@
+DONE - rewrite to have metadesk format for speech and actions
+ - action and item explanations in system message, along with available actions and items
+ - remove party eavesdropping, but make clear to AI when things are heard physically or told directly
+ - delete peace tokens, replace with key items and scroll item that says word.
+ - door npc that refuses to open unless player says the word
+ - The Mighty Sword that's conservative, when convinced to be pulled player gets it as an item
+ - The using of items and backpack inventory view.
+
+
+
 DONE - Refactor string parsing and chat dumping to use MD_String8
 DONE - Delete old perception types and sources, like from an enemy or player item changed
  - Refactor perceptions to come from multiple places and format correctly
