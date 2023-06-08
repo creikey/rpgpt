@@ -254,7 +254,7 @@ void do_parsing_tests()
 
 	speech = MD_S8Lit("Better have a good reason for bothering me.");
 	MD_String8 thoughts = MD_S8Lit("Man I'm tired today Whatever.");
-	MD_String8 to_parse = FmtWithLint(scratch.arena, "{action: none, speech: \"%.*s\", thoughts: \"%.*s\", who_i_am: TheBlacksmith, talking_to: nobody}", MD_S8VArg(speech), MD_S8VArg(thoughts));
+	MD_String8 to_parse = FmtWithLint(scratch.arena, "{action: none, speech: \"%.*s\", thoughts: \"%.*s\", who_i_am: \"Meld\", talking_to: nobody}", MD_S8VArg(speech), MD_S8VArg(thoughts));
 	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
 	assert(error.size == 0);
 	assert(a.kind == ACT_none);
@@ -272,7 +272,7 @@ void do_parsing_tests()
 
 	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(Chalice \""), &a);
 	assert(error.size > 0);
-	to_parse = MD_S8Lit("{action: give_item, action_arg: Chalice, speech: \"Here you go\", thoughts: \"Man I'm gonna miss that chalice\", who_i_am: TheBlacksmith, talking_to: nobody}");
+	to_parse = MD_S8Lit("{action: give_item, action_arg: Chalice, speech: \"Here you go\", thoughts: \"Man I'm gonna miss that chalice\", who_i_am: \"Meld\", talking_to: nobody}");
 	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
 	assert(error.size == 0);
 	assert(a.kind == ACT_give_item);
@@ -1026,7 +1026,7 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 		}
 		if(!found)
 		{
-			return FmtWithLint(arena, "Character you're talking to, %s, isn't close enough to be talked to", characters[a.talking_to_kind].enum_name);
+			return FmtWithLint(arena, "Character you're talking to, '%s', isn't close enough to be talked to", characters[a.talking_to_kind].name);
 		}
 	}
 
@@ -1058,6 +1058,11 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 	if(a.kind == ACT_leaves_player && from->standing != STANDING_JOINED)
 	{
 		return MD_S8Lit("You can't leave the player unless you joined them.");
+	}
+
+	if(a.kind == ACT_joins_player && from->standing == STANDING_JOINED)
+	{
+		return MD_S8Lit("You can't join the player, you've already joined them!");
 	}
 
 	return (MD_String8){0};
@@ -1559,7 +1564,7 @@ void reset_level()
 
 								if(!found)
 								{
-									PushWithLint(scratch.arena, &drama_errors, "Couldn't find NPC of kind %s in the current map", characters[want].enum_name);
+									PushWithLint(scratch.arena, &drama_errors, "Couldn't find NPC '%s' in the current map", characters[want].name);
 								}
 							}
 						}

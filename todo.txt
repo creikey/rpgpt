@@ -1,6 +1,7 @@
 DONE - rewrite to have metadesk format for speech and actions
 DONE - action and item explanations in system message, along with available actions and items
 DONE - remove party eavesdropping, but make clear to AI when things are heard physically or told directly. Allow AI to choose people in vicinity to target with conversation and action. I.e a `talking_to` field. Also add a required character: field in chatgpt response, and make sure it matches the character it's supposed to act as.
+ - Improve error messages on joins_party when already in party, factor parsing string -> enum into one shared function in parse chatgpt
  - The using of items and backpack inventory view.
  - delete peace tokens, replace with key items and scroll item that says word.
  - display actions, like giving an item, in memory history

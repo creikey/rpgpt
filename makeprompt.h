@@ -442,9 +442,7 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e, CanTalkTo can_tal
 			}
 			MD_String8 speech = MD_S8(it->speech, it->speech_length);
 
-			PushWithLint(scratch.arena, &cur_list, "was_heard_in_passing: %s, ", it->context.heard_physically ? "true" : "false");
-
-			PushWithLint(scratch.arena, &cur_list, "talking_to: %s, ", it->context.was_talking_to_somebody ? characters[it->context.talking_to_kind].enum_name : "nobody");
+			PushWithLint(scratch.arena, &cur_list, "talking_to: \"%s\", ", it->context.was_talking_to_somebody ? characters[it->context.talking_to_kind].name : "nobody");
 
 			// add speech
 			{
@@ -568,7 +566,7 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e, CanTalkTo can_tal
 	PushWithLint(scratch.arena, &latest_state, "The characters close enough for you to talk to with `talking_to`: [");
 	BUFF_ITER(NpcKind, &can_talk_to)
 	{
-		PushWithLint(scratch.arena, &latest_state, "%s, ", characters[*it].enum_name);
+		PushWithLint(scratch.arena, &latest_state, "\"%s\", ", characters[*it].name);
 	}
 	PushWithLint(scratch.arena, &latest_state, "]\n");
 
@@ -664,7 +662,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 	}
 
 	assert(!e->is_character); // player can't perform AI actions?
-	MD_String8 my_name = MD_S8CString(characters[e->npc_kind].enum_name);
+	MD_String8 my_name = MD_S8CString(characters[e->npc_kind].name);
 	if(error_message.size == 0 && !MD_S8Match(who_i_am_str, my_name, 0))
 	{
 		error_message = FmtWithLint(arena, "You are acting as %.*s, not what you said in who_i_am, `%.*s`", MD_S8VArg(my_name), MD_S8VArg(who_i_am_str));
@@ -681,9 +679,10 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 			bool found = false;
 			for(int i = 0; i < ARRLEN(characters); i++)
 			{
-				if(MD_S8Match(talking_to_str, MD_S8CString(characters[i].enum_name), 0))
+				if(MD_S8Match(talking_to_str, MD_S8CString(characters[i].name), 0))
 				{
 					found = true;
+                    out->talking_to_somebody = true;
 					out->talking_to_kind = i;
 				}
 			}
@@ -722,6 +721,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 		if(!found_action)
 		{
 			MD_String8 list_of_actions = MD_S8ListJoin(scratch.arena, action_strings, &(MD_StringJoin){.mid = MD_S8Lit(", ")});
+
 			error_message = FmtWithLint(arena, "Couldn't find action you can perform for provided string `%.*s`. Your available actions: [%.*s]", MD_S8VArg(action_str), MD_S8VArg(list_of_actions));
 		}
 	}
