@@ -97,16 +97,20 @@ typedef struct Action
 	MD_u8 speech[MAX_SENTENCE_LENGTH];
 	int speech_length;
 
+	bool talking_to_somebody;
+	NpcKind talking_to_kind;
+
 	MD_u8 internal_monologue[MAX_SENTENCE_LENGTH];
 	int internal_monologue_length;
 } Action;
+
 typedef struct 
 {
-	bool eavesdropped_from_party;
 	bool i_said_this; // don't trigger npc action on own self memory modification
 	NpcKind author_npc_kind; // only valid if author is AuthorNpc
-	bool was_directed_at_somebody;
-	NpcKind directed_at_kind;
+	bool was_talking_to_somebody;
+	NpcKind talking_to_kind;
+	bool heard_physically; // if not physically, the source was directly
 	bool dont_show_to_player; // jester and past memories are hidden to the player when made into dialog
 } MemoryContext;
 
@@ -275,6 +279,8 @@ typedef struct Entity
 	float anim_change_timer;
 } Entity;
 
+typedef BUFF(NpcKind, 32) CanTalkTo;
+
 bool npc_is_knight_sprite(Entity *it)
 {
 	return it->is_npc && (false
@@ -360,7 +366,7 @@ typedef struct GameState {
 	Entity entities[MAX_ENTITIES];
 } GameState;
 
-#define ENTITIES_ITER(ents) for (Entity *it = ents; it < ents + ARRLEN(ents); it++) if (it->exists)
+#define ENTITIES_ITER(ents) for (Entity *it = ents; it < ents + ARRLEN(ents); it++) if (it->exists && !it->destroy && it->generation > 0)
 
 bool npc_does_dialog(Entity *it)
 {
@@ -398,49 +404,9 @@ MD_String8List held_item_strings(MD_Arena *arena, Entity *e)
 	return to_return;
 }
 
-// returns reason why allocated on arena if invalid
-// to might be null here, from can't be null
-MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Entity *to_might_be_null, Action a)
-{
-	assert(a.speech_length <= MAX_SENTENCE_LENGTH && a.speech_length >= 0);
-	assert(a.kind >= 0 && a.kind < ARRLEN(actions));
-	assert(from);
-
-	if(a.kind == ACT_give_item)
-	{
-		assert(a.argument.item_to_give >= 0 && a.argument.item_to_give < ARRLEN(items));
-		bool has_it = false;
-		BUFF_ITER(ItemKind, &from->held_items)
-		{
-			if(*it == a.argument.item_to_give)
-			{
-				has_it = true;
-				break;
-			}
-		}
-
-		if(!has_it)
-		{
-			MD_StringJoin join = {.mid = MD_S8Lit(", ")};
-			return FmtWithLint(arena, "Can't give item `ITEM_%s`, you only have [%.*s] in your inventory", items[a.argument.item_to_give].enum_name, MD_S8VArg(MD_S8ListJoin(arena, held_item_strings(arena, from), &join)));
-		}
-
-		if(!to_might_be_null)
-		{
-			return MD_S8Lit("You can't give an item to nobody, you're currently not in conversation or targeting somebody.");
-		}
-	}
-
-	if(a.kind == ACT_leaves_player && from->standing != STANDING_JOINED)
-	{
-		return MD_S8Lit("You can't leave the player unless you joined them.");
-	}
-
-	return (MD_String8){0};
-}
 
 // outputs json
-MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e)
+MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e, CanTalkTo can_talk_to)
 {
 	assert(e->is_npc);
 	assert(e->npc_kind < ARRLEN(characters));
@@ -461,7 +427,7 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e)
 	{
 		if(it->is_error)
 		{
-			MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, MSG_SYSTEM, FmtWithLint(scratch.arena, "ERROR, what you said is incorrect because: %.*s", it->speech_length, it->speech)));
+			MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, MSG_USER, FmtWithLint(scratch.arena, "ERROR, what you said is incorrect because: %.*s", it->speech_length, it->speech)));
 		}
 		else
 		{
@@ -472,9 +438,13 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e)
 			PushWithLint(scratch.arena, &cur_list, "{");
 			if(!it->context.i_said_this)
 			{
-				PushWithLint(scratch.arena, &cur_list, "character: %s, ", characters[it->context.author_npc_kind].name);
+				PushWithLint(scratch.arena, &cur_list, "who_i_am: %s, ", characters[it->context.author_npc_kind].name);
 			}
 			MD_String8 speech = MD_S8(it->speech, it->speech_length);
+
+			PushWithLint(scratch.arena, &cur_list, "was_heard_in_passing: %s, ", it->context.heard_physically ? "true" : "false");
+
+			PushWithLint(scratch.arena, &cur_list, "talking_to: %s, ", it->context.was_talking_to_somebody ? characters[it->context.talking_to_kind].enum_name : "nobody");
 
 			// add speech
 			{
@@ -595,6 +565,13 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e)
 	}
 	PushWithLint(scratch.arena, &latest_state, "]\n");
 
+	PushWithLint(scratch.arena, &latest_state, "The characters close enough for you to talk to with `talking_to`: [");
+	BUFF_ITER(NpcKind, &can_talk_to)
+	{
+		PushWithLint(scratch.arena, &latest_state, "%s, ", characters[*it].enum_name);
+	}
+	PushWithLint(scratch.arena, &latest_state, "]\n");
+
 	// last thought explanation and re-prompt
 	{
 		MD_String8 last_thought_string = {0};
@@ -650,17 +627,32 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 	MD_String8 speech_str = {0};
 	MD_String8 thoughts_str = {0};
 	MD_String8 action_arg_str = {0};
+	MD_String8 who_i_am_str = {0};
+	MD_String8 talking_to_str = {0};
 	if(error_message.size == 0)
 	{
 		action_str = get_field(message_obj, MD_S8Lit("action"));
+		who_i_am_str = get_field(message_obj, MD_S8Lit("who_i_am"));
 		speech_str = get_field(message_obj, MD_S8Lit("speech"));
 		thoughts_str = get_field(message_obj, MD_S8Lit("thoughts"));
 		action_arg_str = get_field(message_obj, MD_S8Lit("action_arg"));
+		talking_to_str = get_field(message_obj, MD_S8Lit("talking_to"));
 	}
-
+	if(error_message.size == 0 && who_i_am_str.size == 0)
+	{
+		error_message = MD_S8Lit("Expected field named `who_i_am` in message");
+	}
 	if(error_message.size == 0 && action_str.size == 0)
 	{
 		error_message = MD_S8Lit("Expected field named `action` in message");
+	}
+	if(error_message.size == 0 && talking_to_str.size == 0)
+	{
+		error_message = MD_S8Lit("Expected field named `talking_to` in message");
+	}
+	if(error_message.size == 0 && thoughts_str.size == 0)
+	{
+		error_message = MD_S8Lit("Expected field named `thoughts` in message, and to have nonzero size");
 	}
 	if(error_message.size == 0 && speech_str.size >= MAX_SENTENCE_LENGTH)
 	{
@@ -669,6 +661,37 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 	if(error_message.size == 0 && thoughts_str.size >= MAX_SENTENCE_LENGTH)
 	{
 		error_message = FmtWithLint(arena, "Thoughts string provided is too big, maximum bytes is %d", MAX_SENTENCE_LENGTH);
+	}
+
+	assert(!e->is_character); // player can't perform AI actions?
+	MD_String8 my_name = MD_S8CString(characters[e->npc_kind].enum_name);
+	if(error_message.size == 0 && !MD_S8Match(who_i_am_str, my_name, 0))
+	{
+		error_message = FmtWithLint(arena, "You are acting as %.*s, not what you said in who_i_am, `%.*s`", MD_S8VArg(my_name), MD_S8VArg(who_i_am_str));
+	}
+
+	if(error_message.size == 0)
+	{
+		if(MD_S8Match(talking_to_str, MD_S8Lit("nobody"), 0))
+		{
+			out->talking_to_somebody = false;
+		}
+		else
+		{
+			bool found = false;
+			for(int i = 0; i < ARRLEN(characters); i++)
+			{
+				if(MD_S8Match(talking_to_str, MD_S8CString(characters[i].enum_name), 0))
+				{
+					found = true;
+					out->talking_to_kind = i;
+				}
+			}
+			if(!found)
+			{
+				error_message = FmtWithLint(arena, "Unrecognized character provided in talking_to: `%.*s`", MD_S8VArg(talking_to_str));
+			}
+		}
 	}
 
 	if(error_message.size == 0)

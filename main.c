@@ -119,7 +119,6 @@ void web_arena_set_auto_align(WebArena *arena, size_t align)
 #include "md.c"
 #pragma warning(pop)
 
-MD_Arena *persistent_arena = 0; // watch out, arenas have limited size. 
 
 #include <math.h>
 
@@ -255,7 +254,7 @@ void do_parsing_tests()
 
 	speech = MD_S8Lit("Better have a good reason for bothering me.");
 	MD_String8 thoughts = MD_S8Lit("Man I'm tired today Whatever.");
-	MD_String8 to_parse = FmtWithLint(scratch.arena, "{action: none, speech: \"%.*s\", thoughts: \"%.*s\"}", MD_S8VArg(speech), MD_S8VArg(thoughts));
+	MD_String8 to_parse = FmtWithLint(scratch.arena, "{action: none, speech: \"%.*s\", thoughts: \"%.*s\", who_i_am: TheBlacksmith, talking_to: nobody}", MD_S8VArg(speech), MD_S8VArg(thoughts));
 	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
 	assert(error.size == 0);
 	assert(a.kind == ACT_none);
@@ -273,7 +272,7 @@ void do_parsing_tests()
 
 	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(Chalice \""), &a);
 	assert(error.size > 0);
-	to_parse = MD_S8Lit("{action: give_item, action_arg: Chalice, speech: \"Here you go\", thoughts: \"Man I'm gonna miss that chalice\"}");
+	to_parse = MD_S8Lit("{action: give_item, action_arg: Chalice, speech: \"Here you go\", thoughts: \"Man I'm gonna miss that chalice\", who_i_am: TheBlacksmith, talking_to: nobody}");
 	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
 	assert(error.size == 0);
 	assert(a.kind == ACT_give_item);
@@ -423,6 +422,7 @@ Vec2 FloorV2(Vec2 v)
 }
 
 MD_Arena *frame_arena = 0;
+MD_Arena *persistent_arena = 0; // watch out, arenas have limited size. 
 
 #ifdef WINDOWS
 // uses frame arena
@@ -962,6 +962,31 @@ void push_memory(Entity *e, MD_String8 speech, MD_String8 monologue, ActionKind 
 	}
 }
 
+CanTalkTo get_can_talk_to(Entity *e)
+{
+	CanTalkTo to_return = {0};
+	ENTITIES_ITER(gs.entities)
+	{
+		if(it != e && it->is_npc && LenV2(SubV2(it->pos, e->pos)) < PROPAGATE_ACTIONS_RADIUS)
+		{
+			BUFF_APPEND(&to_return, it->npc_kind);
+		}
+	}
+	return to_return;
+}
+
+Entity *get_targeted(Entity *from, NpcKind targeted)
+{
+	ENTITIES_ITER(gs.entities)
+	{
+		if(it != from && it->is_npc && LenV2(SubV2(it->pos, from->pos)) < PROPAGATE_ACTIONS_RADIUS && it->npc_kind == targeted)
+		{
+			return it;
+		}
+	}
+	return 0;
+}
+
 void remember_error(Entity *to_modify, MD_String8 error_message)
 {
 	assert(!to_modify->is_character); // this is a game logic bug if a player action is invalid
@@ -979,18 +1004,85 @@ void remember_action(Entity *to_modify, Action a, MemoryContext context)
 	}
 }
 
-// from must not be null, to can be null if the action isn't directed at anybody
+// returns reason why allocated on arena if invalid
+// to might be null here, from can't be null
+MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
+{
+	assert(a.speech_length <= MAX_SENTENCE_LENGTH && a.speech_length >= 0);
+	assert(a.kind >= 0 && a.kind < ARRLEN(actions));
+	assert(from);
+
+	CanTalkTo talk = get_can_talk_to(from);
+	if(a.talking_to_somebody)
+	{
+		bool found = false;
+		BUFF_ITER(NpcKind, &talk)
+		{
+			if(*it == a.talking_to_kind)
+			{
+				found = true;
+				break;
+			}
+		}
+		if(!found)
+		{
+			return FmtWithLint(arena, "Character you're talking to, %s, isn't close enough to be talked to", characters[a.talking_to_kind].enum_name);
+		}
+	}
+
+	if(a.kind == ACT_give_item)
+	{
+		assert(a.argument.item_to_give >= 0 && a.argument.item_to_give < ARRLEN(items));
+		bool has_it = false;
+		BUFF_ITER(ItemKind, &from->held_items)
+		{
+			if(*it == a.argument.item_to_give)
+			{
+				has_it = true;
+				break;
+			}
+		}
+
+		if(!has_it)
+		{
+			MD_StringJoin join = {.mid = MD_S8Lit(", ")};
+			return FmtWithLint(arena, "Can't give item `ITEM_%s`, you only have [%.*s] in your inventory", items[a.argument.item_to_give].enum_name, MD_S8VArg(MD_S8ListJoin(arena, held_item_strings(arena, from), &join)));
+		}
+
+		if(!a.talking_to_somebody)
+		{
+			return MD_S8Lit("You can't give an item to nobody, must target somebody to give an item");
+		}
+	}
+
+	if(a.kind == ACT_leaves_player && from->standing != STANDING_JOINED)
+	{
+		return MD_S8Lit("You can't leave the player unless you joined them.");
+	}
+
+	return (MD_String8){0};
+}
+
+// from must not be null
 // the action must have been validated to be valid if you're calling this
-void cause_action_side_effects(Entity *from, Entity *to, Action a)
+void cause_action_side_effects(Entity *from, Action a)
 {
 	assert(from);
 	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 
-	MD_String8 failure_reason = is_action_valid(scratch.arena, from, to, a);
+
+	MD_String8 failure_reason = is_action_valid(scratch.arena, from, a);
 	if(failure_reason.size > 0)
 	{
 		Log("Failed to process action, invalid action: `%.*s`\n", MD_S8VArg(failure_reason));
 		assert(false);
+	}
+
+	Entity *to = 0;
+	if(a.talking_to_somebody)
+	{
+		to = get_targeted(from, a.talking_to_kind);
+		assert(to);
 	}
 
 	if(a.kind == ACT_give_item)
@@ -1037,6 +1129,56 @@ void cause_action_side_effects(Entity *from, Entity *to, Action a)
 	MD_ReleaseScratch(scratch);
 }
 
+typedef struct PropagatingAction
+{
+	struct PropagatingAction *next;
+	Action a;
+	MemoryContext context;
+	Vec2 from;
+	bool already_propagated_to[MAX_ENTITIES]; // tracks by index of entity
+	float progress; // if greater than or equal to 1.0, is freed
+} PropagatingAction;
+
+PropagatingAction *propagating = 0;
+
+PropagatingAction ignore_entity(Entity *to_ignore, PropagatingAction p)
+{
+	PropagatingAction to_return = p;
+	to_return.already_propagated_to[frome(to_ignore).index] = true;
+	return to_return;
+}
+
+void push_propagating(PropagatingAction to_push)
+{
+	to_push.context.heard_physically = true;
+	bool found = false;
+	for(PropagatingAction *cur = propagating; cur; cur = cur->next)
+	{
+		if(cur->progress >= 1.0f)
+		{
+			PropagatingAction *prev_next = cur->next;
+			*cur = to_push;
+			cur->next = prev_next;
+			found = true;
+			break;
+		}
+	}
+
+	if(!found)
+	{
+		PropagatingAction *cur = MD_PushArray(persistent_arena, PropagatingAction, 1);
+		*cur = to_push;
+		MD_StackPush(propagating, cur);
+	}
+}
+
+float propagating_radius(PropagatingAction *p)
+{
+	float t = powf(p->progress, 0.65f);
+	return Lerp(0.0f, t, PROPAGATE_ACTIONS_RADIUS );
+}
+
+
 // only called when the action is instantiated, correctly propagates the information
 // of the action physically and through the party
 // If the action is invalid, remembers the error if it's an NPC, and does nothing else
@@ -1048,22 +1190,18 @@ bool perform_action(Entity *from, Action a)
 	MemoryContext context = {0};
 	context.author_npc_kind = from->npc_kind;
 
-	Entity *action_target = 0;
 	if(from == player && gete(from->talking_to))
 	{
-		action_target = gete(from->talking_to);
-		assert(action_target->is_npc);
+		context.was_talking_to_somebody = true;
+		context.talking_to_kind = gete(from->talking_to)->npc_kind;
 	}
-	else if(gete(player->talking_to) == from)
-		action_target = player;
-
-	if(action_target)
+	else
 	{
-		context.was_directed_at_somebody = true;
-		context.directed_at_kind = action_target->npc_kind;
+		context.was_talking_to_somebody = a.talking_to_somebody;
+		context.talking_to_kind = a.talking_to_kind;
 	}
 
-	MD_String8 is_valid = is_action_valid(scratch.arena, from, action_target, a);
+	MD_String8 is_valid = is_action_valid(scratch.arena, from, a);
 	bool proceed_propagating = true;
 	if(is_valid.size > 0)
 	{
@@ -1078,7 +1216,9 @@ bool perform_action(Entity *from, Action a)
 
 	if(proceed_propagating)
 	{
-		cause_action_side_effects(from, action_target, a);
+		Entity *targeted = get_targeted(from, a.talking_to_kind);
+
+		cause_action_side_effects(from, a);
 		// self memory
 		if(!from->is_character)
 		{
@@ -1088,46 +1228,22 @@ bool perform_action(Entity *from, Action a)
 		}
 
 		// memory of target
-		if(action_target)
+		if(targeted)
 		{
-			remember_action(action_target, a, context);
+			remember_action(targeted, a, context);
 		}
 
-		bool propagate_to_party = from->is_character || (from->is_npc && from->standing == STANDING_JOINED);
-
-		if(action_target == player) propagate_to_party = true;
-
-
-		if(context.eavesdropped_from_party) propagate_to_party = false;
-
-		if(propagate_to_party)
+		// propagate physically
+		PropagatingAction to_propagate = {0};
+		to_propagate.a = a;
+		to_propagate.context = context;
+		to_propagate.from = from->pos;
+		to_propagate = ignore_entity(from, to_propagate);
+		if(targeted)
 		{
-			ENTITIES_ITER(gs.entities)
-			{
-				if(it->is_npc && it->standing == STANDING_JOINED && it != from && it != action_target)
-				{
-					MemoryContext eavesdropped_context = context;
-					eavesdropped_context.eavesdropped_from_party = true;
-					remember_action(it, a, eavesdropped_context);
-				}
-			}
+			to_propagate = ignore_entity(targeted, to_propagate);
 		}
-
-
-		// npcs in party when they talk should have their speech heard by who the player is talking to
-		if(from->is_npc && from->standing == STANDING_JOINED)
-		{
-			if(gete(player->talking_to) && gete(player->talking_to) != from)
-			{
-				assert(gete(player->talking_to));
-				assert(gete(player->talking_to)->is_npc);
-				MemoryContext from_party_context = context;
-				from_party_context.directed_at_kind = gete(player->talking_to)->npc_kind;
-				remember_action(gete(player->talking_to), a, from_party_context);
-			}
-		}
-
-		// TODO Propagate physically
+		push_propagating(to_propagate);
 	}
 
 	MD_ReleaseScratch(scratch);
@@ -1303,9 +1419,13 @@ void reset_level()
 		assert(ARRLEN(to_load->initial_entities) == ARRLEN(gs.entities));
 		memcpy(gs.entities, to_load->initial_entities, sizeof(Entity) * MAX_ENTITIES);
 		gs.version = CURRENT_VERSION;
-		ENTITIES_ITER(gs.entities)
+
+		for (Entity *it = gs.entities; it < gs.entities + ARRLEN(gs.entities); it++)
 		{
-			if (it->generation == 0) it->generation = 1; // zero value generation means doesn't exist
+			if(it->exists && it->generation == 0)
+			{
+				it->generation = 1;
+			}
 		}
 	}
 	update_player_from_entities();
@@ -2563,6 +2683,7 @@ void draw_animated_sprite(DrawnAnimatedSprite d)
 	draw_quad(drawn);
 }
 
+
 // gets aabbs overlapping the input aabb, including gs.entities and tiles
 Overlapping get_overlapping(Level *l, AABB aabb)
 {
@@ -2888,7 +3009,6 @@ typedef struct
 	MD_u8 speech[MAX_SENTENCE_LENGTH];
 	int speech_length;
 	DialogElementKind kind;
-	bool was_eavesdropped;
 	NpcKind who_said_it;
 	bool was_last_said;
 } DialogElement;
@@ -2921,7 +3041,7 @@ MD_String8List last_said_without_unsaid_words(MD_Arena *arena, Entity *it)
 // and an argument. So worst case every perception has 2 dialog
 // elements right now is why it's *2
 typedef BUFF(DialogElement, REMEMBERED_MEMORIES*2) Dialog;
-Dialog produce_dialog(Entity *talking_to, bool character_names)
+Dialog get_dialog_elems(Entity *talking_to, bool character_names)
 {
 	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 	assert(talking_to->is_npc);
@@ -2932,7 +3052,7 @@ Dialog produce_dialog(Entity *talking_to, bool character_names)
 		{
 			if(it->speech_length > 0)
 			{
-				DialogElement new_element = { .who_said_it = it->context.author_npc_kind, .was_eavesdropped = it->context.eavesdropped_from_party };
+				DialogElement new_element = { .who_said_it = it->context.author_npc_kind };
 
 				MD_String8 my_speech = MD_S8(it->speech, it->speech_length);
 				if(last_said_sentence(talking_to).str == it->speech)
@@ -2941,7 +3061,17 @@ Dialog produce_dialog(Entity *talking_to, bool character_names)
 					my_speech = MD_S8ListJoin(scratch.arena, last_said_without_unsaid_words(scratch.arena, talking_to), &(MD_StringJoin){.mid = MD_S8Lit(" ")});
 				}
 
-				MD_String8 dialog_speech = FmtWithLint(scratch.arena, "%s: %.*s", characters[it->context.author_npc_kind].name, MD_S8VArg(my_speech));
+				MD_String8 name_string = {0};
+				if(it->context.was_talking_to_somebody)
+				{
+					name_string = FmtWithLint(scratch.arena, "%s to %s", characters[it->context.author_npc_kind].name, characters[it->context.talking_to_kind].name);
+				}
+				else
+				{
+					name_string = FmtWithLint(scratch.arena, "%s", characters[it->context.author_npc_kind].name);
+				}
+
+				MD_String8 dialog_speech = FmtWithLint(scratch.arena, "%.*s: %.*s", MD_S8VArg(name_string), MD_S8VArg(my_speech));
 
 				memcpy(new_element.speech, dialog_speech.str, dialog_speech.size);
 				new_element.speech_length = (int)dialog_speech.size;
@@ -3058,7 +3188,7 @@ void draw_dialog_panel(Entity *talking_to, float alpha)
 		{
 			float new_line_height = dialog_panel.lower_right.Y;
 
-			Dialog dialog = produce_dialog(talking_to, false);
+			Dialog dialog = get_dialog_elems(talking_to, false);
 			if (dialog.cur_index > 0)
 			{
 				for (int i = dialog.cur_index - 1; i >= 0; i--)
@@ -3068,28 +3198,21 @@ void draw_dialog_panel(Entity *talking_to, float alpha)
 						Color color;
 						// decide color
 						{
-							if(it->was_eavesdropped)
+							if (it->kind == DELEM_PLAYER)
 							{
-								color = colhex(0x9341a3);
+								color = BLACK;
+							}
+							else if (it->kind == DELEM_NPC)
+							{
+								color = colhex(0x345e22);
+							}
+							else if (it->kind == DELEM_ACTION_DESCRIPTION)
+							{
+								color = colhex(0xb5910e);
 							}
 							else
 							{
-								if (it->kind == DELEM_PLAYER)
-								{
-									color = BLACK;
-								}
-								else if (it->kind == DELEM_NPC)
-								{
-									color = colhex(0x345e22);
-								}
-								else if (it->kind == DELEM_ACTION_DESCRIPTION)
-								{
-									color = colhex(0xb5910e);
-								}
-								else
-								{
-									assert(false);
-								}
+								assert(false);
 							}
 						}
 
@@ -3407,6 +3530,29 @@ void frame(void)
 				float dt = unwarped_dt*speed_factor;
 
 				gs.tick += 1;
+
+				PROFILE_SCOPE("propagate actions")
+				{
+					for(PropagatingAction *cur = propagating; cur; cur = cur->next)
+					{
+						if(cur->progress < 1.0f)
+						{
+							cur->progress += dt;
+							float effective_radius = propagating_radius(cur);
+							ENTITIES_ITER(gs.entities)
+							{
+								if(it->is_npc && LenV2(SubV2(it->pos, cur->from)) < effective_radius)
+								{
+									if(!cur->already_propagated_to[frome(it).index])
+									{
+										cur->already_propagated_to[frome(it).index] = true;
+										remember_action(it, cur->a, cur->context);
+									}
+								}
+							}
+						}
+					}
+				}
 
 				// process gs.entities
 				player_in_combat = false; // in combat set by various enemies when they fight the player
@@ -3988,7 +4134,7 @@ void frame(void)
 								it->perceptions_dirty = false; // needs to be in beginning because they might be redirtied by the new perception
 								MD_String8 prompt_str = {0};
 #ifdef DO_CHATGPT_PARSING
-								prompt_str = generate_chatgpt_prompt(frame_arena, it);
+								prompt_str = generate_chatgpt_prompt(frame_arena, it, get_can_talk_to(it));
 #else
 								generate_prompt(it, &prompt);
 #endif
@@ -4026,10 +4172,6 @@ void frame(void)
 										ActionKind act = ACT_none;
 
 										it->times_talked_to++;
-										if(it->memories.data[it->memories.cur_index-1].context.eavesdropped_from_party)
-										{
-											PushWithLint(scratch.arena, &dialog_elems, "Responding to eavesdropped: ");
-										}
 										if(it->npc_kind == NPC_TheBlacksmith && it->standing != STANDING_JOINED)
 										{
 											assert(it->times_talked_to == 1);
@@ -4524,6 +4666,19 @@ void frame(void)
 				}
 			}
 
+		PROFILE_SCOPE("propagating")
+		{
+			for(PropagatingAction *cur = propagating; cur; cur = cur->next)
+			{
+				if(cur->progress < 1.0f)
+				{
+					float radius = propagating_radius(cur);
+					Quad to_draw = quad_centered(cur->from, V2(radius, radius));
+					draw_quad((DrawParams){true, to_draw, IMG(image_hovering_circle), blendalpha(WHITE, 1.0f - cur->progress)});
+				}
+			}
+		}
+
 		PROFILE_SCOPE("dialog menu") // big dialog panel draw big dialog panel
 		{
 			static float on_screen = 0.0f;
@@ -4607,35 +4762,28 @@ void frame(void)
 					if (talking_to && aabb_is_valid(dialog_panel))
 					{
 						MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-						Dialog dialog = produce_dialog(talking_to, true);
+						Dialog dialog = get_dialog_elems(talking_to, true);
 						{
 							for (int i = dialog.cur_index - 1; i >= 0; i--)
 							{
 								DialogElement *it = &dialog.data[i];
 								{
 									Color color;
-									if(it->was_eavesdropped)
+									if (it->kind == DELEM_PLAYER)
 									{
-										color = colhex(0xcb40e6);
+										color = WHITE;
+									}
+									else if (it->kind == DELEM_NPC)
+									{
+										color = colhex(0x34e05c);
+									}
+									else if (it->kind == DELEM_ACTION_DESCRIPTION)
+									{
+										color = colhex(0xebc334);
 									}
 									else
 									{
-										if (it->kind == DELEM_PLAYER)
-										{
-											color = WHITE;
-										}
-										else if (it->kind == DELEM_NPC)
-										{
-											color = colhex(0x34e05c);
-										}
-										else if (it->kind == DELEM_ACTION_DESCRIPTION)
-										{
-											color = colhex(0xebc334);
-										}
-										else
-										{
-											assert(false);
-										}
+										assert(false);
 									}
 									color = blendalpha(color, alpha);
 

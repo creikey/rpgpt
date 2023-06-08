@@ -1,6 +1,6 @@
 [
 	{can_hear: [NPC_Jester, NPC_Bill]},
-	{enum: NPC_Jester       , dialog: "Hehehe! Quit quant, a peasant from the mortal realm!"},
+	{enum: NPC_Jester       , dialog: "Hehehe! Quit quant, a peasant from the mortal realm!", to: Bill},
 	{enum: NPC_Bill         , dialog: "No...Please! Stay away from me! Who the Hell are you!", thoughts: "I'm kind of mad, and this Jester guy is kind of an asshole"},
 	{enum: NPC_Jester       , dialog: "Poor Bill, I'm sure your ex-wife says the same..."},
 	{enum: NPC_Bill         , dialog: "You evil BASTARD!! What is this place???", thoughts: "I hate the Jester because he dissed my ex-wife. And, he's being all vague and condescending. I would punch him if I could"},

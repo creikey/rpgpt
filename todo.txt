@@ -1,11 +1,12 @@
 DONE - rewrite to have metadesk format for speech and actions
- - action and item explanations in system message, along with available actions and items
- - remove party eavesdropping, but make clear to AI when things are heard physically or told directly. Allow AI to choose people in vicinity to target with conversation and action. I.e a `talking_to` field. Also add a required character: field in chatgpt response, and make sure it matches the character it's supposed to act as.
+DONE - action and item explanations in system message, along with available actions and items
+DONE - remove party eavesdropping, but make clear to AI when things are heard physically or told directly. Allow AI to choose people in vicinity to target with conversation and action. I.e a `talking_to` field. Also add a required character: field in chatgpt response, and make sure it matches the character it's supposed to act as.
+ - The using of items and backpack inventory view.
  - delete peace tokens, replace with key items and scroll item that says word.
  - display actions, like giving an item, in memory history
  - door npc that refuses to open unless player says the word
  - The Mighty Sword that's conservative, when convinced to be pulled player gets it as an item
- - The using of items and backpack inventory view.
+ - Change give_item to give_item_for_free, and add propose_trade that does trade workflow so NPCs can't easily be screwed over
 
 
 
