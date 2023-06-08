@@ -373,7 +373,7 @@ func completion(w http.ResponseWriter, req *http.Request) {
    var parsed []ChatGPTElem
    log.Printf("----------------------------------------------------------")
    defer log.Printf("----------------------------------------------------------")
-   log.Printf("Parsing prompt string `%s`\n", promptString)
+   log.Printf("Parsing prompt string `%s`\n\n\n", promptString)
    err = json.Unmarshal([]byte(promptString), &parsed)
    if err != nil {
     log.Println("Error bad json given for prompt: ", err)

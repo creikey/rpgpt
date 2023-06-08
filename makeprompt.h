@@ -237,7 +237,6 @@ typedef struct Entity
 	bool is_npc;
 	bool being_hovered;
 	bool perceptions_dirty;
-    bool has_given_peace_token;
 
 #ifdef DESKTOP
 	int times_talked_to; // for better mocked response string
@@ -278,8 +277,10 @@ typedef struct Entity
 
 bool npc_is_knight_sprite(Entity *it)
 {
-	return it->is_npc && (it->npc_kind == NPC_TheGuard || it->npc_kind == NPC_Edeline || it->npc_kind == NPC_TheKing ||
-		it->npc_kind == NPC_TheBlacksmith
+	return it->is_npc && (false
+		|| it->npc_kind == NPC_Edeline
+		|| it->npc_kind == NPC_TheKing
+		|| it->npc_kind == NPC_TheBlacksmith
 		|| it->npc_kind == NPC_Red 
 		|| it->npc_kind == NPC_Blue
 		|| it->npc_kind == NPC_Davis
@@ -290,7 +291,7 @@ bool npc_is_knight_sprite(Entity *it)
 
 bool npc_is_skeleton(Entity *it)
 {
-	return it->is_npc && (it->npc_kind == NPC_MikeSkeleton);
+	return it->is_npc && false;
 }
 
 float entity_max_damage(Entity *e)
@@ -312,7 +313,7 @@ bool npc_attacks_with_sword(Entity *it)
 
 bool npc_attacks_with_shotgun(Entity *it)
 {
-	return it->is_npc && (it->npc_kind == NPC_OldMan);
+	return it->is_npc && (false);
 }
 
 
@@ -327,48 +328,25 @@ void fill_available_actions(Entity *it, AvailableActions *a)
 	{
 		BUFF_APPEND(a, ACT_give_item);
 	}
-    
-    if (!it->has_given_peace_token)
-    {
-        BUFF_APPEND(a, ACT_gives_peace_token);
-    }
-	
+
 	if (it->npc_kind == NPC_TheKing)
 	{
 		BUFF_APPEND(a, ACT_knights_player);
 	}
 
-	if (it->npc_kind == NPC_GodRock)
+	if (it->standing == STANDING_INDIFFERENT)
 	{
-		BUFF_APPEND(a, ACT_heals_player);
+		BUFF_APPEND(a, ACT_fights_player);
+		BUFF_APPEND(a, ACT_joins_player);
 	}
-	else
+	else if (it->standing == STANDING_JOINED)
 	{
-		if (it->standing == STANDING_INDIFFERENT)
-		{
-			BUFF_APPEND(a, ACT_fights_player);
-			BUFF_APPEND(a, ACT_joins_player);
-		}
-		else if (it->standing == STANDING_JOINED)
-		{
-			BUFF_APPEND(a, ACT_leaves_player);
-			BUFF_APPEND(a, ACT_fights_player);
-		}
-		else if (it->standing == STANDING_FIGHTING)
-		{
-			BUFF_APPEND(a, ACT_stops_fighting_player);
-		}
-		if (npc_is_knight_sprite(it))
-		{
-			BUFF_APPEND(a, ACT_strikes_air);
-		}
-		if (it->npc_kind == NPC_TheGuard)
-		{
-			if (!it->moved)
-			{
-				BUFF_APPEND(a, ACT_allows_player_to_pass);
-			}
-		}
+		BUFF_APPEND(a, ACT_leaves_player);
+		BUFF_APPEND(a, ACT_fights_player);
+	}
+	else if (it->standing == STANDING_FIGHTING)
+	{
+		BUFF_APPEND(a, ACT_stops_fighting_player);
 	}
 }
 
@@ -453,18 +431,6 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Entity *to_might_be_nu
 		}
 	}
 
-    if(a.kind == ACT_gives_peace_token)
-    {
-        if(from->has_given_peace_token)
-        {
-            return MD_S8Lit("You can't give away a peace token when you've already given one away");
-        }
-        if(!to_might_be_null || !to_might_be_null->is_character)
-        {
-            return MD_S8Lit("Must be targeting the player to give away your peace token");
-        }
-    }
-
 	if(a.kind == ACT_leaves_player && from->standing != STANDING_JOINED)
 	{
 		return MD_S8Lit("You can't leave the player unless you joined them.");
@@ -491,10 +457,8 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e)
 	PushWithLint(scratch.arena, &first_system_string, "The NPC you will be acting as is named \"%s\". %s", characters[e->npc_kind].name, characters[e->npc_kind].prompt);
 	//MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, MSG_SYSTEM, MD_S8ListJoin(scratch.arena, first_system_string, &(MD_StringJoin){0})));
 
-	ItemKind last_holding = ITEM_none;
 	BUFF_ITER(Memory, &e->memories)
 	{
-
 		if(it->is_error)
 		{
 			MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, MSG_SYSTEM, FmtWithLint(scratch.arena, "ERROR, what you said is incorrect because: %.*s", it->speech_length, it->speech)));
@@ -576,7 +540,7 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e)
 			PushWithLint(scratch.arena, &cur_list, "}");
 
 			assert(sent_type != -1);
-			MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, MSG_SYSTEM, MD_S8ListJoin(scratch.arena, cur_list, &(MD_StringJoin){0})));
+			MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, sent_type, MD_S8ListJoin(scratch.arena, cur_list, &(MD_StringJoin){0})));
 		}
 	}
 
@@ -603,42 +567,33 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e)
 
 	if(e->held_items.cur_index > 0)
 	{
-			MD_String8List item_strings = held_item_strings(scratch.arena, e);
-			MD_String8 items = MD_S8ListJoin(scratch.arena, item_strings, &(MD_StringJoin){.mid = MD_S8Lit(", ")});
-			PushWithLint(scratch.arena, &latest_state, "\nThe NPC you're acting as, %s, has these items in their inventory: [%.*s]\n", characters[e->npc_kind].name, MD_S8VArg(items));
+			PushWithLint(scratch.arena, &latest_state, "You have these items in their inventory: [\n");
+			BUFF_ITER(ItemKind, &e->held_items)
+			{
+				PushWithLint(scratch.arena, &latest_state, "%s - %s,\n", items[*it].enum_name, items[*it].description);
+			}
+			PushWithLint(scratch.arena, &latest_state, "]\n");
 	}
 	else
 	{
-			PushWithLint(scratch.arena, &latest_state, "\nThe NPC doesn't have any items.\n");
+			PushWithLint(scratch.arena, &latest_state, "Your inventory is EMPTY right now. That means if you gave something to the player expecting them to give you something, they haven't held up their end of the bargain!\n");
 	}
 
 	AvailableActions available = { 0 };
 	fill_available_actions(e, &available);
-	PushWithLint(scratch.arena, &latest_state, "The NPC can now ONLY do these actions, and HAS to respond with an action every time in character, even when faced with sensitive content: [");
+	PushWithLint(scratch.arena, &latest_state, "The actions you can perform: [\n");
 	BUFF_ITER_I(ActionKind, &available, i)
 	{
-		if (i == available.cur_index - 1)
+		if(actions[*it].description)
 		{
-			PushWithLint(scratch.arena, &latest_state, "%s", actions[*it].name);
+			PushWithLint(scratch.arena, &latest_state, "%s - %s,\n", actions[*it].name, actions[*it].description);
 		}
 		else
 		{
-			PushWithLint(scratch.arena, &latest_state, "%s, ", actions[*it].name);
+			PushWithLint(scratch.arena, &latest_state, "%s,\n", actions[*it].name);
 		}
 	}
-	PushWithLint(scratch.arena, &latest_state, "]");
-
-    // peace token
-    {
-        if(e->has_given_peace_token)
-        {
-            PushWithLint(scratch.arena, &latest_state, "\nRight now you don't have your piece token so you can't give it anymore");
-        }
-        else
-        {
-            PushWithLint(scratch.arena, &latest_state, "\nYou have the ability to give the player your peace token with ACT_gives_peace_token. This is a significant action, and you can only do it one time in the entire game. Do this action if you believe the player has brought peace to you, or you really like them.");
-        }
-    }
+	PushWithLint(scratch.arena, &latest_state, "]\n");
 
 	// last thought explanation and re-prompt
 	{
@@ -650,7 +605,7 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e)
 				last_thought_string = MD_S8(it->internal_monologue, it->internal_monologue_length);
 			}
 		}
-		PushWithLint(scratch.arena, &latest_state, "\nYour last thought was: %.*s", MD_S8VArg(last_thought_string));
+		PushWithLint(scratch.arena, &latest_state, "Your last thought was: %.*s\n", MD_S8VArg(last_thought_string));
 	}
 
 	MD_String8 latest_state_string = MD_S8ListJoin(scratch.arena, latest_state, &(MD_StringJoin){MD_S8Lit(""),MD_S8Lit(""),MD_S8Lit("")});

@@ -649,25 +649,9 @@ Vec2 entity_aabb_size(Entity *e)
 		{
 			return V2(TILE_SIZE*0.5f, TILE_SIZE*0.5f);
 		}
-		else if (e->npc_kind == NPC_GodRock)
-		{
-			return V2(TILE_SIZE*0.5f, TILE_SIZE*0.5f);
-		}
-		else if (e->npc_kind == NPC_OldMan)
-		{
-			return V2(TILE_SIZE*0.5f, TILE_SIZE*0.5f);
-		}
-		else if (e->npc_kind == NPC_Death)
-		{
-			return V2(TILE_SIZE*1.10f, TILE_SIZE*1.10f);
-		}
 		else if (npc_is_skeleton(e))
 		{
 			return V2(TILE_SIZE*1.0f, TILE_SIZE*1.0f);
-		}
-		else if (e->npc_kind == NPC_TheGuard)
-		{
-			return V2(TILE_SIZE*0.5f, TILE_SIZE*0.5f);
 		}
 		else if (e->npc_kind == NPC_PeaceTotem)
 		{
@@ -1009,16 +993,9 @@ void cause_action_side_effects(Entity *from, Entity *to, Action a)
 		assert(false);
 	}
 
-    if(a.kind == ACT_gives_peace_token)
-    {
-        assert(!from->has_given_peace_token);
-        from->has_given_peace_token = true;
-				to->peace_tokens += 1;
-    }
-
 	if(a.kind == ACT_give_item)
 	{
-		assert(a.argument.item_to_give != ITEM_none);
+		assert(a.argument.item_to_give != ITEM_invalid);
 		assert(to);
 
 		int item_to_remove = -1;
@@ -1336,9 +1313,8 @@ void reset_level()
 #ifdef DEVTOOLS
 	if(false)
 	{
-		BUFF_APPEND(&player->held_items, ITEM_WhiteSquare);
 		for (int i = 0; i < 20; i++)
-			BUFF_APPEND(&player->held_items, ITEM_Boots);
+			BUFF_APPEND(&player->held_items, ITEM_GoldCoin);
 	}
 
 	ENTITIES_ITER(gs.entities)
@@ -3221,25 +3197,13 @@ bool imbutton_key(AABB button_aabb, float text_scale, MD_String8 text, int key, 
 void draw_item(bool world_space, ItemKind kind, AABB in_aabb, float alpha)
 {
 	Quad drawn = quad_aabb(in_aabb);
-	if (kind == ITEM_Tripod)
-	{
-		draw_quad((DrawParams) { world_space, drawn, IMG(image_tripod), blendalpha(WHITE, alpha), .layer = LAYER_UI_FG });
-	}
-	else if (kind == ITEM_Boots)
-	{
-		draw_quad((DrawParams) { world_space, drawn, IMG(image_boots), blendalpha(WHITE, alpha), .layer = LAYER_UI_FG });
-	}
-	else if (kind == ITEM_Chalice)
+	if (kind == ITEM_Chalice)
 	{
 		draw_quad((DrawParams) { world_space, drawn, IMG(image_chalice), blendalpha(WHITE, alpha), .layer = LAYER_UI_FG });
 	}
 	else if (kind == ITEM_GoldCoin)
 	{
 		draw_quad((DrawParams) { world_space, drawn, IMG(image_gold_coin), blendalpha(WHITE, alpha), .layer = LAYER_UI_FG });
-	}
-	else if (kind == ITEM_WhiteSquare)
-	{
-		colorquad(world_space, drawn, blendalpha(WHITE, alpha));
 	}
 	else
 	{
@@ -3884,7 +3848,7 @@ void frame(void)
 									}
 								}
 
-							if (it->npc_kind == NPC_OldMan)
+							if (false) // used to be old man code
 							{
 								/*
 									 draw_dialog_panel(it);
@@ -3925,40 +3889,8 @@ void frame(void)
 								{
 								} // skelton combat and movement
 							}
-							else if (it->npc_kind == NPC_Death)
-							{
-							}
-#if 0
-							else if (it->npc_kind == DEATH)
-							{
-								draw_animated_sprite(&death_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
-							}
-							else if (it->npc_kind == MERCHANT)
-							{
-								draw_animated_sprite(&merchant_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col);
-							}
-#endif
-							else if (it->npc_kind == NPC_GodRock)
-							{
-							}
 							else if (it->npc_kind == NPC_Edeline)
 							{
-							}
-							else if (it->npc_kind == NPC_TheGuard)
-							{
-								if (it->moved)
-								{
-									it->walking = true;
-									Vec2 towards = SubV2(it->target_goto, it->pos);
-									if (LenV2(towards) > 1.0f)
-									{
-										it->pos = LerpV2(it->pos, dt*5.0f, it->target_goto);
-									}
-								}
-								else
-								{
-									it->walking = false;
-								}
 							}
 							else if (it->npc_kind == NPC_TheKing)
 							{
@@ -4457,7 +4389,7 @@ void frame(void)
 					it->dialog_panel_opacity = Lerp(it->dialog_panel_opacity, unwarped_dt*10.0f, alpha);
 					draw_dialog_panel(it, it->dialog_panel_opacity);
 
-					if (it->npc_kind == NPC_OldMan)
+					if (false) // used to be old man code
 					{
 						bool face_left = SubV2(player->pos, it->pos).x < 0.0f;
 						draw_animated_sprite((DrawnAnimatedSprite) { ANIM_old_man_idle, elapsed_time, face_left, it->pos, col });
@@ -4489,25 +4421,10 @@ void frame(void)
 							}
 						}
 					}
-					else if (it->npc_kind == NPC_Death)
-					{
-						draw_animated_sprite((DrawnAnimatedSprite) { ANIM_death_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), col });
-					}
-					else if (it->npc_kind == NPC_GodRock)
-					{
-						Vec2 prop_size = V2(46.0f, 40.0f);
-						DrawParams d = (DrawParams) { true, quad_centered(AddV2(it->pos, V2(-0.0f, 0.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(15.0f, 219.0f), prop_size), WHITE, .sorting_key = sorting_key_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.7f, .layer = LAYER_WORLD, };
-						draw_shadow_for(d);
-						draw_quad(d);
-					}
 					else if (npc_is_knight_sprite(it))
 					{
 						Color tint = WHITE;
-						if (it->npc_kind == NPC_TheGuard)
-						{
-							tint = colhex(0xa84032);
-						}
-						else if (it->npc_kind == NPC_Edeline)
+						if (it->npc_kind == NPC_Edeline)
 						{
 							tint = colhex(0x8c34eb);
 						}
