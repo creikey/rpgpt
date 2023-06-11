@@ -1026,7 +1026,7 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 		}
 		if(!found)
 		{
-			return FmtWithLint(arena, "Character you're talking to, '%s', isn't close enough to be talked to", characters[a.talking_to_kind].name);
+			return FmtWithLint(arena, "Character you're talking to, %s, isn't close enough to be talked to", characters[a.talking_to_kind].enum_name);
 		}
 	}
 
@@ -1058,11 +1058,6 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 	if(a.kind == ACT_leaves_player && from->standing != STANDING_JOINED)
 	{
 		return MD_S8Lit("You can't leave the player unless you joined them.");
-	}
-
-	if(a.kind == ACT_joins_player && from->standing == STANDING_JOINED)
-	{
-		return MD_S8Lit("You can't join the player, you've already joined them!");
 	}
 
 	return (MD_String8){0};
@@ -1564,7 +1559,7 @@ void reset_level()
 
 								if(!found)
 								{
-									PushWithLint(scratch.arena, &drama_errors, "Couldn't find NPC '%s' in the current map", characters[want].name);
+									PushWithLint(scratch.arena, &drama_errors, "Couldn't find NPC of kind %s in the current map", characters[want].enum_name);
 								}
 							}
 						}
