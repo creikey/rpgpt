@@ -967,7 +967,7 @@ CanTalkTo get_can_talk_to(Entity *e)
 	CanTalkTo to_return = {0};
 	ENTITIES_ITER(gs.entities)
 	{
-		if(it != e && it->is_npc && LenV2(SubV2(it->pos, e->pos)) < PROPAGATE_ACTIONS_RADIUS)
+		if(it != e && (it->is_npc || it->is_character) && LenV2(SubV2(it->pos, e->pos)) < PROPAGATE_ACTIONS_RADIUS)
 		{
 			BUFF_APPEND(&to_return, it->npc_kind);
 		}
@@ -979,7 +979,7 @@ Entity *get_targeted(Entity *from, NpcKind targeted)
 {
 	ENTITIES_ITER(gs.entities)
 	{
-		if(it != from && it->is_npc && LenV2(SubV2(it->pos, from->pos)) < PROPAGATE_ACTIONS_RADIUS && it->npc_kind == targeted)
+		if(it != from && (it->is_npc || it->is_character) && LenV2(SubV2(it->pos, from->pos)) < PROPAGATE_ACTIONS_RADIUS && it->npc_kind == targeted)
 		{
 			return it;
 		}
