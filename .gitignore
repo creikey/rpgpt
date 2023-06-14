@@ -1,6 +1,9 @@
 # Visual studio stuff
 .vs/
 
+# Exported web builds are zipped into zip files in the root of the repo
+*.zip
+
 # ctags
 tags
 
