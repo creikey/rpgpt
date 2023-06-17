@@ -457,6 +457,7 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e, CanTalkTo can_tal
 		PushWithLint(scratch.arena, &first_system_string, "%.*s\n", MD_S8VArg(points_at_chunk(cur)));
 	}
 	//MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, MSG_SYSTEM, MD_S8ListJoin(scratch.arena, first_system_string, &(MD_StringJoin){0})));
+	MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, MSG_SYSTEM, MD_S8ListJoin(scratch.arena, first_system_string, &(MD_StringJoin){0})));
 
 	BUFF_ITER(Memory, &e->memories)
 	{
@@ -465,10 +466,8 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e, CanTalkTo can_tal
 		MD_String8 context_string = {0};
 
 		PushWithLint(scratch.arena, &cur_list, "{");
-		if(!it->context.i_said_this)
-		{
-			PushWithLint(scratch.arena, &cur_list, "who_i_am: %s, ", characters[it->context.author_npc_kind].name);
-		}
+		if(it->context.i_said_this) assert(it->context.author_npc_kind == e->npc_kind);
+		PushWithLint(scratch.arena, &cur_list, "who_i_am: %s, ", characters[it->context.author_npc_kind].name);
 		MD_String8 speech = MD_S8(it->speech, it->speech_length);
 
 		PushWithLint(scratch.arena, &cur_list, "talking_to: \"%s\", ", it->context.was_talking_to_somebody ? characters[it->context.talking_to_kind].name : "nobody");
@@ -540,7 +539,6 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e, CanTalkTo can_tal
 		MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, sent_type, MD_S8ListJoin(scratch.arena, cur_list, &(MD_StringJoin){0})));
 	}
 
-	MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, MSG_SYSTEM, MD_S8ListJoin(scratch.arena, first_system_string, &(MD_StringJoin){0})));
 
 	const char *standing_string = 0;
 	{
@@ -674,11 +672,11 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 	}
 	if(error_message.size == 0 && talking_to_str.size == 0)
 	{
-		error_message = MD_S8Lit("Expected field named `talking_to` in message");
+		error_message = MD_S8Lit("You must have a field named `talking_to` in your message");
 	}
 	if(error_message.size == 0 && thoughts_str.size == 0)
 	{
-		error_message = MD_S8Lit("Expected field named `thoughts` in message, and to have nonzero size");
+		error_message = MD_S8Lit("You must have a field named `thoughts` in your message, and it must have nonzero size. Like { ... thoughts: \"<your thoughts>\" ... }");
 	}
 	if(error_message.size == 0 && speech_str.size >= MAX_SENTENCE_LENGTH)
 	{

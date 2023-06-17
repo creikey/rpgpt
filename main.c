@@ -3693,7 +3693,7 @@ void frame(void)
 										}
 										else
 										{
-											Log("There was a parse error: `%.*s`", MD_S8VArg(parse_response));
+											Log("There was a parse error: `%.*s`\n", MD_S8VArg(parse_response));
 											append_to_errors(it, parse_response);
 										}
 
