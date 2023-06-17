@@ -18,6 +18,10 @@
 {
  filepath: "grunt_3.wav",
 }
+@image sword:
+{
+ filepath: "sword_of_nazareth.png",
+}
 @image merchant:
 {
  filepath: "copyrighted/merchant.png",
@@ -127,6 +131,10 @@
 @image space_icon:
 {
  filepath: "space_icon.png",
+}
+@image backpack:
+{
+ filepath: "backpack.png",
 }
 @image mystery_tile:
 {

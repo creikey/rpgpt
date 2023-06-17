@@ -806,7 +806,7 @@ Vec2 aabb_center(AABB aabb)
 	return MulV2F(AddV2(aabb.upper_left, aabb.lower_right), 0.5f);
 }
 
-AABB centered_aabb(Vec2 at, Vec2 size)
+AABB aabb_centered(Vec2 at, Vec2 size)
 {
 	return (AABB) {
 		.upper_left = AddV2(at, V2(-size.X / 2.0f, size.Y / 2.0f)),
@@ -817,7 +817,7 @@ AABB centered_aabb(Vec2 at, Vec2 size)
 
 AABB entity_aabb_at(Entity *e, Vec2 at)
 {
-	return centered_aabb(at, entity_aabb_size(e));
+	return aabb_centered(at, entity_aabb_size(e));
 }
 
 AABB entity_aabb(Entity *e)
@@ -2177,7 +2177,7 @@ Quad quad_aabb(AABB aabb)
 
 Quad centered_quad(Vec2 at, Vec2 size)
 {
-	return quad_aabb(centered_aabb(at, size));
+	return quad_aabb(aabb_centered(at, size));
 }
 
 // both segment_a and segment_b must be arrays of length 2
@@ -2813,7 +2813,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 
 	assert(collision_aabb_size.x > 0.0f);
 	assert(collision_aabb_size.y > 0.0f);
-	AABB at_new = centered_aabb(new_pos, collision_aabb_size);
+	AABB at_new = aabb_centered(new_pos, collision_aabb_size);
 	BUFF(AABB, 256) to_check = { 0 };
 
 
@@ -2848,7 +2848,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 		{
 			if (!(it->is_character && it->is_rolling) && it != p.from && !(it->is_npc && it->dead) && !it->is_item)
 			{
-				BUFF_APPEND(&to_check, centered_aabb(it->pos, entity_aabb_size(it)));
+				BUFF_APPEND(&to_check, aabb_centered(it->pos, entity_aabb_size(it)));
 			}
 		}
 	}
@@ -2963,7 +2963,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 	if (p.col_info_out) *p.col_info_out = info;
 
 	Vec2 result_pos = aabb_center(at_new);
-	dbgrect(centered_aabb(result_pos, collision_aabb_size));
+	dbgrect(aabb_centered(result_pos, collision_aabb_size));
 	return result_pos;
 }
 
@@ -4329,7 +4329,7 @@ void frame(void)
 					{
 						// find closest to talk to
 						{
-							AABB dialog_rect = centered_aabb(player->pos, V2(dialog_interact_size , dialog_interact_size));
+							AABB dialog_rect = aabb_centered(player->pos, V2(dialog_interact_size , dialog_interact_size));
 							dbgrect(dialog_rect);
 							Overlapping possible_dialogs = get_overlapping(cur_level, dialog_rect);
 							float closest_interact_with_dist = INFINITY;
@@ -4667,7 +4667,7 @@ void frame(void)
 				}
 				else if (it->is_item)
 				{
-					draw_item(true, it->item_kind, centered_aabb(it->pos, V2(15.0f, 15.0f)), 1.0f);
+					draw_item(true, it->item_kind, aabb_centered(it->pos, V2(15.0f, 15.0f)), 1.0f);
 				}
 				else if (it->is_character)
 				{
@@ -4869,6 +4869,25 @@ void frame(void)
 			}
 		}
 
+		// open inventory button
+		{
+			float button_size = 128.0f;
+			float button_padding = 64.0f;
+			static float scaling = 1.0f;
+			Vec2 center = AddV2(screen_size(), V2(-(button_padding + button_size/2.0f), -(button_padding + button_size/2.0f)));
+			AABB button_aabb = aabb_centered(center, MulV2F(V2(button_size, button_size), scaling));
+			bool hovering = has_point(button_aabb, mouse_pos);
+			float target = hovering ? 1.5f : 1.0f;
+			scaling = Lerp(scaling, unwarped_dt*15.0f, target);
+			draw_quad((DrawParams) {false, quad_aabb(button_aabb), IMG(image_backpack), WHITE, .layer = LAYER_UI });
+
+			if(hovering && pressed.mouse_down)
+			{
+				choosing_item_grid = true;
+				pressed.mouse_down = false;
+			}
+		}
+
 		// item grid modal draw item grid choose item pick item give item
 		{
 			static float visible = 0.0f;
@@ -4877,15 +4896,10 @@ void frame(void)
 			if (choosing_item_grid) target = 1.0f;
 			visible = Lerp(visible, unwarped_dt*9.0f, target);
 
-			if (player->state != CHARACTER_TALKING)
-			{
-				choosing_item_grid = false;
-			}
-
 			draw_quad((DrawParams) { false, quad_at(V2(0.0, screen_size().y), screen_size()), IMG(image_white_square), blendalpha(oflightness(0.2f), visible*0.4f), .layer = LAYER_UI });
 
 			Vec2 grid_panel_size = LerpV2(V2(0.0f, 0.0f), visible, V2(screen_size().x*0.75f, screen_size().y * 0.75f));
-			AABB grid_aabb = centered_aabb(MulV2F(screen_size(), 0.5f), grid_panel_size);
+			AABB grid_aabb = aabb_centered(MulV2F(screen_size(), 0.5f), grid_panel_size);
 			if (choosing_item_grid && pressed.mouse_down && !has_point(grid_aabb, mouse_pos))
 			{
 				choosing_item_grid = false;
@@ -4894,7 +4908,7 @@ void frame(void)
 			{
 				draw_quad((DrawParams) { false, quad_aabb(grid_aabb), IMG(image_white_square), blendalpha(BLACK, visible * 0.7f), .layer = LAYER_UI });
 
-				if (imbutton(centered_aabb(AddV2(grid_aabb.upper_left, V2(aabb_size(grid_aabb).x / 2.0f, -aabb_size(grid_aabb).y)), V2(100.f*visible, 50.0f*visible)), 1.0f, MD_S8Lit("Cancel")))
+				if (imbutton(aabb_centered(AddV2(grid_aabb.upper_left, V2(aabb_size(grid_aabb).x / 2.0f, -aabb_size(grid_aabb).y)), V2(100.f*visible, 50.0f*visible)), 1.0f, MD_S8Lit("Cancel")))
 				{
 					choosing_item_grid = false;
 				}
@@ -4916,7 +4930,7 @@ void frame(void)
 				{
 					Vec2 real_size = LerpV2(item_icon_size, hovered_state[i], MulV2F(item_icon_size, 1.25f));
 					Vec2 item_center = AddV2(cursor, MulV2F(V2(item_icon_size.x, -item_icon_size.y), 0.5f));
-					AABB item_icon = centered_aabb(item_center, real_size);
+					AABB item_icon = aabb_centered(item_center, real_size);
 
 
 					float target = 0.0f;
@@ -4955,16 +4969,18 @@ void frame(void)
 				{
 					choosing_item_grid = false;
 
-					Entity *to = gete(player->talking_to);
-					assert(to);
+					if(player->state == CHARACTER_TALKING)
+					{
+						Entity *to = gete(player->talking_to);
+						assert(to);
 
-					ItemKind given_item_kind = player->held_items.data[to_give];
-					BUFF_REMOVE_AT_INDEX(&player->held_items, to_give);
+						ItemKind given_item_kind = player->held_items.data[to_give];
+						BUFF_REMOVE_AT_INDEX(&player->held_items, to_give);
 
-					Action give_action = {.kind = ACT_give_item, .argument = { .item_to_give = given_item_kind }};
-					perform_action(player, give_action);
+						Action give_action = {.kind = ACT_give_item, .argument = { .item_to_give = given_item_kind }};
+						perform_action(player, give_action);
+					}
 				}
-
 			}
 		}
 
@@ -4984,7 +5000,7 @@ void frame(void)
 			win_offset = MulV2F(win_offset, 10.0f);
 			draw_centered_text((TextParams){false, false, MD_S8Lit("YOU WON"), AddV2(MulV2F(screen_size(), 0.5f), win_offset), WHITE, 9.0f*visible});
 
-			if(imbutton(centered_aabb(V2(screen_size().x/2.0f, screen_size().y*0.25f), MulV2F(V2(170.0f, 60.0f), visible)), 1.5f*visible, MD_S8Lit("Restart")))
+			if(imbutton(aabb_centered(V2(screen_size().x/2.0f, screen_size().y*0.25f), MulV2F(V2(170.0f, 60.0f), visible)), 1.5f*visible, MD_S8Lit("Restart")))
 			{
 				reset_level();
 			}
