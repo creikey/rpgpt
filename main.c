@@ -596,6 +596,56 @@ void done_with_request(int id)
 #endif // WINDOWS
 #endif // DESKTOP
 
+TextChunk *text_chunk_free_list = 0;
+
+// s.size must be less than MAX_SENTENCE_LENGTH, or assert fails
+void into_chunk(TextChunk *t, MD_String8 s)
+{
+	assert(s.size < MAX_SENTENCE_LENGTH);
+	memcpy(t->text, s.str, s.size);
+	t->text_length = (int)s.size;
+}
+TextChunk *allocate_text_chunk()
+{
+	TextChunk *to_return = 0;
+	if(text_chunk_free_list)
+	{
+		to_return = text_chunk_free_list;
+		MD_StackPop(text_chunk_free_list);
+	}
+	else
+	{
+		to_return = MD_PushArray(persistent_arena, TextChunk, 1);
+	}
+	*to_return = (TextChunk){0};
+	return to_return;
+}
+void remove_text_chunk_from(TextChunk **first, TextChunk **last, TextChunk *chunk)
+{
+	MD_DblRemove(*first, *last, chunk);
+	MD_StackPush(text_chunk_free_list, chunk);
+}
+int text_chunk_list_count(TextChunk *first)
+{
+	int ret = 0;
+	for(TextChunk *cur = first; cur != 0; cur = cur->next)
+	{
+		ret++;
+	}
+	return ret;
+}
+void append_to_errors(Entity *from, MD_String8 s)
+{
+	TextChunk *error_chunk = allocate_text_chunk();
+	into_chunk(error_chunk, s);
+	while(text_chunk_list_count(from->errorlist_first) > REMEMBERED_ERRORS)
+	{
+		remove_text_chunk_from(&from->errorlist_first, &from->errorlist_last, from->errorlist_first);
+	}
+	MD_DblPushBack(from->errorlist_first, from->errorlist_last, error_chunk);
+	from->perceptions_dirty = true;
+}
+
 MD_String8 tprint(char *format, ...)
 {
 	MD_String8 to_return = {0};
@@ -937,13 +987,12 @@ Entity *gete(EntityRef ref)
 	}
 }
 
-void push_memory(Entity *e, MD_String8 speech, MD_String8 monologue, ActionKind a_kind, ActionArgument a_argument, MemoryContext context, bool is_error)
+void push_memory(Entity *e, MD_String8 speech, MD_String8 monologue, ActionKind a_kind, ActionArgument a_argument, MemoryContext context)
 {
 	Memory new_memory = {.action_taken = a_kind};
 	assert(speech.size <= ARRLEN(new_memory.speech));
 	new_memory.tick_happened = gs.tick;
 	new_memory.context = context;
-	new_memory.is_error = is_error;
 	new_memory.action_argument = a_argument;
 	memcpy(new_memory.speech, speech.str, speech.size);
 	new_memory.speech_length = (int)speech.size;
@@ -987,16 +1036,9 @@ Entity *get_targeted(Entity *from, NpcKind targeted)
 	return 0;
 }
 
-void remember_error(Entity *to_modify, MD_String8 error_message)
-{
-	assert(!to_modify->is_character); // this is a game logic bug if a player action is invalid
-
-	push_memory(to_modify, error_message, MD_S8(0, 0), ACT_none, (ActionArgument){0}, (MemoryContext){0}, true);
-}
-
 void remember_action(Entity *to_modify, Action a, MemoryContext context)
 {
-	push_memory(to_modify, MD_S8(a.speech, a.speech_length), MD_S8(a.internal_monologue, a.internal_monologue_length), a.kind, (ActionArgument){0}, context, false);
+	push_memory(to_modify, MD_S8(a.speech, a.speech_length), MD_S8(a.internal_monologue, a.internal_monologue_length), a.kind, (ActionArgument){0}, context);
 	if(context.i_said_this)
 	{
 		to_modify->words_said = 0;
@@ -1012,8 +1054,10 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 	assert(a.kind >= 0 && a.kind < ARRLEN(actions));
 	assert(from);
 
+	MD_String8 error_message = (MD_String8){0};
+
 	CanTalkTo talk = get_can_talk_to(from);
-	if(a.talking_to_somebody)
+	if(error_message.size == 0 && a.talking_to_somebody)
 	{
 		bool found = false;
 		BUFF_ITER(NpcKind, &talk)
@@ -1026,11 +1070,11 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 		}
 		if(!found)
 		{
-			return FmtWithLint(arena, "Character you're talking to, %s, isn't close enough to be talked to", characters[a.talking_to_kind].enum_name);
+			error_message = FmtWithLint(arena, "Character you're talking to, %s, isn't close enough to be talked to", characters[a.talking_to_kind].enum_name);
 		}
 	}
 
-	if(a.kind == ACT_give_item)
+	if(error_message.size == 0 && a.kind == ACT_give_item)
 	{
 		assert(a.argument.item_to_give >= 0 && a.argument.item_to_give < ARRLEN(items));
 		bool has_it = false;
@@ -1043,24 +1087,50 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 			}
 		}
 
-		if(!has_it)
+		if(has_it)
+		{
+			if(!a.talking_to_somebody)
+			{
+				error_message = MD_S8Lit("You can't give an item to nobody, must target somebody to give an item");
+			}
+		}
+		else
 		{
 			MD_StringJoin join = {.mid = MD_S8Lit(", ")};
-			return FmtWithLint(arena, "Can't give item `ITEM_%s`, you only have [%.*s] in your inventory", items[a.argument.item_to_give].enum_name, MD_S8VArg(MD_S8ListJoin(arena, held_item_strings(arena, from), &join)));
-		}
-
-		if(!a.talking_to_somebody)
-		{
-			return MD_S8Lit("You can't give an item to nobody, must target somebody to give an item");
+			error_message = FmtWithLint(arena, "Can't give item `ITEM_%s`, you only have [%.*s] in your inventory", items[a.argument.item_to_give].enum_name, MD_S8VArg(MD_S8ListJoin(arena, held_item_strings(arena, from), &join)));
 		}
 	}
 
-	if(a.kind == ACT_leaves_player && from->standing != STANDING_JOINED)
+	if(error_message.size == 0 && a.kind == ACT_leaves_player && from->standing != STANDING_JOINED)
 	{
-		return MD_S8Lit("You can't leave the player unless you joined them.");
+		error_message = MD_S8Lit("You can't leave the player unless you joined them.");
+	}
+	if(error_message.size == 0 && a.kind == ACT_joins_player && from->standing == STANDING_JOINED)
+	{
+		error_message = MD_S8Lit("`joins_player` is invalid right now because you are already in the player's party");
 	}
 
-	return (MD_String8){0};
+	if(error_message.size == 0)
+	{
+		AvailableActions available = {0};
+		fill_available_actions(from, &available);
+		bool found = false;
+		MD_String8List action_strings_list = {0};
+		BUFF_ITER(ActionKind, &available)
+		{
+			MD_S8ListPush(arena, &action_strings_list, MD_S8CString(actions[*it].name));
+			if(*it == a.kind) found = true;
+		}
+		if(!found)
+		{
+			MD_String8 action_strings = MD_S8ListJoin(arena, action_strings_list, &(MD_StringJoin){.mid = MD_S8Lit(", ")});
+			error_message = FmtWithLint(arena, "You cannot perform action %s right now, you can only perform these actions: [%.*s]", actions[a.kind].name, MD_S8VArg(action_strings));
+		}
+	}
+
+	assert(error_message.size < MAX_SENTENCE_LENGTH); // is copied into text chunks
+
+	return error_message;
 }
 
 // from must not be null
@@ -1205,7 +1275,7 @@ bool perform_action(Entity *from, Action a)
 	bool proceed_propagating = true;
 	if(is_valid.size > 0)
 	{
-		remember_error(from, is_valid);
+		append_to_errors(from, is_valid);
 		proceed_propagating = false;
 	}
 
@@ -1216,6 +1286,10 @@ bool perform_action(Entity *from, Action a)
 
 	if(proceed_propagating)
 	{
+		if(from->errorlist_first)
+			MD_StackPush(text_chunk_free_list, from->errorlist_first);
+		from->errorlist_first = 0;
+		from->errorlist_last = 0;
 		Entity *targeted = get_targeted(from, a.talking_to_kind);
 
 		cause_action_side_effects(from, a);
@@ -3048,7 +3122,7 @@ Dialog get_dialog_elems(Entity *talking_to, bool character_names)
 	Dialog to_return = { 0 };
 	BUFF_ITER(Memory, &talking_to->memories)
 	{
-		if(!it->is_error && !it->context.dont_show_to_player)
+		if(!it->context.dont_show_to_player)
 		{
 			if(it->speech_length > 0)
 			{
@@ -3609,15 +3683,18 @@ void frame(void)
 										Action out = {0};
 
 										MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+										Log("Parsing `%.*s`...\n", MD_S8VArg(sentence_str));
 										MD_String8 parse_response = parse_chatgpt_response(scratch.arena, it, sentence_str, &out);
 
 										if (parse_response.size == 0)
 										{
+											Log("Performing action %s!\n", actions[out.kind].name);
 											perform_action(it, out);
 										}
 										else
 										{
-											remember_error(it, parse_response);
+											Log("There was a parse error: `%.*s`", MD_S8VArg(parse_response));
+											append_to_errors(it, parse_response);
 										}
 
 										MD_ReleaseScratch(scratch);
@@ -4234,7 +4311,7 @@ void frame(void)
 											else
 											{
 												Log("There was an error with the AI: %.*s", MD_S8VArg(error_message));
-												remember_error(it, error_message);
+												append_to_errors(it, error_message);
 											}
 										}
 									}

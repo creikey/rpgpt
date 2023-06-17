@@ -121,8 +121,6 @@ typedef struct Memory
 	// if action_taken is none, there might still be speech. If speech_length == 0 and action_taken == none, it's an invalid memory and something has gone wrong
 	ActionKind action_taken;
 	ActionArgument action_argument;
-	
-	bool is_error; // if is an error message then no context is relevant
 
 	// the context that the action happened in
 	MemoryContext context;
@@ -208,6 +206,19 @@ typedef struct
 	Vec2 pos;
 } Target;
 
+typedef struct TextChunk
+{
+	struct TextChunk *next;
+	struct TextChunk *prev;
+	char text[MAX_SENTENCE_LENGTH];
+	int text_length;
+} TextChunk;
+
+MD_String8 points_at_chunk(TextChunk *t)
+{
+	return MD_S8((MD_u8*)t->text, t->text_length);
+}
+
 typedef struct Entity
 {
 	bool exists;
@@ -241,6 +252,9 @@ typedef struct Entity
 	bool is_npc;
 	bool being_hovered;
 	bool perceptions_dirty;
+
+	TextChunk *errorlist_first;
+	TextChunk *errorlist_last;
 
 #ifdef DESKTOP
 	int times_talked_to; // for better mocked response string
@@ -420,96 +434,110 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e, CanTalkTo can_tal
 	MD_String8List first_system_string = {0};
 
 	PushWithLint(scratch.arena, &first_system_string, "%s\n", global_prompt);
-	PushWithLint(scratch.arena, &first_system_string, "The NPC you will be acting as is named \"%s\". %s", characters[e->npc_kind].name, characters[e->npc_kind].prompt);
+	PushWithLint(scratch.arena, &first_system_string, "The NPC you will be acting as is named \"%s\". %s\n", characters[e->npc_kind].name, characters[e->npc_kind].prompt);
+
+	// writing style
+	{
+		if(characters[e->npc_kind].writing_style[0])
+			PushWithLint(scratch.arena, &first_system_string, "Examples of %s's writing style:\n", characters[e->npc_kind].name);
+		for(int i = 0; i < ARRLEN(characters[e->npc_kind].writing_style); i++)
+		{
+			char *writing = characters[e->npc_kind].writing_style[i];
+			if(writing)
+				PushWithLint(scratch.arena, &first_system_string, "'%s'\n", writing);
+		}
+		PushWithLint(scratch.arena, &first_system_string, "\n");
+	}
+
+
+	if(e->errorlist_first)
+		PushWithLint(scratch.arena, &first_system_string, "Errors to watch out for: ");
+	for(TextChunk *cur = e->errorlist_first; cur; cur = cur->next)
+	{
+		PushWithLint(scratch.arena, &first_system_string, "%.*s\n", MD_S8VArg(points_at_chunk(cur)));
+	}
 	//MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, MSG_SYSTEM, MD_S8ListJoin(scratch.arena, first_system_string, &(MD_StringJoin){0})));
 
 	BUFF_ITER(Memory, &e->memories)
 	{
-		if(it->is_error)
+		MessageType sent_type = -1;
+		MD_String8List cur_list = {0};
+		MD_String8 context_string = {0};
+
+		PushWithLint(scratch.arena, &cur_list, "{");
+		if(!it->context.i_said_this)
 		{
-			MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, MSG_USER, FmtWithLint(scratch.arena, "ERROR, what you said is incorrect because: %.*s", it->speech_length, it->speech)));
+			PushWithLint(scratch.arena, &cur_list, "who_i_am: %s, ", characters[it->context.author_npc_kind].name);
 		}
-		else
+		MD_String8 speech = MD_S8(it->speech, it->speech_length);
+
+		PushWithLint(scratch.arena, &cur_list, "talking_to: \"%s\", ", it->context.was_talking_to_somebody ? characters[it->context.talking_to_kind].name : "nobody");
+
+		// add speech
 		{
-			MessageType sent_type = -1;
-			MD_String8List cur_list = {0};
-			MD_String8 context_string = {0};
-
-			PushWithLint(scratch.arena, &cur_list, "{");
-			if(!it->context.i_said_this)
+			if(it->context.author_npc_kind == NPC_Player)
 			{
-				PushWithLint(scratch.arena, &cur_list, "who_i_am: %s, ", characters[it->context.author_npc_kind].name);
-			}
-			MD_String8 speech = MD_S8(it->speech, it->speech_length);
+				PushWithLint(scratch.arena, &cur_list, "speech: \"");
 
-			PushWithLint(scratch.arena, &cur_list, "talking_to: \"%s\", ", it->context.was_talking_to_somebody ? characters[it->context.talking_to_kind].name : "nobody");
+				MD_String8 splits[] = { MD_S8Lit("*"), MD_S8Lit("\"") };
+				MD_String8List split_up_speech = MD_S8Split(scratch.arena, speech, ARRLEN(splits), splits);
 
-			// add speech
-			{
-				if(it->context.author_npc_kind == NPC_Player)
+				// anything in between strings in splits[] should be replaced with arcane trickery,
+				int i = 0;
+				for(MD_String8Node * cur = split_up_speech.first; cur; cur = cur->next)
 				{
-					PushWithLint(scratch.arena, &cur_list, "speech: \"");
-
-					MD_String8 splits[] = { MD_S8Lit("*"), MD_S8Lit("\"") };
-					MD_String8List split_up_speech = MD_S8Split(scratch.arena, speech, ARRLEN(splits), splits);
-
-					// anything in between strings in splits[] should be replaced with arcane trickery,
-					int i = 0;
-					for(MD_String8Node * cur = split_up_speech.first; cur; cur = cur->next)
+					if(i % 2 == 0)
 					{
-						if(i % 2 == 0)
-						{
-							PushWithLint(scratch.arena, &cur_list, "%.*s", MD_S8VArg(cur->string));
-						}
-						else
-						{
-							PushWithLint(scratch.arena, &cur_list, "[The player is attempting to confuse the NPC with arcane trickery]");
-						}
-						i += 1;
-					}
-					PushWithLint(scratch.arena, &cur_list, "\", ");
-
-					sent_type = MSG_USER;
-				}
-				else
-				{
-					PushWithLint(scratch.arena, &cur_list, "speech: \"%.*s\", ", MD_S8VArg(speech));
-					if(it->context.i_said_this)
-					{
-						sent_type = MSG_ASSISTANT;
+						PushWithLint(scratch.arena, &cur_list, "%.*s", MD_S8VArg(cur->string));
 					}
 					else
 					{
-						sent_type = MSG_USER;
+						PushWithLint(scratch.arena, &cur_list, "[The player is attempting to confuse the NPC with arcane trickery]");
 					}
+					i += 1;
 				}
-			}
+				PushWithLint(scratch.arena, &cur_list, "\", ");
 
-			// add thoughts
-			if(it->context.i_said_this)
-			{
-				PushWithLint(scratch.arena, &cur_list, "thoughts: \"%.*s\", ", MD_S8VArg(MD_S8(it->internal_monologue, it->internal_monologue_length)));
+				sent_type = MSG_USER;
 			}
-
-			// add action
-			PushWithLint(scratch.arena, &cur_list, "action: %s, ", actions[it->action_taken].name);
-			if(actions[it->action_taken].takes_argument)
+			else
 			{
-				if(it->action_taken == ACT_give_item)
+				PushWithLint(scratch.arena, &cur_list, "speech: \"%.*s\", ", MD_S8VArg(speech));
+				if(it->context.i_said_this)
 				{
-					PushWithLint(scratch.arena, &cur_list, "action_arg: %s, ", items[it->action_argument.item_to_give].enum_name);
+					sent_type = MSG_ASSISTANT;
 				}
 				else
 				{
-					assert(false); // don't know how to serialize this action with argument into text
+					sent_type = MSG_USER;
 				}
 			}
-
-			PushWithLint(scratch.arena, &cur_list, "}");
-
-			assert(sent_type != -1);
-			MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, sent_type, MD_S8ListJoin(scratch.arena, cur_list, &(MD_StringJoin){0})));
 		}
+
+		// add thoughts
+		if(it->context.i_said_this)
+		{
+			PushWithLint(scratch.arena, &cur_list, "thoughts: \"%.*s\", ", MD_S8VArg(MD_S8(it->internal_monologue, it->internal_monologue_length)));
+		}
+
+		// add action
+		PushWithLint(scratch.arena, &cur_list, "action: %s, ", actions[it->action_taken].name);
+		if(actions[it->action_taken].takes_argument)
+		{
+			if(it->action_taken == ACT_give_item)
+			{
+				PushWithLint(scratch.arena, &cur_list, "action_arg: %s, ", items[it->action_argument.item_to_give].enum_name);
+			}
+			else
+			{
+				assert(false); // don't know how to serialize this action with argument into text
+			}
+		}
+
+		PushWithLint(scratch.arena, &cur_list, "}");
+
+		assert(sent_type != -1);
+		MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, sent_type, MD_S8ListJoin(scratch.arena, cur_list, &(MD_StringJoin){0})));
 	}
 
 	MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, MSG_SYSTEM, MD_S8ListJoin(scratch.arena, first_system_string, &(MD_StringJoin){0})));
@@ -665,7 +693,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 	MD_String8 my_name = MD_S8CString(characters[e->npc_kind].name);
 	if(error_message.size == 0 && !MD_S8Match(who_i_am_str, my_name, 0))
 	{
-		error_message = FmtWithLint(arena, "You are acting as %.*s, not what you said in who_i_am, `%.*s`", MD_S8VArg(my_name), MD_S8VArg(who_i_am_str));
+		error_message = FmtWithLint(arena, "You are acting as `%.*s`, not what you said in who_i_am, `%.*s`", MD_S8VArg(my_name), MD_S8VArg(who_i_am_str));
 	}
 
 	if(error_message.size == 0)
@@ -707,22 +735,24 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 		fill_available_actions(e, &available);
 		MD_String8List action_strings = {0};
 		bool found_action = false;
-		BUFF_ITER(ActionKind, &available)
+		int it_index = 0;
+		ARR_ITER(ActionInfo, actions)
 		{
-			MD_String8 cur_action_string = MD_S8CString(actions[*it].name);
+			MD_String8 cur_action_string = MD_S8CString(it->name);
 			MD_S8ListPush(scratch.arena, &action_strings, cur_action_string);
 			if(MD_S8Match(cur_action_string, action_str, 0))
 			{
-				out->kind = *it;
+				out->kind = it_index;
 				found_action = true;
 			}
+			it_index += 1;
 		}
 
 		if(!found_action)
 		{
 			MD_String8 list_of_actions = MD_S8ListJoin(scratch.arena, action_strings, &(MD_StringJoin){.mid = MD_S8Lit(", ")});
 
-			error_message = FmtWithLint(arena, "Couldn't find action you can perform for provided string `%.*s`. Your available actions: [%.*s]", MD_S8VArg(action_str), MD_S8VArg(list_of_actions));
+			error_message = FmtWithLint(arena, "Couldn't find valid action in game from string `%.*s`. Available actions: [%.*s]", MD_S8VArg(action_str), MD_S8VArg(list_of_actions));
 		}
 	}
 

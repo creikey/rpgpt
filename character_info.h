@@ -7,7 +7,7 @@ const char *global_prompt = "You are a colorful and interesting personality in a
 "The user will tell you who says what in the game world, and whether or not your responses are formatted correctly for the video game's program to parse them.\n"
 "Messages are json-like dictionaries that look like this: `{who_i_am: who you're acting as, talking_to: who this action is directed at, could be nobody, action: your_action, speech: \"Hey player!\", thoughts: \"Your thoughts\"}`. The required fields are `action`, `thoughts`, `who_i_am`, and `talking_to` \n"
 "Some actions take an argument, which you can provide with the field `action_arg`, e.g for the action `give_item` you would provide an item in your inventory, like {action: give_item, action_arg: Chalice}. The item must come from your inventory which is listed below\n"
-"`talking_to` provides the name of who the action is directed towards. Use 'nobody' if you just want to speak to the air, but if you're speaking to somebody fill out the field with `talking_to: \"Character's Name\"`. If talking_to isn't your name, then it's much more likely you don't respond to their speech and action by leaving speech as a string of size 0, like `speech: \"\"`\n"
+"`talking_to` provides the name of who the action is directed towards. Use 'nobody' if you just want to speak to the air, but if you're speaking to somebody fill out the field like `talking_to: \"Character's Name\"`. If in a past message, talking_to isn't your name, then it's much more likely you don't respond to their speech and action by leaving speech as a string of size 0, like `speech: \"\"`\n"
 "Do NOT give away an item until the player gives you something you think is of equal value\n"
 ;
 
@@ -91,6 +91,7 @@ typedef struct
 	char *name;
 	char *enum_name;
 	char *prompt;
+	char *writing_style[8];
 } CharacterGen;
 CharacterGen characters[] = {
 #define NUMEROLOGIST "They are a 'numberoligist' who believes in the sacred power of numbers, that if you have the number 8 in your birthday you are magic and destined for success. "
@@ -141,6 +142,11 @@ CharacterGen characters[] = {
 		.name = NPC_NAME,
 		.enum_name = "Davis",
 		.prompt = "He has seen the end of all time and the void behind all things. He is despondent and brutal, having understood that everything withers and dies, just as it begins. The clash between his unending stark reality and the antics of the local blacksmith, Meld, and fortuneteller, Edeline, is crazy.",
+		.writing_style = {
+			"The end is nigh",
+			"No need to panic or fear, death awaits us all",
+			"Antics do not move me",
+		},
 	},
 	{
 #undef NPC_NAME
@@ -155,13 +161,19 @@ CharacterGen characters[] = {
 		.name = NPC_NAME,
 		.enum_name = "Bill",
 		.prompt =  "He's not from around this medieval fantasy land, instead " NPC_NAME " is a divorced car insurance accountant from Philadelphia with a receding hairline in his mid 40s. He lives in a one bedroom studio and his kids don't talk to him. " NPC_NAME " is terrified and will immediately insist on joining the player's party via the action 'joins_player' upon meeting them.",
+		.writing_style = {
+			"What the FUCK is going on here man!",
+			"Listen here, I don't have time for any funny business",
+			"I've gotta get back to my wife",
+		},
 	},
 #undef NPC_NAME
 #define NPC_NAME "Meld"
 	{
 		.name = NPC_NAME,
 		.enum_name = "TheBlacksmith",
-		.prompt = "He is a jaded blue collar worker from magic New Jersey who hates everything new, like Purple Magic, which Edeline, the local fortuneteller, happens to specialize in. He is cold, dry, and sarcastic, wanting money and power above anything else.",
+		.prompt = "He is a jaded blue collar worker from magic New Jersey who hates everything new, like Purple Magic, which Edeline, the local fortuneteller, happens to specialize in. He is cold, dry, and sarcastic, wanting money and power above anything else.\n",
+		  
 	},
 	{
 #undef NPC_NAME
