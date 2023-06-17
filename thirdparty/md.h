@@ -356,7 +356,7 @@
 (zset(f),zset(l)):\
 ((f)=(f)->next))
 #define MD_StackPush_N(f,n,next) ((n)->next=(f),(f)=(n))
-#define MD_StackPop_NZ(f,next,zchk) (zchk(f)?0:(f)=(f)->next)
+#define MD_StackPop_NZ(f,next,zchk) (zchk(f)?0:((f)=(f)->next))
 
 #define MD_DblPushBack_NPZ(f,l,n,next,prev,zchk,zset) \
 (zchk(f)?\
