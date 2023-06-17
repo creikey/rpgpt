@@ -245,9 +245,6 @@ typedef struct Entity
 	bool held_by_player;
 	ItemKind item_kind;
 
-	// peace totem
-	float red_fade;
-
 	// npcs
 	bool is_npc;
 	bool being_hovered;
@@ -280,7 +277,6 @@ typedef struct Entity
 	bool is_character;
 	bool knighted;
 	bool in_conversation_mode;
-	int peace_tokens;
 	Vec2 to_throw_direction;
 	BUFF(Vec2, 8) position_history; // so npcs can follow behind the player
 	CharacterState state;
@@ -467,7 +463,7 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e, CanTalkTo can_tal
 
 		PushWithLint(scratch.arena, &cur_list, "{");
 		if(it->context.i_said_this) assert(it->context.author_npc_kind == e->npc_kind);
-		PushWithLint(scratch.arena, &cur_list, "who_i_am: %s, ", characters[it->context.author_npc_kind].name);
+		PushWithLint(scratch.arena, &cur_list, "who_i_am: \"%s\", ", characters[it->context.author_npc_kind].name);
 		MD_String8 speech = MD_S8(it->speech, it->speech_length);
 
 		PushWithLint(scratch.arena, &cur_list, "talking_to: \"%s\", ", it->context.was_talking_to_somebody ? characters[it->context.talking_to_kind].name : "nobody");

@@ -343,17 +343,6 @@
                 {
                  "class":"",
                  "height":32,
-                 "id":4,
-                 "name":"PeaceTotem",
-                 "rotation":0,
-                 "visible":true,
-                 "width":32,
-                 "x":1522.39393939395,
-                 "y":1570.48484848484
-                }, 
-                {
-                 "class":"",
-                 "height":32,
                  "id":21,
                  "name":"PLAYER",
                  "properties":[
@@ -365,8 +354,8 @@
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":1530.91836734694,
-                 "y":2684.06802721088
+                 "x":1537.58503401361,
+                 "y":1842.73469387755
                 }, 
                 {
                  "class":"",

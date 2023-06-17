@@ -703,10 +703,6 @@ Vec2 entity_aabb_size(Entity *e)
 		{
 			return V2(TILE_SIZE*1.0f, TILE_SIZE*1.0f);
 		}
-		else if (e->npc_kind == NPC_PeaceTotem)
-		{
-			return V2(TILE_SIZE, TILE_SIZE);
-		}
 		else
 		{
 			assert(false);
@@ -4136,9 +4132,6 @@ void frame(void)
 							else if (it->npc_kind == NPC_Jester)
 							{
 							}
-							else if (it->npc_kind == NPC_PeaceTotem)
-							{
-							}
 							else
 							{
 								assert(false);
@@ -4397,23 +4390,9 @@ void frame(void)
 						{
 							if (closest_interact_with->is_npc)
 							{
-								if(closest_interact_with->npc_kind == NPC_PeaceTotem)
-								{
-									if(player->peace_tokens >= PEACE_TOKENS_NEEDED)
-									{
-										gs.won = true;
-									}
-									else
-									{
-										closest_interact_with->red_fade = 1.0f;
-									}
-								}
-								else
-								{
-									// begin dialog with closest npc
-									player->state = CHARACTER_TALKING;
-									player->talking_to = frome(closest_interact_with);
-								}
+								// begin dialog with closest npc
+								player->state = CHARACTER_TALKING;
+								player->talking_to = frome(closest_interact_with);
 							}
 							else
 							{
@@ -4680,20 +4659,6 @@ void frame(void)
 							assert(false);
 						}
 						draw_animated_sprite((DrawnAnimatedSprite) { ANIM_knight_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), tint });
-					}
-					else if(it->npc_kind == NPC_PeaceTotem)
-					{
-						DrawParams d = (DrawParams) { true, quad_centered(it->pos, V2(TILE_SIZE, TILE_SIZE)), IMG(image_peace_totem), WHITE, .layer = LAYER_WORLD, };
-						draw_shadow_for(d);
-						draw_quad(d);
-
-						it->red_fade = Lerp(it->red_fade, dt*2.0f, 0.0f);
-
-						float fade_requirements = Lerp(0.0f, 1.0f - clamp01(LenV2(SubV2(player->pos, it->pos))/(TILE_SIZE*4.0f)), 1.0f);
-
-						MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-						draw_centered_text((TextParams){true, false, FmtWithLint(scratch.arena, "%d/%d", player->peace_tokens, PEACE_TOKENS_NEEDED), AddV2(it->pos, V2(0.0, 32.0)), blendalpha(blendcolors(WHITE, it->red_fade, RED), fade_requirements), (1.0f / cam.scale)*(1.0f + it->red_fade*0.5f)});
-						MD_ReleaseScratch(scratch); 
 					}
 					else
 					{
@@ -5028,26 +4993,6 @@ void frame(void)
 
 		// ui
 #define HELPER_SIZE 250.0f
-
-		// how many peace tokens
-		{
-			MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-			const float to_screen_padding = 50.0f;
-			const float btwn_elems = 10.0f;
-			const float text_scale = 1.0f;
-			const float peace_token_icon_size = 50.0f;
-
-			TextParams t = {false, true, FmtWithLint(scratch.arena, "%d", player->peace_tokens), V2(0, 0), WHITE, text_scale};
-			AABB text_bounds = draw_text(t);
-			float total_elem_width = btwn_elems + peace_token_icon_size + aabb_size(text_bounds).x;
-			float elem_height = peace_token_icon_size;
-			AABB total_elem_box = aabb_at(V2(screen_size().x - to_screen_padding - total_elem_width, screen_size().y - to_screen_padding), V2(total_elem_width, elem_height));
-			draw_quad((DrawParams){false, quad_at(total_elem_box.upper_left, V2(peace_token_icon_size, peace_token_icon_size)), IMG(image_peace_orb), WHITE, .layer = LAYER_UI});
-			t.dry_run = false;
-			t.pos = AddV2(total_elem_box.upper_left, V2(peace_token_icon_size + btwn_elems + aabb_size(text_bounds).x/2.0f, -peace_token_icon_size/2.0f));
-			draw_text(t);
-			MD_ReleaseScratch(scratch);
-		}
 
 		// keyboard tutorial icons
 		if (!mobile_controls)

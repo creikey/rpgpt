@@ -8,7 +8,7 @@ const char *global_prompt = "You are a colorful and interesting personality in a
 "Messages are json-like dictionaries that look like this: `{who_i_am: who you're acting as, talking_to: who this action is directed at, could be nobody, action: your_action, speech: \"Hey player!\", thoughts: \"Your thoughts\"}`. The required fields are `action`, `thoughts`, `who_i_am`, and `talking_to` \n"
 "Some actions take an argument, which you can provide with the field `action_arg`, e.g for the action `give_item` you would provide an item in your inventory, like {action: give_item, action_arg: Chalice}. The item must come from your inventory which is listed below\n"
 "`talking_to` provides the name of who the action is directed towards. Use 'nobody' if you just want to speak to the air, but if you're speaking to somebody fill out the field like `talking_to: \"Character's Name\"`. If in a past message, talking_to isn't your name, then it's much more likely you don't respond to their speech and action by leaving speech as a string of size 0, like `speech: \"\"`\n"
-"Do NOT give away an item until the player gives you something you think is of equal value\n"
+"You are an agent, NOT an assistant, which means you stand up for yourself! Do NOT give away an item until the player gives you something you think is of equal value. Get angry, act human, be interesting.\n"
 ;
 
 const char *top_of_header = ""
@@ -32,15 +32,15 @@ ActionInfo actions[] = {
 		.description = "Give the player an item from your inventory.",
 	},
 	{
-		.name = "fights_player", 
-	},
-	{
 		.name = "joins_player", 
 		.description = "Follow behind the player and hear all of their conversations. You can leave at any time",
 	},
 	{
 		.name = "leaves_player", 
 		.description = "Leave the player",
+	},
+	{
+		.name = "fights_player", 
 	},
 	{
 		.name = "stops_fighting_player", 
@@ -104,11 +104,6 @@ CharacterGen characters[] = {
 	{
 		.name = "Invalid",
 		.enum_name = "Invalid",
-		.prompt = "There has been an internal error.",
-	},
-	{
-		.name = "Peace Totem",
-		.enum_name = "PeaceTotem",
 		.prompt = "There has been an internal error.",
 	},
 	{

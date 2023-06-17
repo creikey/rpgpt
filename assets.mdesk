@@ -18,14 +18,6 @@
 {
  filepath: "grunt_3.wav",
 }
-@image peace_orb:
-{
- filepath: "peace_orb.png",
-}
-@image peace_totem:
-{
- filepath: "peace_totem.png",
-}
 @image merchant:
 {
  filepath: "copyrighted/merchant.png",
