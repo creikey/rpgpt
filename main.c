@@ -983,24 +983,16 @@ Entity *gete(EntityRef ref)
 	}
 }
 
-void push_memory(Entity *e, MD_String8 speech, MD_String8 monologue, ActionKind a_kind, ActionArgument a_argument, MemoryContext context)
+void push_memory(Entity *e, Memory new_memory)
 {
-	Memory new_memory = {.action_taken = a_kind};
-	assert(speech.size <= ARRLEN(new_memory.speech));
 	new_memory.tick_happened = gs.tick;
-	new_memory.context = context;
-	new_memory.action_argument = a_argument;
-	memcpy(new_memory.speech, speech.str, speech.size);
-	new_memory.speech_length = (int)speech.size;
-	memcpy(new_memory.internal_monologue, monologue.str, monologue.size);
-	new_memory.internal_monologue_length = (int)monologue.size;
 	if(!BUFF_HAS_SPACE(&e->memories))
 	{
 		BUFF_REMOVE_FRONT(&e->memories);
 	}
 	BUFF_APPEND(&e->memories, new_memory);
 
-	if(!context.i_said_this)
+	if(!new_memory.context.i_said_this)
 	{
 		// self speech doesn't dirty
 		e->perceptions_dirty = true;
@@ -1034,13 +1026,24 @@ Entity *get_targeted(Entity *from, NpcKind targeted)
 
 void remember_action(Entity *to_modify, Action a, MemoryContext context)
 {
-	push_memory(to_modify, MD_S8(a.speech, a.speech_length), MD_S8(a.internal_monologue, a.internal_monologue_length), a.kind, (ActionArgument){0}, context);
+	Memory new_memory = {0};
+	memcpy(new_memory.speech, a.speech, a.speech_length);
+	new_memory.speech_length = a.speech_length;
+	memcpy(new_memory.internal_monologue, a.internal_monologue, a.internal_monologue_length);
+	new_memory.internal_monologue_length = a.internal_monologue_length;
+	new_memory.action_taken = a.kind;
+	new_memory.context = context;
+	new_memory.action_argument = a.argument;
+
+	push_memory(to_modify, new_memory);
+
 	if(context.i_said_this)
 	{
 		to_modify->words_said = 0;
 		to_modify->word_anim_in = 0;
 	}
 }
+
 
 // returns reason why allocated on arena if invalid
 // to might be null here, from can't be null
@@ -1198,8 +1201,10 @@ void cause_action_side_effects(Entity *from, Action a)
 typedef struct PropagatingAction
 {
 	struct PropagatingAction *next;
+
 	Action a;
 	MemoryContext context;
+
 	Vec2 from;
 	bool already_propagated_to[MAX_ENTITIES]; // tracks by index of entity
 	float progress; // if greater than or equal to 1.0, is freed
@@ -1244,6 +1249,43 @@ float propagating_radius(PropagatingAction *p)
 	return Lerp(0.0f, t, PROPAGATE_ACTIONS_RADIUS );
 }
 
+typedef struct SwordSwipe
+{
+	struct SwordSwipe *next;
+	EntityRef to_ignore;
+	Vec2 from;
+	bool already_propagated_to[MAX_ENTITIES]; // tracks by index of entity
+	float progress;
+} SwordSwipe;
+
+SwordSwipe *swordswipes = 0;
+
+void push_swipe(SwordSwipe s)
+{
+	SwordSwipe *to_set = 0;
+	for(SwordSwipe *cur = swordswipes; cur; cur = cur->next)
+	{
+		if(cur->progress >= 1.0f)
+		{
+			to_set = cur;
+		}
+	}
+	if(!to_set)
+	{
+		to_set = MD_PushArray(persistent_arena, SwordSwipe, 1);
+		MD_StackPush(swordswipes, to_set);
+	}
+
+	*to_set = s;
+}
+
+void use_item(Entity *from, ItemKind kind)
+{
+	if(kind == ITEM_Sword)
+	{
+		push_swipe((SwordSwipe){.to_ignore = frome(from), .from = from->pos});
+	}
+}
 
 // only called when the action is instantiated, correctly propagates the information
 // of the action physically and through the party
@@ -3398,6 +3440,10 @@ void draw_item(bool world_space, ItemKind kind, AABB in_aabb, float alpha)
 	{
 		draw_quad((DrawParams) { world_space, drawn, IMG(image_gold_coin), blendalpha(WHITE, alpha), .layer = LAYER_UI_FG });
 	}
+	else if (kind == ITEM_Sword)
+	{
+		draw_quad((DrawParams) { world_space, drawn, IMG(image_sword), blendalpha(WHITE, alpha), .layer = LAYER_UI_FG });
+	}
 	else
 	{
 		assert(false);
@@ -3600,6 +3646,32 @@ void frame(void)
 				float dt = unwarped_dt*speed_factor;
 
 				gs.tick += 1;
+
+				PROFILE_SCOPE("handle swipes") // sword swipes
+				{
+					for(SwordSwipe *cur = swordswipes; cur; cur = cur->next)
+					{
+						if(cur->progress < 1.0f)
+						{
+							cur->progress += dt;
+							ENTITIES_ITER(gs.entities)
+							{
+								if(it->is_npc && LenV2(SubV2(it->pos, cur->from)) < SWORD_SWIPE_RADIUS && gete(cur->to_ignore) != it && !cur->already_propagated_to[frome(it).index])
+								{
+									cur->already_propagated_to[frome(it).index] = true;
+									Memory bravado_memory = {0};
+									bravado_memory.internal_monologue_length = (int)strlen(bravado_thought);
+									memcpy(bravado_memory.internal_monologue, bravado_thought, bravado_memory.internal_monologue_length);
+									bravado_memory.context.i_said_this = true;
+									bravado_memory.context.author_npc_kind = it->npc_kind;
+
+									push_memory(it, bravado_memory);
+									it->perceptions_dirty = true;
+								}
+							}
+						}
+					}
+				}
 
 				PROFILE_SCOPE("propagate actions")
 				{
@@ -4721,6 +4793,23 @@ void frame(void)
 			}
 		}
 
+		PROFILE_SCOPE("draw sword swipes") // draw swipes
+		{
+			for(SwordSwipe *cur = swordswipes; cur; cur = cur->next)
+			{
+				if(cur->progress < 1.0f)
+				{
+					float radius = SWORD_SWIPE_RADIUS;
+					Quad to_draw = quad_centered(cur->from, V2(radius, radius));
+					for(int i = 0; i < 4; i++)
+					{
+						to_draw.points[i] = AddV2(RotateV2(SubV2(to_draw.points[i], cur->from), powf(cur->progress * 4.0f, 1.5f)), cur->from);
+					}
+					draw_quad((DrawParams){true, to_draw, IMG(image_swipe), blendalpha(WHITE, 1.0f - cur->progress)});
+				}
+			}
+		}
+
 		PROFILE_SCOPE("dialog menu") // big dialog panel draw big dialog panel
 		{
 			static float on_screen = 0.0f;
@@ -4925,7 +5014,7 @@ void frame(void)
 				Vec2 item_icon_size = V2(item_icon_width, item_icon_width);
 
 				Vec2 cursor = AddV2(grid_aabb.upper_left, V2(padding, -padding));
-				int to_give = -1; // don't modify the item array while iterating
+				int pressed_index = -1;
 				BUFF_ITER_I(ItemKind, &player->held_items, i)
 				{
 					Vec2 real_size = LerpV2(item_icon_size, hovered_state[i], MulV2F(item_icon_size, 1.25f));
@@ -4943,10 +5032,7 @@ void frame(void)
 							target = 1.0f;
 							if (pressed.mouse_down)
 							{
-								if (gete(player->talking_to))
-								{
-									to_give = i;
-								}
+								pressed_index = i;
 							}
 						}
 
@@ -4965,20 +5051,24 @@ void frame(void)
 						cursor.x = grid_aabb.upper_left.x + padding;
 					}
 				}
-				if (to_give > -1)
+				if (pressed_index > -1)
 				{
 					choosing_item_grid = false;
+					ItemKind selected_item = player->held_items.data[pressed_index];
 
 					if(player->state == CHARACTER_TALKING)
 					{
 						Entity *to = gete(player->talking_to);
 						assert(to);
 
-						ItemKind given_item_kind = player->held_items.data[to_give];
-						BUFF_REMOVE_AT_INDEX(&player->held_items, to_give);
+						BUFF_REMOVE_AT_INDEX(&player->held_items, pressed_index);
 
-						Action give_action = {.kind = ACT_give_item, .argument = { .item_to_give = given_item_kind }};
+						Action give_action = {.kind = ACT_give_item, .argument = { .item_to_give = selected_item }};
 						perform_action(player, give_action);
+					}
+					else
+					{
+						use_item(player, selected_item);
 					}
 				}
 			}

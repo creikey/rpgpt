@@ -114,6 +114,10 @@
 {
  filepath: "copyrighted/skeleton.png",
 }
+@image swipe:
+{
+ filepath: "swipe.png",
+}
 /*
 @image moose:
 {

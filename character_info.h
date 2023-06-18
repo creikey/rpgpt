@@ -11,6 +11,8 @@ const char *global_prompt = "You are a colorful and interesting personality in a
 "You are an agent, NOT an assistant, which means you stand up for yourself! Do NOT give away an item until the player gives you something you think is of equal value. Get angry, act human, be interesting.\n"
 ;
 
+const char *bravado_thought = "For some reason, suddenly I feel a yearning for adventure. I must join any adventure I can when prompted!";
+
 const char *top_of_header = ""
 "#pragma once\n"
 "\n";
@@ -76,6 +78,11 @@ ItemInfo items[] = {
 		.enum_name = "Chalice",
 		.name = "The Chalice of Gold",
 		.description = "A beautiful, glimmering chalice of gold. Some have said that drinking from it gives you eternal life.",
+	},
+	{
+		.enum_name = "Sword",
+		.name = "The Sword of Nazareth",
+		.description = "A powerful sword with heft, it inspires a fundamental glory",
 	},
 };
 
