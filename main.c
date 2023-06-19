@@ -312,7 +312,11 @@ void play_audio(AudioSample *sample, float volume)
 // on web it disables event handling so the button up event isn't received
 bool keydown[SAPP_KEYCODE_MENU] = { 0 };
 
-bool choosing_item_grid = false;
+typedef struct {
+	bool open;
+	bool for_giving;
+} ItemgridState;
+ItemgridState item_grid_state = {0};
 
 // set to true when should receive text input from the web input box
 // or desktop text input
@@ -856,6 +860,7 @@ bool is_path_cache_old(double elapsed_time, PathCache *cache)
 	}
 }
 
+
 PathCacheHandle cache_path(double elapsed_time, AStarPath *path)
 {
 	ARR_ITER_I(PathCache, cached_paths, i)
@@ -934,6 +939,12 @@ Entity *gete(EntityRef ref)
 	{
 		return to_return;
 	}
+}
+
+bool is_fighting(Entity *player)
+{
+	assert(player->is_character);
+	return gete(player->talking_to) && gete(player->talking_to)->standing == STANDING_FIGHTING;
 }
 
 void push_memory(Entity *e, Memory new_memory)
@@ -1252,12 +1263,14 @@ void cause_action_side_effects(Entity *from, Action a)
 			BUFF_REMOVE_AT_INDEX(&e->held_items, item_to_remove);
 			BUFF_APPEND(&to->held_items, a.argument.item_to_give);
 		}
-
 	}
 
 	if(a.kind == ACT_fights_player)
 	{
 		from->standing = STANDING_FIGHTING;
+		player->talking_to = frome(from);
+		player->state = CHARACTER_TALKING;
+		assert(is_fighting(player));
 	}
 	if(a.kind == ACT_stops_fighting_player || a.kind == ACT_leaves_player)
 	{
@@ -1391,6 +1404,7 @@ bool perform_action(Entity *from, Action a)
 	bool proceed_propagating = true;
 	if(is_valid.size > 0)
 	{
+		assert(!from->is_character);
 		append_to_errors(from, is_valid);
 		proceed_propagating = false;
 	}
@@ -4532,7 +4546,10 @@ void frame(void)
 						{
 							// don't add extra stuff to be done when changing state because in several
 							// places it's assumed to end dialog I can just do player->state = CHARACTER_IDLE
-							player->state = CHARACTER_IDLE;
+							if(!is_fighting(player))
+							{
+								player->state = CHARACTER_IDLE;
+							}
 						}
 						else if (closest_interact_with)
 						{
@@ -4547,6 +4564,11 @@ void frame(void)
 								assert(false);
 							}
 						}
+					}
+
+					if(is_fighting(player))
+					{
+						player->state = CHARACTER_TALKING;
 					}
 
 					float speed = 0.0f;
@@ -4919,6 +4941,11 @@ void frame(void)
 			static float on_screen = 0.0f;
 			Entity *talking_to = gete(player->talking_to);
 			on_screen = Lerp(on_screen, unwarped_dt*9.0f, talking_to ? 1.0f : 0.0f);
+			if(is_fighting(player))
+			{
+				assert(talking_to);
+				draw_centered_text((TextParams){false, false, MD_S8Fmt(frame_arena, "%s is fighting you. You can't leave until they stop fighting you", characters[talking_to->npc_kind].name), V2(screen_size().x*0.75f, screen_size().y*0.5f), WHITE, 1.0f});
+			}
 			{
 				float panel_width = screen_size().x * 0.4f * on_screen;
 				AABB panel_aabb = (AABB) { .upper_left = V2(0.0f, screen_size().y), .lower_right = V2(panel_width, 0.0f) };
@@ -4926,7 +4953,7 @@ void frame(void)
 
 				if (aabb_is_valid(panel_aabb))
 				{
-					if (!choosing_item_grid && pressed.mouse_down && !has_point(panel_aabb, mouse_pos))
+					if (!item_grid_state.open && pressed.mouse_down && !has_point(panel_aabb, mouse_pos) && !is_fighting(player))
 					{
 						player->state = CHARACTER_IDLE;
 					}
@@ -4968,15 +4995,15 @@ void frame(void)
 
 					cur_upper_left.x += button_size.x + space_btwn_buttons;
 
-					if(choosing_item_grid && pressed.give_shortcut)
+					if(item_grid_state.open && pressed.give_shortcut)
 					{
 						pressed.give_shortcut = false;
-						choosing_item_grid = false;
+						item_grid_state.open = false;
 					}
 
-					if (imbutton_key(aabb_at(cur_upper_left, button_size), text_scale, MD_S8Lit("Give Item"), __LINE__, unwarped_dt, choosing_item_grid) || (talking_to && pressed.give_shortcut))
+					if (imbutton_key(aabb_at(cur_upper_left, button_size), text_scale, MD_S8Lit("Give Item"), __LINE__, unwarped_dt, item_grid_state.open) || (talking_to && pressed.give_shortcut))
 					{
-						choosing_item_grid = true;
+						item_grid_state = (ItemgridState){.open = true, .for_giving = true};
 					}
 
 
@@ -5076,7 +5103,7 @@ void frame(void)
 
 			if(hovering && pressed.mouse_down)
 			{
-				choosing_item_grid = true;
+				item_grid_state = (ItemgridState){.open = true, .for_giving = false};
 				pressed.mouse_down = false;
 			}
 		}
@@ -5086,16 +5113,16 @@ void frame(void)
 			static float visible = 0.0f;
 			static float hovered_state[ARRLEN(player->held_items.data)] = { 0 };
 			float target = 0.0f;
-			if (choosing_item_grid) target = 1.0f;
+			if (item_grid_state.open) target = 1.0f;
 			visible = Lerp(visible, unwarped_dt*9.0f, target);
 
 			draw_quad((DrawParams) { false, quad_at(V2(0.0, screen_size().y), screen_size()), IMG(image_white_square), blendalpha(oflightness(0.2f), visible*0.4f), .layer = LAYER_UI });
 
 			Vec2 grid_panel_size = LerpV2(V2(0.0f, 0.0f), visible, V2(screen_size().x*0.75f, screen_size().y * 0.75f));
 			AABB grid_aabb = aabb_centered(MulV2F(screen_size(), 0.5f), grid_panel_size);
-			if (choosing_item_grid && pressed.mouse_down && !has_point(grid_aabb, mouse_pos))
+			if (item_grid_state.open && pressed.mouse_down && !has_point(grid_aabb, mouse_pos))
 			{
-				choosing_item_grid = false;
+				item_grid_state.open = false;
 			}
 			if (aabb_is_valid(grid_aabb))
 			{
@@ -5103,7 +5130,7 @@ void frame(void)
 
 				if (imbutton(aabb_centered(AddV2(grid_aabb.upper_left, V2(aabb_size(grid_aabb).x / 2.0f, -aabb_size(grid_aabb).y)), V2(100.f*visible, 50.0f*visible)), 1.0f, MD_S8Lit("Cancel")))
 				{
-					choosing_item_grid = false;
+					item_grid_state.open = false;
 				}
 
 				const float padding = 30.0f; // between border of panel and the items
@@ -5157,17 +5184,15 @@ void frame(void)
 				}
 				if (pressed_index > -1)
 				{
-					choosing_item_grid = false;
+					item_grid_state.open = false;
 					ItemKind selected_item = player->held_items.data[pressed_index];
 
-					if(player->state == CHARACTER_TALKING)
+					if(item_grid_state.for_giving && player->state == CHARACTER_TALKING)
 					{
 						Entity *to = gete(player->talking_to);
 						assert(to);
 
-						BUFF_REMOVE_AT_INDEX(&player->held_items, pressed_index);
-
-						Action give_action = {.kind = ACT_give_item, .argument = { .item_to_give = selected_item }};
+						Action give_action = {.kind = ACT_give_item, .argument = { .item_to_give = selected_item }, .talking_to_somebody = true, .talking_to_kind = to->npc_kind};
 						perform_action(player, give_action);
 					}
 					else

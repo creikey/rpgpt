@@ -48,9 +48,11 @@ ActionInfo actions[] = {
 	},
 	{
 		.name = "fights_player", 
+		.description = "Trap the player in conversation until you decide to stop fighting them",
 	},
 	{
 		.name = "stops_fighting_player", 
+		.description = "Let the player go, and stop fighting them",
 	},
 	{
 		.name = "releases_sword_of_nazareth", 

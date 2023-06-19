@@ -8,6 +8,7 @@ DONE - remove party eavesdropping, but make clear to AI when things are heard ph
  - door npc that refuses to open unless player says the word
  - The Mighty Sword that's conservative, when convinced to be pulled player gets it as an item
  - Change give_item to give_item_for_free, and add propose_trade that does trade workflow so NPCs can't easily be screwed over
+ - Long generations from chatgpt are error messages to it, not assertion fails.
 
 
 
