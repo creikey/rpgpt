@@ -447,12 +447,13 @@ function set_server_url(p) {
 // Returns an integer, a "handle" into the generation request. Takes in the string prompt, and api URL
 // the api url must start with `http://` or https.
 function make_generation_request(p, api) {
+
  cur_id += 1;
  let to_push = {
   "id": cur_id,
   "request": new XMLHttpRequest(),
   "retries_remaining": max_retries,
-  "request_info": {"url": api, "body": p},
+  "request_info": {"url": (' ' + api).slice(1), "body": p},
   "failed": false,
  }
  console.log("Making generation request with id " + to_push.id);

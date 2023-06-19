@@ -53,6 +53,7 @@ typedef struct WebArena
 	size_t pos;
 } WebArena;
 
+
 WebArena *web_arena_alloc()
 {
 	WebArena *to_return = malloc(sizeof(to_return));
@@ -130,6 +131,15 @@ void web_arena_set_auto_align(WebArena *arena, size_t align)
 #endif
 #include "profiling.h"
 
+MD_String8 nullterm(MD_Arena *copy_onto, MD_String8 to_nullterm)
+{
+	MD_String8 to_return = {0};
+	to_return.str = MD_PushArray(copy_onto, MD_u8, to_nullterm.size + 1);
+	to_return.size = to_nullterm.size + 1;
+	to_return.str[to_return.size - 1] = '\0';
+	memcpy(to_return.str, to_nullterm.str, to_nullterm.size);
+	return to_return;
+}
 
 
 
@@ -4447,10 +4457,10 @@ void frame(void)
 #ifdef WEB
 								// fire off generation request, save id
 								MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-								MD_String8 terminated_completion_url = FmtWithLint(scratch.arena, "%s:%d/completion\0", SERVER_DOMAIN, SERVER_PORT);
+								MD_String8 terminated_completion_url = nullterm(scratch.arena, FmtWithLint(scratch.arena, "%s://%s:%d/completion", IS_SERVER_SECURE ? "https" : "http", SERVER_DOMAIN, SERVER_PORT));
 								int req_id = EM_ASM_INT( {
-										return make_generation_request(UTF8ToString($1, $2), UTF8ToString($0));
-										}, terminated_completion_url.str, prompt_str.str, prompt_str.size);
+										return make_generation_request(UTF8ToString($0, $1), UTF8ToString($2, $3));
+										}, prompt_str.str, (int)prompt_str.size, terminated_completion_url.str, (int)terminated_completion_url.size);
 								it->gen_request_id = req_id;
 								MD_ReleaseScratch(scratch);
 #endif

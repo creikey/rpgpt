@@ -347,11 +347,6 @@
                  "name":"PLAYER",
                  "properties":[
                         {
-                         "name":"held_items",
-                         "type":"string",
-                         "value":"{.data = {ITEM_Scroll1}, .cur_index = 1}"
-                        }, 
-                        {
                          "name":"standing",
                          "type":"string",
                          "value":"STANDING_FIGHTING"
@@ -359,8 +354,8 @@
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":1528.58503401361,
-                 "y":2542.40136054421
+                 "x":1533.91836734694,
+                 "y":2659.73469387755
                 }, 
                 {
                  "class":"",
@@ -454,8 +449,8 @@
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":1451,
-                 "y":2652.33333333333
+                 "x":743,
+                 "y":2726.33333333333
                 }, 
                 {
                  "class":"",
@@ -504,8 +499,8 @@
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":1505.33333333333,
-                 "y":2401.33333333333
+                 "x":1537.33333333333,
+                 "y":2517.33333333333
                 }],
          "opacity":1,
          "type":"objectgroup",
