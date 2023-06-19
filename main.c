@@ -703,6 +703,10 @@ Vec2 entity_aabb_size(Entity *e)
 		{
 			return V2(TILE_SIZE*1.0f, TILE_SIZE*1.0f);
 		}
+		else if (e->npc_kind == NPC_Pile)
+		{
+			return V2(TILE_SIZE, TILE_SIZE);
+		}
 		else
 		{
 			assert(false);
@@ -1073,6 +1077,18 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 		}
 	}
 
+	if(error_message.size == 0 && a.kind == ACT_releases_sword_of_nazareth)
+	{
+		if(error_message.size == 0 && from->npc_kind != NPC_Pile)
+		{
+			error_message = FmtWithLint(arena, "Only the pile of rocks can give away the sword of nazareth");
+		}
+		if(error_message.size == 0 && from->gave_away_sword)
+		{
+			error_message = FmtWithLint(arena, "You don't have the sword anymore, so you can't give it away");
+		}
+	}
+
 	if(error_message.size == 0 && a.kind == ACT_give_item)
 	{
 		assert(a.argument.item_to_give >= 0 && a.argument.item_to_give < ARRLEN(items));
@@ -1139,7 +1155,6 @@ void cause_action_side_effects(Entity *from, Action a)
 	assert(from);
 	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 
-
 	MD_String8 failure_reason = is_action_valid(scratch.arena, from, a);
 	if(failure_reason.size > 0)
 	{
@@ -1152,6 +1167,12 @@ void cause_action_side_effects(Entity *from, Action a)
 	{
 		to = get_targeted(from, a.talking_to_kind);
 		assert(to);
+	}
+
+	if(a.kind == ACT_releases_sword_of_nazareth)
+	{
+		assert(from->npc_kind == NPC_Pile);
+		from->gave_away_sword = true;
 	}
 
 	if(a.kind == ACT_give_item)
@@ -2185,6 +2206,16 @@ Quad quad_centered(Vec2 at, Vec2 size)
 	for (int i = 0; i < 4; i++)
 	{
 		to_return.points[i] = AddV2(to_return.points[i], V2(-size.X*0.5f, size.Y*0.5f));
+	}
+	return to_return;
+}
+
+Quad quad_rotated_centered(Vec2 at, Vec2 size, float rotation)
+{
+	Quad to_return = quad_centered(at, size);
+	for(int i = 0; i < 4; i++)
+	{
+		to_return.points[i] = AddV2(RotateV2(SubV2(to_return.points[i], at), rotation), at);
 	}
 	return to_return;
 }
@@ -4180,33 +4211,9 @@ void frame(void)
 								{
 								} // skelton combat and movement
 							}
-							else if (it->npc_kind == NPC_Edeline)
-							{
-							}
-							else if (it->npc_kind == NPC_TheKing)
-							{
-							}
-							else if (it->npc_kind == NPC_Red)
-							{
-							}
-							else if (it->npc_kind == NPC_Blue)
-							{
-							}
-							else if (it->npc_kind == NPC_Davis)
-							{
-							}
-							else if (it->npc_kind == NPC_TheBlacksmith)
-							{
-							}
-							else if (it->npc_kind == NPC_Bill)
-							{
-							}
-							else if (it->npc_kind == NPC_Jester)
-							{
-							}
+							// npc processing functions go here
 							else
 							{
-								assert(false);
 							}
 
 							if (it->damage >= entity_max_damage(it))
@@ -4732,6 +4739,17 @@ void frame(void)
 						}
 						draw_animated_sprite((DrawnAnimatedSprite) { ANIM_knight_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), tint });
 					}
+					else if(it->npc_kind == NPC_Pile)
+					{
+						DrawParams d = { true, quad_centered(it->pos, V2(TILE_SIZE, TILE_SIZE)), IMG(image_pile), WHITE, };
+						if(!it->gave_away_sword)
+						{
+							DrawParams d = { true, quad_rotated_centered(AddV2(it->pos, V2(0, 15.0f)), V2(TILE_SIZE, TILE_SIZE), -PI32*0.75f), IMG(image_sword), WHITE, };
+							draw_quad(d);
+						}
+						draw_shadow_for(d);
+						draw_quad(d);
+					}
 					else
 					{
 						assert(false);
@@ -4800,11 +4818,7 @@ void frame(void)
 				if(cur->progress < 1.0f)
 				{
 					float radius = SWORD_SWIPE_RADIUS;
-					Quad to_draw = quad_centered(cur->from, V2(radius, radius));
-					for(int i = 0; i < 4; i++)
-					{
-						to_draw.points[i] = AddV2(RotateV2(SubV2(to_draw.points[i], cur->from), powf(cur->progress * 4.0f, 1.5f)), cur->from);
-					}
+					Quad to_draw = quad_rotated_centered(cur->from,V2(radius, radius), powf(cur->progress * 4.0f, 1.5f));
 					draw_quad((DrawParams){true, to_draw, IMG(image_swipe), blendalpha(WHITE, 1.0f - cur->progress)});
 				}
 			}

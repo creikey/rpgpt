@@ -347,11 +347,6 @@
                  "name":"PLAYER",
                  "properties":[
                         {
-                         "name":"held_items",
-                         "type":"string",
-                         "value":"{.data = {ITEM_Sword}, .cur_index = 1}"
-                        }, 
-                        {
                          "name":"standing",
                          "type":"string",
                          "value":"STANDING_FIGHTING"
@@ -415,8 +410,8 @@
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":1128.33333333333,
-                 "y":2089.33333333333
+                 "x":1557.66666666666,
+                 "y":2496
                 }, 
                 {
                  "class":"",
@@ -448,8 +443,8 @@
                  "rotation":0,
                  "visible":true,
                  "width":32,
-                 "x":1511,
-                 "y":2513
+                 "x":1549.66666666667,
+                 "y":2182.33333333333
                 }, 
                 {
                  "class":"",
@@ -461,6 +456,17 @@
                  "width":32,
                  "x":1516,
                  "y":1720
+                }, 
+                {
+                 "class":"",
+                 "height":32,
+                 "id":31,
+                 "name":"Pile",
+                 "rotation":0,
+                 "visible":true,
+                 "width":32,
+                 "x":1486.66666666667,
+                 "y":2489.33333333333
                 }],
          "opacity":1,
          "type":"objectgroup",
@@ -469,7 +475,7 @@
          "y":0
         }],
  "nextlayerid":5,
- "nextobjectid":31,
+ "nextobjectid":32,
  "orientation":"orthogonal",
  "renderorder":"right-down",
  "tiledversion":"1.9.2",

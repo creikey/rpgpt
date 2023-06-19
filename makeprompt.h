@@ -256,7 +256,7 @@ typedef struct Entity
 #ifdef DESKTOP
 	int times_talked_to; // for better mocked response string
 #endif
-
+	bool gave_away_sword;
 	BUFF(Memory, REMEMBERED_MEMORIES) memories;
 	bool direction_of_spiral_pattern;
 	float dialog_panel_opacity;
@@ -340,29 +340,36 @@ void fill_available_actions(Entity *it, AvailableActions *a)
 	*a = (AvailableActions) { 0 };
 	BUFF_APPEND(a, ACT_none);
 
-	if(it->held_items.cur_index > 0)
+	if(it->npc_kind == NPC_Pile)
 	{
-		BUFF_APPEND(a, ACT_give_item);
+		if(!it->gave_away_sword) BUFF_APPEND(a, ACT_releases_sword_of_nazareth);
 	}
+	else
+	{
+		if(it->held_items.cur_index > 0)
+		{
+			BUFF_APPEND(a, ACT_give_item);
+		}
 
-	if (it->npc_kind == NPC_TheKing)
-	{
-		BUFF_APPEND(a, ACT_knights_player);
-	}
+		if (it->npc_kind == NPC_TheKing)
+		{
+			BUFF_APPEND(a, ACT_knights_player);
+		}
 
-	if (it->standing == STANDING_INDIFFERENT)
-	{
-		BUFF_APPEND(a, ACT_fights_player);
-		BUFF_APPEND(a, ACT_joins_player);
-	}
-	else if (it->standing == STANDING_JOINED)
-	{
-		BUFF_APPEND(a, ACT_leaves_player);
-		BUFF_APPEND(a, ACT_fights_player);
-	}
-	else if (it->standing == STANDING_FIGHTING)
-	{
-		BUFF_APPEND(a, ACT_stops_fighting_player);
+		if (it->standing == STANDING_INDIFFERENT)
+		{
+			BUFF_APPEND(a, ACT_fights_player);
+			BUFF_APPEND(a, ACT_joins_player);
+		}
+		else if (it->standing == STANDING_JOINED)
+		{
+			BUFF_APPEND(a, ACT_leaves_player);
+			BUFF_APPEND(a, ACT_fights_player);
+		}
+		else if (it->standing == STANDING_FIGHTING)
+		{
+			BUFF_APPEND(a, ACT_stops_fighting_player);
+		}
 	}
 }
 
