@@ -363,7 +363,7 @@ func completion(w http.ResponseWriter, req *http.Request) {
    }
    resp, err := c.CreateCompletion(ctx, req)
    if err != nil {
-    log.Println("Error Failed to generate: ", err)
+    log.Println("Error Failed to generate, failed to create completion: ", err)
     w.WriteHeader(http.StatusInternalServerError)
     return
    }
@@ -490,6 +490,6 @@ func main() {
 
  portString := ":8090"
  log.Println("DO NOT RUN WITH CLOUDFLARE PROXY it rate limits based on IP, if behind proxy every IP will be the same. Would need to fix req.RemoteAddr. Serving on " + portString + "...")
- http.ListenAndServe(portString, nil)
+ log.Fatal(http.ListenAndServe(portString, nil))
 }
 
