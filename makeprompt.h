@@ -87,6 +87,7 @@ MD_String8 escape_for_json(MD_Arena *arena, MD_String8 from)
 
 typedef struct
 {
+	// serialized as bytes. No pointers.
 	ItemKind item_to_give;
 } ActionArgument;
 
@@ -412,11 +413,8 @@ void fill_available_actions(Entity *it, AvailableActions *a)
 	}
 }
 
-#define MAX_ENTITIES 128
 
 typedef struct GameState {
-	int version; // this field must be first to detect versions of old saves. Must bee consistent
-	
 	uint64_t tick;
 	bool won;
 	Entity entities[MAX_ENTITIES];

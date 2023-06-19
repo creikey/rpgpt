@@ -1,7 +1,5 @@
 #pragma once
 
-#define CURRENT_VERSION 12 // wehenver you change Entity increment this boz
-
 #define LEVEL_TILES 150 // width and height of level tiles array
 #define LAYERS 3
 #define TILE_SIZE 32 // in pixels
@@ -26,6 +24,9 @@
 #define SERVER_PORT 443
 #define IS_SERVER_SECURE 1
 #endif
+
+// this can never go down or else the forward compatibility of serialization breaks.
+#define MAX_ENTITIES 128
 
 // REFACTORING:: also have to update in javascript!!!!!!!!
 #define MAX_SENTENCE_LENGTH 800 // LOOOK AT AGBOVE COMMENT GBEFORE CHANGING

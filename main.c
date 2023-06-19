@@ -120,6 +120,7 @@ void web_arena_set_auto_align(WebArena *arena, size_t align)
 #include "md.c"
 #pragma warning(pop)
 
+#include "ser.h"
 
 #include <math.h>
 
@@ -559,7 +560,7 @@ void into_chunk(TextChunk *t, MD_String8 s)
 	memcpy(t->text, s.str, s.size);
 	t->text_length = (int)s.size;
 }
-TextChunk *allocate_text_chunk()
+TextChunk *allocate_text_chunk(MD_Arena *arena)
 {
 	TextChunk *to_return = 0;
 	if(text_chunk_free_list)
@@ -569,7 +570,7 @@ TextChunk *allocate_text_chunk()
 	}
 	else
 	{
-		to_return = MD_PushArray(persistent_arena, TextChunk, 1);
+		to_return = MD_PushArray(arena, TextChunk, 1);
 	}
 	*to_return = (TextChunk){0};
 	return to_return;
@@ -590,7 +591,7 @@ int text_chunk_list_count(TextChunk *first)
 }
 void append_to_errors(Entity *from, MD_String8 s)
 {
-	TextChunk *error_chunk = allocate_text_chunk();
+	TextChunk *error_chunk = allocate_text_chunk(persistent_arena);
 	into_chunk(error_chunk, s);
 	while(text_chunk_list_count(from->errorlist_first) > REMEMBERED_ERRORS)
 	{
@@ -1143,80 +1144,6 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 	return error_message;
 }
 
-#ifdef DEVTOOLS
-void do_metadesk_tests()
-{
-	Log("Testing metadesk library...\n");
-	MD_Arena *arena = MD_ArenaAlloc();
-	MD_String8 s = MD_S8Lit("This is a testing|string");
-
-	MD_String8List split_up = MD_S8Split(arena, s, 1, &MD_S8Lit("|"));
-
-	assert(split_up.node_count == 2);
-	assert(MD_S8Match(split_up.first->string, MD_S8Lit("This is a testing"), 0));
-	assert(MD_S8Match(split_up.last->string, MD_S8Lit("string"), 0));
-
-	MD_ArenaRelease(arena);
-
-	Log("Testing passed!\n");
-}
-void do_parsing_tests()
-{
-	Log("Testing chatgpt parsing...\n");
-
-	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-
-	Entity e = {0};
-	e.npc_kind = NPC_TheBlacksmith;
-	e.exists = true;
-	Action a = {0};
-	MD_String8 error;
-	MD_String8 speech;
-
-	speech = MD_S8Lit("Better have a good reason for bothering me.");
-	MD_String8 thoughts = MD_S8Lit("Man I'm tired today Whatever.");
-	MD_String8 to_parse = FmtWithLint(scratch.arena, "{action: none, speech: \"%.*s\", thoughts: \"%.*s\", who_i_am: \"Meld\", talking_to: nobody}", MD_S8VArg(speech), MD_S8VArg(thoughts));
-	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
-	assert(error.size == 0);
-	assert(a.kind == ACT_none);
-	assert(MD_S8Match(speech, MD_S8(a.speech, a.speech_length), 0));
-	assert(MD_S8Match(thoughts, MD_S8(a.internal_monologue, a.internal_monologue_length), 0));
-
-	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \"Here you go\""), &a);
-	assert(error.size > 0);
-	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \""), &a);
-	assert(error.size > 0);
-	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Cha \""), &a);
-	assert(error.size > 0);
-
-	BUFF_APPEND(&e.held_items, ITEM_Chalice);
-
-	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(Chalice \""), &a);
-	assert(error.size > 0);
-	to_parse = MD_S8Lit("{action: give_item, action_arg: \"The Chalice of Gold\", speech: \"Here you go\", thoughts: \"Man I'm gonna miss that chalice\", who_i_am: \"Meld\", talking_to: nobody}");
-	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
-	assert(error.size == 0);
-	assert(a.kind == ACT_give_item);
-	assert(a.argument.item_to_give == ITEM_Chalice);
-	
-	e.npc_kind = NPC_Door;
-	speech = MD_S8Lit("SAY THE WORDS");
-	to_parse = FmtWithLint(scratch.arena, "{action: none, speech: \"%.*s\", thoughts: \"%.*s\", who_i_am: \"Ancient Door\", talking_to: nobody}", MD_S8VArg(speech), MD_S8VArg(thoughts));
-	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
-	assert(error.size == 0);
-	error = is_action_valid(scratch.arena, &e, a);
-	assert(error.size == 0);
-
-	speech = MD_S8Lit("THE WORD IS FOLLY");
-	to_parse = FmtWithLint(scratch.arena, "{action: none, speech: \"%.*s\", thoughts: \"%.*s\", who_i_am: \"Ancient Door\", talking_to: nobody}", MD_S8VArg(speech), MD_S8VArg(thoughts));
-	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
-	assert(error.size == 0);
-	error = is_action_valid(scratch.arena, &e, a);
-	assert(error.size > 0);
-
-	MD_ReleaseScratch(scratch);
-}
-#endif
 
 
 // from must not be null
@@ -1640,8 +1567,6 @@ void reset_level()
 	{
 		assert(ARRLEN(to_load->initial_entities) == ARRLEN(gs.entities));
 		memcpy(gs.entities, to_load->initial_entities, sizeof(Entity) * MAX_ENTITIES);
-		gs.version = CURRENT_VERSION;
-
 		for (Entity *it = gs.entities; it < gs.entities + ARRLEN(gs.entities); it++)
 		{
 			if(it->exists && it->generation == 0)
@@ -1803,6 +1728,158 @@ void reset_level()
 		ENTITIES_ITER(gs.entities)
 		{
 			it->perceptions_dirty = false; // nobody should say anything about jester memories
+		}
+	}
+}
+
+enum
+{
+	V0,
+
+	VMax,
+} Version;
+
+SER_MAKE_FOR_TYPE(uint64_t);
+SER_MAKE_FOR_TYPE(bool);
+SER_MAKE_FOR_TYPE(double);
+SER_MAKE_FOR_TYPE(float);
+SER_MAKE_FOR_TYPE(ItemKind);
+SER_MAKE_FOR_TYPE(PropKind);
+SER_MAKE_FOR_TYPE(NpcKind);
+SER_MAKE_FOR_TYPE(CharacterState);
+SER_MAKE_FOR_TYPE(Memory);
+SER_MAKE_FOR_TYPE(Vec2);
+SER_MAKE_FOR_TYPE(AnimKind);
+SER_MAKE_FOR_TYPE(EntityRef);
+SER_MAKE_FOR_TYPE(NPCPlayerStanding);
+
+#define SER_BUFF(ser, BuffElemType, buff_ptr) {ser_int(ser, &((buff_ptr)->cur_index));\
+	if((buff_ptr)->cur_index > ARRLEN((buff_ptr)->data))\
+	{\
+		ser->cur_error = (SerError){.failed = true, .why = MD_S8Fmt(ser->error_arena, "Current index %d is more than the buffer %s's maximum, %d", (buff_ptr)->cur_index, #buff_ptr, ARRLEN((buff_ptr)->data))};\
+	}\
+	BUFF_ITER(BuffElemType, buff_ptr)\
+	{\
+		ser_##BuffElemType(ser, it);\
+	}\
+}
+
+void ser_TextChunk(SerState *ser, TextChunk *t)
+{
+	ser_int(ser, &t->text_length);
+	if(t->text_length >= ARRLEN(t->text))
+	{
+		ser->cur_error = (SerError){.failed = true, .why = MD_S8Fmt(ser->error_arena, "In text chunk, length %d is too big to fit into %d", t->text_length, ARRLEN(t->text))};
+	}
+	ser_bytes(ser, (MD_u8*)t->text, t->text_length);
+}
+
+void ser_entity(SerState *ser, Entity *e)
+{
+	ser_bool(ser, &e->destroy);
+	ser_int(ser, &e->generation);
+
+	ser_Vec2(ser, &e->pos);
+	ser_Vec2(ser, &e->vel);
+	ser_float(ser, &e->damage);
+
+	SER_BUFF(ser, ItemKind, &e->held_items);
+
+	ser_bool(ser, &e->is_prop);
+	ser_PropKind(ser, &e->prop_kind);
+
+	ser_bool(ser, &e->is_item);
+	ser_bool(ser, &e->held_by_player);
+	ser_ItemKind(ser, &e->item_kind);
+
+	ser_bool(ser, &e->is_npc);
+	ser_bool(ser, &e->being_hovered);
+	ser_bool(ser, &e->perceptions_dirty);
+
+	if(ser->serializing)
+	{
+		TextChunk *cur = e->errorlist_first;
+		bool more_errors = cur != 0;
+		ser_bool(ser, &more_errors);
+		while(more_errors)
+		{
+			ser_TextChunk(ser, cur);
+			cur = cur->next;
+			more_errors = cur != 0;
+			ser_bool(ser, &more_errors);
+		}
+	}
+	else
+	{
+		bool more_errors;
+		ser_bool(ser, &more_errors);
+		while(more_errors)
+		{
+			TextChunk *new_chunk = MD_PushArray(ser->arena, TextChunk, 1);
+			ser_TextChunk(ser, new_chunk);
+			MD_DblPushBack(e->errorlist_first, e->errorlist_last, new_chunk);
+			ser_bool(ser, &more_errors);
+		}
+	}
+
+	ser_bool(ser, &e->opened);
+	ser_float(ser, &e->opened_amount);
+	ser_bool(ser, &e->gave_away_sword);
+
+	SER_BUFF(ser, Memory, &e->memories);
+
+	ser_bool(ser, &e->direction_of_spiral_pattern);
+	ser_float(ser, &e->dialog_panel_opacity);
+	ser_int(ser, &e->words_said);
+	ser_float(ser, &e->word_anim_in);
+	ser_NPCPlayerStanding(ser, &e->standing);
+	ser_NpcKind(ser, &e->npc_kind);
+	ser_int(ser, &e->gen_request_id);
+	ser_bool(ser, &e->walking);
+	ser_double(ser, &e->shotgun_timer);
+	ser_bool(ser, &e->moved);
+	ser_Vec2(ser, &e->target_goto);
+	// only for skeleton npc
+	ser_double(ser, &e->swing_timer);
+
+	// character
+	ser_bool(ser, &e->is_character);
+	ser_bool(ser, &e->knighted);
+	ser_bool(ser, &e->in_conversation_mode);
+	ser_Vec2(ser, &e->to_throw_direction);
+
+	SER_BUFF(ser, Vec2, &e->position_history);
+	ser_CharacterState(ser, &e->state);
+	ser_EntityRef(ser, &e->talking_to);
+	ser_bool(ser, &e->is_rolling);
+	ser_double(ser, &e->time_not_rolling);
+
+	ser_AnimKind(ser, &e->cur_animation);
+	ser_float(ser, &e->anim_change_timer);
+}
+
+void ser_GameState(SerState *ser, GameState *g)
+{
+	if(ser->serializing) ser->version = VMax - 1;
+	ser_int(ser, &ser->version);
+	if(ser->version >= VMax)
+	{
+		ser->cur_error = (SerError){.failed = true, .why = MD_S8Fmt(ser->error_arena, "Version %d is beyond the current version, %d", ser->version, VMax - 1)};
+	}
+
+	ser_uint64_t(ser, &g->tick);
+	ser_bool(ser, &g->won);
+	int num_entities = MAX_ENTITIES;
+	ser_int(ser, &num_entities);
+	
+	assert(num_entities <= MAX_ENTITIES);
+	for(int i = 0; i < num_entities; i++)
+	{
+		bool exists = gs.entities[i].exists;
+		ser_bool(ser, &exists);
+		if(exists)
+		{
+			ser_entity(ser, &gs.entities[i]);
 		}
 	}
 }
@@ -1971,6 +2048,132 @@ Vec2 img_size(sg_image img)
 	return V2((float)info.width, (float)info.height);
 }
 
+#ifdef DEVTOOLS
+void do_metadesk_tests()
+{
+	Log("Testing metadesk library...\n");
+	MD_Arena *arena = MD_ArenaAlloc();
+	MD_String8 s = MD_S8Lit("This is a testing|string");
+
+	MD_String8List split_up = MD_S8Split(arena, s, 1, &MD_S8Lit("|"));
+
+	assert(split_up.node_count == 2);
+	assert(MD_S8Match(split_up.first->string, MD_S8Lit("This is a testing"), 0));
+	assert(MD_S8Match(split_up.last->string, MD_S8Lit("string"), 0));
+
+	MD_ArenaRelease(arena);
+
+	Log("Testing passed!\n");
+}
+void do_parsing_tests()
+{
+	Log("Testing chatgpt parsing...\n");
+
+	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+
+	Entity e = {0};
+	e.npc_kind = NPC_TheBlacksmith;
+	e.exists = true;
+	Action a = {0};
+	MD_String8 error;
+	MD_String8 speech;
+
+	speech = MD_S8Lit("Better have a good reason for bothering me.");
+	MD_String8 thoughts = MD_S8Lit("Man I'm tired today Whatever.");
+	MD_String8 to_parse = FmtWithLint(scratch.arena, "{action: none, speech: \"%.*s\", thoughts: \"%.*s\", who_i_am: \"Meld\", talking_to: nobody}", MD_S8VArg(speech), MD_S8VArg(thoughts));
+	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
+	assert(error.size == 0);
+	assert(a.kind == ACT_none);
+	assert(MD_S8Match(speech, MD_S8(a.speech, a.speech_length), 0));
+	assert(MD_S8Match(thoughts, MD_S8(a.internal_monologue, a.internal_monologue_length), 0));
+
+	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \"Here you go\""), &a);
+	assert(error.size > 0);
+	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \""), &a);
+	assert(error.size > 0);
+	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Cha \""), &a);
+	assert(error.size > 0);
+
+	BUFF_APPEND(&e.held_items, ITEM_Chalice);
+
+	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(Chalice \""), &a);
+	assert(error.size > 0);
+	to_parse = MD_S8Lit("{action: give_item, action_arg: \"The Chalice of Gold\", speech: \"Here you go\", thoughts: \"Man I'm gonna miss that chalice\", who_i_am: \"Meld\", talking_to: nobody}");
+	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
+	assert(error.size == 0);
+	assert(a.kind == ACT_give_item);
+	assert(a.argument.item_to_give == ITEM_Chalice);
+	
+	e.npc_kind = NPC_Door;
+	speech = MD_S8Lit("SAY THE WORDS");
+	to_parse = FmtWithLint(scratch.arena, "{action: none, speech: \"%.*s\", thoughts: \"%.*s\", who_i_am: \"Ancient Door\", talking_to: nobody}", MD_S8VArg(speech), MD_S8VArg(thoughts));
+	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
+	assert(error.size == 0);
+	error = is_action_valid(scratch.arena, &e, a);
+	assert(error.size == 0);
+
+	speech = MD_S8Lit("THE WORD IS FOLLY");
+	to_parse = FmtWithLint(scratch.arena, "{action: none, speech: \"%.*s\", thoughts: \"%.*s\", who_i_am: \"Ancient Door\", talking_to: nobody}", MD_S8VArg(speech), MD_S8VArg(thoughts));
+	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
+	assert(error.size == 0);
+	error = is_action_valid(scratch.arena, &e, a);
+	assert(error.size > 0);
+
+	MD_ReleaseScratch(scratch);
+}
+void do_serialization_tests()
+{
+	Log("Testing serialization...\n");
+
+	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+
+	reset_level();
+	player->pos = V2(50.0f, 0.0);
+
+	MD_u8 *serialized_data = 0;
+	MD_u64 serialized_length = 0;
+	{
+		SerState ser = {
+			.serializing = true,
+			.error_arena = scratch.arena,
+		};
+		ser_GameState(&ser, &gs);
+
+		assert(!ser.cur_error.failed);
+
+		ser.arena = scratch.arena;
+		ser.max = ser.cur;
+		ser.cur = 0;
+		ser.version = VMax - 1;
+		serialized_data = MD_ArenaPush(scratch.arena, ser.max);
+		ser.data = serialized_data;
+
+		ser_GameState(&ser, &gs);
+		serialized_length = ser.cur;
+		player->pos.x = 0.0;
+	}
+	assert(serialized_length > 0);
+	assert(serialized_data != 0);
+
+	reset_level();
+	SerState ser = {
+		.serializing = false,
+		.data = serialized_data,
+		.max = serialized_length,
+		.arena = scratch.arena,
+		.error_arena = scratch.arena,
+		.version = VMax - 1,
+	};
+	ser_GameState(&ser, &gs);
+	assert(player->pos.x == 50.0f);
+	assert(!ser.cur_error.failed);
+
+	Log("Default save data size is %lld bytes\n", serialized_length);
+
+	MD_ReleaseScratch(scratch);
+}
+#endif
+
 void init(void)
 {
 #ifdef WEB
@@ -1992,6 +2195,7 @@ void init(void)
 #ifdef DEVTOOLS
 	do_metadesk_tests();
 	do_parsing_tests();
+	do_serialization_tests();
 #endif
 
 
