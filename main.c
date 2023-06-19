@@ -5064,16 +5064,6 @@ void frame(void)
 				Color col = LerpV4(WHITE, it->damage, RED);
 				if (it->is_npc)
 				{
-					// health bar
-					{
-						Vec2 health_bar_size = V2(TILE_SIZE, 0.1f * TILE_SIZE);
-						float health_bar_progress = 1.0f - (it->damage / entity_max_damage(it));
-						Vec2 health_bar_center = AddV2(it->pos, V2(0.0f, -entity_aabb_size(it).y));
-						Vec2 bar_upper_left = AddV2(health_bar_center, MulV2F(health_bar_size, -0.5f));
-						draw_quad((DrawParams) { true, quad_at(bar_upper_left, health_bar_size), IMG(image_white_square), BROWN });
-						draw_quad((DrawParams) { true, quad_at(bar_upper_left, V2(health_bar_size.x * health_bar_progress, health_bar_size.y)), IMG(image_white_square), GREEN });
-					}
-
 					float dist = LenV2(SubV2(it->pos, player->pos));
 					dist -= 10.0f; // radius around point where dialog is completely opaque
 					float max_dist = dialog_interact_size / 2.0f;
