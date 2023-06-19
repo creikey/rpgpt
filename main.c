@@ -551,6 +551,8 @@ void done_with_request(int id)
 #endif // WINDOWS
 #endif // DESKTOP
 
+Memory *memories_free_list = 0;
+
 TextChunk *text_chunk_free_list = 0;
 
 // s.size must be less than MAX_SENTENCE_LENGTH, or assert fails
@@ -965,11 +967,29 @@ bool is_fighting(Entity *player)
 void push_memory(Entity *e, Memory new_memory)
 {
 	new_memory.tick_happened = gs.tick;
-	if(!BUFF_HAS_SPACE(&e->memories))
+
+	Memory *memory_allocated = 0;
+	if(memories_free_list)
 	{
-		BUFF_REMOVE_FRONT(&e->memories);
+		memory_allocated = memories_free_list;
+		MD_StackPop(memories_free_list);
 	}
-	BUFF_APPEND(&e->memories, new_memory);
+	else
+	{
+		memory_allocated = MD_PushArray(persistent_arena, Memory, 1);
+	}
+	*memory_allocated = new_memory;
+	
+	int count = 0;
+	for(Memory *cur = e->memories_first; cur; cur = cur->next) count += 1;
+	while(count >= REMEMBERED_MEMORIES)
+	{
+		Memory *freed = e->memories_first;
+		MD_DblRemove(e->memories_first, e->memories_last, freed);
+		MD_StackPush(memories_free_list, freed);
+		count -= 1;
+	}
+	MD_DblPushBack(e->memories_first, e->memories_last, memory_allocated);
 
 	if(!new_memory.context.i_said_this)
 	{
@@ -1594,12 +1614,7 @@ void reset_level()
 			MD_String8 speech = MD_S8Lit("This is some very important testing dialog. Too important to count. Very very very very important. Super caliafradgalisticexpelaladosis");
 			memcpy(test_memory.speech, speech.str, speech.size);
 			test_memory.speech_length = (int)speech.size;
-			RANGE_ITER(0, 15)
-				BUFF_APPEND(&it->memories, test_memory);
-			//RANGE_ITER(0, 20)
-			//BUFF_APPEND(&it->remembered_perceptions, ((Perception) { .type = PlayerDialog, .player_dialog = SENTENCE_CONST("Testing dialog") }));
-
-			//BUFF_APPEND(&it->held_items, ITEM_Chalice);
+			push_memory(it, test_memory);
 		}
 	}
 #endif
@@ -1826,7 +1841,31 @@ void ser_entity(SerState *ser, Entity *e)
 	ser_float(ser, &e->opened_amount);
 	ser_bool(ser, &e->gave_away_sword);
 
-	SER_BUFF(ser, Memory, &e->memories);
+	if(ser->serializing)
+	{
+		Memory *cur = e->memories_first;
+		bool more_memories = cur != 0;
+		ser_bool(ser, &more_memories);
+		while(more_memories)
+		{
+			ser_Memory(ser, cur);
+			cur = cur->next;
+			more_memories = cur != 0;
+			ser_bool(ser, &more_memories);
+		}
+	}
+	else
+	{
+		bool more_memories;
+		ser_bool(ser, &more_memories);
+		while(more_memories)
+		{
+			Memory *new_chunk = MD_PushArray(ser->arena, Memory, 1);
+			ser_Memory(ser, new_chunk);
+			MD_DblPushBack(e->memories_first, e->memories_last, new_chunk);
+			ser_bool(ser, &more_memories);
+		}
+	}
 
 	ser_bool(ser, &e->direction_of_spiral_pattern);
 	ser_float(ser, &e->dialog_panel_opacity);
@@ -3454,23 +3493,20 @@ void translate_words_by(PlacedWordList words, Vec2 translation)
 MD_String8 last_said_sentence(Entity *npc)
 {
 	assert(npc->is_npc);
-	int last_speech_index = -1;
-	BUFF_ITER_I(Memory, &npc->memories, i)
+
+	MD_String8 to_return = (MD_String8){0};
+
+	Memory *cur = npc->memories_last;
+	for(Memory *cur = npc->memories_last; cur; cur = cur->prev)
 	{
-		if(it->context.author_npc_kind == npc->npc_kind)
+		if(cur->context.author_npc_kind == npc->npc_kind)
 		{
-			last_speech_index = i;
+			to_return = MD_S8(cur->speech, cur->speech_length);
+			break;
 		}
 	}
-	
-	if(last_speech_index == -1)
-	{
-		return (MD_String8){0};
-	}
-	else
-	{
-		return MD_S8(npc->memories.data[last_speech_index].speech, npc->memories.data[last_speech_index].speech_length);
-	}
+
+	return to_return;
 }
 
 typedef enum
@@ -3522,7 +3558,7 @@ Dialog get_dialog_elems(Entity *talking_to, bool character_names)
 	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 	assert(talking_to->is_npc);
 	Dialog to_return = { 0 };
-	BUFF_ITER(Memory, &talking_to->memories)
+	for(Memory *it = talking_to->memories_first; it; it = it->next)
 	{
 		if(!it->context.dont_show_to_player)
 		{

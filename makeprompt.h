@@ -118,6 +118,9 @@ typedef struct
 // memories are subjective to an individual NPC
 typedef struct Memory
 {
+	struct Memory *prev;
+	struct Memory *next;
+
 	uint64_t tick_happened; // can sort memories by time for some modes of display
 	// if action_taken is none, there might still be speech. If speech_length == 0 and action_taken == none, it's an invalid memory and something has gone wrong
 	ActionKind action_taken;
@@ -250,17 +253,16 @@ typedef struct Entity
 	bool is_npc;
 	bool being_hovered;
 	bool perceptions_dirty;
-
 	TextChunk *errorlist_first;
 	TextChunk *errorlist_last;
-
 #ifdef DESKTOP
 	int times_talked_to; // for better mocked response string
 #endif
 	bool opened;
 	float opened_amount;
 	bool gave_away_sword;
-	BUFF(Memory, REMEMBERED_MEMORIES) memories;
+	Memory *memories_first;
+	Memory *memories_last;
 	bool direction_of_spiral_pattern;
 	float dialog_panel_opacity;
 	int words_said;
@@ -499,7 +501,7 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e, CanTalkTo can_tal
 	//MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, MSG_SYSTEM, MD_S8ListJoin(scratch.arena, first_system_string, &(MD_StringJoin){0})));
 	MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, MSG_SYSTEM, MD_S8ListJoin(scratch.arena, first_system_string, &(MD_StringJoin){0})));
 
-	BUFF_ITER(Memory, &e->memories)
+	for(Memory *it = e->memories_first; it; it = it->next)
 	{
 		MessageType sent_type = -1;
 		MD_String8List cur_list = {0};
@@ -639,11 +641,11 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e, CanTalkTo can_tal
 	// last thought explanation and re-prompt
 	{
 		MD_String8 last_thought_string = {0};
-		BUFF_ITER(Memory, &e->memories)
+		for(Memory *cur = e->memories_first; cur; cur = cur->next)
 		{
-			if(it->internal_monologue_length > 0)
+			if(cur->internal_monologue_length > 0)
 			{
-				last_thought_string = MD_S8(it->internal_monologue, it->internal_monologue_length);
+				last_thought_string = MD_S8(cur->internal_monologue, cur->internal_monologue_length);
 			}
 		}
 		PushWithLint(scratch.arena, &latest_state, "Your last thought was: %.*s\n", MD_S8VArg(last_thought_string));
