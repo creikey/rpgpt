@@ -18,6 +18,12 @@ const char *bravado_thought = "For some reason, suddenly I feel a yearning for a
 #define Scroll2_Secret "temperance"
 #define Scroll3_Secret "magenta"
 
+const char *arrow_insults[] = {
+	"You aren't good enough for anybody.",
+	"Your personality is embarrassing.",
+	"Your armor is weak and silly.",
+};
+
 const char *top_of_header = ""
 "#pragma once\n"
 "\n";
@@ -242,10 +248,16 @@ CharacterGen characters[] = {
 	},
 	{
 #undef NPC_NAME
-#define NPC_NAME "Arrow"
+#define NPC_NAME "Offensive Arrow"
 		.name = NPC_NAME,
 		.enum_name = "Arrow",
-		.prompt = "He is a calm, honorable ruler, who does the best he can to do good by his people, even if they can be a little crazy at times.",
+		.prompt = "It is a spiked arrow designd to insult and deride the player, with a specific insult. It will fight them until the player denies and rejects the insult, at which point it stops fighting.",
+		.writing_style = {
+			"You are quite the stinker!",
+			"I won't back down until you deny the allegations.",
+			"Quite an odd stance, you have.",
+			"Refute my insult, or stay perpetually in battle.",
+		},
 	},
 	{
 #undef NPC_NAME

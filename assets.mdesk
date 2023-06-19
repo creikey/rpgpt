@@ -126,6 +126,10 @@
 {
  filepath: "scroll.png",
 }
+@image arrow:
+{
+ filepath: "arrow.png",
+}
 @image swipe:
 {
  filepath: "swipe.png",

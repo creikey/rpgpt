@@ -655,6 +655,10 @@ Vec2 entity_aabb_size(Entity *e)
 		{
 			return V2(TILE_SIZE*2.0f, TILE_SIZE*2.0f);
 		}
+		else if (e->npc_kind == NPC_Arrow)
+		{
+			return V2(TILE_SIZE*2.0f, TILE_SIZE*2.0f);
+		}
 		else
 		{
 			assert(false);
@@ -1271,6 +1275,10 @@ void cause_action_side_effects(Entity *from, Action a)
 		player->talking_to = frome(from);
 		player->state = CHARACTER_TALKING;
 		assert(is_fighting(player));
+	}
+	if(a.kind == ACT_stops_fighting_player && from->npc_kind == NPC_Arrow)
+	{
+		from->destroy = true;
 	}
 	if(a.kind == ACT_stops_fighting_player || a.kind == ACT_leaves_player)
 	{
@@ -2936,6 +2944,7 @@ typedef struct CollisionInfo
 {
 	bool happened;
 	Vec2 normal;
+	BUFF(Entity*, 8) with;
 }CollisionInfo;
 
 typedef struct MoveSlideParams
@@ -2959,9 +2968,12 @@ Vec2 move_and_slide(MoveSlideParams p)
 	assert(collision_aabb_size.x > 0.0f);
 	assert(collision_aabb_size.y > 0.0f);
 	AABB at_new = aabb_centered(new_pos, collision_aabb_size);
-	BUFF(AABB, 256) to_check = { 0 };
-
-
+	typedef struct
+	{
+		AABB aabb;
+		Entity *e; // optional
+	} CollisionObj;
+	BUFF(CollisionObj, 256) to_check = { 0 };
 
 	// add tilemap boxes
 	{
@@ -2980,7 +2992,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 			if (is_tile_solid(get_tile_layer(&level_level0, 2, tilecoord_to_check)))
 			{
 				AABB t = tile_aabb(tilecoord_to_check);
-				BUFF_APPEND(&to_check, t);
+				BUFF_APPEND(&to_check, ((CollisionObj){t, 0}));
 			}
 		}
 	}
@@ -2993,7 +3005,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 		{
 			if (!(it->is_character && it->is_rolling) && it != p.from && !(it->is_npc && it->dead) && !it->is_item && !(it->is_npc && it->npc_kind == NPC_Door && it->opened))
 			{
-				BUFF_APPEND(&to_check, aabb_centered(it->pos, entity_aabb_size(it)));
+				BUFF_APPEND(&to_check, ((CollisionObj){aabb_centered(it->pos, entity_aabb_size(it)), it}));
 			}
 		}
 	}
@@ -3002,12 +3014,12 @@ Vec2 move_and_slide(MoveSlideParams p)
 	// box first, because doing so is a simple heuristic to avoid depenetrating and losing
 	// sideways velocity. It's visual and I can't put diagrams in code so uh oh!
 
-	typedef BUFF(AABB, 32) OverlapBuff;
+	typedef BUFF(CollisionObj, 32) OverlapBuff;
 	OverlapBuff actually_overlapping = { 0 };
 
-	BUFF_ITER(AABB, &to_check)
+	BUFF_ITER(CollisionObj, &to_check)
 	{
-		if (overlapping(at_new, *it))
+		if (overlapping(at_new, it->aabb))
 		{
 			BUFF_APPEND(&actually_overlapping, *it);
 		}
@@ -3017,9 +3029,9 @@ Vec2 move_and_slide(MoveSlideParams p)
 	float smallest_distance = FLT_MAX;
 	int smallest_aabb_index = 0;
 	int i = 0;
-	BUFF_ITER(AABB, &actually_overlapping)
+	BUFF_ITER(CollisionObj, &actually_overlapping)
 	{
-		float cur_dist = LenV2(SubV2(aabb_center(at_new), aabb_center(*it)));
+		float cur_dist = LenV2(SubV2(aabb_center(at_new), aabb_center(it->aabb)));
 		if (cur_dist < smallest_distance) {
 			smallest_distance = cur_dist;
 			smallest_aabb_index = i;
@@ -3033,7 +3045,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 	{
 		BUFF_APPEND(&overlapping_smallest_first, actually_overlapping.data[smallest_aabb_index]);
 	}
-	BUFF_ITER_I(AABB, &actually_overlapping, i)
+	BUFF_ITER_I(CollisionObj, &actually_overlapping, i)
 	{
 		if (i == smallest_aabb_index)
 		{
@@ -3045,33 +3057,35 @@ Vec2 move_and_slide(MoveSlideParams p)
 	}
 
 	// overlapping
-	BUFF_ITER(AABB, &overlapping_smallest_first)
+	BUFF_ITER(CollisionObj, &overlapping_smallest_first)
 	{
 		dbgcol(GREEN)
 		{
-			dbgrect(*it);
+			dbgrect(it->aabb);
 		}
 	}
 
 
 	//overlapping_smallest_first = actually_overlapping;
 
-	BUFF_ITER(AABB, &actually_overlapping)
+	BUFF_ITER(CollisionObj, &actually_overlapping)
 		dbgcol(WHITE)
-		dbgrect(*it);
+		dbgrect(it->aabb);
 
-	BUFF_ITER(AABB, &overlapping_smallest_first)
+	BUFF_ITER(CollisionObj, &overlapping_smallest_first)
 		dbgcol(WHITE)
-		dbgsquare(aabb_center(*it));
+		dbgsquare(aabb_center(it->aabb));
 
 	CollisionInfo info = { 0 };
 	for (int col_iter_i = 0; col_iter_i < 1; col_iter_i++)
-		BUFF_ITER(AABB, &overlapping_smallest_first)
+		BUFF_ITER(CollisionObj, &overlapping_smallest_first)
 		{
-			AABB to_depenetrate_from = *it;
+			AABB to_depenetrate_from = it->aabb;
 			int iters_tried_to_push_apart = 0;
+			bool happened_with_this_one = false;
 			while (overlapping(to_depenetrate_from, at_new) && iters_tried_to_push_apart < 500)
 			{
+				happened_with_this_one = true;
 				const float move_dist = 0.1f;
 
 				info.happened = true;
@@ -3102,6 +3116,32 @@ Vec2 move_and_slide(MoveSlideParams p)
 				at_new.upper_left = AddV2(at_new.upper_left, move);
 				at_new.lower_right = AddV2(at_new.lower_right, move);
 				iters_tried_to_push_apart++;
+			}
+			if(happened_with_this_one)
+			{
+				bool already_in_happened = false;
+				Entity *e = it->e;
+				if(e)
+				{
+					BUFF_ITER(Entity *, &info.with)
+					{
+						if(e == *it)
+						{
+							already_in_happened = true;
+						}
+					}
+					if(!already_in_happened)
+					{
+						if(!BUFF_HAS_SPACE(&info.with))
+						{
+							Log("WARNING not enough space in collision info out\n");
+						}
+						else
+						{
+							BUFF_APPEND(&info.with, e);
+						}
+					}
+				}
 			}
 		}
 
@@ -3919,7 +3959,6 @@ void frame(void)
 						it->being_hovered = false;
 						if (player->in_conversation_mode)
 						{
-
 							if (has_point(entity_aabb(it), screen_to_world(mouse_pos)))
 							{
 								it->being_hovered = true;
@@ -4290,6 +4329,40 @@ void frame(void)
 								} // skelton combat and movement
 							}
 							// @Place(NPC processing)
+							else if(it->npc_kind == NPC_Arrow)
+							{
+								if(it->standing == STANDING_INDIFFERENT)
+								{
+									CollisionInfo info = {0};
+									Vec2 movement = V2(ARROW_SPEED * dt, 0);
+									it->pos = move_and_slide((MoveSlideParams){it, it->pos, movement, .col_info_out = &info});
+									if(info.happened)
+									{
+										Entity *from = it;
+										BUFF_ITER(Entity *, &info.with)
+										{
+											if((*it)->is_character || ((*it)->is_npc && (*it)->standing == STANDING_JOINED))
+											{
+												Action fighting_action = {0};
+												fighting_action.kind = ACT_fights_player;
+												MD_String8 insult = MD_S8Fmt(frame_arena, "Ahaha! %s", arrow_insults[rand() % ARRLEN(arrow_insults)]);
+												memcpy(fighting_action.speech, insult.str, insult.size);
+												fighting_action.speech_length = (int)insult.size;
+												fighting_action.talking_to_somebody = true;
+												fighting_action.talking_to_kind = NPC_Player;
+												perform_action(from, fighting_action);
+												break;
+											}
+										}
+
+										if(from->standing != STANDING_FIGHTING)
+										{
+											// hit something, but didn't hit a fightable thing, or couldn't fight a fightable thing it hit
+											from->destroy = true;
+										}
+									}
+								}
+							}
 							else if(it->npc_kind == NPC_Door)
 							{
 								if(it->opened) it->opened_amount = Lerp(it->opened_amount, dt*5.0f, 1.0f);
@@ -4847,6 +4920,12 @@ void frame(void)
 							DrawParams d = { true, quad_rotated_centered(AddV2(it->pos, V2(0, 15.0f)), V2(TILE_SIZE, TILE_SIZE), -PI32*0.75f), IMG(image_sword), WHITE, };
 							draw_quad(d);
 						}
+						draw_shadow_for(d);
+						draw_quad(d);
+					}
+					else if(it->npc_kind == NPC_Arrow)
+					{
+						DrawParams d = { true, quad_centered(it->pos, entity_aabb_size(it)), IMG(image_arrow), WHITE, };
 						draw_shadow_for(d);
 						draw_quad(d);
 					}
