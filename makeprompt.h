@@ -806,7 +806,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 				bool found_item = false;
 				BUFF_ITER(ItemKind, &e->held_items)
 				{
-					MD_String8 cur_item_string = MD_S8CString(items[*it].enum_name);
+					MD_String8 cur_item_string = MD_S8CString(items[*it].name);
 					MD_S8ListPush(scratch.arena, &item_enum_names, cur_item_string);
 					if(MD_S8Match(cur_item_string, action_arg_str, 0))
 					{
