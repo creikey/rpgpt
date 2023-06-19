@@ -32,6 +32,7 @@ const (
 const (
  // A-Z and 0-9, four digits means this many codes
  MaxCodes = 36 * 36 * 36 * 36
+ MaxTime = 10*60  *1000 // in seconds
 )
 
 
@@ -283,7 +284,7 @@ func completion(w http.ResponseWriter, req *http.Request) {
      ipAddyTenFree[userKey] = currentTime()
      rejected = false
     } else {
-     if currentTime() - createdTime < 10*60 {
+     if currentTime() - createdTime < MaxTime {
       rejected = false
      } else {
       rejected = true // out of free time buddy

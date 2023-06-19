@@ -5,7 +5,7 @@ mkdir build_web_release
 
 call run_codegen.bat || goto :error
 
-set FLAGS=-O2 -DNDEBUG
+set FLAGS=-O0 -DNDEBUG
 set OUTPUT_FOLDER=build_web_release
 
 call build_web_common.bat || goto :error
