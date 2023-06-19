@@ -33,7 +33,7 @@ bool character_valid(char c)
 MD_String8 escape_for_json(MD_Arena *arena, MD_String8 from)
 {
 	MD_u64 output_size = 0;
-#define SHOULD_ESCAPE(c) (c == '"' || c == '\n')
+#define SHOULD_ESCAPE(c) (c == '"' || c == '\n' || c == '\\')
 	for (int i = 0; i < from.size; i++)
 	{
 		char c = from.str[i];

@@ -1193,7 +1193,7 @@ void do_parsing_tests()
 
 	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(Chalice \""), &a);
 	assert(error.size > 0);
-	to_parse = MD_S8Lit("{action: give_item, action_arg: Chalice, speech: \"Here you go\", thoughts: \"Man I'm gonna miss that chalice\", who_i_am: \"Meld\", talking_to: nobody}");
+	to_parse = MD_S8Lit("{action: give_item, action_arg: \"The Chalice of Gold\", speech: \"Here you go\", thoughts: \"Man I'm gonna miss that chalice\", who_i_am: \"Meld\", talking_to: nobody}");
 	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
 	assert(error.size == 0);
 	assert(a.kind == ACT_give_item);
@@ -1981,6 +1981,13 @@ void init(void)
 
 	frame_arena = MD_ArenaAlloc();
 	persistent_arena = MD_ArenaAlloc();
+
+#ifdef DEVTOOLS
+	Log("Devtools is on!\n");
+#else
+	Log("Devtools is off!\n");
+#endif
+
 
 #ifdef DEVTOOLS
 	do_metadesk_tests();
