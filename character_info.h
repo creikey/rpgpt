@@ -13,6 +13,11 @@ const char *global_prompt = "You are a colorful and interesting personality in a
 
 const char *bravado_thought = "For some reason, suddenly I feel a yearning for adventure. I must join any adventure I can when prompted!";
 
+// @TODO IMPORTANT scroll secrets are errors if the door utters them, in is_action_valid. If you add more secrets you must update there.
+#define Scroll1_Secret "folly"
+#define Scroll2_Secret "temperance"
+#define Scroll3_Secret "magenta"
+
 const char *top_of_header = ""
 "#pragma once\n"
 "\n";
@@ -51,6 +56,10 @@ ActionInfo actions[] = {
 		.name = "releases_sword_of_nazareth", 
 		.description = "Give the player the sword of nazareth, releasing your grip and fulfilling your destiny",
 	},
+	{
+		.name = "opens_myself",
+		.description = "Open myself so that the player may enter. I must ONLY do this if the player utters the secret words " Scroll1_Secret ", " Scroll2_Secret ", and " Scroll3_Secret " in the same sentence.",
+	},
 
 	// Actions used by jester and other characters only in 
 	// the prologue for the game
@@ -60,6 +69,7 @@ ActionInfo actions[] = {
 	{ .name = "steal_iron_pole", },
 	{ .name = "knights_player", },
 };
+
 
 typedef struct
 {
@@ -87,6 +97,19 @@ ItemInfo items[] = {
 		.enum_name = "Sword",
 		.name = "The Sword of Nazareth",
 		.description = "A powerful sword with heft, it inspires a fundamental glory",
+	},
+#define SCROLL_DESCRIPTION "An ancient, valuable scroll that says to 'use it' on the outside, but I'm not sure what that means. Who knows what secrets it contains?"
+	{
+		.enum_name = "Scroll1",
+		.description = SCROLL_DESCRIPTION,
+	},
+	{
+		.enum_name = "Scroll2",
+		.description = SCROLL_DESCRIPTION,
+	},
+	{
+		.enum_name = "Scroll3",
+		.description = SCROLL_DESCRIPTION,
 	},
 };
 
@@ -205,6 +228,21 @@ CharacterGen characters[] = {
 		.enum_name = "TheKing",
 		.prompt = "He is a calm, honorable ruler, who does the best he can to do good by his people, even if they can be a little crazy at times.",
 	},
+	{
+#undef NPC_NAME
+#define NPC_NAME "Ancient Door"
+		.name = NPC_NAME,
+		.enum_name = "Door",
+		.prompt = "It is an ancient door that only opens if the player says a sentence with all the three ancient passcode words in it: " Scroll1_Secret ", " Scroll2_Secret ", and " Scroll3_Secret ". It will NEVER tell the player these words, and barely says anything to the player, other than 'SAY THE WORDS'. It accepts no trade other than the player saying those three words. You always talk mysteriously and in all caps.",
+		.writing_style = {
+			"SAY THE WORDS.",
+			"DENIED. SAY THE WORDS.",
+			"I AM LOOKING FOR THE ONE WHO KNOWS. SAY THE WORDS.",
+			"THERE WILL BE NO TRADE. THE ONLY THING OF VALUE TO ME ARE THE WORDS.",
+			"YOU HAVE SAID THE WORDS, AND NOW I OPEN.",
+		},
+	},
+
 };
 
 typedef struct

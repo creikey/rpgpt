@@ -222,66 +222,6 @@ typedef struct TileSet
 
 #include "makeprompt.h"
 
-#ifdef DEVTOOLS
-void do_metadesk_tests()
-{
-	Log("Testing metadesk library...\n");
-	MD_Arena *arena = MD_ArenaAlloc();
-	MD_String8 s = MD_S8Lit("This is a testing|string");
-
-	MD_String8List split_up = MD_S8Split(arena, s, 1, &MD_S8Lit("|"));
-
-	assert(split_up.node_count == 2);
-	assert(MD_S8Match(split_up.first->string, MD_S8Lit("This is a testing"), 0));
-	assert(MD_S8Match(split_up.last->string, MD_S8Lit("string"), 0));
-
-	MD_ArenaRelease(arena);
-
-	Log("Testing passed!\n");
-}
-void do_parsing_tests()
-{
-	Log("Testing chatgpt parsing...\n");
-
-	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-
-	Entity e = {0};
-	e.npc_kind = NPC_TheBlacksmith;
-	e.exists = true;
-	Action a = {0};
-	MD_String8 error;
-	MD_String8 speech;
-
-	speech = MD_S8Lit("Better have a good reason for bothering me.");
-	MD_String8 thoughts = MD_S8Lit("Man I'm tired today Whatever.");
-	MD_String8 to_parse = FmtWithLint(scratch.arena, "{action: none, speech: \"%.*s\", thoughts: \"%.*s\", who_i_am: \"Meld\", talking_to: nobody}", MD_S8VArg(speech), MD_S8VArg(thoughts));
-	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
-	assert(error.size == 0);
-	assert(a.kind == ACT_none);
-	assert(MD_S8Match(speech, MD_S8(a.speech, a.speech_length), 0));
-	assert(MD_S8Match(thoughts, MD_S8(a.internal_monologue, a.internal_monologue_length), 0));
-
-	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \"Here you go\""), &a);
-	assert(error.size > 0);
-	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \""), &a);
-	assert(error.size > 0);
-	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Cha \""), &a);
-	assert(error.size > 0);
-
-	BUFF_APPEND(&e.held_items, ITEM_Chalice);
-
-	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(Chalice \""), &a);
-	assert(error.size > 0);
-	to_parse = MD_S8Lit("{action: give_item, action_arg: Chalice, speech: \"Here you go\", thoughts: \"Man I'm gonna miss that chalice\", who_i_am: \"Meld\", talking_to: nobody}");
-	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
-	assert(error.size == 0);
-	assert(a.kind == ACT_give_item);
-	assert(a.argument.item_to_give == ITEM_Chalice);
-
-	MD_ReleaseScratch(scratch);
-}
-#endif
-
 typedef struct Overlap
 {
 	bool is_tile; // in which case e will be null, naturally
@@ -707,6 +647,10 @@ Vec2 entity_aabb_size(Entity *e)
 		{
 			return V2(TILE_SIZE, TILE_SIZE);
 		}
+		else if (e->npc_kind == NPC_Door)
+		{
+			return V2(TILE_SIZE*2.0f, TILE_SIZE*2.0f);
+		}
 		else
 		{
 			assert(false);
@@ -890,6 +834,11 @@ sg_image load_image(const char *path)
 
 AABB level_aabb = { .upper_left = { 0.0f, 0.0f }, .lower_right = { TILE_SIZE * LEVEL_TILES, -(TILE_SIZE * LEVEL_TILES) } };
 GameState gs = { 0 };
+
+# define MD_S8LitConst(s)        {(MD_u8 *)(s), sizeof(s)-1}
+
+MD_String8 showing_secret_str = MD_S8LitConst("");
+float showing_secret_alpha = 0.0f;
 
 PathCache cached_paths[32] = { 0 };
 
@@ -1077,6 +1026,27 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 		}
 	}
 
+	if(error_message.size == 0 && from->npc_kind == NPC_Door)
+	{
+		MD_String8 splits[] = { MD_S8Lit(" ") };
+		MD_String8List by_word = MD_S8Split(frame_arena, MD_S8(a.speech, a.speech_length), ARRLEN(splits), splits);
+		for(MD_String8Node *cur = by_word.first; cur; cur = cur->next)
+		{
+			int flags = MD_StringMatchFlag_CaseInsensitive;
+			bool scroll_1_secret = MD_S8Match(cur->string, MD_S8Lit(Scroll1_Secret), flags);
+			bool scroll_2_secret = MD_S8Match(cur->string, MD_S8Lit(Scroll2_Secret), flags);
+			bool scroll_3_secret = MD_S8Match(cur->string, MD_S8Lit(Scroll3_Secret), flags);
+			if(false
+					|| scroll_1_secret
+					|| scroll_2_secret
+					|| scroll_3_secret
+				)
+			{
+				error_message = FmtWithLint(arena, "You can't say the word '%.*s'", MD_S8VArg(cur->string));
+			}
+		}
+	}
+
 	if(error_message.size == 0 && a.kind == ACT_releases_sword_of_nazareth)
 	{
 		if(error_message.size == 0 && from->npc_kind != NPC_Pile)
@@ -1148,6 +1118,82 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 	return error_message;
 }
 
+#ifdef DEVTOOLS
+void do_metadesk_tests()
+{
+	Log("Testing metadesk library...\n");
+	MD_Arena *arena = MD_ArenaAlloc();
+	MD_String8 s = MD_S8Lit("This is a testing|string");
+
+	MD_String8List split_up = MD_S8Split(arena, s, 1, &MD_S8Lit("|"));
+
+	assert(split_up.node_count == 2);
+	assert(MD_S8Match(split_up.first->string, MD_S8Lit("This is a testing"), 0));
+	assert(MD_S8Match(split_up.last->string, MD_S8Lit("string"), 0));
+
+	MD_ArenaRelease(arena);
+
+	Log("Testing passed!\n");
+}
+void do_parsing_tests()
+{
+	Log("Testing chatgpt parsing...\n");
+
+	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+
+	Entity e = {0};
+	e.npc_kind = NPC_TheBlacksmith;
+	e.exists = true;
+	Action a = {0};
+	MD_String8 error;
+	MD_String8 speech;
+
+	speech = MD_S8Lit("Better have a good reason for bothering me.");
+	MD_String8 thoughts = MD_S8Lit("Man I'm tired today Whatever.");
+	MD_String8 to_parse = FmtWithLint(scratch.arena, "{action: none, speech: \"%.*s\", thoughts: \"%.*s\", who_i_am: \"Meld\", talking_to: nobody}", MD_S8VArg(speech), MD_S8VArg(thoughts));
+	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
+	assert(error.size == 0);
+	assert(a.kind == ACT_none);
+	assert(MD_S8Match(speech, MD_S8(a.speech, a.speech_length), 0));
+	assert(MD_S8Match(thoughts, MD_S8(a.internal_monologue, a.internal_monologue_length), 0));
+
+	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \"Here you go\""), &a);
+	assert(error.size > 0);
+	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \""), &a);
+	assert(error.size > 0);
+	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Cha \""), &a);
+	assert(error.size > 0);
+
+	BUFF_APPEND(&e.held_items, ITEM_Chalice);
+
+	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(Chalice \""), &a);
+	assert(error.size > 0);
+	to_parse = MD_S8Lit("{action: give_item, action_arg: Chalice, speech: \"Here you go\", thoughts: \"Man I'm gonna miss that chalice\", who_i_am: \"Meld\", talking_to: nobody}");
+	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
+	assert(error.size == 0);
+	assert(a.kind == ACT_give_item);
+	assert(a.argument.item_to_give == ITEM_Chalice);
+	
+	e.npc_kind = NPC_Door;
+	speech = MD_S8Lit("SAY THE WORDS");
+	to_parse = FmtWithLint(scratch.arena, "{action: none, speech: \"%.*s\", thoughts: \"%.*s\", who_i_am: \"Ancient Door\", talking_to: nobody}", MD_S8VArg(speech), MD_S8VArg(thoughts));
+	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
+	assert(error.size == 0);
+	error = is_action_valid(scratch.arena, &e, a);
+	assert(error.size == 0);
+
+	speech = MD_S8Lit("THE WORD IS FOLLY");
+	to_parse = FmtWithLint(scratch.arena, "{action: none, speech: \"%.*s\", thoughts: \"%.*s\", who_i_am: \"Ancient Door\", talking_to: nobody}", MD_S8VArg(speech), MD_S8VArg(thoughts));
+	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
+	assert(error.size == 0);
+	error = is_action_valid(scratch.arena, &e, a);
+	assert(error.size > 0);
+
+	MD_ReleaseScratch(scratch);
+}
+#endif
+
+
 // from must not be null
 // the action must have been validated to be valid if you're calling this
 void cause_action_side_effects(Entity *from, Action a)
@@ -1173,6 +1219,12 @@ void cause_action_side_effects(Entity *from, Action a)
 	{
 		assert(from->npc_kind == NPC_Pile);
 		from->gave_away_sword = true;
+	}
+
+	if(a.kind == ACT_opens_myself)
+	{
+		assert(from->npc_kind == NPC_Door);
+		from->opened = true;
 	}
 
 	if(a.kind == ACT_give_item)
@@ -1305,6 +1357,11 @@ void use_item(Entity *from, ItemKind kind)
 	if(kind == ITEM_Sword)
 	{
 		push_swipe((SwordSwipe){.to_ignore = frome(from), .from = from->pos});
+	}
+	else if(item_is_scroll(kind))
+	{
+		showing_secret_str = scroll_secret(kind);
+		showing_secret_alpha = 1.0f;
 	}
 }
 
@@ -1890,13 +1947,14 @@ void init(void)
 			}, SERVER_DOMAIN );
 #endif
 
+	frame_arena = MD_ArenaAlloc();
+	persistent_arena = MD_ArenaAlloc();
+
 #ifdef DEVTOOLS
 	do_metadesk_tests();
 	do_parsing_tests();
 #endif
 
-	frame_arena = MD_ArenaAlloc();
-	persistent_arena = MD_ArenaAlloc();
 
 	Log("Size of entity struct: %zu\n", sizeof(Entity));
 	Log("Size of %d gs.entities: %zu kb\n", (int)ARRLEN(gs.entities), sizeof(gs.entities) / 1024);
@@ -2919,7 +2977,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 	{
 		ENTITIES_ITER(gs.entities)
 		{
-			if (!(it->is_character && it->is_rolling) && it != p.from && !(it->is_npc && it->dead) && !it->is_item)
+			if (!(it->is_character && it->is_rolling) && it != p.from && !(it->is_npc && it->dead) && !it->is_item && !(it->is_npc && it->npc_kind == NPC_Door && it->opened))
 			{
 				BUFF_APPEND(&to_check, aabb_centered(it->pos, entity_aabb_size(it)));
 			}
@@ -3475,6 +3533,10 @@ void draw_item(bool world_space, ItemKind kind, AABB in_aabb, float alpha)
 	{
 		draw_quad((DrawParams) { world_space, drawn, IMG(image_sword), blendalpha(WHITE, alpha), .layer = LAYER_UI_FG });
 	}
+	else if (item_is_scroll(kind))
+	{
+		draw_quad((DrawParams) { world_space, drawn, IMG(image_scroll), blendalpha(WHITE, alpha), .layer = LAYER_UI_FG });
+	}
 	else
 	{
 		assert(false);
@@ -3740,6 +3802,7 @@ void frame(void)
 						assert(!(it->exists && it->generation == 0));
 						if (it->is_npc)
 						{
+							// @Place(entity processing)
 							if (it->gen_request_id != 0)
 							{
 								assert(it->gen_request_id > 0);
@@ -4160,6 +4223,7 @@ void frame(void)
 
 									BUFF_ITER_I(Vec2, &path, i)
 									{
+
 										if (i == 0)
 										{
 										}
@@ -4211,7 +4275,11 @@ void frame(void)
 								{
 								} // skelton combat and movement
 							}
-							// npc processing functions go here
+							// @Place(NPC processing)
+							else if(it->npc_kind == NPC_Door)
+							{
+								if(it->opened) it->opened_amount = Lerp(it->opened_amount, dt*5.0f, 1.0f);
+							}
 							else
 							{
 							}
@@ -4401,6 +4469,7 @@ void frame(void)
 					}
 				}
 
+				// @Place(process player)
 				PROFILE_SCOPE("process player")
 				{
 					// do dialog
@@ -4550,6 +4619,7 @@ void frame(void)
 		pressed = before_gameplay_loops;
 
 
+		// @Place(player rendering)
 		PROFILE_SCOPE("render player") // draw character draw player render character
 		{
 			DrawnAnimatedSprite to_draw = { 0 };
@@ -4629,6 +4699,7 @@ void frame(void)
 			}
 		}
 
+		// @Place(entity rendering)
 		// render gs.entities render entities
 		PROFILE_SCOPE("entity rendering")
 			ENTITIES_ITER(gs.entities)
@@ -4666,6 +4737,7 @@ void frame(void)
 					it->dialog_panel_opacity = Lerp(it->dialog_panel_opacity, unwarped_dt*10.0f, alpha);
 					draw_dialog_panel(it, it->dialog_panel_opacity);
 
+					// @Place(npc rendering)
 					if (false) // used to be old man code
 					{
 						bool face_left = SubV2(player->pos, it->pos).x < 0.0f;
@@ -4739,6 +4811,12 @@ void frame(void)
 						}
 						draw_animated_sprite((DrawnAnimatedSprite) { ANIM_knight_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), tint });
 					}
+					else if(it->npc_kind == NPC_Door)
+					{
+						DrawParams d = { true, quad_centered(it->pos, entity_aabb_size(it)), IMG(image_door), blendalpha(WHITE, (1.0f - it->opened_amount)*0.8f + 0.2f), };
+						draw_shadow_for(d);
+						draw_quad(d);
+					}
 					else if(it->npc_kind == NPC_Pile)
 					{
 						DrawParams d = { true, quad_centered(it->pos, V2(TILE_SIZE, TILE_SIZE)), IMG(image_pile), WHITE, };
@@ -4798,6 +4876,8 @@ void frame(void)
 				}
 			}
 
+		// @Place(UI rendering)
+
 		PROFILE_SCOPE("propagating")
 		{
 			for(PropagatingAction *cur = propagating; cur; cur = cur->next)
@@ -4822,6 +4902,16 @@ void frame(void)
 					draw_quad((DrawParams){true, to_draw, IMG(image_swipe), blendalpha(WHITE, 1.0f - cur->progress)});
 				}
 			}
+		}
+
+		PROFILE_SCOPE("secrets")
+		{
+			const float bottom_padding = 100.0f;
+			if(showing_secret_alpha > 0.0f)
+			{
+				showing_secret_alpha -= dt/5.0f;
+			}
+			draw_centered_text((TextParams){false, false, MD_S8Fmt(frame_arena, "Scroll Secret: %.*s", MD_S8VArg(showing_secret_str)), V2(screen_size().x/2.0f, bottom_padding), blendalpha(WHITE, showing_secret_alpha), 2.0f});
 		}
 
 		PROFILE_SCOPE("dialog menu") // big dialog panel draw big dialog panel
@@ -5111,8 +5201,9 @@ void frame(void)
 		}
 
 
-		// ui
 #define HELPER_SIZE 250.0f
+
+
 
 		// keyboard tutorial icons
 		if (!mobile_controls)

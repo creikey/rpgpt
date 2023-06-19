@@ -256,6 +256,8 @@ typedef struct Entity
 #ifdef DESKTOP
 	int times_talked_to; // for better mocked response string
 #endif
+	bool opened;
+	float opened_amount;
 	bool gave_away_sword;
 	BUFF(Memory, REMEMBERED_MEMORIES) memories;
 	bool direction_of_spiral_pattern;
@@ -305,6 +307,39 @@ bool npc_is_knight_sprite(Entity *it)
 		);
 }
 
+bool item_is_scroll(ItemKind i)
+{
+	if(i == ITEM_Scroll1 || i == ITEM_Scroll2 || i == ITEM_Scroll3)
+	{
+		return true;
+	}
+	else
+	{
+		return false;
+	}
+}
+
+MD_String8 scroll_secret(ItemKind i)
+{
+	if(i == ITEM_Scroll1)
+	{
+		return MD_S8Lit(Scroll1_Secret);
+	}
+	else if(i == ITEM_Scroll2)
+	{
+		return MD_S8Lit(Scroll2_Secret);
+	}
+	else if(i == ITEM_Scroll3)
+	{
+		return MD_S8Lit(Scroll3_Secret);
+	}
+	else
+	{
+		assert(false);
+		return MD_S8Lit("");
+	}
+}
+
 bool npc_is_skeleton(Entity *it)
 {
 	return it->is_npc && false;
@@ -343,6 +378,10 @@ void fill_available_actions(Entity *it, AvailableActions *a)
 	if(it->npc_kind == NPC_Pile)
 	{
 		if(!it->gave_away_sword) BUFF_APPEND(a, ACT_releases_sword_of_nazareth);
+	}
+	else if(it->npc_kind == NPC_Door)
+	{
+		if(!it->opened) BUFF_APPEND(a, ACT_opens_myself);
 	}
 	else
 	{

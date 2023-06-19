@@ -118,6 +118,14 @@
 {
  filepath: "pile_of_rocks.png",
 }
+@image door:
+{
+ filepath: "door.png",
+}
+@image scroll:
+{
+ filepath: "scroll.png",
+}
 @image swipe:
 {
  filepath: "swipe.png",
