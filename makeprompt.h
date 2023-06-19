@@ -606,7 +606,7 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e, CanTalkTo can_tal
 			PushWithLint(scratch.arena, &latest_state, "You have these items in their inventory: [\n");
 			BUFF_ITER(ItemKind, &e->held_items)
 			{
-				PushWithLint(scratch.arena, &latest_state, "%s - %s,\n", items[*it].enum_name, items[*it].description);
+				PushWithLint(scratch.arena, &latest_state, "'%s' - %s,\n", items[*it].name, items[*it].description);
 			}
 			PushWithLint(scratch.arena, &latest_state, "]\n");
 	}

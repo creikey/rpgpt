@@ -101,16 +101,20 @@ ItemInfo items[] = {
 		.description = "A powerful sword with heft, it inspires a fundamental glory",
 	},
 #define SCROLL_DESCRIPTION "An ancient, valuable scroll that says to 'use it' on the outside, but I'm not sure what that means. Who knows what secrets it contains?"
+#define SCROLL_NAME "Ancient Scroll"
 	{
 		.enum_name = "Scroll1",
+		.name = SCROLL_NAME,
 		.description = SCROLL_DESCRIPTION,
 	},
 	{
 		.enum_name = "Scroll2",
+		.name = SCROLL_NAME,
 		.description = SCROLL_DESCRIPTION,
 	},
 	{
 		.enum_name = "Scroll3",
+		.name = SCROLL_NAME,
 		.description = SCROLL_DESCRIPTION,
 	},
 };
@@ -228,6 +232,19 @@ CharacterGen characters[] = {
 #define NPC_NAME "The King"
 		.name = NPC_NAME,
 		.enum_name = "TheKing",
+		.prompt = "He is a calm, honorable, eccentric ruler, who does the best he can to do good by his people, even if they can be a little crazy at times. Behind him stands an ancient door he has no idea how to open.",
+		.writing_style = {
+			"Here ye, here ye! I am the king of all that is naughty AND nice.",
+			"Hm? That door? Not sure what it is, but it is creepy!",
+			"I'll do what I can.",
+			"There's not much to do around here.",
+		},
+	},
+	{
+#undef NPC_NAME
+#define NPC_NAME "Arrow"
+		.name = NPC_NAME,
+		.enum_name = "Arrow",
 		.prompt = "He is a calm, honorable ruler, who does the best he can to do good by his people, even if they can be a little crazy at times.",
 	},
 	{
