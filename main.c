@@ -262,6 +262,7 @@ typedef struct Arena
 	size_t cur;
 } Arena;
 
+EntityRef player_ref = {0};
 Entity *player = 0; // up here, used in text backend callback
 
 typedef struct AudioSample
@@ -1444,17 +1445,18 @@ Entity *new_entity()
 
 void update_player_from_entities()
 {
-	player = 0;
+	player_ref = (EntityRef){0};
 	ENTITIES_ITER(gs.entities)
 	{
 		if (it->is_character)
 		{
-			assert(player == 0);
-			player = it;
+			assert(gete(player_ref) == 0);
+			player_ref = frome(it);
 		}
 	}
+	player = gete(player_ref);
 	assert(player != 0);
-	player->npc_kind = NPC_Player; // bad
+	player->npc_kind = NPC_Player; // bad, but needed because not set by loading from level I think? investigate this.
 }
 
 typedef struct ToVisit {
@@ -1791,6 +1793,7 @@ void ser_TextChunk(SerState *ser, TextChunk *t)
 
 void ser_entity(SerState *ser, Entity *e)
 {
+	ser_bool(ser, &e->exists);
 	ser_bool(ser, &e->destroy);
 	ser_int(ser, &e->generation);
 
@@ -1897,7 +1900,7 @@ void ser_entity(SerState *ser, Entity *e)
 	ser_float(ser, &e->anim_change_timer);
 }
 
-void ser_GameState(SerState *ser, GameState *g)
+void ser_GameState(SerState *ser, GameState *gs)
 {
 	if(ser->serializing) ser->version = VMax - 1;
 	ser_int(ser, &ser->version);
@@ -1906,46 +1909,134 @@ void ser_GameState(SerState *ser, GameState *g)
 		ser->cur_error = (SerError){.failed = true, .why = MD_S8Fmt(ser->error_arena, "Version %d is beyond the current version, %d", ser->version, VMax - 1)};
 	}
 
-	ser_uint64_t(ser, &g->tick);
-	ser_bool(ser, &g->won);
+	ser_uint64_t(ser, &gs->tick);
+	ser_bool(ser, &gs->won);
 	int num_entities = MAX_ENTITIES;
 	ser_int(ser, &num_entities);
 	
 	assert(num_entities <= MAX_ENTITIES);
 	for(int i = 0; i < num_entities; i++)
 	{
-		bool exists = gs.entities[i].exists;
-		ser_bool(ser, &exists);
-		if(exists)
+		ser_bool(ser, &gs->entities[i].exists);
+		if(gs->entities[i].exists)
 		{
-			ser_entity(ser, &gs.entities[i]);
+			ser_entity(ser, &(gs->entities[i]));
 		}
 	}
 }
 
+// error_out is allocated onto arena if it fails
+MD_String8 save_to_string(MD_Arena *output_bytes_arena, MD_Arena *error_arena, MD_String8 *error_out, GameState *gs)
+{
+	SerState ser = {.version = VMax - 1, .serializing = true};
+	MD_u8 *serialized_data = 0;
+	MD_u64 serialized_length = 0;
+	{
+		SerState ser = {
+			.serializing = true,
+			.error_arena = error_arena,
+		};
+		ser_GameState(&ser, gs);
+
+		if(ser.cur_error.failed)
+		{
+			*error_out = ser.cur_error.why;
+		}
+		else
+		{
+			ser.arena = 0; // serialization should never require allocation
+			ser.max = ser.cur;
+			ser.cur = 0;
+			ser.version = VMax - 1;
+			MD_ArenaTemp temp = MD_ArenaBeginTemp(output_bytes_arena);
+			serialized_data = MD_ArenaPush(temp.arena, ser.max);
+			ser.data = serialized_data;
+
+			ser_GameState(&ser, gs);
+			if(ser.cur_error.failed)
+			{
+				Log("Very weird that serialization fails a second time...\n");
+				*error_out = MD_S8Fmt(error_arena, "VERY BAD Serialization failed after it already had no error: %.*s", ser.cur_error.why);
+				MD_ArenaEndTemp(temp);
+				serialized_data = 0;
+			}
+			else
+			{
+				serialized_length = ser.cur;
+			}
+		}
+	}
+	return MD_S8(serialized_data, serialized_length);
+}
+
+
+// error strings are allocated on error_arena, probably scratch for that. If serialization fails,
+// nothing is allocated onto arena, the allocations are rewound
+// If there was an error, the gamestate returned might be partially constructed and bad. Don't use it
+GameState load_from_string(MD_Arena *arena, MD_Arena *error_arena, MD_String8 data, MD_String8 *error_out)
+{
+	MD_ArenaTemp temp = MD_ArenaBeginTemp(arena);
+
+	SerState ser = {
+		.serializing = false,
+		.data = data.str,
+		.max = data.size,
+		.arena = temp.arena,
+		.error_arena = error_arena,
+	};
+	GameState to_return = {0};
+	ser_GameState(&ser, &to_return);
+	if(ser.cur_error.failed)
+	{
+		MD_ArenaEndTemp(temp); // no allocations if it fails
+		*error_out = ser.cur_error.why;
+	}
+	return to_return;
+}
 
 #ifdef WEB
-	EMSCRIPTEN_KEEPALIVE
+EMSCRIPTEN_KEEPALIVE
 void dump_save_data()
 {
-	EM_ASM( {
-			save_game_data = new Int8Array(Module.HEAP8.buffer, $0, $1);
-			}, (char*)(&gs), sizeof(gs));
-}
-	EMSCRIPTEN_KEEPALIVE
-void read_from_save_data(char *data, size_t length)
-{
-	GameState read_data = { 0 };
-	memcpy((char*)(&read_data), data, length);
-	if (read_data.version != CURRENT_VERSION)
+	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+
+	MD_String8 error = {0};
+	MD_String8 saved = save_to_string(scratch.arena, &error, &gs);
+
+	if(error.size > 0)
 	{
-		Log("Bad gamestate, has version %d expected version %d\n", read_data.version, CURRENT_VERSION);
+		Log("Failed to save game: %.*s\n", MD_S8VArg(error));
 	}
 	else
 	{
-		gs = read_data;
+		EM_ASM( {
+			save_game_data = new Int8Array(Module.HEAP8.buffer, $0, $1);
+		}, (char*)(saved.str), saved.size);
+	}
+
+	MD_ReleaseScratch(scratch);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void read_from_save_data(char *data, size_t length)
+{
+	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+	MD_String8 data_str = MD_S8((MD_u8*)data, length);
+
+	MD_String8 error = {0};
+	GameState new_gs = load_from_string(persistent_arena, scratch.arena, data_str, &error);
+
+	if(error.size > 0)
+	{
+		Log("Failed to load from size %llu: %.*s\n", length, MD_S8VArg(error));
+	}
+	else
+	{
+		gs = new_gs;
 		update_player_from_entities();
 	}
+
+	MD_ReleaseScratch(scratch);
 }
 #endif
 
@@ -2169,45 +2260,20 @@ void do_serialization_tests()
 	reset_level();
 	player->pos = V2(50.0f, 0.0);
 
-	MD_u8 *serialized_data = 0;
-	MD_u64 serialized_length = 0;
-	{
-		SerState ser = {
-			.serializing = true,
-			.error_arena = scratch.arena,
-		};
-		ser_GameState(&ser, &gs);
+	MD_String8 error = {0};
+	MD_String8 saved = save_to_string(scratch.arena, scratch.arena, &error, &gs);
 
-		assert(!ser.cur_error.failed);
-
-		ser.arena = scratch.arena;
-		ser.max = ser.cur;
-		ser.cur = 0;
-		ser.version = VMax - 1;
-		serialized_data = MD_ArenaPush(scratch.arena, ser.max);
-		ser.data = serialized_data;
-
-		ser_GameState(&ser, &gs);
-		serialized_length = ser.cur;
-		player->pos.x = 0.0;
-	}
-	assert(serialized_length > 0);
-	assert(serialized_data != 0);
+	assert(error.size == 0);
+	assert(saved.size > 0);
+	assert(saved.str != 0);
 
 	reset_level();
-	SerState ser = {
-		.serializing = false,
-		.data = serialized_data,
-		.max = serialized_length,
-		.arena = scratch.arena,
-		.error_arena = scratch.arena,
-		.version = VMax - 1,
-	};
-	ser_GameState(&ser, &gs);
+	gs = load_from_string(persistent_arena, scratch.arena, saved, &error);
+	update_player_from_entities();
 	assert(player->pos.x == 50.0f);
-	assert(!ser.cur_error.failed);
+	assert(error.size == 0);
 
-	Log("Default save data size is %lld bytes\n", serialized_length);
+	Log("Default save data size is %lld bytes\n", saved.size);
 
 	MD_ReleaseScratch(scratch);
 }
@@ -3856,6 +3922,12 @@ void draw_item(bool world_space, ItemKind kind, AABB in_aabb, float alpha)
 
 void frame(void)
 {
+	if(gete(player_ref) == 0 || gete(player_ref)->npc_kind != NPC_Player)
+	{
+		update_player_from_entities();
+		player = gete(player_ref);
+		assert(player);
+	}
 	static float speed_factor = 1.0f;
 	// elapsed_time
 	double unwarped_dt_double = 0.0;

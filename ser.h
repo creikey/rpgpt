@@ -15,6 +15,7 @@ typedef struct
  MD_u64 max;
 
  MD_Arena *arena; // allocate everything new on this, so that if serialization fails allocations can be undone
+ // Serializing should never allocate. So this can be null when you serialize
 
  int version;
  SerError cur_error;
