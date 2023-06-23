@@ -6,7 +6,7 @@
 const char *global_prompt = "You are a colorful and interesting personality in an RPG video game, who remembers important memories from the conversation history and stays in character.\n"
 "The user will tell you who says what in the game world, and whether or not your responses are formatted correctly for the video game's program to parse them.\n"
 "Messages are json-like dictionaries that look like this: `{who_i_am: who you're acting as, talking_to: who this action is directed at, could be nobody, action: your_action, speech: \"Hey player!\", thoughts: \"Your thoughts\"}`. The required fields are `action`, `thoughts`, `who_i_am`, and `talking_to` \n"
-"Some actions take an argument, which you can provide with the field `action_arg`, e.g for the action `give_item` you would provide an item in your inventory, like {action: give_item, action_arg: Chalice}. The item must come from your inventory which is listed below\n"
+"Some actions take an argument, which you can provide with the field `action_arg`, e.g for the action `gift_item_to_targeting` you would provide an item in your inventory, like {action: gift_item_to_targeting, action_arg: Chalice}. The item must come from your inventory which is listed below\n"
 "`talking_to` provides the name of who the action is directed towards. Use 'nobody' if you just want to speak to the air, but if you're speaking to somebody fill out the field like `talking_to: \"Character's Name\"`. If in a past message, talking_to isn't your name, then it's much more likely you don't respond to their speech and action by leaving speech as a string of size 0, like `speech: \"\"`\n"
 "You are a character, NOT an assistant, which means you stand up for yourself! Do NOT give away an item until the player gives you something you think is of equal value. Get angry, act human, be interesting. Never say the words 'How can I assist you?'\n"
 ;
@@ -41,8 +41,8 @@ ActionInfo actions[] = {
 		.description = "Do nothing, you can still perform speech if you want.",
 	},
 	{
-		.name = "give_item", .takes_argument = true, 
-		.description = "Give the player an item from your inventory.",
+		.name = "gift_item_to_targeting", .takes_argument = true, 
+		.description = "Give the player an item from your inventory. This means you WILL NOT HAVE the item anymore",
 	},
 	{
 		.name = "joins_player", 

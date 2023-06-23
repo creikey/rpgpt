@@ -1122,7 +1122,7 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 		}
 	}
 
-	if(error_message.size == 0 && a.kind == ACT_give_item)
+	if(error_message.size == 0 && a.kind == ACT_gift_item_to_targeting)
 	{
 		assert(a.argument.item_to_give >= 0 && a.argument.item_to_give < ARRLEN(items));
 		bool has_it = false;
@@ -1216,7 +1216,7 @@ void cause_action_side_effects(Entity *from, Action a)
 		from->opened = true;
 	}
 
-	if(a.kind == ACT_give_item)
+	if(a.kind == ACT_gift_item_to_targeting)
 	{
 		assert(a.argument.item_to_give != ITEM_invalid);
 		assert(to);
@@ -2239,21 +2239,21 @@ void do_parsing_tests()
 	assert(MD_S8Match(speech, MD_S8(a.speech, a.speech_length), 0));
 	assert(MD_S8Match(thoughts, MD_S8(a.internal_monologue, a.internal_monologue_length), 0));
 
-	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \"Here you go\""), &a);
+	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_gift_item_to_targeting(ITEM_Chalice) \"Here you go\""), &a);
 	assert(error.size > 0);
-	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Chalice) \""), &a);
+	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_gift_item_to_targeting(ITEM_Chalice) \""), &a);
 	assert(error.size > 0);
-	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(ITEM_Cha \""), &a);
+	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_gift_item_to_targeting(ITEM_Cha \""), &a);
 	assert(error.size > 0);
 
 	BUFF_APPEND(&e.held_items, ITEM_Chalice);
 
-	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_give_item(Chalice \""), &a);
+	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_gift_item_to_targeting(Chalice \""), &a);
 	assert(error.size > 0);
-	to_parse = MD_S8Lit("{action: give_item, action_arg: \"The Chalice of Gold\", speech: \"Here you go\", thoughts: \"Man I'm gonna miss that chalice\", who_i_am: \"Meld\", talking_to: nobody}");
+	to_parse = MD_S8Lit("{action: gift_item_to_targeting, action_arg: \"The Chalice of Gold\", speech: \"Here you go\", thoughts: \"Man I'm gonna miss that chalice\", who_i_am: \"Meld\", talking_to: nobody}");
 	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
 	assert(error.size == 0);
-	assert(a.kind == ACT_give_item);
+	assert(a.kind == ACT_gift_item_to_targeting);
 	assert(a.argument.item_to_give == ITEM_Chalice);
 	
 	e.npc_kind = NPC_Door;
@@ -5684,7 +5684,7 @@ void frame(void)
 						Entity *to = gete(player->talking_to);
 						assert(to);
 
-						Action give_action = {.kind = ACT_give_item, .argument = { .item_to_give = selected_item }, .talking_to_somebody = true, .talking_to_kind = to->npc_kind};
+						Action give_action = {.kind = ACT_gift_item_to_targeting, .argument = { .item_to_give = selected_item }, .talking_to_somebody = true, .talking_to_kind = to->npc_kind};
 						perform_action(player, give_action);
 					}
 					else

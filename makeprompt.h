@@ -405,7 +405,7 @@ void fill_available_actions(Entity *it, AvailableActions *a)
 	{
 		if(it->held_items.cur_index > 0)
 		{
-			BUFF_APPEND(a, ACT_give_item);
+			BUFF_APPEND(a, ACT_gift_item_to_targeting);
 		}
 
 		if (it->npc_kind == NPC_TheKing)
@@ -580,7 +580,7 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e, CanTalkTo can_tal
 		PushWithLint(scratch.arena, &cur_list, "action: %s, ", actions[it->action_taken].name);
 		if(actions[it->action_taken].takes_argument)
 		{
-			if(it->action_taken == ACT_give_item)
+			if(it->action_taken == ACT_gift_item_to_targeting)
 			{
 				PushWithLint(scratch.arena, &cur_list, "action_arg: %s, ", items[it->action_argument.item_to_give].enum_name);
 			}
@@ -597,24 +597,28 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e, CanTalkTo can_tal
 	}
 
 
+	MD_String8List latest_state = {0};
+
 	const char *standing_string = 0;
 	{
 			if (e->standing == STANDING_INDIFFERENT)
 			{
-					standing_string = "The NPC is indifferent towards the player.";
+					standing_string = "You are currently indifferent towards the player.";
 			}
 			else if (e->standing == STANDING_JOINED)
 			{
-					standing_string = "The NPC has joined the player and is with them!";
+					standing_string = "You have joined the player, and are following them everywhere they go! This means you're on their side.";
 			}
 			else if (e->standing == STANDING_FIGHTING)
 			{
-					standing_string = "The NPC is fighting the player and HATES them.";
+					standing_string = "You are fighting the player right now! That means that the player can't leave conversation with you until you stop fighting them, effectively trapping the player with you.";
+			}
+			else
+			{
+				assert(false);
 			}
 	}
-	assert(standing_string);
-
-	MD_String8List latest_state = {0};
+	PushWithLint(scratch.arena, &latest_state, "%s\n", standing_string);
 
 	if(e->held_items.cur_index > 0)
 	{
@@ -816,7 +820,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 		if(actions[out->kind].takes_argument)
 		{
 			MD_String8List item_enum_names = {0};
-			if(out->kind == ACT_give_item)
+			if(out->kind == ACT_gift_item_to_targeting)
 			{
 				bool found_item = false;
 				BUFF_ITER(ItemKind, &e->held_items)
