@@ -9,7 +9,8 @@
 #define CHARACTERS_PER_SEC 45.0f
 #define PROPAGATE_ACTIONS_RADIUS (TILE_SIZE*4.0f)
 #define SWORD_SWIPE_RADIUS (TILE_SIZE*3.0f)
-#define ARROW_SPEED 100.0f
+#define ARROW_SPEED 200.0f
+#define SECONDS_PER_ARROW 1.3f
 
 #define ARENA_SIZE (1024*1024)
 
@@ -26,12 +27,13 @@
 #endif
 
 // this can never go down or else the forward compatibility of serialization breaks.
-#define MAX_ENTITIES 128
+#define MAX_ENTITIES 256
 
 // REFACTORING:: also have to update in javascript!!!!!!!!
 #define MAX_SENTENCE_LENGTH 800 // LOOOK AT AGBOVE COMMENT GBEFORE CHANGING
 #define SENTENCE_CONST(txt) { .data = txt, .cur_index = sizeof(txt) }
 #define SENTENCE_CONST_CAST(txt) (Sentence)SENTENCE_CONST(txt)
+
 
 #define REMEMBERED_MEMORIES 32
 #define REMEMBERED_ERRORS 6

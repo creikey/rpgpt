@@ -106,6 +106,11 @@ ItemInfo items[] = {
 		.name = "The Sword of Nazareth",
 		.description = "A powerful sword with heft, it inspires a fundamental glory",
 	},
+	{
+		.enum_name = "Idol",
+		.name = "Enriching Idol",
+		.description = "A glimmering emerald idol, its heft brings you dreams of vast wealth",
+	},
 #define SCROLL_DESCRIPTION "An ancient, valuable scroll that says to 'use it' on the outside, but I'm not sure what that means. Who knows what secrets it contains?"
 #define SCROLL_NAME "Ancient Scroll"
 	{

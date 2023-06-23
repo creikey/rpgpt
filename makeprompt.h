@@ -218,6 +218,13 @@ typedef struct TextChunk
 	int text_length;
 } TextChunk;
 
+typedef enum
+{
+	MACH_invalid,
+	MACH_idol_dispenser,
+	MACH_arrow_shooter,
+} MachineKind;
+
 MD_String8 points_at_chunk(TextChunk *t)
 {
 	return MD_S8((MD_u8*)t->text, t->text_length);
@@ -243,6 +250,14 @@ typedef struct Entity
 	// props
 	bool is_prop;
 	PropKind prop_kind;
+
+	// machines, like the machine that gives the player the idol, or the ones that
+	// shoot arrows
+	bool is_machine;
+	MachineKind machine_kind;
+	bool has_given_idol;
+	float idol_reminder_opacity; // fades out
+	float arrow_timer;
 
 	// items
 	bool is_item;

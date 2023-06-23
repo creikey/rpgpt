@@ -275,6 +275,10 @@ int main(int argc, char **argv)
 						{
 							fprintf(output, "{ .exists = true, .is_prop = true, .prop_kind = %.*s, .pos = { .X=%.*s, .Y=%.*s }, %.*s }, ", MD_S8VArg(name), MD_S8VArg(x_string), MD_S8VArg(y_string), MD_S8VArg(props_string));
 						}
+						else if (MD_S8Match(class, MD_S8Lit("MACHINE"), 0))
+						{
+							fprintf(output, "{ .exists = true, .is_machine = true, .pos = { .X=%.*s, .Y=%.*s }, %.*s .machine_kind = MACH_%.*s, }, ", MD_S8VArg(x_string), MD_S8VArg(y_string), MD_S8VArg(props_string), MD_S8VArg(name));
+						}
 						else if (MD_S8Match(class , MD_S8Lit("ITEM"), 0))
 						{
 							fprintf(output, "{ .exists = true, .is_item = true, .item_kind = ITEM_%.*s, .pos = { .X=%.*s, .Y=%.*s }, %.*s }, ", MD_S8VArg(name), MD_S8VArg(x_string), MD_S8VArg(y_string), MD_S8VArg(props_string));

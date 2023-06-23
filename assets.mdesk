@@ -26,6 +26,22 @@
 {
  filepath: "copyrighted/merchant.png",
 }
+@image idol:
+{
+ filepath: "idol.png",
+}
+@image idol_machine_has_idol:
+{
+ filepath: "idol_machine_has_idol.png",
+}
+@image idol_machine_no_idol:
+{
+ filepath: "idol_machine_no_idol.png",
+}
+@image arrow_shooter:
+{
+ filepath: "arrow_shooter.png",
+}
 @image knight_idle:
 {
  filepath: "_Idle.png",

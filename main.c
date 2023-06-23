@@ -687,6 +687,22 @@ Vec2 entity_aabb_size(Entity *e)
 	{
 		return V2(TILE_SIZE*0.5f, TILE_SIZE*0.5f);
 	}
+	else if(e->is_machine)
+	{
+		if(e->machine_kind == MACH_idol_dispenser)
+		{
+			return V2(TILE_SIZE*0.5f, TILE_SIZE*0.5f);
+		}
+		else if(e->machine_kind == MACH_arrow_shooter)
+		{
+			return V2(TILE_SIZE*1.0f, TILE_SIZE*1.0f);
+		}
+		else
+		{
+			assert(false);
+			return (Vec2) { 0 };
+		}
+	}
 	else
 	{
 		assert(false);
@@ -1883,6 +1899,12 @@ void ser_entity(SerState *ser, Entity *e)
 	ser_Vec2(ser, &e->target_goto);
 	// only for skeleton npc
 	ser_double(ser, &e->swing_timer);
+
+	// machines
+	ser_bool(ser, &e->is_machine);
+	ser_int(ser, (int*) (&e->machine_kind));
+	ser_bool(ser, &e->has_given_idol);
+	ser_float(ser, &e->idol_reminder_opacity);
 
 	// character
 	ser_bool(ser, &e->is_character);
@@ -4712,6 +4734,7 @@ void frame(void)
 								}
 							}
 						}
+						// @Place(non-entity processing)
 						else if (it->is_item)
 						{
 							if (it->held_by_player)
@@ -4735,6 +4758,21 @@ void frame(void)
 						else if (it->is_prop)
 						{
 						}
+						else if (it->is_machine)
+						{
+							if(it->machine_kind == MACH_arrow_shooter)
+							{
+								it->arrow_timer += dt;
+								if(it->arrow_timer >= SECONDS_PER_ARROW)
+								{
+									it->arrow_timer = 0.0;
+									Entity *new_arrow = new_entity();
+									new_arrow->is_npc = true;
+									new_arrow->npc_kind = NPC_Arrow;
+									new_arrow->pos = AddV2(it->pos, V2(entity_aabb_size(new_arrow).x + 0.01f, 0.0));
+								}
+							}
+						}
 						else
 						{
 							assert(false);
@@ -4744,14 +4782,18 @@ void frame(void)
 
 				PROFILE_SCOPE("Destroy gs.entities, maybe send generation requests")
 				{
-					ENTITIES_ITER(gs.entities)
+					for(int i = 0; i < ARRLEN(gs.entities); i++)
 					{
+						Entity *it = &gs.entities[i];
 						if (it->destroy)
 						{
 							int gen = it->generation;
 							*it = (Entity) { 0 };
 							it->generation = gen;
 						}
+					}
+					ENTITIES_ITER(gs.entities)
+					{
 						if (it->perceptions_dirty && !npc_does_dialog(it))
 						{
 							it->perceptions_dirty = false;
@@ -4907,7 +4949,13 @@ void frame(void)
 								if (entity_talkable) entity_talkable = entity_talkable && it->e->gen_request_id == 0;
 #endif
 
-								if (entity_talkable)
+								bool entity_interactible = entity_talkable;
+								if(it->e && it->e->is_machine)
+								{
+									entity_interactible = entity_interactible || (it->e->machine_kind == MACH_idol_dispenser && !it->e->has_given_idol);
+								}
+
+								if (entity_interactible)
 								{
 									float dist = LenV2(SubV2(it->e->pos, player->pos));
 									if (dist < closest_interact_with_dist)
@@ -4918,15 +4966,6 @@ void frame(void)
 								}
 							}
 						}
-
-
-						interacting_with = closest_interact_with;
-						if (player->state == CHARACTER_TALKING)
-						{
-							interacting_with = gete(player->talking_to);
-							assert(interacting_with);
-						}
-
 
 						// maybe get rid of talking to
 						if (player->state == CHARACTER_TALKING)
@@ -4939,6 +4978,13 @@ void frame(void)
 						else
 						{
 							player->talking_to = (EntityRef) { 0 };
+						}
+
+						interacting_with = closest_interact_with;
+						if (player->state == CHARACTER_TALKING)
+						{
+							interacting_with = gete(player->talking_to);
+							assert(interacting_with);
 						}
 					}
 
@@ -4955,7 +5001,33 @@ void frame(void)
 						}
 						else if (closest_interact_with)
 						{
-							if (closest_interact_with->is_npc)
+							if(closest_interact_with->is_machine)
+							{
+								if(closest_interact_with->machine_kind == MACH_idol_dispenser)
+								{
+									if(!closest_interact_with->has_given_idol)
+									{
+										int members_in_party = 0;
+										ENTITIES_ITER(gs.entities)
+										{
+											if(it->is_npc && it->standing == STANDING_JOINED)
+											{
+												members_in_party += 1;
+											}
+										}
+										if(members_in_party >= 3)
+										{
+											BUFF_APPEND(&player->held_items, ITEM_Idol);
+											closest_interact_with->has_given_idol = true;
+										}
+										else
+										{
+											closest_interact_with->idol_reminder_opacity = 1.0f;
+										}
+									}
+								}
+							}
+							else if (closest_interact_with->is_npc)
 							{
 								// begin dialog with closest npc
 								player->state = CHARACTER_TALKING;
@@ -5289,6 +5361,28 @@ void frame(void)
 					}
 					draw_shadow_for(d);
 					draw_quad(d);
+				}
+				else if(it->is_machine)
+				{
+
+					if(it->machine_kind == MACH_idol_dispenser)
+					{
+						it->idol_reminder_opacity = Lerp(it->idol_reminder_opacity, dt*0.5f, 0.0);
+						sg_image to_draw = it->has_given_idol ? image_idol_machine_no_idol : image_idol_machine_has_idol;
+						DrawParams d = (DrawParams){ true, quad_centered(it->pos, V2(TILE_SIZE*3.0, TILE_SIZE*3.0)), to_draw, full_region(to_draw), WHITE, .layer = LAYER_WORLD, .sorting_key = sorting_key_at(it->pos) };
+
+						draw_centered_text((TextParams){ true, false, MD_S8Lit("Needs 3 party members"), AddV2(it->pos, V2(0.0, 100.0)), blendalpha(WHITE, it->idol_reminder_opacity), 1.0f});
+
+						draw_shadow_for(d);
+						draw_quad(d);
+					}
+					else if(it->machine_kind == MACH_arrow_shooter)
+					{
+						DrawParams d = (DrawParams){ true, quad_centered(it->pos, V2(TILE_SIZE, TILE_SIZE)), IMG(image_arrow_shooter), WHITE, .layer = LAYER_WORLD, .sorting_key = sorting_key_at(it->pos) };
+						draw_shadow_for(d);
+						draw_quad(d);
+					}
+
 				}
 				else
 				{
@@ -5676,7 +5770,7 @@ void frame(void)
 			draw_quad((DrawParams) { true, quad_centered(V2(0.0, 0.0), V2(250.0, 250.0)), image_font, full_region(image_font), WHITE });
 		}
 
-		// statistics
+		// statistics @Place(debug statistics)
 		if (show_devtools)
 			PROFILE_SCOPE("statistics")
 			{
