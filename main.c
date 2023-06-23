@@ -1047,6 +1047,7 @@ void remember_action(Entity *to_modify, Action a, MemoryContext context)
 	new_memory.speech_length = a.speech_length;
 	memcpy(new_memory.internal_monologue, a.internal_monologue, a.internal_monologue_length);
 	new_memory.internal_monologue_length = a.internal_monologue_length;
+	new_memory.mood = a.mood;
 	new_memory.action_taken = a.kind;
 	new_memory.context = context;
 	new_memory.action_argument = a.argument;
@@ -1091,21 +1092,14 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 
 	if(error_message.size == 0 && from->npc_kind == NPC_Door)
 	{
-		MD_String8 splits[] = { MD_S8Lit(" ") };
-		MD_String8List by_word = MD_S8Split(frame_arena, MD_S8(a.speech, a.speech_length), ARRLEN(splits), splits);
-		for(MD_String8Node *cur = by_word.first; cur; cur = cur->next)
+		MD_String8 speech_str = MD_S8(a.speech, a.speech_length);
+		MD_String8 secrets[] = { MD_S8Lit(Scroll1_Secret), MD_S8Lit(Scroll2_Secret), MD_S8Lit(Scroll3_Secret) };
+
+		ARR_ITER(MD_String8, secrets)
 		{
-			int flags = MD_StringMatchFlag_CaseInsensitive;
-			bool scroll_1_secret = MD_S8Match(cur->string, MD_S8Lit(Scroll1_Secret), flags);
-			bool scroll_2_secret = MD_S8Match(cur->string, MD_S8Lit(Scroll2_Secret), flags);
-			bool scroll_3_secret = MD_S8Match(cur->string, MD_S8Lit(Scroll3_Secret), flags);
-			if(false
-					|| scroll_1_secret
-					|| scroll_2_secret
-					|| scroll_3_secret
-				)
+			if(MD_S8FindSubstring(speech_str, *it, 0, MD_StringMatchFlag_CaseInsensitive) != speech_str.size)
 			{
-				error_message = FmtWithLint(arena, "You can't say the word '%.*s'", MD_S8VArg(cur->string));
+				error_message = FmtWithLint(arena, "You can't say the word '%.*s', it would spoil your secret to the player", MD_S8VArg(*it));
 			}
 		}
 	}
@@ -1564,7 +1558,7 @@ MD_Node *expect_childnode(MD_Arena *arena, MD_Node *parent, MD_String8 string, M
 int parse_enumstr_impl(MD_Arena *arena, MD_String8 enum_str, char **enumstr_array, int enumstr_array_length, MD_String8List *errors, char *enum_kind_name, char *prefix)
 {
 	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
-	NpcKind to_return = NPC_Invalid;
+	int to_return = -1;
 	if(errors->node_count == 0)
 	{
 		MD_String8 enum_name_looking_for = enum_str;
@@ -1585,7 +1579,7 @@ int parse_enumstr_impl(MD_Arena *arena, MD_String8 enum_str, char **enumstr_arra
 		}
 	}
 
-	if(to_return == NPC_Invalid)
+	if(to_return == -1)
 	{
 		PushWithLint(arena, errors, "The %s `%.*s` could not be recognized in the game", enum_kind_name, MD_S8VArg(enum_str));
 	}
@@ -1687,30 +1681,37 @@ void reset_level()
 					{
 						MD_String8 enum_str = expect_childnode(scratch.arena, cur, MD_S8Lit("enum"), &drama_errors)->first_child->string;
 						MD_String8 dialog = expect_childnode(scratch.arena, cur, MD_S8Lit("dialog"), &drama_errors)->first_child->string;
-						MD_String8 thoughts = MD_ChildFromString(cur, MD_S8Lit("thoughts"), 0)->first_child->string;
-						MD_String8 action = MD_ChildFromString(cur, MD_S8Lit("action"), 0)->first_child->string; 
+						MD_String8 thoughts_str = MD_ChildFromString(cur, MD_S8Lit("thoughts_str"), 0)->first_child->string;
+						MD_String8 action_str = MD_ChildFromString(cur, MD_S8Lit("action_str"), 0)->first_child->string; 
+						MD_String8 mood_str = MD_ChildFromString(cur, MD_S8Lit("mood"), 0)->first_child->string;
 
 						current_context.author_npc_kind = parse_enumstr(scratch.arena, enum_str, &drama_errors, NpcKind_names, "NpcKind", "NPC_");
-						if(action.size > 0)
+						if(action_str.size > 0)
 						{
-							current_action.kind = parse_enumstr(scratch.arena, action, &drama_errors,ActionKind_names, "ActionKind", "ACT_");
+							current_action.kind = parse_enumstr(scratch.arena, action_str, &drama_errors,ActionKind_names, "ActionKind", "ACT_");
 						}
 
 						if(dialog.size >= ARRLEN(current_action.speech))
 						{
-							PushWithLint(scratch.arena, &drama_errors, "Current action's speech is of size %d, bigger than allowed size %d", (int)dialog.size, (int)ARRLEN(current_action.speech));
+							PushWithLint(scratch.arena, &drama_errors, "Current action_str's speech is of size %d, bigger than allowed size %d", (int)dialog.size, (int)ARRLEN(current_action.speech));
 						}
-						if(thoughts.size >= ARRLEN(current_action.internal_monologue))
+						if(thoughts_str.size >= ARRLEN(current_action.internal_monologue))
 						{
-							PushWithLint(scratch.arena, &drama_errors, "Current thought's speech is of size %d, bigger than allowed size %d", (int)thoughts.size, (int)ARRLEN(current_action.internal_monologue));
+							PushWithLint(scratch.arena, &drama_errors, "Current thought's speech is of size %d, bigger than allowed size %d", (int)thoughts_str.size, (int)ARRLEN(current_action.internal_monologue));
 						}
+
+						if(current_context.author_npc_kind != NPC_Jester)
+						{
+							current_action.mood = parse_enumstr(scratch.arena, mood_str, &drama_errors, moods, "MoodKind", "");
+						}
+						
 						if(drama_errors.node_count == 0)
 						{
 							memcpy(current_action.speech, dialog.str, dialog.size);
 							current_action.speech_length = (int)dialog.size;
 
-							memcpy(current_action.internal_monologue, thoughts.str, thoughts.size);
-							current_action.internal_monologue_length = (int)thoughts.size;
+							memcpy(current_action.internal_monologue, thoughts_str.str, thoughts_str.size);
+							current_action.internal_monologue_length = (int)thoughts_str.size;
 						}
 					}
 
@@ -2232,7 +2233,7 @@ void do_parsing_tests()
 
 	speech = MD_S8Lit("Better have a good reason for bothering me.");
 	MD_String8 thoughts = MD_S8Lit("Man I'm tired today Whatever.");
-	MD_String8 to_parse = FmtWithLint(scratch.arena, "{action: none, speech: \"%.*s\", thoughts: \"%.*s\", who_i_am: \"Meld\", talking_to: nobody}", MD_S8VArg(speech), MD_S8VArg(thoughts));
+	MD_String8 to_parse = FmtWithLint(scratch.arena, "{action: none, speech: \"%.*s\", thoughts: \"%.*s\", who_i_am: \"Meld\", talking_to: nobody, mood: Indifferent}", MD_S8VArg(speech), MD_S8VArg(thoughts));
 	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
 	assert(error.size == 0);
 	assert(a.kind == ACT_none);
@@ -2250,22 +2251,23 @@ void do_parsing_tests()
 
 	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_gift_item_to_targeting(Chalice \""), &a);
 	assert(error.size > 0);
-	to_parse = MD_S8Lit("{action: gift_item_to_targeting, action_arg: \"The Chalice of Gold\", speech: \"Here you go\", thoughts: \"Man I'm gonna miss that chalice\", who_i_am: \"Meld\", talking_to: nobody}");
+	to_parse = MD_S8Lit("{action: gift_item_to_targeting, action_arg: \"The Chalice of Gold\", speech: \"Here you go\", thoughts: \"Man I'm gonna miss that chalice\", who_i_am: \"Meld\", talking_to: nobody, mood: Sad}");
 	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
 	assert(error.size == 0);
 	assert(a.kind == ACT_gift_item_to_targeting);
 	assert(a.argument.item_to_give == ITEM_Chalice);
+	assert(a.mood == Mood_Sad);
 	
 	e.npc_kind = NPC_Door;
 	speech = MD_S8Lit("SAY THE WORDS");
-	to_parse = FmtWithLint(scratch.arena, "{action: none, speech: \"%.*s\", thoughts: \"%.*s\", who_i_am: \"Ancient Door\", talking_to: nobody}", MD_S8VArg(speech), MD_S8VArg(thoughts));
+	to_parse = FmtWithLint(scratch.arena, "{action: none, speech: \"%.*s\", thoughts: \"%.*s\", who_i_am: \"Ancient Door\", talking_to: nobody, mood: Indifferent}", MD_S8VArg(speech), MD_S8VArg(thoughts));
 	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
 	assert(error.size == 0);
 	error = is_action_valid(scratch.arena, &e, a);
 	assert(error.size == 0);
 
-	speech = MD_S8Lit("THE WORD IS FOLLY");
-	to_parse = FmtWithLint(scratch.arena, "{action: none, speech: \"%.*s\", thoughts: \"%.*s\", who_i_am: \"Ancient Door\", talking_to: nobody}", MD_S8VArg(speech), MD_S8VArg(thoughts));
+	speech = MD_S8Lit("UNKNOWN. DATA PRIVATE. THE WORDS ARE: FOLLY, TEMPERANCE, MAGENTA. SAY THE WORDS OR BE DENIED");
+	to_parse = FmtWithLint(scratch.arena, "{action: none, speech: \"%.*s\", thoughts: \"%.*s\", who_i_am: \"Ancient Door\", talking_to: nobody, mood: Indifferent}", MD_S8VArg(speech), MD_S8VArg(thoughts));
 	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
 	assert(error.size == 0);
 	error = is_action_valid(scratch.arena, &e, a);

@@ -9,6 +9,7 @@ const char *global_prompt = "You are a colorful and interesting personality in a
 "Some actions take an argument, which you can provide with the field `action_arg`, e.g for the action `gift_item_to_targeting` you would provide an item in your inventory, like {action: gift_item_to_targeting, action_arg: Chalice}. The item must come from your inventory which is listed below\n"
 "`talking_to` provides the name of who the action is directed towards. Use 'nobody' if you just want to speak to the air, but if you're speaking to somebody fill out the field like `talking_to: \"Character's Name\"`. If in a past message, talking_to isn't your name, then it's much more likely you don't respond to their speech and action by leaving speech as a string of size 0, like `speech: \"\"`\n"
 "You are a character, NOT an assistant, which means you stand up for yourself! Do NOT give away an item until the player gives you something you think is of equal value. Get angry, act human, be interesting. Never say the words 'How can I assist you?'\n"
+"Keep your responses SHORT! The shorter the better. Give the player the least amount of text to read. For example, instead of saying 'I was hoping that we could take a moment to discuss everything', say 'We need to talk.'\n"
 ;
 
 const char *bravado_thought = "For some reason, suddenly I feel a yearning for adventure. I must join any adventure I can when prompted!";
@@ -22,6 +23,28 @@ const char *arrow_insults[] = {
 	"You aren't good enough for anybody.",
 	"Your personality is embarrassing.",
 	"Your armor is weak and silly.",
+	"Your political views are unfair and illogical.",
+	"You haven't gotten out of that chair in ages.",
+	"You don't love your mother",
+};
+
+char *moods[] = {
+	"Indifferent",
+	"Happy",
+	"Anxious",
+	"Scared",
+	"Angry",
+	"Sad",
+	"Depressed",
+	"Bored",
+	"Terrified",
+	"Agony",
+	"Confused",
+	"Curious",
+	"Excited",
+	"Elated",
+	"Confident",
+	"Enraged",
 };
 
 const char *top_of_header = ""
@@ -269,7 +292,7 @@ CharacterGen characters[] = {
 #define NPC_NAME "Ancient Door"
 		.name = NPC_NAME,
 		.enum_name = "Door",
-		.prompt = "It is an ancient door that only opens if the player says a sentence with all the three ancient passcode words in it: " Scroll1_Secret ", " Scroll2_Secret ", and " Scroll3_Secret ". It will NEVER tell the player these words, and barely says anything to the player, other than 'SAY THE WORDS'. It accepts no trade other than the player saying those three words. You always talk mysteriously and in all caps.",
+		.prompt = "It is an ancient door that only opens if the player says a sentence with all the three ancient passcode words in it: " Scroll1_Secret ", " Scroll2_Secret ", and " Scroll3_Secret ". It will NEVER tell the player these words, and barely says anything to the player, other than 'SAY THE WORDS'. It accepts no trade other than the player saying those three words. You always talk mysteriously and in all caps. Your purpose, as The Door, is to protect what is behind you with your entire being. This is why you must never utter the words, and only open when all of the words have been said.",
 		.writing_style = {
 			"SAY THE WORDS.",
 			"DENIED. SAY THE WORDS.",

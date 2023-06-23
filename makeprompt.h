@@ -103,6 +103,8 @@ typedef struct Action
 
 	MD_u8 internal_monologue[MAX_SENTENCE_LENGTH];
 	int internal_monologue_length;
+
+	MoodKind mood;
 } Action;
 
 typedef struct 
@@ -135,6 +137,8 @@ typedef struct Memory
 	// internal monologue is only valid if context.is_said_this is true
 	MD_u8 internal_monologue[MAX_SENTENCE_LENGTH];
 	int internal_monologue_length;
+
+	MoodKind mood;
 
 	ItemKind given_or_received_item;
 } Memory;
@@ -570,10 +574,11 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e, CanTalkTo can_tal
 			}
 		}
 
-		// add thoughts
+		// add internal things
 		if(it->context.i_said_this)
 		{
 			PushWithLint(scratch.arena, &cur_list, "thoughts: \"%.*s\", ", MD_S8VArg(MD_S8(it->internal_monologue, it->internal_monologue_length)));
+			PushWithLint(scratch.arena, &cur_list, "mood: %s, ", moods[it->mood]);
 		}
 
 		// add action
@@ -650,6 +655,13 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e, CanTalkTo can_tal
 	}
 	PushWithLint(scratch.arena, &latest_state, "]\n");
 
+	PushWithLint(scratch.arena, &latest_state, "You must output a mood every generation. The moods are parsed by code that expects your mood to exactly match one in this list: [");
+	for(int i = 0; i < ARRLEN(moods); i++)
+	{
+		PushWithLint(scratch.arena, &latest_state, "%s, ", moods[i]);
+	}
+	PushWithLint(scratch.arena, &latest_state, "]\n");
+
 	PushWithLint(scratch.arena, &latest_state, "The characters close enough for you to talk to with `talking_to`: [");
 	BUFF_ITER(NpcKind, &can_talk_to)
 	{
@@ -659,15 +671,19 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e, CanTalkTo can_tal
 
 	// last thought explanation and re-prompt
 	{
-		MD_String8 last_thought_string = {0};
+		Memory *last_memory_that_was_me = 0;
 		for(Memory *cur = e->memories_first; cur; cur = cur->next)
 		{
-			if(cur->internal_monologue_length > 0)
+			if(cur->context.i_said_this)
 			{
-				last_thought_string = MD_S8(cur->internal_monologue, cur->internal_monologue_length);
+				last_memory_that_was_me = cur;
 			}
 		}
-		PushWithLint(scratch.arena, &latest_state, "Your last thought was: %.*s\n", MD_S8VArg(last_thought_string));
+		if(last_memory_that_was_me)
+		{
+			MD_String8 last_thought_string = MD_S8(last_memory_that_was_me->internal_monologue, last_memory_that_was_me->internal_monologue_length);
+			PushWithLint(scratch.arena, &latest_state, "Your last thought was: %.*s\nYour current mood is %s, make sure you act like it!", MD_S8VArg(last_thought_string), moods[last_memory_that_was_me->mood]);
+		}
 	}
 
 	MD_String8 latest_state_string = MD_S8ListJoin(scratch.arena, latest_state, &(MD_StringJoin){MD_S8Lit(""),MD_S8Lit(""),MD_S8Lit("")});
@@ -714,6 +730,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 	MD_String8 action_arg_str = {0};
 	MD_String8 who_i_am_str = {0};
 	MD_String8 talking_to_str = {0};
+	MD_String8 mood_str = {0};
 	if(error_message.size == 0)
 	{
 		action_str = get_field(message_obj, MD_S8Lit("action"));
@@ -722,6 +739,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 		thoughts_str = get_field(message_obj, MD_S8Lit("thoughts"));
 		action_arg_str = get_field(message_obj, MD_S8Lit("action_arg"));
 		talking_to_str = get_field(message_obj, MD_S8Lit("talking_to"));
+		mood_str = get_field(message_obj, MD_S8Lit("mood"));
 	}
 	if(error_message.size == 0 && who_i_am_str.size == 0)
 	{
@@ -734,6 +752,10 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 	if(error_message.size == 0 && talking_to_str.size == 0)
 	{
 		error_message = MD_S8Lit("You must have a field named `talking_to` in your message");
+	}
+	if(error_message.size == 0 && mood_str.size == 0)
+	{
+		error_message = MD_S8Lit("You must have a field named `mood` in your message");
 	}
 	if(error_message.size == 0 && thoughts_str.size == 0)
 	{
@@ -843,6 +865,24 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 			{
 				assert(false); // don't know how to parse the argument string for this kind of action...
 			}
+		}
+	}
+
+	if(error_message.size == 0)
+	{
+		bool found = false;
+		for(int i = 0; i < ARRLEN(moods); i++)
+		{
+			if(MD_S8Match(MD_S8CString(moods[i]), mood_str, 0))
+			{
+				out->mood = i;
+				found = true;
+				break;
+			}
+		}
+		if(!found)
+		{
+			error_message = FmtWithLint(arena, "Game does not recognize the mood '%.*s', you must use an available mood from the list provided.", MD_S8VArg(mood_str));
 		}
 	}
 

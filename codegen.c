@@ -152,6 +152,7 @@ int main(int argc, char **argv)
 	GEN_ENUM(ItemInfo, items, "ItemKind", it->enum_name, "ITEM_%s,\n");
 	GEN_ENUM(AnimatedSprite, sprites, "AnimKind", it->enum_name, "ANIM_%s,\n");
 	GEN_ENUM(CharacterGen, characters, "NpcKind", it->enum_name, "NPC_%s,\n");
+	GEN_ENUM(const char*, moods, "MoodKind", *it, "Mood_%s,\n");
 
 	fclose(char_header);
 
