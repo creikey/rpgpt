@@ -2024,7 +2024,7 @@ void dump_save_data()
 	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 
 	MD_String8 error = {0};
-	MD_String8 saved = save_to_string(scratch.arena, &error, &gs);
+	MD_String8 saved = save_to_string(scratch.arena, scratch.arena, &error, &gs);
 
 	if(error.size > 0)
 	{
@@ -2051,7 +2051,7 @@ void read_from_save_data(char *data, size_t length)
 
 	if(error.size > 0)
 	{
-		Log("Failed to load from size %llu: %.*s\n", length, MD_S8VArg(error));
+		Log("Failed to load from size %lu: %.*s\n", length, MD_S8VArg(error));
 	}
 	else
 	{
