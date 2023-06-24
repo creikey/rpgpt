@@ -13,6 +13,7 @@
 #define SECONDS_PER_ARROW 1.3f
 
 #define ARENA_SIZE (1024*1024)
+#define BIG_ARENA_SIZE (ARENA_SIZE * 8)
 
 #ifdef DEVTOOLS
 // server url cannot have trailing slash

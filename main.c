@@ -53,16 +53,22 @@ typedef struct WebArena
 	size_t pos;
 } WebArena;
 
+static bool next_arena_big = false;
 
 WebArena *web_arena_alloc()
 {
 	WebArena *to_return = malloc(sizeof(to_return));
 
+	size_t this_size = ARENA_SIZE;
+	if(next_arena_big) this_size = BIG_ARENA_SIZE;
+
 	*to_return = (WebArena) {
-		.data = calloc(1, ARENA_SIZE),
-			.cap = ARENA_SIZE,
+		.data = calloc(1, this_size),
+			.cap = this_size,
 			.pos = 0,
 	};
+
+	next_arena_big = false;
 
 	return to_return;
 }
@@ -2312,6 +2318,7 @@ void init(void)
 #endif
 
 	frame_arena = MD_ArenaAlloc();
+	next_arena_big = true;
 	persistent_arena = MD_ArenaAlloc();
 
 #ifdef DEVTOOLS

@@ -1,3 +1,10 @@
+Very Important:
+ - Make sure no memory leaks in loading save data. I reuse the persistent arena, and just set the gamestate again, so all that memory allocated from loading the gamestate is leaked in the persistent arena. You need to fix this before ship.
+
+
+
+Below is old.
+
 DONE - rewrite to have metadesk format for speech and actions
 DONE - action and item explanations in system message, along with available actions and items
 DONE - remove party eavesdropping, but make clear to AI when things are heard physically or told directly. Allow AI to choose people in vicinity to target with conversation and action. I.e a `talking_to` field. Also add a required character: field in chatgpt response, and make sure it matches the character it's supposed to act as.
