@@ -914,6 +914,7 @@ typedef struct PlacedMesh
 	Mesh *draw_with;
 	Vec3 offset;
 	Quat rotation;
+	Vec3 scale;
 } PlacedMesh;
 
 
@@ -983,8 +984,15 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 		MD_String8 placed_mesh_name = {0};
 		ser_MD_String8(&ser, &placed_mesh_name, arena);
 		ser_Vec3(&ser, &new_placed->offset);
+
 		Vec3 blender_rotation_euler;
 		ser_Vec3(&ser, &blender_rotation_euler);
+		Vec3 blender_scale;
+		ser_Vec3(&ser, &blender_scale);
+
+		new_placed->scale.x = blender_scale.x;
+		new_placed->scale.y = blender_scale.z;
+		new_placed->scale.z = blender_scale.y;
 
 		Mat4 rotation_matrix = M4D(1.0f);
 		rotation_matrix = MulM4(Rotate_RH(AngleRad(blender_rotation_euler.x), V3(1,0,0)), rotation_matrix);
@@ -995,7 +1003,7 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 
 		MD_StackPush(out.placed_mesh_list, new_placed);
 
-		Log("Placed mesh '%.*s' rotation %f %f %f %f\n", MD_S8VArg(placed_mesh_name), qvarg(new_placed->rotation));
+		Log("Placed mesh '%.*s' rotation %f %f %f %f scale %f %f %f\n", MD_S8VArg(placed_mesh_name), qvarg(new_placed->rotation), v3varg(new_placed->scale));
 
 		// load the mesh if we haven't already
 
@@ -2369,6 +2377,7 @@ void draw_placed(Mat4 view, Mat4 projection, PlacedMesh *cur)
 
 	Mat4 model =  M4D(1.0f);
 
+	model = MulM4(Scale(cur->scale), model);
 	model = MulM4(QToM4(cur->rotation), model);
 	/* This works on blender XYZ coords, unmodified.
 	model = MulM4(Rotate_RH(AngleRad(cur->rotation_euler.x), V3(1,0,0)), model);
@@ -4390,7 +4399,7 @@ void frame(void)
 			draw_placed(view, projection, cur);
 		}
 
-		draw_placed(view, projection, &(PlacedMesh){.draw_with = &mesh_player, .offset = V3(player->pos.x, 0.0, player->pos.y), .rotation = Make_Q(0, 0, 0, 1)});
+		draw_placed(view, projection, &(PlacedMesh){.draw_with = &mesh_player, .offset = V3(player->pos.x, 0.0, player->pos.y), .rotation = Make_Q(0, 0, 0, 1), .scale = V3(1, 1, 1)});
 
 		sg_end_pass();
 
