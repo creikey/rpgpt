@@ -26,7 +26,15 @@ in vec2 uv;
 out vec4 frag_color;
 
 void main() {
-	frag_color = texture(tex, uv);
+	vec4 col = texture(tex, uv);
+	if(col.a < 0.5)
+	{
+		discard;
+	}
+	else
+	{
+		frag_color = vec4(col.rgb, 1.0);
+	}
 }
 @end
 

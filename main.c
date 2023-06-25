@@ -1055,6 +1055,8 @@ Vec3 flycam_pos = {0};
 float flycam_horizontal_rotation = 0.0;
 float flycam_vertical_rotation = 0.0;
 float flycam_speed = 1.0f;
+Mat4 view = {0}; 
+Mat4 projection = {0};
 
 Vec4 IsPoint(Vec3 point)
 {
@@ -3347,6 +3349,7 @@ void dbgbigsquare(Vec2 at)
 #endif
 }
 
+
 void dbgline(Vec2 from, Vec2 to)
 {
 #ifdef DEVTOOLS
@@ -3386,6 +3389,11 @@ void dbgrect(AABB rect)
 #else
 	(void)rect;
 #endif
+}
+
+void dbg3dline(Vec3 from, Vec2 to)
+{
+	// need 2d poins for each of these.
 }
 
 typedef struct TextParams
@@ -4380,7 +4388,7 @@ void frame(void)
 		sg_apply_pipeline(state.threedee_pip);
 		state.threedee_bind.fs_images[SLOT_threedee_tex] = image_gigatexture;
 
-		Mat4 view = Translate(V3(0.0, 1.0, -5.0f));
+		view = Translate(V3(0.0, 1.0, -5.0f));
 		//view = LookAt_RH(V3(0,1,-5
 		if(flycam)
 		{
@@ -4392,7 +4400,7 @@ void frame(void)
 		{
 			view = LookAt_RH(cam_pos, player_pos, V3(0, 1, 0));
 		}
-		Mat4 projection = Perspective_RH_NO(PI32/4.0f, screen_size().x / screen_size().y, 0.01f, 1000.0f);
+		projection = Perspective_RH_NO(PI32/4.0f, screen_size().x / screen_size().y, 0.01f, 1000.0f);
 
 		for(PlacedMesh *cur = level_threedee.placed_mesh_list; cur; cur = cur->next)
 		{
