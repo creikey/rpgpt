@@ -26,13 +26,18 @@ copy "rpgpt_private_assets\ForgottenMemories\WaterTiles-6frames.png" "assets\cop
 copy "rpgpt_private_assets\knight_idle.png" "assets\copyrighted\knight_idle.png" || goto :error
 copy "rpgpt_private_assets\knight_attack.png" "assets\copyrighted\knight_attack.png" || goto :error
 copy "rpgpt_private_assets\knight_run_start.png" "assets\copyrighted\knight_run_start.png" || goto :error
+
+rmdir /S /q "assets\exported_3d"
+mkdir "assets\exported_3d" || goto :error
+copy "rpgpt_private_assets\exported\*" "assets\exported_3d\" || goto :error
 @echo off
 
 rmdir /S /q gen
 mkdir gen
 
 @REM shaders
-thirdparty\sokol-shdc.exe --input quad.glsl --output gen\quad-sapp.glsl.h --slang glsl100:hlsl5:metal_macos || goto :error
+thirdparty\sokol-shdc.exe --input quad.glsl --output gen\quad-sapp.glsl.h --slang glsl100:hlsl5:metal_macos:glsl330 || goto :error
+thirdparty\sokol-shdc.exe --input threedee.glsl --output gen\threedee.glsl.h --slang glsl100:hlsl5:metal_macos:glsl330 || goto :error
 
 @REM metadesk codegen
 cl /Ithirdparty /W3 /Zi /WX codegen.c || goto :error

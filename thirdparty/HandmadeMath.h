@@ -264,6 +264,11 @@ typedef union Vec3
 
     struct
     {
+         float x, y, z;
+    };
+
+    struct
+    {
         float U, V, W;
     };
 
@@ -320,6 +325,19 @@ typedef union Vec4
         };
 
         float W;
+    };
+    struct
+    {
+        union
+        {
+            Vec3 xyz;
+            struct
+            {
+                float x, y, z;
+            };
+        };
+
+        float w;
     };
     struct
     {

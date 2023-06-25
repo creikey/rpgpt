@@ -6,7 +6,7 @@
 #if defined(WIN32) || defined(_WIN32)
 #define DESKTOP
 #define WINDOWS
-#define SOKOL_D3D11
+#define SOKOL_GLCORE33
 #endif
 
 #if defined(__EMSCRIPTEN__)
@@ -147,7 +147,6 @@ MD_String8 nullterm(MD_Arena *copy_onto, MD_String8 to_nullterm)
 	memcpy(to_return.str, to_nullterm.str, to_nullterm.size);
 	return to_return;
 }
-
 
 
 double clamp(double d, double min, double max)
@@ -873,11 +872,140 @@ sg_image load_image(const char *path)
 	return to_return;
 }
 
+SER_MAKE_FOR_TYPE(uint64_t);
+SER_MAKE_FOR_TYPE(bool);
+SER_MAKE_FOR_TYPE(double);
+SER_MAKE_FOR_TYPE(float);
+SER_MAKE_FOR_TYPE(MD_u64);
+SER_MAKE_FOR_TYPE(ItemKind);
+SER_MAKE_FOR_TYPE(PropKind);
+SER_MAKE_FOR_TYPE(NpcKind);
+SER_MAKE_FOR_TYPE(CharacterState);
+SER_MAKE_FOR_TYPE(Memory);
+SER_MAKE_FOR_TYPE(Vec2);
+SER_MAKE_FOR_TYPE(Vec3);
+SER_MAKE_FOR_TYPE(AnimKind);
+SER_MAKE_FOR_TYPE(EntityRef);
+SER_MAKE_FOR_TYPE(NPCPlayerStanding);
+
+typedef struct
+{
+	Vec3 *vertices;
+	MD_u64 num_vertices;
+
+	sg_buffer loaded_buffer;
+} Mesh;
+
+// mesh_name is for debugging
+// arena must last as long as the Mesh lasts. Internal data points to `arena`, such as
+// the name of the mesh's buffer in sokol
+Mesh load_mesh(MD_Arena *arena, MD_String8 binary_file, MD_String8 mesh_name)
+{
+	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
+	SerState ser = {
+		.data = binary_file.str,
+		.max = binary_file.size,
+		.arena = arena,
+		.error_arena = scratch.arena,
+		.serializing = false,
+	};
+	Mesh out = {0};
+	ser_MD_u64(&ser, &out.num_vertices);
+	Log("Mesh %.*s has %llu vertices\n", MD_S8VArg(mesh_name), out.num_vertices);
+
+	out.vertices = MD_ArenaPush(arena, sizeof(Vec3) * out.num_vertices);
+	for(MD_u64 i = 0; i < out.num_vertices; i++)
+	{
+		ser_Vec3(&ser, &out.vertices[i]);
+	}
+
+	assert(!ser.cur_error.failed);
+	MD_ReleaseScratch(scratch);
+
+	out.loaded_buffer = sg_make_buffer(&(sg_buffer_desc)
+			{
+			.usage = SG_USAGE_IMMUTABLE,
+			.data = (sg_range){.ptr = out.vertices, .size = out.num_vertices * sizeof(Vec3)},
+			.label = (const char*)nullterm(arena, MD_S8Fmt(arena, "%.*s-vertices", MD_S8VArg(mesh_name))).str,
+			});
+
+
+	return out;
+}
+
 #include "assets.gen.c"
 #include "quad-sapp.glsl.h"
+#include "threedee.glsl.h"
 
 AABB level_aabb = { .upper_left = { 0.0f, 0.0f }, .lower_right = { TILE_SIZE * LEVEL_TILES, -(TILE_SIZE * LEVEL_TILES) } };
 GameState gs = { 0 };
+bool flycam = false;
+Vec3 flycam_pos = {0};
+float flycam_horizontal_rotation = 0.0;
+float flycam_vertical_rotation = 0.0;
+
+Vec4 IsPoint(Vec3 point)
+{
+	return V4(point.x, point.y, point.z, 1.0f);
+}
+
+typedef struct
+{
+	Vec3 right; // X+
+	Vec3 forward; // Z-
+	Vec3 up;
+} Basis;
+
+void print_matrix(Mat4 m)
+{
+	for(int r = 0; r < 4; r++)
+	{
+		for(int c = 0; c < 4; c++)
+		{
+			printf("%f ", m.Elements[c][r]);
+		}
+		printf("\n");
+		//printf("%f %f %f %f\n", m.Columns[i].x, m.Columns[i].y, m.Columns[i].z, m.Columns[i].w);
+	}
+
+	printf("\n");
+
+	for(int r = 0; r < 4; r++)
+	{
+
+		printf("%f %f %f %f\n", m.Columns[0].Elements[r], m.Columns[1].Elements[r], m.Columns[2].Elements[r], m.Columns[3].Elements[r]);
+	}
+}
+
+Basis flycam_basis()
+{
+	// This basis function is wrong. Do not use it. Something about the order of rotations for
+	// each basis vector is screwey
+	Basis to_return = {
+		.forward = V3(0,0,-1),
+		.right = V3(1,0,0),
+		.up = V3(0,1,0),
+	};
+	Mat4 rotate_horizontal = Rotate_RH(flycam_horizontal_rotation, V3(0,1,0));
+	Mat4 rotate_vertical = Rotate_RH(flycam_vertical_rotation, V3(1,0,0));
+
+	to_return.forward = MulM4V4(rotate_horizontal, MulM4V4(rotate_vertical, IsPoint(to_return.forward))).xyz;
+	to_return.right = MulM4V4(rotate_horizontal, MulM4V4(rotate_vertical, IsPoint(to_return.right))).xyz;
+	to_return.up = MulM4V4(rotate_horizontal, MulM4V4(rotate_vertical, IsPoint(to_return.up))).xyz;
+
+	return to_return;
+}
+
+Mat4 flycam_matrix()
+{
+	Basis basis = flycam_basis();
+	Mat4 to_return = {0};
+	to_return.Columns[0] = IsPoint(basis.right);
+	to_return.Columns[1] = IsPoint(basis.up);
+	to_return.Columns[2] = IsPoint(basis.forward);
+	to_return.Columns[3] = IsPoint(flycam_pos);
+	return to_return;
+}
 
 # define MD_S8LitConst(s)        {(MD_u8 *)(s), sizeof(s)-1}
 
@@ -1779,19 +1907,6 @@ enum
 	VMax,
 } Version;
 
-SER_MAKE_FOR_TYPE(uint64_t);
-SER_MAKE_FOR_TYPE(bool);
-SER_MAKE_FOR_TYPE(double);
-SER_MAKE_FOR_TYPE(float);
-SER_MAKE_FOR_TYPE(ItemKind);
-SER_MAKE_FOR_TYPE(PropKind);
-SER_MAKE_FOR_TYPE(NpcKind);
-SER_MAKE_FOR_TYPE(CharacterState);
-SER_MAKE_FOR_TYPE(Memory);
-SER_MAKE_FOR_TYPE(Vec2);
-SER_MAKE_FOR_TYPE(AnimKind);
-SER_MAKE_FOR_TYPE(EntityRef);
-SER_MAKE_FOR_TYPE(NPCPlayerStanding);
 
 #define SER_BUFF(ser, BuffElemType, buff_ptr) {ser_int(ser, &((buff_ptr)->cur_index));\
 	if((buff_ptr)->cur_index > ARRLEN((buff_ptr)->data))\
@@ -2127,11 +2242,15 @@ stbtt_bakedchar cdata[96]; // ASCII 32..126 is 95 glyphs
 stbtt_fontinfo font;
 
 
+// @Place(sokol state struct)
 static struct
 {
 	sg_pass_action pass_action;
 	sg_pipeline pip;
 	sg_bindings bind;
+
+	sg_pipeline threedee_pip;
+	sg_bindings threedee_bind;
 } state;
 
 
@@ -2309,6 +2428,8 @@ void do_serialization_tests()
 }
 #endif
 
+Mesh mesh_player = {0};
+
 void init(void)
 {
 #ifdef WEB
@@ -2318,7 +2439,9 @@ void init(void)
 #endif
 
 	frame_arena = MD_ArenaAlloc();
-	next_arena_big = true;
+#ifdef WEB
+	next_arena_big  = true;
+#endif
 	persistent_arena = MD_ArenaAlloc();
 
 #ifdef DEVTOOLS
@@ -2350,6 +2473,11 @@ void init(void)
 	DialogNode cur_node = { 0 };
 
 	load_assets();
+	
+	MD_String8 binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/Signpost.bin"));
+	mesh_player = load_mesh(persistent_arena, binary_file, MD_S8Lit("Player.bin"));
+	MD_ArenaClear(frame_arena);
+
 	reset_level();
 
 #ifdef WEB
@@ -2450,6 +2578,36 @@ void init(void)
 			},
 			.label = "quad-pipeline",
 			});
+
+	desc = threedee_program_shader_desc(sg_query_backend());
+	assert(desc);
+	shd = sg_make_shader(desc);
+
+	state.threedee_pip = sg_make_pipeline(&(sg_pipeline_desc)
+			{
+			.shader = shd,
+			.depth = {
+			.compare = SG_COMPAREFUNC_LESS_EQUAL,
+			.write_enabled = true
+			},
+			.layout = {
+			.attrs =
+			{
+			[ATTR_threedee_vs_position].format = SG_VERTEXFORMAT_FLOAT3,
+			}
+			},
+			.colors[0].blend = (sg_blend_state) { // allow transparency
+			.enabled = true,
+			.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
+			.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+			.op_rgb = SG_BLENDOP_ADD,
+			.src_factor_alpha = SG_BLENDFACTOR_ONE,
+			.dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+			.op_alpha = SG_BLENDOP_ADD,
+			},
+			.label = "threedee",
+			});
+
 
 	state.pass_action = (sg_pass_action)
 	{
@@ -4034,12 +4192,37 @@ void frame(void)
 		}
 
 		sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
+
+		sg_apply_pipeline(state.threedee_pip);
+		state.threedee_bind.vertex_buffers[0] = mesh_player.loaded_buffer;
+		sg_apply_bindings(&state.threedee_bind);
+
+		Mat4 model = M4D(1.0f);
+
+		Mat4 view = Translate(V3(0.0, 1.0, -5.0f));
+		//view = LookAt_RH(V3(0,1,-5
+		if(flycam)
+		{
+			Basis basis = flycam_basis();
+			printf("Flycam forward: %f %f %f  Flycam position: %f %f %f  Flycam rotation %f %f\n", basis.forward.x, basis.forward.y, basis.forward.z, flycam_pos.x, flycam_pos.y, flycam_pos.z, flycam_horizontal_rotation, flycam_vertical_rotation);
+			view = LookAt_RH(flycam_pos, AddV3(flycam_pos, basis.forward), V3(0, 1, 0));
+			//view = flycam_matrix();
+		}
+		Mat4 projection = Perspective_RH_NO(PI32/4.0f, screen_size().x / screen_size().y, 0.001f, 1000.0f);
+
+		threedee_vs_params_t params = {0};
+		memcpy(params.model, (float*)&model, sizeof(model));
+		memcpy(params.view, (float*)&view, sizeof(view));
+		memcpy(params.projection, (float*)&projection, sizeof(projection));
+		sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_vs_params, &SG_RANGE(params));
+		sg_draw(0, (int)mesh_player.num_vertices, 1);
+
 		sg_apply_pipeline(state.pip);
 
 		Level *cur_level = &level_level0;
 
 		// Draw Tilemap draw tilemap tilemap drawing
-#if 1
+#if 0
 		PROFILE_SCOPE("tilemap")
 		{
 			Vec2 starting_world = AddV2(world_cam_aabb().upper_left, V2(-TILE_SIZE, TILE_SIZE));
@@ -5124,6 +5307,17 @@ void frame(void)
 		pressed = before_gameplay_loops;
 
 
+#ifdef DEVTOOLS
+		if(flycam)
+		{
+			Basis basis = flycam_basis();
+			const float speed = 2.0f;
+			flycam_pos = AddV3(flycam_pos, MulV3F(basis.forward, ((float)keydown[SAPP_KEYCODE_W] - (float)keydown[SAPP_KEYCODE_S])*speed*dt));
+			flycam_pos = AddV3(flycam_pos, MulV3F(basis.right, ((float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A])*speed*dt));
+			flycam_pos = AddV3(flycam_pos, MulV3F(basis.up, (((float)keydown[SAPP_KEYCODE_SPACE] + (float)keydown[SAPP_KEYCODE_LEFT_CONTROL]) - (float)keydown[SAPP_KEYCODE_LEFT_SHIFT])*speed*dt));
+		}
+#endif
+
 		// @Place(player rendering)
 		PROFILE_SCOPE("render player") // draw character draw player render character
 		{
@@ -5786,7 +5980,7 @@ void frame(void)
 				Vec2 pos = V2(0.0, screen_size().Y);
 				int num_entities = 0;
 				ENTITIES_ITER(gs.entities) num_entities++;
-				MD_String8 stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nGameplay processing: %.1f ms\nEntities: %d\nDraw calls: %d\nProfiling: %s\nNumber gameplay processing loops: %d\n", dt*1000.0, last_frame_processing_time*1000.0, last_frame_gameplay_processing_time*1000.0, num_entities, num_draw_calls, profiling ? "yes" : "no", num_timestep_loops);
+				MD_String8 stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nGameplay processing: %.1f ms\nEntities: %d\nDraw calls: %d\nProfiling: %s\nNumber gameplay processing loops: %d\nFlyecam: %s\n", dt*1000.0, last_frame_processing_time*1000.0, last_frame_gameplay_processing_time*1000.0, num_entities, num_draw_calls, profiling ? "yes" : "no", num_timestep_loops, flycam ? "yes" : "no");
 				AABB bounds = draw_text((TextParams) { false, true, stats, pos, BLACK, 1.0f });
 				pos.Y -= bounds.upper_left.Y - screen_size().Y;
 				bounds = draw_text((TextParams) { false, true, stats, pos, BLACK, 1.0f });
@@ -5811,6 +6005,7 @@ void frame(void)
 			}
 		}
 
+		// @Place(actually render)
 		PROFILE_SCOPE("flush rendering")
 		{
 			ARR_ITER_I(RenderingQueue, rendering_queues, i)
@@ -5975,6 +6170,24 @@ void event(const sapp_event *e)
 			}
 			text_input_buffer[text_input_buffer_length] = '\0';
 			end_text_input(text_input_buffer);
+		}
+	}
+#endif
+
+#ifdef DEVTOOLS
+	if (e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_code == SAPP_KEYCODE_F)
+	{
+		flycam = !flycam;
+		sapp_lock_mouse(flycam);
+	}
+	if(flycam)
+	{
+    if (e->type == SAPP_EVENTTYPE_MOUSE_MOVE)
+		{
+			const float rotation_speed = 0.001f;
+			flycam_horizontal_rotation -= e->mouse_dx * rotation_speed;
+			flycam_vertical_rotation -= e->mouse_dy * rotation_speed;
+			flycam_vertical_rotation = clampf(flycam_vertical_rotation, -PI32/2.0f + 0.01f, PI32/2.0f - 0.01f);
 		}
 	}
 #endif

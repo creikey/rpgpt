@@ -26,6 +26,11 @@ typedef struct
 
 void ser_bytes(SerState *ser, MD_u8 *bytes, MD_u64 bytes_size)
 {
+	if(!ser->data && !ser->serializing)
+	{
+		ser->cur_error = (SerError){.failed = true, .why = MD_S8Lit("Deserializing but the data is null")};
+	}
+
  if(!ser->cur_error.failed)
  {
   if(ser->data)

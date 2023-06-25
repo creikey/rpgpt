@@ -1,6 +1,11 @@
 # Visual studio stuff
 .vs/
 
+# Exported art, reproduced from blend file
+assets/exported_3d/
+art/exported/
+*.blend1
+
 # Exported web builds are zipped into zip files in the root of the repo
 *.zip
 
