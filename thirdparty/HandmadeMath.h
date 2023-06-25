@@ -442,21 +442,34 @@ typedef union Mat4
 
 typedef union Quat
 {
-    struct
-    {
-        union
-        {
-            Vec3 XYZ;
-            struct
-            {
-                float X, Y, Z;
-            };
-        };
+	struct
+	{
+		union
+		{
+			Vec3 XYZ;
+			struct
+			{
+				float X, Y, Z;
+			};
+		};
 
-        float W;
-    };
+		float W;
+	};
+	struct
+	{
+		union
+		{
+			Vec3 xyz;
+			struct
+			{
+				float x, y, z;
+			};
+		};
 
-    float Elements[4];
+		float w;
+	};
+
+	float Elements[4];
 
 #ifdef HANDMADE_MATH__USE_SSE
     __m128 SSE;

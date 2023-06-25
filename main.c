@@ -177,6 +177,8 @@ int min(int a, int b)
 
 // so can be grep'd and removed
 #define dbgprint(...) { printf("Debug | %s:%d | ", __FILE__, __LINE__); printf(__VA_ARGS__); }
+#define v3varg(v) v.x, v.y, v.z
+#define qvarg(v) v.x, v.y, v.z, v.w
 Vec2 RotateV2(Vec2 v, float theta)
 {
 	return V2(
@@ -911,6 +913,7 @@ typedef struct PlacedMesh
 	struct PlacedMesh *next;
 	Mesh *draw_with;
 	Vec3 offset;
+	Quat rotation;
 } PlacedMesh;
 
 
@@ -972,13 +975,27 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 
 	MD_u64 num_placed = 0;
 	ser_MD_u64(&ser, &num_placed);
+	arena->align = 16; // SSE requires quaternions are 16 byte aligned
 	for(MD_u64 i = 0; i < num_placed; i++)
 	{
 		PlacedMesh *new_placed = MD_PushArray(arena, PlacedMesh, 1);
+		//PlacedMesh *new_placed = calloc(sizeof(PlacedMesh), 1);
 		MD_String8 placed_mesh_name = {0};
 		ser_MD_String8(&ser, &placed_mesh_name, arena);
 		ser_Vec3(&ser, &new_placed->offset);
+		Vec3 blender_rotation_euler;
+		ser_Vec3(&ser, &blender_rotation_euler);
+
+		Mat4 rotation_matrix = M4D(1.0f);
+		rotation_matrix = MulM4(Rotate_RH(AngleRad(blender_rotation_euler.x), V3(1,0,0)), rotation_matrix);
+		rotation_matrix = MulM4(Rotate_RH(AngleRad(blender_rotation_euler.y), V3(0,0,-1)), rotation_matrix);
+		rotation_matrix = MulM4(Rotate_RH(AngleRad(blender_rotation_euler.z), V3(0,1,0)), rotation_matrix);
+		Quat out_rotation = M4ToQ_RH(rotation_matrix);
+		new_placed->rotation = out_rotation;
+
 		MD_StackPush(out.placed_mesh_list, new_placed);
+
+		Log("Placed mesh '%.*s' rotation %f %f %f %f\n", MD_S8VArg(placed_mesh_name), qvarg(new_placed->rotation));
 
 		// load the mesh if we haven't already
 
@@ -989,6 +1006,7 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 			{
 				mesh_found = true;
 				new_placed->draw_with = cur;
+				assert(cur->name.size > 0);
 				break;
 			}
 		}
@@ -996,7 +1014,7 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 		if(!mesh_found)
 		{
 			MD_String8 to_load_filepath = MD_S8Fmt(scratch.arena, "assets/exported_3d/%.*s.bin", MD_S8VArg(placed_mesh_name));
-			Log("Loading '%.*s'...", MD_S8VArg(to_load_filepath));
+			Log("Loading '%.*s'...\n", MD_S8VArg(to_load_filepath));
 			MD_String8 binary_mesh_file = MD_LoadEntireFile(scratch.arena, to_load_filepath);
 			if(!binary_mesh_file.str)
 			{
@@ -1028,6 +1046,7 @@ bool flycam = false;
 Vec3 flycam_pos = {0};
 float flycam_horizontal_rotation = 0.0;
 float flycam_vertical_rotation = 0.0;
+float flycam_speed = 1.0f;
 
 Vec4 IsPoint(Vec3 point)
 {
@@ -2339,13 +2358,26 @@ static struct
 	sg_bindings threedee_bind;
 } state;
 
+int num_draw_calls = 0;
+int num_vertices = 0;
+
 void draw_placed(Mat4 view, Mat4 projection, PlacedMesh *cur)
 {
 	Mesh *drawing = cur->draw_with;
 	state.threedee_bind.vertex_buffers[0] = drawing->loaded_buffer;
 	sg_apply_bindings(&state.threedee_bind);
 
-	Mat4 model = Translate(cur->offset);
+	Mat4 model =  M4D(1.0f);
+
+	model = MulM4(QToM4(cur->rotation), model);
+	/* This works on blender XYZ coords, unmodified.
+	model = MulM4(Rotate_RH(AngleRad(cur->rotation_euler.x), V3(1,0,0)), model);
+	model = MulM4(Rotate_RH(AngleRad(cur->rotation_euler.y), V3(0,0,-1)), model);
+	model = MulM4(Rotate_RH(AngleRad(cur->rotation_euler.z), V3(0,1,0)), model);
+	*/
+	model = MulM4(Translate(cur->offset), model);
+
+	//   Z * Y * X * Translation * Point
 
 	threedee_vs_params_t params = {0};
 	memcpy(params.model, (float*)&model, sizeof(model));
@@ -2353,6 +2385,8 @@ void draw_placed(Mat4 view, Mat4 projection, PlacedMesh *cur)
 	memcpy(params.projection, (float*)&projection, sizeof(projection));
 
 	sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_vs_params, &SG_RANGE(params));
+	num_draw_calls += 1;
+	num_vertices += (int)drawing->num_vertices;
 	sg_draw(0, (int)drawing->num_vertices, 1);
 }
 
@@ -3044,7 +3078,6 @@ AABB world_cam_aabb()
 	return to_return;
 }
 
-int num_draw_calls = 0;
 
 #define FLOATS_PER_VERTEX (3 + 2)
 float cur_batch_data[1024*10] = { 0 };
@@ -3062,6 +3095,7 @@ void flush_quad_batch()
 	assert(cur_batch_data_index % FLOATS_PER_VERTEX == 0);
 	sg_draw(0, cur_batch_data_index / FLOATS_PER_VERTEX, 1);
 	num_draw_calls += 1;
+	num_vertices += cur_batch_data_index / FLOATS_PER_VERTEX;
 	memset(cur_batch_data, 0, cur_batch_data_index*sizeof(*cur_batch_data));
 	cur_batch_data_index = 0;
 }
@@ -4298,7 +4332,7 @@ void frame(void)
 			float y = ratio * x;
 			away_from_player = V3(x, y, 0.0);
 		}
-		away_from_player = MulM4V4(Rotate_RH(-PI32/3.0f, V3(0,1,0)), IsPoint(away_from_player)).xyz;
+		away_from_player = MulM4V4(Rotate_RH(-PI32/3.0f + PI32, V3(0,1,0)), IsPoint(away_from_player)).xyz;
 		Vec3 cam_pos = AddV3(player_pos, away_from_player);
 
 		Vec2 movement = { 0 };
@@ -4349,14 +4383,14 @@ void frame(void)
 		{
 			view = LookAt_RH(cam_pos, player_pos, V3(0, 1, 0));
 		}
-		Mat4 projection = Perspective_RH_NO(PI32/4.0f, screen_size().x / screen_size().y, 0.001f, 1000.0f);
+		Mat4 projection = Perspective_RH_NO(PI32/4.0f, screen_size().x / screen_size().y, 0.01f, 1000.0f);
 
 		for(PlacedMesh *cur = level_threedee.placed_mesh_list; cur; cur = cur->next)
 		{
 			draw_placed(view, projection, cur);
 		}
 
-		draw_placed(view, projection, &(PlacedMesh){.draw_with = &mesh_player, .offset = V3(player->pos.x, 0.0, player->pos.y)});
+		draw_placed(view, projection, &(PlacedMesh){.draw_with = &mesh_player, .offset = V3(player->pos.x, 0.0, player->pos.y), .rotation = Make_Q(0, 0, 0, 1)});
 
 		sg_end_pass();
 
@@ -5456,7 +5490,8 @@ void frame(void)
 		if(flycam)
 		{
 			Basis basis = flycam_basis();
-			const float speed = 2.0f;
+			float speed = 2.0f;
+			speed *= flycam_speed;
 			flycam_pos = AddV3(flycam_pos, MulV3F(basis.forward, ((float)keydown[SAPP_KEYCODE_W] - (float)keydown[SAPP_KEYCODE_S])*speed*dt));
 			flycam_pos = AddV3(flycam_pos, MulV3F(basis.right, ((float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A])*speed*dt));
 			flycam_pos = AddV3(flycam_pos, MulV3F(basis.up, (((float)keydown[SAPP_KEYCODE_SPACE] + (float)keydown[SAPP_KEYCODE_LEFT_CONTROL]) - (float)keydown[SAPP_KEYCODE_LEFT_SHIFT])*speed*dt));
@@ -6127,7 +6162,7 @@ void frame(void)
 				Vec2 pos = V2(0.0, screen_size().Y);
 				int num_entities = 0;
 				ENTITIES_ITER(gs.entities) num_entities++;
-				MD_String8 stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nGameplay processing: %.1f ms\nEntities: %d\nDraw calls: %d\nProfiling: %s\nNumber gameplay processing loops: %d\nFlyecam: %s\n", dt*1000.0, last_frame_processing_time*1000.0, last_frame_gameplay_processing_time*1000.0, num_entities, num_draw_calls, profiling ? "yes" : "no", num_timestep_loops, flycam ? "yes" : "no");
+				MD_String8 stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nGameplay processing: %.1f ms\nEntities: %d\nDraw calls: %d\nDrawn Vertices: %d\nProfiling: %s\nNumber gameplay processing loops: %d\nFlyecam: %s\n", dt*1000.0, last_frame_processing_time*1000.0, last_frame_gameplay_processing_time*1000.0, num_entities, num_draw_calls, num_vertices, profiling ? "yes" : "no", num_timestep_loops, flycam ? "yes" : "no");
 				AABB bounds = draw_text((TextParams) { false, true, stats, pos, BLACK, 1.0f });
 				pos.Y -= bounds.upper_left.Y - screen_size().Y;
 				bounds = draw_text((TextParams) { false, true, stats, pos, BLACK, 1.0f });
@@ -6135,6 +6170,7 @@ void frame(void)
 				colorquad(false, quad_aabb(bounds), (Color) { 1.0, 1.0, 1.0, 0.3f });
 				draw_text((TextParams) { false, false, stats, pos, BLACK, 1.0f });
 				num_draw_calls = 0;
+				num_vertices = 0;
 			}
 #endif // devtools
 
@@ -6356,7 +6392,12 @@ void event(const sapp_event *e)
 			flycam_vertical_rotation -= e->mouse_dy * rotation_speed;
 			flycam_vertical_rotation = clampf(flycam_vertical_rotation, -PI32/2.0f + 0.01f, PI32/2.0f - 0.01f);
 		}
+		else if(e->type == SAPP_EVENTTYPE_MOUSE_SCROLL)
+		{
+			flycam_speed *= 1.0f + 0.1f*e->scroll_y;
+		}
 	}
+
 #endif
 
 
