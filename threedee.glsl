@@ -1,8 +1,10 @@
 @module threedee
 
 @vs vs
-in vec3 position;
+in vec3 pos_in;
+in vec2 uv_in;
 out vec3 pos;
+out vec2 uv;
 
 uniform vs_params {
 	mat4 model;
@@ -11,17 +13,20 @@ uniform vs_params {
 };
 
 void main() {
-	pos = position;
-	gl_Position = projection * view * model * vec4(position, 1.0);
+	pos = pos_in;
+	uv = uv_in;
+	gl_Position = projection * view * model * vec4(pos_in, 1.0);
 }
 @end
 
 @fs fs
+uniform sampler2D tex;
 in vec3 pos;
+in vec2 uv;
 out vec4 frag_color;
 
 void main() {
-	frag_color = vec4(pos, 1.0);
+	frag_color = vec4(texture(tex, uv).rgb, 1.0);
 }
 @end
 

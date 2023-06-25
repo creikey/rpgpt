@@ -30,6 +30,7 @@ copy "rpgpt_private_assets\knight_run_start.png" "assets\copyrighted\knight_run_
 rmdir /S /q "assets\exported_3d"
 mkdir "assets\exported_3d" || goto :error
 copy "art\exported\*" "assets\exported_3d\" || goto :error
+copy "art\gigatexture.png" "assets\exported_3d\gigatexture.png" || goto :error
 @echo off
 
 rmdir /S /q gen

@@ -890,7 +890,15 @@ SER_MAKE_FOR_TYPE(NPCPlayerStanding);
 
 typedef struct
 {
-	Vec3 *vertices;
+	Vec3 pos;
+	Vec2 uv; // CANNOT have struct padding
+}  Vertex;
+
+SER_MAKE_FOR_TYPE(Vertex);
+
+typedef struct
+{
+	Vertex *vertices;
 	MD_u64 num_vertices;
 
 	sg_buffer loaded_buffer;
@@ -913,10 +921,10 @@ Mesh load_mesh(MD_Arena *arena, MD_String8 binary_file, MD_String8 mesh_name)
 	ser_MD_u64(&ser, &out.num_vertices);
 	Log("Mesh %.*s has %llu vertices\n", MD_S8VArg(mesh_name), out.num_vertices);
 
-	out.vertices = MD_ArenaPush(arena, sizeof(Vec3) * out.num_vertices);
+	out.vertices = MD_ArenaPush(arena, sizeof(*out.vertices) * out.num_vertices);
 	for(MD_u64 i = 0; i < out.num_vertices; i++)
 	{
-		ser_Vec3(&ser, &out.vertices[i]);
+		ser_Vertex(&ser, &out.vertices[i]);
 	}
 
 	assert(!ser.cur_error.failed);
@@ -925,7 +933,7 @@ Mesh load_mesh(MD_Arena *arena, MD_String8 binary_file, MD_String8 mesh_name)
 	out.loaded_buffer = sg_make_buffer(&(sg_buffer_desc)
 			{
 			.usage = SG_USAGE_IMMUTABLE,
-			.data = (sg_range){.ptr = out.vertices, .size = out.num_vertices * sizeof(Vec3)},
+			.data = (sg_range){.ptr = out.vertices, .size = out.num_vertices * sizeof(Vertex)},
 			.label = (const char*)nullterm(arena, MD_S8Fmt(arena, "%.*s-vertices", MD_S8VArg(mesh_name))).str,
 			});
 
@@ -2430,8 +2438,15 @@ void do_serialization_tests()
 
 Mesh mesh_player = {0};
 
+void stbi_flip_into_correct_direction(bool do_it)
+{
+	if(do_it) stbi_set_flip_vertically_on_load(true);
+}
+
 void init(void)
 {
+	stbi_flip_into_correct_direction(true);
+
 #ifdef WEB
 	EM_ASM( {
 			set_server_url(UTF8ToString($0));
@@ -2502,12 +2517,19 @@ void init(void)
 		stbtt_BakeFontBitmap(fontBuffer, 0, font_size, font_bitmap, 512, 512, 32, 96, cdata);
 
 		unsigned char *font_bitmap_rgba = malloc(4 * 512 * 512); // stack would be too big if allocated on stack (stack overflow)
-		for (int i = 0; i < 512 * 512; i++)
+		
+		// also flip the image, because I think opengl or something I'm too tired
+		for(int row = 0; row < 512; row++)
 		{
-			font_bitmap_rgba[i*4 + 0] = 255;
-			font_bitmap_rgba[i*4 + 1] = 255;
-			font_bitmap_rgba[i*4 + 2] = 255;
-			font_bitmap_rgba[i*4 + 3] = font_bitmap[i];
+			for(int col = 0; col < 512; col++)
+			{
+				int i = row * 512 + col;
+				int flipped_i = (512 - row) * 512 + col;
+				font_bitmap_rgba[i*4 + 0] = 255;
+				font_bitmap_rgba[i*4 + 1] = 255;
+				font_bitmap_rgba[i*4 + 2] = 255;
+				font_bitmap_rgba[i*4 + 3] = font_bitmap[flipped_i];
+			}
 		}
 
 		image_font = sg_make_image(&(sg_image_desc) {
@@ -2593,7 +2615,8 @@ void init(void)
 			.layout = {
 			.attrs =
 			{
-			[ATTR_threedee_vs_position].format = SG_VERTEXFORMAT_FLOAT3,
+			[ATTR_threedee_vs_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
+			[ATTR_threedee_vs_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
 			}
 			},
 			.colors[0].blend = (sg_blend_state) { // allow transparency
@@ -3290,9 +3313,11 @@ AABB draw_text(TextParams t)
 
 				AABB font_atlas_region = (AABB)
 				{
-					.upper_left = V2(q.s0, q.t0),
-						.lower_right = V2(q.s1, q.t1),
+					.upper_left = V2(q.s0, 1.0f - q.t1),
+					.lower_right = V2(q.s1, 1.0f - q.t0),
 				};
+				font_atlas_region.upper_left.y += 1.0f / 512.0f;
+				font_atlas_region.lower_right.y += 1.0f / 512.0f;
 				PROFILE_SCOPE("Scaling font atlas region to img font size")
 				{
 					font_atlas_region.upper_left.X *= image_font_size.X;
@@ -4195,6 +4220,7 @@ void frame(void)
 
 		sg_apply_pipeline(state.threedee_pip);
 		state.threedee_bind.vertex_buffers[0] = mesh_player.loaded_buffer;
+		state.threedee_bind.fs_images[SLOT_threedee_tex] = image_gigatexture;
 		sg_apply_bindings(&state.threedee_bind);
 
 		Mat4 model = M4D(1.0f);
@@ -6057,12 +6083,32 @@ void frame(void)
 						Vec2 region_size = SubV2(d.image_region.lower_right, d.image_region.upper_left);
 						assert(region_size.X > 0.0);
 						assert(region_size.Y > 0.0);
+						//Vec2 lower_left = AddV2(d.image_region.upper_left, V2(0, region_size.y));
 						Vec2 tex_coords[4] =
 						{
-							AddV2(d.image_region.upper_left, V2(0.0,                     0.0)),
+							// upper left vertex, upper right vertex, lower right vertex, lower left vertex
+
+							/*
+							AddV2(lower_left, V2(0.0,           region_size.y)),
+							AddV2(lower_left, V2(region_size.x, region_size.y)),
+							AddV2(lower_left, V2(region_size.x, 0.0          )),
+							AddV2(lower_left, V2(0.0          , 0.0          )),
+							*/
+
+							// This flips the image
+
+							AddV2(d.image_region.upper_left, V2(0.0,           region_size.Y)),
+							AddV2(d.image_region.upper_left, V2(region_size.X, region_size.Y)),
 							AddV2(d.image_region.upper_left, V2(region_size.X,           0.0)),
+							AddV2(d.image_region.upper_left, V2(0.0,                     0.0)),
+
+
+							/*
 							AddV2(d.image_region.upper_left, V2(region_size.X, region_size.Y)),
 							AddV2(d.image_region.upper_left, V2(0.0,           region_size.Y)),
+							AddV2(d.image_region.upper_left, V2(0.0,                     0.0)),
+							AddV2(d.image_region.upper_left, V2(region_size.X,           0.0)),
+							*/
 						};
 
 						// convert to uv space

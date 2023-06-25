@@ -18,6 +18,10 @@
 {
  filepath: "grunt_3.wav",
 }
+@image gigatexture:
+{
+ filepath: "exported_3d/gigatexture.png",
+}
 @image sword:
 {
  filepath: "sword_of_nazareth.png",
