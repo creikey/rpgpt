@@ -24,6 +24,7 @@ typedef struct
  MD_b8 serializing;
 } SerState;
 
+
 void ser_bytes(SerState *ser, MD_u8 *bytes, MD_u64 bytes_size)
 {
 	if(!ser->data && !ser->serializing)
@@ -64,3 +65,21 @@ void ser_bytes(SerState *ser, MD_u8 *bytes, MD_u64 bytes_size)
 }
 
 SER_MAKE_FOR_TYPE(int);
+SER_MAKE_FOR_TYPE(MD_u64);
+
+// Embeds the string into the serialized binary. When deserializing copies the
+// deserialized data onto a newly allocated buffer
+void ser_MD_String8(SerState *ser, MD_String8 *s, MD_Arena *allocate_onto)
+{
+	ser_MD_u64(ser, &s->size);
+	if(ser->serializing)
+	{
+		ser_bytes(ser, s->str, s->size);
+	}
+	else
+	{
+		s->str = MD_ArenaPush(allocate_onto, s->size);
+		ser_bytes(ser, s->str, s->size);
+	}
+}
+

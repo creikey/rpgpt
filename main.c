@@ -876,7 +876,6 @@ SER_MAKE_FOR_TYPE(uint64_t);
 SER_MAKE_FOR_TYPE(bool);
 SER_MAKE_FOR_TYPE(double);
 SER_MAKE_FOR_TYPE(float);
-SER_MAKE_FOR_TYPE(MD_u64);
 SER_MAKE_FOR_TYPE(ItemKind);
 SER_MAKE_FOR_TYPE(PropKind);
 SER_MAKE_FOR_TYPE(NpcKind);
@@ -896,17 +895,28 @@ typedef struct
 
 SER_MAKE_FOR_TYPE(Vertex);
 
-typedef struct
+typedef struct Mesh
 {
+	struct Mesh *next;
+
 	Vertex *vertices;
 	MD_u64 num_vertices;
 
 	sg_buffer loaded_buffer;
+	MD_String8 name;
 } Mesh;
+
+typedef struct PlacedMesh
+{
+	struct PlacedMesh *next;
+	Mesh *draw_with;
+	Vec3 offset;
+} PlacedMesh;
 
 // mesh_name is for debugging
 // arena must last as long as the Mesh lasts. Internal data points to `arena`, such as
-// the name of the mesh's buffer in sokol
+// the name of the mesh's buffer in sokol. The returned mesh doesn't point to the binary
+// file anymore.
 Mesh load_mesh(MD_Arena *arena, MD_String8 binary_file, MD_String8 mesh_name)
 {
 	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
@@ -937,6 +947,72 @@ Mesh load_mesh(MD_Arena *arena, MD_String8 binary_file, MD_String8 mesh_name)
 			.label = (const char*)nullterm(arena, MD_S8Fmt(arena, "%.*s-vertices", MD_S8VArg(mesh_name))).str,
 			});
 
+
+	return out;
+}
+
+typedef struct
+{
+	Mesh *mesh_list;
+	PlacedMesh *placed_mesh_list;
+} ThreeDeeLevel;
+
+ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
+{
+	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
+	SerState ser = {
+		.data = binary_file.str,
+		.max = binary_file.size,
+		.arena = arena,
+		.error_arena = scratch.arena,
+		.serializing = false,
+	};
+	ThreeDeeLevel out = {0};
+
+	MD_u64 num_placed = 0;
+	ser_MD_u64(&ser, &num_placed);
+	for(MD_u64 i = 0; i < num_placed; i++)
+	{
+		PlacedMesh *new_placed = MD_PushArray(arena, PlacedMesh, 1);
+		MD_String8 placed_mesh_name = {0};
+		ser_MD_String8(&ser, &placed_mesh_name, arena);
+		ser_Vec3(&ser, &new_placed->offset);
+		MD_StackPush(out.placed_mesh_list, new_placed);
+
+		// load the mesh if we haven't already
+
+		bool mesh_found = false;
+		for(Mesh *cur = out.mesh_list; cur; cur = cur->next)
+		{
+			if(MD_S8Match(cur->name, placed_mesh_name, 0))
+			{
+				mesh_found = true;
+				new_placed->draw_with = cur;
+				break;
+			}
+		}
+
+		if(!mesh_found)
+		{
+			MD_String8 to_load_filepath = MD_S8Fmt(scratch.arena, "assets/exported_3d/%.*s.bin", MD_S8VArg(placed_mesh_name));
+			Log("Loading '%.*s'...", MD_S8VArg(to_load_filepath));
+			MD_String8 binary_mesh_file = MD_LoadEntireFile(scratch.arena, to_load_filepath);
+			if(!binary_mesh_file.str)
+			{
+				ser.cur_error = (SerError){.failed = true, .why = MD_S8Fmt(ser.error_arena, "Couldn't load file '%.*s'", to_load_filepath)};
+			}
+			else
+			{
+				Mesh *new_mesh = MD_PushArray(arena, Mesh, 1);
+				*new_mesh = load_mesh(arena, binary_mesh_file, placed_mesh_name);
+				MD_StackPush(out.mesh_list, new_mesh);
+				new_placed->draw_with = new_mesh;
+			}
+		}
+	}
+
+	assert(!ser.cur_error.failed);
+	MD_ReleaseScratch(scratch);
 
 	return out;
 }
@@ -2253,7 +2329,8 @@ stbtt_fontinfo font;
 // @Place(sokol state struct)
 static struct
 {
-	sg_pass_action pass_action;
+	sg_pass_action clear_everything_pass_action;
+	sg_pass_action clear_depth_buffer_pass_action;
 	sg_pipeline pip;
 	sg_bindings bind;
 
@@ -2437,6 +2514,7 @@ void do_serialization_tests()
 #endif
 
 Mesh mesh_player = {0};
+ThreeDeeLevel level_threedee = {0};
 
 void stbi_flip_into_correct_direction(bool do_it)
 {
@@ -2489,9 +2567,13 @@ void init(void)
 
 	load_assets();
 	
-	MD_String8 binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/Signpost.bin"));
+	MD_String8 binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/Player.bin"));
 	mesh_player = load_mesh(persistent_arena, binary_file, MD_S8Lit("Player.bin"));
 	MD_ArenaClear(frame_arena);
+
+	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/level.bin"));
+
+	level_threedee = load_level(persistent_arena, binary_file);
 
 	reset_level();
 
@@ -2631,15 +2713,13 @@ void init(void)
 			.label = "threedee",
 			});
 
-
-	state.pass_action = (sg_pass_action)
+	state.clear_depth_buffer_pass_action = (sg_pass_action)
 	{
-		//.colors[0] = { .action=SG_ACTION_CLEAR, .value={12.5f/255.0f, 12.5f/255.0f, 12.5f/255.0f, 1.0f } }
-		//.colors[0] = { .action=SG_ACTION_CLEAR, .value={255.5f/255.0f, 255.5f/255.0f, 255.5f/255.0f, 1.0f } }
-		// 0x898989 is the color in tiled
-		.colors[0] =
-		{ .action = SG_ACTION_CLEAR, .value = { clearcol.r, clearcol.g, clearcol.b, 1.0f } }
+		.colors[0] = { .action = SG_ACTION_LOAD },
+		.depth = { .action = SG_ACTION_CLEAR, .value = 1.0f },
 	};
+	state.clear_everything_pass_action = state.clear_depth_buffer_pass_action;
+	state.clear_everything_pass_action.colors[0] = (sg_color_attachment_action){ .action = SG_ACTION_CLEAR, .value = { clearcol.r, clearcol.g, clearcol.b, 1.0f } };
 }
 
 Vec2 screen_size()
@@ -4216,14 +4296,10 @@ void frame(void)
 			movement = NormV2(movement);
 		}
 
-		sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
+		sg_begin_default_pass(&state.clear_everything_pass_action, sapp_width(), sapp_height());
 
 		sg_apply_pipeline(state.threedee_pip);
-		state.threedee_bind.vertex_buffers[0] = mesh_player.loaded_buffer;
 		state.threedee_bind.fs_images[SLOT_threedee_tex] = image_gigatexture;
-		sg_apply_bindings(&state.threedee_bind);
-
-		Mat4 model = M4D(1.0f);
 
 		Mat4 view = Translate(V3(0.0, 1.0, -5.0f));
 		//view = LookAt_RH(V3(0,1,-5
@@ -4236,12 +4312,26 @@ void frame(void)
 		}
 		Mat4 projection = Perspective_RH_NO(PI32/4.0f, screen_size().x / screen_size().y, 0.001f, 1000.0f);
 
-		threedee_vs_params_t params = {0};
-		memcpy(params.model, (float*)&model, sizeof(model));
-		memcpy(params.view, (float*)&view, sizeof(view));
-		memcpy(params.projection, (float*)&projection, sizeof(projection));
-		sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_vs_params, &SG_RANGE(params));
-		sg_draw(0, (int)mesh_player.num_vertices, 1);
+		for(PlacedMesh *cur = level_threedee.placed_mesh_list; cur; cur = cur->next)
+		{
+			Mesh *drawing = cur->draw_with;
+			state.threedee_bind.vertex_buffers[0] = drawing->loaded_buffer;
+			sg_apply_bindings(&state.threedee_bind);
+
+			Mat4 model = Translate(cur->offset);
+
+			threedee_vs_params_t params = {0};
+			memcpy(params.model, (float*)&model, sizeof(model));
+			memcpy(params.view, (float*)&view, sizeof(view));
+			memcpy(params.projection, (float*)&projection, sizeof(projection));
+
+			sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_vs_params, &SG_RANGE(params));
+			sg_draw(0, (int)drawing->num_vertices, 1);
+		}
+
+		sg_end_pass();
+
+		sg_begin_default_pass(&state.clear_depth_buffer_pass_action, sapp_width(), sapp_height());
 
 		sg_apply_pipeline(state.pip);
 
