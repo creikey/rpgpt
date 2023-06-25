@@ -3354,7 +3354,7 @@ void dbgline(Vec2 from, Vec2 to)
 {
 #ifdef DEVTOOLS
 	if (!show_devtools) return;
-	line(from, to, 0.5f, debug_color);
+	line(from, to, 1.0f, debug_color);
 #else
 	(void)from;
 	(void)to;
@@ -3391,9 +3391,58 @@ void dbgrect(AABB rect)
 #endif
 }
 
-void dbg3dline(Vec3 from, Vec2 to)
+Vec3 perspective_divide(Vec4 v)
 {
-	// need 2d poins for each of these.
+	return V3(v.x / v.w, v.y / v.w, v.z / v.w);
+}
+
+Vec2 threedee_to_screenspace(Vec3 world)
+{
+	// View and projection matrices must be initialized before calling this.
+	// We detect if this isn't true and early out with some arbitrary values,
+	// but really ideally shouldn't be happening at all
+	if(view.Elements[3][3] == 0.0)
+	{
+		Log("Early outting from projection, uninitialized view\n");
+		return V2(world.x, world.y);
+	}
+	else
+	{
+		Vec4 view_space = MulM4V4(view, IsPoint(world));
+		Vec4 clip_space_no_perspective_divide = MulM4V4(projection, view_space);
+
+		// sometimes camera might be at 0,0,0, directly where you want to deproject. 
+		// In that case the projected value is undefined, because the perspective
+		// divide produces nans. 
+		Vec3 clip_space;
+		if(clip_space_no_perspective_divide.w != 0.0)
+		{
+			clip_space = perspective_divide(clip_space_no_perspective_divide);
+		}
+		else
+		{
+			clip_space = clip_space_no_perspective_divide.xyz;
+		}
+
+		// clip is from -1 to 1, need to map back to screen
+		Vec2 mapped_correctly = V2((clip_space.x + 1.0f)/2.0f, (clip_space.y + 1.0f)/2.0f);
+
+		return V2(mapped_correctly.x * screen_size().x , mapped_correctly.y * screen_size().y);
+	}
+}
+
+void dbg3dline(Vec3 from, Vec3 to)
+{
+	// https://learnopengl.com/img/getting-started/coordinate_systems.png
+	// from and to are already in world space. apply view and projection to get clip space.
+	// Finally convert to screen space then draw
+
+	Vec2 from_screenspace = threedee_to_screenspace(from);
+	Vec2 to_screenspace = threedee_to_screenspace(to);
+	bool prev = in_screen_space;
+	in_screen_space = true;
+	dbgline(from_screenspace, to_screenspace);
+ 	in_screen_space = prev;
 }
 
 typedef struct TextParams
@@ -4340,6 +4389,8 @@ void frame(void)
 		uint64_t time_start_frame = stm_now();
 
 		Vec3 player_pos = V3(player->pos.x, 0.0, player->pos.y);
+		dbg3dline(player_pos, V3(0,0,0));
+		//dbgline(V2(0,0), V2(500, 500));
 		const float vertical_to_horizontal_ratio = 0.8f;
 		const float cam_distance = 20.0f;
 		Vec3 away_from_player;
