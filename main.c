@@ -857,11 +857,11 @@ sg_image load_image(const char *path)
 			.width = png_width,
 			.height = png_height,
 			.pixel_format = SG_PIXELFORMAT_RGBA8,
-			.min_filter = SG_FILTER_NEAREST,
+			.min_filter = SG_FILTER_LINEAR,
 			.num_mipmaps = 0,
 			.wrap_u = SG_WRAP_CLAMP_TO_EDGE,
 			.wrap_v = SG_WRAP_CLAMP_TO_EDGE,
-			.mag_filter = SG_FILTER_NEAREST,
+			.mag_filter = SG_FILTER_LINEAR,
 			.data.subimage[0][0] =
 			{
 			.ptr = pixels,
@@ -912,6 +912,7 @@ typedef struct PlacedMesh
 	Mesh *draw_with;
 	Vec3 offset;
 } PlacedMesh;
+
 
 // mesh_name is for debugging
 // arena must last as long as the Mesh lasts. Internal data points to `arena`, such as
@@ -2338,6 +2339,23 @@ static struct
 	sg_bindings threedee_bind;
 } state;
 
+void draw_placed(Mat4 view, Mat4 projection, PlacedMesh *cur)
+{
+	Mesh *drawing = cur->draw_with;
+	state.threedee_bind.vertex_buffers[0] = drawing->loaded_buffer;
+	sg_apply_bindings(&state.threedee_bind);
+
+	Mat4 model = Translate(cur->offset);
+
+	threedee_vs_params_t params = {0};
+	memcpy(params.model, (float*)&model, sizeof(model));
+	memcpy(params.view, (float*)&view, sizeof(view));
+	memcpy(params.projection, (float*)&projection, sizeof(projection));
+
+	sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_vs_params, &SG_RANGE(params));
+	sg_draw(0, (int)drawing->num_vertices, 1);
+}
+
 
 void audio_stream_callback(float *buffer, int num_frames, int num_channels)
 {
@@ -3168,8 +3186,6 @@ void draw_quad_impl(DrawParams d, int line)
 	}
 	if (!overlapping(cam_aabb, points_bounding_box))
 	{
-		//dbgprint("Out of screen, cam aabb %f %f %f %f\n", cam_aabb.upper_left.X, cam_aabb.upper_left.Y, cam_aabb.lower_right.X, cam_aabb.lower_right.Y);
-		//dbgprint("Points boundig box %f %f %f %f\n", points_bounding_box.upper_left.X, points_bounding_box.upper_left.Y, points_bounding_box.lower_right.X, points_bounding_box.lower_right.Y);
 		return; // cull out of screen quads
 	}
 
@@ -4272,6 +4288,19 @@ void frame(void)
 
 		uint64_t time_start_frame = stm_now();
 
+		Vec3 player_pos = V3(player->pos.x, 0.0, player->pos.y);
+		const float vertical_to_horizontal_ratio = 0.8f;
+		const float cam_distance = 20.0f;
+		Vec3 away_from_player;
+		{
+			float ratio = vertical_to_horizontal_ratio;
+			float x = sqrtf( (cam_distance * cam_distance) / (1 + (ratio*ratio)) );
+			float y = ratio * x;
+			away_from_player = V3(x, y, 0.0);
+		}
+		away_from_player = MulM4V4(Rotate_RH(-PI32/3.0f, V3(0,1,0)), IsPoint(away_from_player)).xyz;
+		Vec3 cam_pos = AddV3(player_pos, away_from_player);
+
 		Vec2 movement = { 0 };
 		bool interact = false;
 		if (mobile_controls)
@@ -4296,6 +4325,13 @@ void frame(void)
 			movement = NormV2(movement);
 		}
 
+		// make movement relative to camera forward
+		Vec3 facing = NormV3(SubV3(player_pos, cam_pos));
+		Vec3 right = Cross(facing, V3(0,1,0));
+		Vec2 forward_2d = NormV2(V2(facing.x, facing.z));
+		Vec2 right_2d = NormV2(V2(right.x, right.z));
+		movement = AddV2(MulV2F(forward_2d, movement.y), MulV2F(right_2d, movement.x));
+
 		sg_begin_default_pass(&state.clear_everything_pass_action, sapp_width(), sapp_height());
 
 		sg_apply_pipeline(state.threedee_pip);
@@ -4306,28 +4342,21 @@ void frame(void)
 		if(flycam)
 		{
 			Basis basis = flycam_basis();
-			printf("Flycam forward: %f %f %f  Flycam position: %f %f %f  Flycam rotation %f %f\n", basis.forward.x, basis.forward.y, basis.forward.z, flycam_pos.x, flycam_pos.y, flycam_pos.z, flycam_horizontal_rotation, flycam_vertical_rotation);
 			view = LookAt_RH(flycam_pos, AddV3(flycam_pos, basis.forward), V3(0, 1, 0));
 			//view = flycam_matrix();
+		}
+		else
+		{
+			view = LookAt_RH(cam_pos, player_pos, V3(0, 1, 0));
 		}
 		Mat4 projection = Perspective_RH_NO(PI32/4.0f, screen_size().x / screen_size().y, 0.001f, 1000.0f);
 
 		for(PlacedMesh *cur = level_threedee.placed_mesh_list; cur; cur = cur->next)
 		{
-			Mesh *drawing = cur->draw_with;
-			state.threedee_bind.vertex_buffers[0] = drawing->loaded_buffer;
-			sg_apply_bindings(&state.threedee_bind);
-
-			Mat4 model = Translate(cur->offset);
-
-			threedee_vs_params_t params = {0};
-			memcpy(params.model, (float*)&model, sizeof(model));
-			memcpy(params.view, (float*)&view, sizeof(view));
-			memcpy(params.projection, (float*)&projection, sizeof(projection));
-
-			sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_vs_params, &SG_RANGE(params));
-			sg_draw(0, (int)drawing->num_vertices, 1);
+			draw_placed(view, projection, cur);
 		}
+
+		draw_placed(view, projection, &(PlacedMesh){.draw_with = &mesh_player, .offset = V3(player->pos.x, 0.0, player->pos.y)});
 
 		sg_end_pass();
 
@@ -5435,6 +5464,7 @@ void frame(void)
 #endif
 
 		// @Place(player rendering)
+		if(0)
 		PROFILE_SCOPE("render player") // draw character draw player render character
 		{
 			DrawnAnimatedSprite to_draw = { 0 };
@@ -5516,6 +5546,7 @@ void frame(void)
 
 		// @Place(entity rendering)
 		// render gs.entities render entities
+		if(0)
 		PROFILE_SCOPE("entity rendering")
 			ENTITIES_ITER(gs.entities)
 			{
