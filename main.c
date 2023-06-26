@@ -624,10 +624,6 @@ Vec2 entity_aabb_size(Entity *e)
 		{
 			return V2(TILE_SIZE*0.5f, TILE_SIZE*0.5f);
 		}
-		else if (npc_is_skeleton(e))
-		{
-			return V2(TILE_SIZE*1.0f, TILE_SIZE*1.0f);
-		}
 		else if (e->npc_kind == NPC_Pile)
 		{
 			return V2(TILE_SIZE, TILE_SIZE);
@@ -4907,15 +4903,6 @@ void frame(void)
 								it->pos = move_and_slide((MoveSlideParams){it, it->pos, MulV2F(it->vel, pixels_per_meter * dt)});
 								*/
 							}
-							else if (npc_is_skeleton(it))
-							{
-								if (it->dead)
-								{
-								}
-								else
-								{
-								} // skelton combat and movement
-							}
 							// @Place(NPC processing)
 							else if(it->npc_kind == NPC_Arrow)
 							{
@@ -4961,14 +4948,7 @@ void frame(void)
 
 							if (it->damage >= entity_max_damage(it))
 							{
-								if (npc_is_skeleton(it))
-								{
-									it->dead = true;
-								}
-								else
-								{
-									it->destroy = true;
-								}
+								it->destroy = true;
 							}
 						}
 						// @Place(non-entity processing)
@@ -5390,7 +5370,6 @@ void frame(void)
 				}
 			}
 
-			Vec2 character_sprite_pos = AddV2(player->pos, V2(0.0, 20.0f));
 			// if somebody, show their dialog panel
 			if (interacting_with)
 			{
@@ -5408,15 +5387,12 @@ void frame(void)
 
 			if (player->state == CHARACTER_WALKING)
 			{
-				to_draw = (DrawnAnimatedSprite) { ANIM_knight_running, elapsed_time, player->facing_left, character_sprite_pos, WHITE };
 			}
 			else if (player->state == CHARACTER_IDLE)
 			{
-				to_draw = (DrawnAnimatedSprite) { ANIM_knight_idle, elapsed_time, player->facing_left, character_sprite_pos, WHITE };
 			}
 			else if (player->state == CHARACTER_TALKING)
 			{
-				to_draw = (DrawnAnimatedSprite) { ANIM_knight_idle, elapsed_time, player->facing_left, character_sprite_pos, WHITE };
 			}
 			else
 			{
@@ -5454,7 +5430,6 @@ void frame(void)
 					draw_quad((DrawParams) { quad_centered(AddV2(it->pos, V2(0.0, 50.0)), V2(100.0, 100.0)), IMG(image_thinking), WHITE });
 				}
 
-				Color col = LerpV4(WHITE, it->damage, RED);
 				if (it->is_npc)
 				{
 					float dist = LenV2(SubV2(it->pos, player->pos));
@@ -5468,111 +5443,8 @@ void frame(void)
 						alpha = 1.0f;
 					}
 
-
 					it->dialog_panel_opacity = Lerp(it->dialog_panel_opacity, unwarped_dt*10.0f, alpha);
 					draw_dialog_panel(it, it->dialog_panel_opacity);
-
-					// @Place(npc rendering)
-					if (false) // used to be old man code
-					{
-						bool face_left = SubV2(player->pos, it->pos).x < 0.0f;
-						draw_animated_sprite((DrawnAnimatedSprite) { ANIM_old_man_idle, elapsed_time, face_left, it->pos, col });
-					}
-					else if (npc_is_skeleton(it))
-					{
-						Color col = WHITE;
-						if (it->dead)
-						{
-							draw_animated_sprite((DrawnAnimatedSprite) { ANIM_skeleton_die, it->dead_time, it->facing_left, it->pos, col });
-						}
-						else
-						{
-							if (it->swing_timer > 0.0)
-							{
-								// swinging sword
-								draw_animated_sprite((DrawnAnimatedSprite) { ANIM_skeleton_swing_sword, it->swing_timer, it->facing_left, it->pos, col });
-							}
-							else
-							{
-								if (it->walking)
-								{
-									draw_animated_sprite((DrawnAnimatedSprite) { ANIM_skeleton_run, elapsed_time, it->facing_left, it->pos, col });
-								}
-								else
-								{
-									draw_animated_sprite((DrawnAnimatedSprite) { ANIM_skeleton_idle, elapsed_time, it->facing_left, it->pos, col });
-								}
-							}
-						}
-					}
-					else if (npc_is_knight_sprite(it))
-					{
-						Color tint = WHITE;
-						if (it->npc_kind == NPC_Edeline)
-						{
-							tint = colhex(0x8c34eb);
-						}
-						else if (it->npc_kind == NPC_TheKing)
-						{
-							tint = colhex(0xf0be1d);
-						}
-						else if (it->npc_kind == NPC_TheBlacksmith)
-						{
-							tint = colhex(0x5c5c5c);
-						}
-						else if (it->npc_kind == NPC_Red)
-						{
-							tint = colhex(0xf56f42);
-						}
-						else if (it->npc_kind == NPC_Blue)
-						{
-							tint = colhex(0x1153d6);
-						}
-						else if (it->npc_kind == NPC_Davis)
-						{
-							tint = colhex(0x8f8f8f);
-						}
-						else if (it->npc_kind == NPC_Bill)
-						{
-							tint = colhex(0x49d14b);
-						}
-						else if (it->npc_kind == NPC_Jester)
-						{
-							tint = colhex(0x49d14b);
-						}
-						else
-						{
-							assert(false);
-						}
-						draw_animated_sprite((DrawnAnimatedSprite) { ANIM_knight_idle, elapsed_time, true, AddV2(it->pos, V2(0, 30.0f)), tint });
-					}
-					else if(it->npc_kind == NPC_Door)
-					{
-						DrawParams d = { quad_centered(it->pos, entity_aabb_size(it)), IMG(image_door), blendalpha(WHITE, (1.0f - it->opened_amount)*0.8f + 0.2f), };
-						draw_shadow_for(d);
-						draw_quad(d);
-					}
-					else if(it->npc_kind == NPC_Pile)
-					{
-						DrawParams d = { quad_centered(it->pos, V2(TILE_SIZE, TILE_SIZE)), IMG(image_pile), WHITE, };
-						if(!it->gave_away_sword)
-						{
-							DrawParams d = { quad_rotated_centered(AddV2(it->pos, V2(0, 15.0f)), V2(TILE_SIZE, TILE_SIZE), -PI32*0.75f), IMG(image_sword), WHITE, };
-							draw_quad(d);
-						}
-						draw_shadow_for(d);
-						draw_quad(d);
-					}
-					else if(it->npc_kind == NPC_Arrow)
-					{
-						DrawParams d = { quad_centered(it->pos, entity_aabb_size(it)), IMG(image_arrow), WHITE, };
-						draw_shadow_for(d);
-						draw_quad(d);
-					}
-					else
-					{
-						assert(false);
-					}
 				}
 				else if (it->is_item)
 				{
@@ -5583,33 +5455,6 @@ void frame(void)
 				}
 				else if (it->is_prop)
 				{
-					DrawParams d = { 0 };
-					if (it->prop_kind == TREE0)
-					{
-						Vec2 prop_size = V2(74.0f, 122.0f);
-						d = (DrawParams) { quad_centered(AddV2(it->pos, V2(-5.0f, 45.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(2.0f, 4.0f), prop_size), WHITE, .sorting_key = sorting_key_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.7f };
-					}
-					else if (it->prop_kind == TREE1)
-					{
-						Vec2 prop_size = V2(94.0f, 120.0f);
-						d = ((DrawParams) { quad_centered(AddV2(it->pos, V2(-4.0f, 55.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(105.0f, 4.0f), prop_size), WHITE, .sorting_key = sorting_key_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f });
-					}
-					else if (it->prop_kind == TREE2)
-					{
-						Vec2 prop_size = V2(128.0f, 192.0f);
-						d = ((DrawParams) { quad_centered(AddV2(it->pos, V2(-2.5f, 70.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(385.0f, 479.0f), prop_size), WHITE, .sorting_key = sorting_key_at(AddV2(it->pos, V2(0.0f, 20.0f))), .alpha_clip_threshold = 0.4f });
-					}
-					else if (it->prop_kind == ROCK0)
-					{
-						Vec2 prop_size = V2(30.0f, 22.0f);
-						d = (DrawParams) { quad_centered(AddV2(it->pos, V2(0.0f, 25.0)), prop_size), image_props_atlas, aabb_at_yplusdown(V2(66.0f, 235.0f), prop_size), WHITE, .sorting_key = sorting_key_at(AddV2(it->pos, V2(0.0f, 0.0f))), .alpha_clip_threshold = 0.7f };
-					}
-					else
-					{
-						assert(false);
-					}
-					draw_shadow_for(d);
-					draw_quad(d);
 				}
 				else if(it->is_machine)
 				{

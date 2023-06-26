@@ -26,10 +26,6 @@
 {
  filepath: "sword_of_nazareth.png",
 }
-@image merchant:
-{
- filepath: "copyrighted/merchant.png",
-}
 @image idol:
 {
  filepath: "idol.png",
@@ -74,22 +70,6 @@
 {
  filepath: "gold_coin.png",
 }
-@image new_knight_idle:
-{
- filepath: "copyrighted/knight_idle.png",
-}
-@image new_knight_run:
-{
- filepath: "copyrighted/knight_run_start.png",
-}
-@image new_knight_attack:
-{
- filepath: "copyrighted/knight_attack.png",
-}
-@image death:
-{
- filepath: "copyrighted/wraith.png",
-}
 @image thinking:
 {
  filepath: "thinking.png",
@@ -97,14 +77,6 @@
 @image old_man:
 {
  filepath: "small_old_man.png",
-}
-@image animated_terrain:
-{
- filepath: "copyrighted/animated_terrain.png",
-}
-@image ruins_ancient:
-{
- filepath: "copyrighted/ruins_ancient.png",
 }
 @image hurt_vignette:
 {
@@ -122,17 +94,9 @@
 {
  filepath: "bullet.png",
 }
-@image props_atlas:
-{
- filepath: "copyrighted/props.png"
-}
 @image drop_shadow:
 {
  filepath: "drop_shadow.png",
-}
-@image skeleton:
-{
- filepath: "copyrighted/skeleton.png",
 }
 @image pile:
 {
@@ -154,12 +118,6 @@
 {
  filepath: "swipe.png",
 }
-/*
-@image moose:
-{
- filepath: "copyrighted/moose.png",
-}
-*/
 @image shift_icon:
 {
  filepath: "shift_icon.png",
@@ -195,22 +153,6 @@
 @image tripod:
 {
  filepath: "tripod.png",
-}
-@image main_tileset:
-{
- filepath: "copyrighted/TileSet.png",
-}
-@tileset main:
-{
- image: image_main_tileset,
- filepath: "Main.tsx",
- firstgid: 1,
-}
-@tileset ruins_ancient:
-{
- image: image_ruins_ancient,
- filepath: "copyrighted/ruins_ancient.tsx",
- firstgid: 2597,
 }
 @level level0:
 {

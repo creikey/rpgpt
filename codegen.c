@@ -189,6 +189,7 @@ int main(int argc, char **argv)
 			filepath = asset_file_path(filepath);
 			assert(filepath.str != 0); // , MD_S8Fmt(cg_arena, "No filepath specified for image '%.*s'", MD_S8VArg(node->string)));
 			FILE *asset_file = fopen(nullterm(filepath), "r");
+			
 			assert(asset_file); // , MD_S8Fmt(cg_arena, "Could not open filepath %.*s for asset '%.*s'", MD_S8VArg(filepath), MD_S8VArg(node->string)));
 			fclose(asset_file);
 

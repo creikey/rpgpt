@@ -362,26 +362,14 @@ MD_String8 scroll_secret(ItemKind i)
 	}
 }
 
-bool npc_is_skeleton(Entity *it)
-{
-	return it->is_npc && false;
-}
-
 float entity_max_damage(Entity *e)
 {
-	if (e->is_npc && npc_is_skeleton(e))
-	{
-		return 2.0f;
-	}
-	else
-	{
-		return 1.0f;
-	}
+	return 1.0f;
 }
 
 bool npc_attacks_with_sword(Entity *it)
 {
-	return npc_is_skeleton(it);
+	return false;
 }
 
 bool npc_attacks_with_shotgun(Entity *it)
