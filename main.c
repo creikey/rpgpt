@@ -51,12 +51,16 @@ typedef struct WebArena
 	char *data;
 	size_t cap;
 	size_t pos;
+	size_t align; // pls 💀
 } WebArena;
 
 static bool next_arena_big = false;
 
 WebArena *web_arena_alloc()
 {
+	// the pointer here is assumed to be aligned to whatever the maximum
+	// alignment you could want from the arena, because only the `pos` is 
+	// modified to align with the requested alignment.
 	WebArena *to_return = malloc(sizeof(to_return));
 
 	size_t this_size = ARENA_SIZE;
@@ -65,6 +69,7 @@ WebArena *web_arena_alloc()
 	*to_return = (WebArena) {
 		.data = calloc(1, this_size),
 			.cap = this_size,
+			.align = 8,
 			.pos = 0,
 	};
 
@@ -87,6 +92,11 @@ size_t web_arena_get_pos(WebArena *arena)
 
 void *web_arena_push(WebArena *arena, size_t amount)
 {
+	while(arena->pos % arena->align != 0)
+	{
+		arena->pos += 1;
+		assert(arena->pos < arena->cap);
+	}
 	void *to_return = arena->data + arena->pos;
 	arena->pos += amount;
 	assert(arena->pos < arena->cap);
@@ -101,8 +111,7 @@ void web_arena_pop_to(WebArena *arena, size_t new_pos)
 
 void web_arena_set_auto_align(WebArena *arena, size_t align)
 {
-	(void)arena;
-	(void)align;
+	arena->align = align;
 }
 
 #define MD_IMPL_Arena WebArena
