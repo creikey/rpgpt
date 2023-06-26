@@ -218,48 +218,8 @@ typedef struct Quad
 	};
 } Quad;
 
-typedef struct TileInstance
-{
-	uint16_t kind;
-} TileInstance;
-
-typedef struct AnimatedTile
-{
-	uint16_t id_from;
-	bool exists;
-	int num_frames;
-	uint16_t frames[32];
-} AnimatedTile;
-
-typedef struct TileSet
-{
-	sg_image *img;
-	uint16_t first_gid;
-	AnimatedTile animated[128];
-} TileSet;
-
 #include "makeprompt.h"
-
-typedef struct Overlap
-{
-	bool is_tile; // in which case e will be null, naturally
-	TileInstance t;
-	Entity *e;
-} Overlap;
-
-typedef BUFF(Overlap, 16) Overlapping;
-
-typedef struct Level
-{
-	TileInstance tiles[LAYERS][LEVEL_TILES][LEVEL_TILES];
-	Entity initial_entities[MAX_ENTITIES]; // shouldn't be directly modified, only used to initialize gs.entities on loading of level
-} Level;
-
-typedef struct TileCoord
-{
-	int x; // column
-	int y; // row
-} TileCoord;
+typedef BUFF(Entity*, 16) Overlapping;
 
 // no alignment etc because lazy
 typedef struct Arena
@@ -717,70 +677,10 @@ Vec2 entity_aabb_size(Entity *e)
 	}
 }
 
-bool is_tile_solid(TileInstance t)
+
+bool is_overlap_collision(Entity *e)
 {
-	uint16_t tile_id = t.kind;
-	uint16_t collideable[] = {
-		57 , 58 , 59 ,
-		121, 122, 123,
-		185, 186, 187,
-		249, 250, 251,
-		313, 314, 315,
-		377, 378, 379,
-	};
-	for (int i = 0; i < ARRLEN(collideable); i++)
-	{
-		if (tile_id == collideable[i] + 1) return true;
-	}
-	return false;
-	//return tile_id == 53 || tile_id == 0 || tile_id == 367 || tile_id == 317 || tile_id == 313 || tile_id == 366 || tile_id == 368;
-}
-
-bool is_overlap_collision(Overlap o)
-{
-	if (o.is_tile)
-	{
-		return is_tile_solid(o.t);
-	}
-	else
-	{
-		assert(o.e);
-		return !o.e->is_item;
-	}
-}
-
-
-// tilecoord is integer tile position, not like tile coord
-Vec2 tilecoord_to_world(TileCoord t)
-{
-	return V2((float)t.x * (float)TILE_SIZE * 1.0f, -(float)t.y * (float)TILE_SIZE * 1.0f);
-}
-
-// points from tiled editor have their own strange and alien coordinate system (local to the tilemap Y+ down)
-Vec2 tilepoint_to_world(Vec2 tilepoint)
-{
-	Vec2 tilecoord = MulV2F(tilepoint, 1.0 / TILE_SIZE);
-	return tilecoord_to_world((TileCoord) { (int)tilecoord.X, (int)tilecoord.Y });
-}
-
-TileCoord world_to_tilecoord(Vec2 w)
-{
-	// world = V2(tilecoord.x * tile_size, -tilecoord.y * tile_size)
-	// world.x = tilecoord.x * tile_size
-	// world.x / tile_size = tilecoord.x
-	// world.y = -tilecoord.y * tile_size
-	// - world.y / tile_size = tilecoord.y
-	return (TileCoord) { (int)floorf(w.X / TILE_SIZE), (int)floorf(-w.Y / TILE_SIZE) };
-}
-
-
-AABB tile_aabb(TileCoord t)
-{
-	return (AABB)
-	{
-		.upper_left = tilecoord_to_world(t),
-			.lower_right = AddV2(tilecoord_to_world(t), V2(TILE_SIZE, -TILE_SIZE)),
-	};
+	return !e->is_item;
 }
 
 Vec2 rotate_counter_clockwise(Vec2 v)
@@ -823,23 +723,6 @@ AABB entity_aabb(Entity *e)
 		 }
 		 */
 	return entity_aabb_at(e, at);
-}
-
-TileInstance get_tile_layer(Level *l, int layer, TileCoord t)
-{
-	bool out_of_bounds = false;
-	out_of_bounds |= t.x < 0;
-	out_of_bounds |= t.x >= LEVEL_TILES;
-	out_of_bounds |= t.y < 0;
-	out_of_bounds |= t.y >= LEVEL_TILES;
-	//assert(!out_of_bounds);
-	if (out_of_bounds) return (TileInstance) { 0 };
-	return l->tiles[layer][t.y][t.x];
-}
-
-TileInstance get_tile(Level *l, TileCoord t)
-{
-	return get_tile_layer(l, 0, t);
 }
 
 sg_image load_image(const char *path)
@@ -1843,19 +1726,13 @@ void reset_level()
 {
 	// load level
 	gs.won = false;
-	Level *to_load = &level_level0;
+	if(!player)
 	{
-		assert(ARRLEN(to_load->initial_entities) == ARRLEN(gs.entities));
-		memcpy(gs.entities, to_load->initial_entities, sizeof(Entity) * MAX_ENTITIES);
-		for (Entity *it = gs.entities; it < gs.entities + ARRLEN(gs.entities); it++)
-		{
-			if(it->exists && it->generation == 0)
-			{
-				it->generation = 1;
-			}
-		}
+		Entity *pl = new_entity();
+		pl->is_character = true;
 	}
 	update_player_from_entities();
+	player->pos = V2(0,0);
 
 #ifdef DEVTOOLS
 	if(false)
@@ -1881,6 +1758,7 @@ void reset_level()
 
 
 	// parse and enact the drama document
+	if(0)
 	{
 		MD_String8List drama_errors = {0};
 
@@ -2953,12 +2831,6 @@ Quad quad_at(Vec2 at, Vec2 size)
 	return to_return;
 }
 
-Quad tile_quad(TileCoord coord)
-{
-	Quad to_return = quad_at(tilecoord_to_world(coord), V2(TILE_SIZE, TILE_SIZE));
-
-	return to_return;
-}
 
 // out must be of at least length 4
 Quad quad_centered(Vec2 at, Vec2 size)
@@ -3610,24 +3482,9 @@ void draw_animated_sprite(DrawnAnimatedSprite d)
 
 
 // gets aabbs overlapping the input aabb, including gs.entities and tiles
-Overlapping get_overlapping(Level *l, AABB aabb)
+Overlapping get_overlapping(AABB aabb)
 {
 	Overlapping to_return = { 0 };
-
-	Quad q = quad_aabb(aabb);
-	// the corners, jessie
-	PROFILE_SCOPE("checking the corners")
-		for (int i = 0; i < 4; i++)
-		{
-			TileCoord to_check = world_to_tilecoord(q.points[i]);
-			TileInstance t = get_tile_layer(l, 2, to_check);
-			if (is_tile_solid(t))
-			{
-				Overlap element = ((Overlap) { .is_tile = true, .t = t });
-				//{ (&to_return)[(&to_return)->cur_index++] = element; assert((&to_return)->cur_index < ARRLEN((&to_return)->data)); }
-				BUFF_APPEND(&to_return, element);
-			}
-		}
 
 	// the gs.entities jessie
 	PROFILE_SCOPE("checking the entities")
@@ -3635,7 +3492,7 @@ Overlapping get_overlapping(Level *l, AABB aabb)
 		{
 			if (!(it->is_character && it->is_rolling) && overlapping(aabb, entity_aabb(it)))
 			{
-				BUFF_APPEND(&to_return, (Overlap) { .e = it });
+				BUFF_APPEND(&to_return, it);
 			}
 		}
 
@@ -3673,32 +3530,9 @@ Vec2 move_and_slide(MoveSlideParams p)
 	typedef struct
 	{
 		AABB aabb;
-		Entity *e; // optional
+		Entity *e; // required
 	} CollisionObj;
 	BUFF(CollisionObj, 256) to_check = { 0 };
-
-	// add tilemap boxes
-	{
-		Vec2 at_new_size_vector = SubV2(at_new.lower_right, at_new.upper_left);
-		Vec2 points_to_check[] = {
-			AddV2(at_new.upper_left, V2(0.0, 0.0)),
-			AddV2(at_new.upper_left, V2(at_new_size_vector.X, 0.0)),
-			AddV2(at_new.upper_left, V2(at_new_size_vector.X, at_new_size_vector.Y)),
-			AddV2(at_new.upper_left, V2(0.0, at_new_size_vector.Y)),
-		};
-		for (int i = 0; i < ARRLEN(points_to_check); i++)
-		{
-			Vec2 *it = &points_to_check[i];
-			TileCoord tilecoord_to_check = world_to_tilecoord(*it);
-
-			if (is_tile_solid(get_tile_layer(&level_level0, 2, tilecoord_to_check)))
-			{
-				AABB t = tile_aabb(tilecoord_to_check);
-				BUFF_APPEND(&to_check, ((CollisionObj){t, 0}));
-			}
-		}
-	}
-
 
 	// add entity boxes
 	if (!p.dont_collide_with_entities && !(p.from->is_character && p.from->is_rolling))
@@ -4432,8 +4266,6 @@ void frame(void)
 
 		sg_apply_pipeline(state.pip);
 
-		Level *cur_level = &level_level0;
-
 		// Draw Tilemap draw tilemap tilemap drawing
 #if 0
 		PROFILE_SCOPE("tilemap")
@@ -4909,8 +4741,8 @@ void frame(void)
 
 																PROFILE_SCOPE("Checking for overlap")
 																{
-																	Overlapping overlapping_at_want = get_overlapping(&level_level0, entity_aabb_at(e, cur_pos));
-																	BUFF_ITER(Overlap, &overlapping_at_want) if (is_overlap_collision(*it) && !(it->e && it->e == e)) would_block_me = true;
+																	Overlapping overlapping_at_want = get_overlapping(entity_aabb_at(e, cur_pos));
+																	BUFF_ITER(Entity*, &overlapping_at_want) if (is_overlap_collision(*it) && *it != e) would_block_me = true;
 																}
 
 																if (would_block_me)
@@ -5342,31 +5174,29 @@ void frame(void)
 						{
 							AABB dialog_rect = aabb_centered(player->pos, V2(dialog_interact_size , dialog_interact_size));
 							dbgrect(dialog_rect);
-							Overlapping possible_dialogs = get_overlapping(cur_level, dialog_rect);
+							Overlapping possible_dialogs = get_overlapping(dialog_rect);
 							float closest_interact_with_dist = INFINITY;
-							BUFF_ITER(Overlap, &possible_dialogs)
+							BUFF_ITER(Entity*, &possible_dialogs)
 							{
 								bool entity_talkable = true;
-								if (entity_talkable) entity_talkable = entity_talkable && !it->is_tile;
-								if (entity_talkable) entity_talkable = entity_talkable && it->e->is_npc;
-								//if(entity_talkable) entity_talkable = entity_talkable && !(it->e->npc_kind == NPC_Skeleton);
+								if (entity_talkable) entity_talkable = entity_talkable && (*it)->is_npc;
 #ifdef WEB
-								if (entity_talkable) entity_talkable = entity_talkable && it->e->gen_request_id == 0;
+								if (entity_talkable) entity_talkable = entity_talkable && (*it)->gen_request_id == 0;
 #endif
 
 								bool entity_interactible = entity_talkable;
-								if(it->e && it->e->is_machine)
+								if((*it) && (*it)->is_machine)
 								{
-									entity_interactible = entity_interactible || (it->e->machine_kind == MACH_idol_dispenser && !it->e->has_given_idol);
+									entity_interactible = entity_interactible || ((*it)->machine_kind == MACH_idol_dispenser && !(*it)->has_given_idol);
 								}
 
 								if (entity_interactible)
 								{
-									float dist = LenV2(SubV2(it->e->pos, player->pos));
+									float dist = LenV2(SubV2((*it)->pos, player->pos));
 									if (dist < closest_interact_with_dist)
 									{
 										closest_interact_with_dist = dist;
-										closest_interact_with = it->e;
+										closest_interact_with = (*it);
 									}
 								}
 							}
@@ -6172,19 +6002,9 @@ void frame(void)
 
 		dbgsquare(screen_to_world(mouse_pos));
 
-		// tile coord
-		if (show_devtools)
-		{
-			TileCoord hovering = world_to_tilecoord(screen_to_world(mouse_pos));
-			Vec2 points[4] = { 0 };
-			AABB q = tile_aabb(hovering);
-			dbgrect(q);
-			draw_text((TextParams) { false, tprint("%d", get_tile(&level_level0, hovering).kind), world_to_screen(tilecoord_to_world(hovering)), BLACK, 1.0f });
-		}
-
 		// debug draw font image
 		{
-			draw_quad((DrawParams) { quad_centered(V2(0.0, 0.0), V2(250.0, 250.0)), image_font, full_region(image_font), WHITE });
+			//draw_quad((DrawParams) { quad_centered(V2(0.0, 0.0), V2(250.0, 250.0)), image_font, full_region(image_font), WHITE });
 		}
 
 		// statistics @Place(debug statistics)
@@ -6198,6 +6018,7 @@ void frame(void)
 				AABB bounds = draw_text((TextParams) { true, stats, pos, BLACK, 1.0f });
 				pos.Y -= bounds.upper_left.Y - screen_size().Y;
 				bounds = draw_text((TextParams) { true, stats, pos, BLACK, 1.0f });
+
 				// background panel
 				colorquad(quad_aabb(bounds), (Color) { 1.0, 1.0, 1.0, 0.3f });
 				draw_text((TextParams) { false, stats, pos, BLACK, 1.0f });
