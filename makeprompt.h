@@ -240,6 +240,14 @@ typedef struct Entity
 	bool destroy;
 	int generation;
 
+	// the kinds are at the top so you can quickly see what kind an entity is in the debugger
+	bool is_world;
+	bool is_prop;
+	bool is_machine;
+	bool is_item;
+	bool is_npc;
+	bool is_character;
+
 	// fields for all gs.entities
 	Vec2 pos;
 	Vec2 vel; // only used sometimes, like in old man and bullet
@@ -248,28 +256,28 @@ typedef struct Entity
 	double dead_time;
 	bool dead;
 
+
+
+	// the static world. An entity is always returned when you collide with something so support that here
+
 	// npcs and player
 	BUFF(ItemKind, 32) held_items;
 
 	// props
-	bool is_prop;
 	PropKind prop_kind;
 
 	// machines, like the machine that gives the player the idol, or the ones that
 	// shoot arrows
-	bool is_machine;
 	MachineKind machine_kind;
 	bool has_given_idol;
 	float idol_reminder_opacity; // fades out
 	float arrow_timer;
 
 	// items
-	bool is_item;
 	bool held_by_player;
 	ItemKind item_kind;
 
 	// npcs
-	bool is_npc;
 	bool being_hovered;
 	bool perceptions_dirty;
 	TextChunk *errorlist_first;
@@ -298,7 +306,6 @@ typedef struct Entity
 	double swing_timer;
 
 	// character
-	bool is_character;
 	bool knighted;
 	bool in_conversation_mode;
 	Vec2 to_throw_direction;
@@ -426,6 +433,10 @@ void fill_available_actions(Entity *it, AvailableActions *a)
 typedef struct GameState {
 	uint64_t tick;
 	bool won;
+
+	// these must point entities in its own array.
+	Entity *player;
+	Entity *world_entity;
 	Entity entities[MAX_ENTITIES];
 } GameState;
 
