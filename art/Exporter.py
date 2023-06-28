@@ -22,18 +22,20 @@ os.makedirs(bpy.path.abspath(f"//{EXPORT_DIRECTORY}"))
 def write_f32(f, number: float):
     f.write(bytes(struct.pack("f", number)))
 
-
 def write_u64(f, number: int):
     f.write(bytes(struct.pack("Q", number)))
 
 def write_string(f, s: str):
     encoded = s.encode("utf8")
     write_u64(f, len(encoded))
+    print(f"Writing string '{s}' of length {len(encoded)}")
     f.write(encoded)
+
 
 # for the level.bin 
 level_object_data = []
 collision_cubes = []
+placed_entities = []
 saved_meshes = set()
 
 for o in D.objects:
@@ -45,17 +47,20 @@ for o in D.objects:
     )
     mesh_name = o.to_mesh().name # use this over o.name so instanced objects which refer to the same mesh, both use the same serialized mesh.
     
+    object_transform_info = (mesh_name, mapping @ o.location, o.rotation_euler, o.scale)
+    
     if o.users_collection[0].name == 'Level' and mesh_name == "CollisionCube":
         collision_cubes.append((o.location, o.dimensions))
     else:
         if o.users_collection[0].name == 'Level':
             print(f"Object {o.name} has mesh name {o.to_mesh().name}")
             assert(o.rotation_euler.order == 'XYZ')
-            level_object_data.append((mesh_name, mapping @ o.location, o.rotation_euler, o.scale))
+            level_object_data.append(object_transform_info)
             if mesh_name in saved_meshes:
                 continue
             saved_meshes.add(mesh_name)
-            
+        else:
+            placed_entities.append((o.name,) + object_transform_info)
         
         mapping.resize_4x4()
         assert(mesh_name != LEVEL_EXPORT_NAME)
@@ -95,21 +100,20 @@ for o in D.objects:
 with open(bpy.path.abspath(f"//{EXPORT_DIRECTORY}/{LEVEL_EXPORT_NAME}.bin"), "wb") as f:
     write_u64(f, len(level_object_data))
     for o in level_object_data:
-        name, v, rotation, scale = o
-        print(f"Writing instanced object {name}")
-        write_string(f, name)
-        write_f32(f, v.x)
-        write_f32(f, v.y)
-        write_f32(f, v.z)
+        mesh_name, blender_pos, blender_rotation, blender_scale = o
+        print(f"Writing instanced object of mesh {mesh_name}")
+        write_string(f, mesh_name)
+        write_f32(f, blender_pos.x)
+        write_f32(f, blender_pos.y)
+        write_f32(f, blender_pos.z)
         
-        # rotation fields different because y+ is up now
-        write_f32(f, rotation.x)
-        write_f32(f, rotation.y)
-        write_f32(f, rotation.z)
+        write_f32(f, blender_rotation.x)
+        write_f32(f, blender_rotation.y)
+        write_f32(f, blender_rotation.z)
         
-        write_f32(f, scale.x)
-        write_f32(f, scale.y)
-        write_f32(f, scale.z)
+        write_f32(f, blender_scale.x)
+        write_f32(f, blender_scale.y)
+        write_f32(f, blender_scale.z)
     
     write_u64(f, len(collision_cubes))
     for c in collision_cubes:
@@ -120,3 +124,21 @@ with open(bpy.path.abspath(f"//{EXPORT_DIRECTORY}/{LEVEL_EXPORT_NAME}.bin"), "wb
         write_f32(f, blender_dims.y)
         assert(blender_dims.x > 0.0)
         assert(blender_dims.y > 0.0)
+    
+    write_u64(f, len(placed_entities))
+    for p in placed_entities:
+        # underscore is mesh name, prefer object name for name of npc. More obvious
+        object_name, _, blender_pos, blender_rotation, blender_scale = p
+        print(f"Writing placed entity '{object_name}'")
+        write_string(f, object_name)
+        write_f32(f, blender_pos.x)
+        write_f32(f, blender_pos.y)
+        write_f32(f, blender_pos.z)
+        
+        write_f32(f, blender_rotation.x)
+        write_f32(f, blender_rotation.y)
+        write_f32(f, blender_rotation.z)
+        
+        write_f32(f, blender_scale.x)
+        write_f32(f, blender_scale.y)
+        write_f32(f, blender_scale.z)

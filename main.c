@@ -793,15 +793,33 @@ typedef struct Mesh
 	MD_String8 name;
 } Mesh;
 
-typedef struct PlacedMesh
+typedef struct
 {
-	struct PlacedMesh *next;
-	Mesh *draw_with;
 	Vec3 offset;
 	Quat rotation;
 	Vec3 scale;
+} Transform;
+
+typedef struct
+{
+	Vec3 pos;
+	Vec3 euler_rotation;
+	Vec3 scale;
+} BlenderTransform;
+
+typedef struct PlacedMesh
+{
+	struct PlacedMesh *next;
+	Transform t;
+	Mesh *draw_with;
 } PlacedMesh;
 
+typedef struct PlacedEntity
+{
+	struct PlacedEntity *next;
+	Transform t;
+	NpcKind npc_kind;
+} PlacedEntity;
 
 // mesh_name is for debugging
 // arena must last as long as the Mesh lasts. Internal data points to `arena`, such as
@@ -852,7 +870,33 @@ typedef struct
 	Mesh *mesh_list;
 	PlacedMesh *placed_mesh_list;
 	CollisionCube *collision_list;
+	PlacedEntity *placed_entity_list;
 } ThreeDeeLevel;
+
+void ser_BlenderTransform(SerState *ser, BlenderTransform *t)
+{
+	ser_Vec3(ser, &t->pos);
+	ser_Vec3(ser, &t->euler_rotation);
+	ser_Vec3(ser, &t->scale);
+}
+
+Transform blender_to_game_transform(BlenderTransform blender_transform)
+{
+	Transform to_return = {0};
+
+	to_return.offset = blender_transform.pos;
+
+	to_return.scale = blender_transform.scale;
+
+	Mat4 rotation_matrix = M4D(1.0f);
+	rotation_matrix = MulM4(Rotate_RH(AngleRad(blender_transform.euler_rotation.x), V3(1,0,0)), rotation_matrix);
+	rotation_matrix = MulM4(Rotate_RH(AngleRad(blender_transform.euler_rotation.y), V3(0,0,-1)), rotation_matrix);
+	rotation_matrix = MulM4(Rotate_RH(AngleRad(blender_transform.euler_rotation.z), V3(0,1,0)), rotation_matrix);
+	Quat out_rotation = M4ToQ_RH(rotation_matrix);
+	to_return.rotation = out_rotation;
+
+	return to_return;
+}
 
 ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 {
@@ -866,66 +910,57 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 	};
 	ThreeDeeLevel out = {0};
 
-	MD_u64 num_placed = 0;
-	ser_MD_u64(&ser, &num_placed);
-	arena->align = 16; // SSE requires quaternions are 16 byte aligned
-	for(MD_u64 i = 0; i < num_placed; i++)
+	// placed meshes
 	{
-		PlacedMesh *new_placed = MD_PushArray(arena, PlacedMesh, 1);
-		//PlacedMesh *new_placed = calloc(sizeof(PlacedMesh), 1);
-		MD_String8 placed_mesh_name = {0};
-		ser_MD_String8(&ser, &placed_mesh_name, arena);
-		ser_Vec3(&ser, &new_placed->offset);
-
-		Vec3 blender_rotation_euler;
-		ser_Vec3(&ser, &blender_rotation_euler);
-		Vec3 blender_scale;
-		ser_Vec3(&ser, &blender_scale);
-
-		new_placed->scale.x = blender_scale.x;
-		new_placed->scale.y = blender_scale.z;
-		new_placed->scale.z = blender_scale.y;
-
-		Mat4 rotation_matrix = M4D(1.0f);
-		rotation_matrix = MulM4(Rotate_RH(AngleRad(blender_rotation_euler.x), V3(1,0,0)), rotation_matrix);
-		rotation_matrix = MulM4(Rotate_RH(AngleRad(blender_rotation_euler.y), V3(0,0,-1)), rotation_matrix);
-		rotation_matrix = MulM4(Rotate_RH(AngleRad(blender_rotation_euler.z), V3(0,1,0)), rotation_matrix);
-		Quat out_rotation = M4ToQ_RH(rotation_matrix);
-		new_placed->rotation = out_rotation;
-
-		MD_StackPush(out.placed_mesh_list, new_placed);
-
-		Log("Placed mesh '%.*s' rotation %f %f %f %f scale %f %f %f\n", MD_S8VArg(placed_mesh_name), qvarg(new_placed->rotation), v3varg(new_placed->scale));
-
-		// load the mesh if we haven't already
-
-		bool mesh_found = false;
-		for(Mesh *cur = out.mesh_list; cur; cur = cur->next)
+		MD_u64 num_placed = 0;
+		ser_MD_u64(&ser, &num_placed);
+		arena->align = 16; // SSE requires quaternions are 16 byte aligned
+		for(MD_u64 i = 0; i < num_placed; i++)
 		{
-			if(MD_S8Match(cur->name, placed_mesh_name, 0))
-			{
-				mesh_found = true;
-				new_placed->draw_with = cur;
-				assert(cur->name.size > 0);
-				break;
-			}
-		}
+			PlacedMesh *new_placed = MD_PushArray(arena, PlacedMesh, 1);
+			//PlacedMesh *new_placed = calloc(sizeof(PlacedMesh), 1);
+			MD_String8 placed_mesh_name = {0};
+			ser_MD_String8(&ser, &placed_mesh_name, arena);
 
-		if(!mesh_found)
-		{
-			MD_String8 to_load_filepath = MD_S8Fmt(scratch.arena, "assets/exported_3d/%.*s.bin", MD_S8VArg(placed_mesh_name));
-			Log("Loading '%.*s'...\n", MD_S8VArg(to_load_filepath));
-			MD_String8 binary_mesh_file = MD_LoadEntireFile(scratch.arena, to_load_filepath);
-			if(!binary_mesh_file.str)
+			BlenderTransform blender_transform = {0};
+			ser_BlenderTransform(&ser, &blender_transform);
+
+			new_placed->t = blender_to_game_transform(blender_transform);
+
+			MD_StackPush(out.placed_mesh_list, new_placed);
+
+			Log("Placed mesh '%.*s' pos %f %f %f rotation %f %f %f %f scale %f %f %f\n", MD_S8VArg(placed_mesh_name), v3varg(new_placed->t.offset), qvarg(new_placed->t.rotation), v3varg(new_placed->t.scale));
+
+			// load the mesh if we haven't already
+
+			bool mesh_found = false;
+			for(Mesh *cur = out.mesh_list; cur; cur = cur->next)
 			{
-				ser.cur_error = (SerError){.failed = true, .why = MD_S8Fmt(ser.error_arena, "Couldn't load file '%.*s'", to_load_filepath)};
+				if(MD_S8Match(cur->name, placed_mesh_name, 0))
+				{
+					mesh_found = true;
+					new_placed->draw_with = cur;
+					assert(cur->name.size > 0);
+					break;
+				}
 			}
-			else
+
+			if(!mesh_found)
 			{
-				Mesh *new_mesh = MD_PushArray(arena, Mesh, 1);
-				*new_mesh = load_mesh(arena, binary_mesh_file, placed_mesh_name);
-				MD_StackPush(out.mesh_list, new_mesh);
-				new_placed->draw_with = new_mesh;
+				MD_String8 to_load_filepath = MD_S8Fmt(scratch.arena, "assets/exported_3d/%.*s.bin", MD_S8VArg(placed_mesh_name));
+				Log("Loading '%.*s'...\n", MD_S8VArg(to_load_filepath));
+				MD_String8 binary_mesh_file = MD_LoadEntireFile(scratch.arena, to_load_filepath);
+				if(!binary_mesh_file.str)
+				{
+					ser.cur_error = (SerError){.failed = true, .why = MD_S8Fmt(ser.error_arena, "Couldn't load file '%.*s'", to_load_filepath)};
+				}
+				else
+				{
+					Mesh *new_mesh = MD_PushArray(arena, Mesh, 1);
+					*new_mesh = load_mesh(arena, binary_mesh_file, placed_mesh_name);
+					MD_StackPush(out.mesh_list, new_mesh);
+					new_placed->draw_with = new_mesh;
+				}
 			}
 		}
 	}
@@ -942,6 +977,41 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 		new_cube->bounds = aabb_centered(twodee_pos, size);
 		MD_StackPush(out.collision_list, new_cube);
 	}
+
+	// placed entities
+	{
+		MD_u64 num_placed = 0;
+		ser_MD_u64(&ser, &num_placed);
+		arena->align = 16; // SSE requires quaternions are 16 byte aligned
+		for(MD_u64 i = 0; i < num_placed; i++)
+		{
+			PlacedEntity *new_placed = MD_PushArray(arena, PlacedEntity, 1);
+			MD_String8 placed_entity_name = {0};
+			ser_MD_String8(&ser, &placed_entity_name, scratch.arena);
+
+			bool found = false;
+			ARR_ITER_I(CharacterGen, characters, kind)
+			{
+				if(MD_S8Match(MD_S8CString(it->enum_name), placed_entity_name, 0))
+				{
+					found = true;
+					new_placed->npc_kind = kind;
+				}
+			}
+			if(found)
+			{
+				BlenderTransform blender_transform = {0};
+				ser_BlenderTransform(&ser, &blender_transform);
+				new_placed->t = blender_to_game_transform(blender_transform);
+				MD_StackPush(out.placed_entity_list, new_placed);
+			}
+			else
+			{
+				Log("Couldn't find placed npc kind '%.*s'...\n", MD_S8VArg(placed_entity_name));
+			}
+		}
+	}
+
 
 	assert(!ser.cur_error.failed);
 	MD_ReleaseScratch(scratch);
@@ -1726,14 +1796,38 @@ int parse_enumstr_impl(MD_Arena *arena, MD_String8 enum_str, char **enumstr_arra
 	return to_return;
 }
 
+Vec3 plane_point(Vec2 p)
+{
+	return V3(p.x, 0.0, p.y);
+}
+
+Vec2 point_plane(Vec3 p)
+{
+	return V2(p.x, p.z);
+}
+
 #define parse_enumstr(arena, enum_str, errors, string_array, enum_kind_name, prefix) parse_enumstr_impl(arena, enum_str, string_array, ARRLEN(string_array), errors, enum_kind_name, prefix)
 
 void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *level)
 {
 	memset(gs, 0, sizeof(GameState));
-	gs->player = new_entity(gs);
-	gs->player->is_character = true;
-	gs->player->npc_kind = NPC_Player;
+
+	bool found_player = false;
+	for(PlacedEntity *cur = level->placed_entity_list; cur; cur = cur->next)
+	{
+		Entity *cur_entity = new_entity(gs);
+		cur_entity->pos = point_plane(cur->t.offset);
+		cur_entity->npc_kind = cur->npc_kind;
+		cur_entity->is_npc = true;
+		if(cur_entity->npc_kind == NPC_Player)
+		{
+			found_player = true;
+			cur_entity->is_character = true;
+			gs->player = cur_entity;
+		}
+	}
+	assert(found_player);
+
 	gs->world_entity = new_entity(gs);
 	gs->world_entity->is_world = true;
 
@@ -2296,16 +2390,9 @@ void draw_placed(Mat4 view, Mat4 projection, PlacedMesh *cur)
 
 	Mat4 model =  M4D(1.0f);
 
-	model = MulM4(Scale(cur->scale), model);
-	model = MulM4(QToM4(cur->rotation), model);
-	/* This works on blender XYZ coords, unmodified.
-	model = MulM4(Rotate_RH(AngleRad(cur->rotation_euler.x), V3(1,0,0)), model);
-	model = MulM4(Rotate_RH(AngleRad(cur->rotation_euler.y), V3(0,0,-1)), model);
-	model = MulM4(Rotate_RH(AngleRad(cur->rotation_euler.z), V3(0,1,0)), model);
-	*/
-	model = MulM4(Translate(cur->offset), model);
-
-	//   Z * Y * X * Translation * Point
+	model = MulM4(Scale(cur->t.scale), model);
+	model = MulM4(QToM4(cur->t.rotation), model);
+  model = MulM4(Translate(cur->t.offset), model);
 
 	threedee_vs_params_t params = {0};
 	memcpy(params.model, (float*)&model, sizeof(model));
@@ -2472,6 +2559,10 @@ void do_serialization_tests()
 	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 	
 	ThreeDeeLevel level = {0};
+	PlacedEntity *placed_player = MD_PushArray(scratch.arena, PlacedEntity, 1);
+	placed_player->npc_kind = NPC_Player;
+	MD_StackPush(level.placed_entity_list, placed_player);
+
 	GameState gs = {0};
 	initialize_gamestate_from_threedee_level(&gs, &level);
 
@@ -2553,9 +2644,7 @@ void init(void)
 	MD_ArenaClear(frame_arena);
 
 	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/level.bin"));
-
 	level_threedee = load_level(persistent_arena, binary_file);
-
 	reset_level();
 
 #ifdef WEB
@@ -3336,11 +3425,6 @@ void dbg3dline(Vec3 from, Vec3 to)
 	dbgline(from_screenspace, to_screenspace);
 }
 
-Vec3 plane_point(Vec2 p)
-{
-	return V3(p.x, 0.0, p.y);
-}
-
 void colorquadplane(Quad q, Color col)
 {
 	Quad warped = {0};
@@ -3735,7 +3819,8 @@ Vec2 move_and_slide(MoveSlideParams p)
 						closest_dot = dot;
 					}
 				}
-				assert(closest_index != -1);
+				// sometimes when objects are perfectly overlapping, every dot product is negative infinity
+				if(closest_index == -1) closest_index = 0;
 				Vec2 move_dir = compass_dirs[closest_index];
 				info.normal = move_dir;
 				dbgplanevec(from_point, MulV2F(move_dir, 30.0f));
@@ -4343,7 +4428,18 @@ void frame(void)
 			draw_placed(view, projection, cur);
 		}
 
-		draw_placed(view, projection, &(PlacedMesh){.draw_with = &mesh_player, .offset = V3(gs.player->pos.x, 0.0, gs.player->pos.y), .rotation = Make_Q(0, 0, 0, 1), .scale = V3(1, 1, 1)});
+		draw_placed(view, projection, &(PlacedMesh){.draw_with = &mesh_player, .t = (Transform){.offset = V3(gs.player->pos.x, 0.0, gs.player->pos.y), .rotation = Make_Q(0, 0, 0, 1), .scale = V3(1, 1, 1)}, });
+
+		ENTITIES_ITER(gs.entities)
+		{
+			if(it->is_npc)
+			{
+				if(it->npc_kind == NPC_Bill)
+				{
+					draw_placed(view, projection, &(PlacedMesh){.draw_with = &mesh_player, .t = (Transform){.offset = plane_point(it->pos), .rotation = Make_Q(0, 0, 0, 1), .scale = V3(1, 1, 1)}, });
+				}
+			}
+		}
 
 		sg_end_pass();
 
