@@ -4378,13 +4378,13 @@ void frame(void)
 			draw_placed(view, projection, cur);
 		}
 
-		draw_placed(view, projection, &(PlacedMesh){.draw_with = &mesh_player, .t = (Transform){.offset = AddV3(plane_point(gs.player->pos), V3(0,1,0)), .rotation = Make_Q(0, 0, 0, 1), .scale = V3(1, 1, 1)}, });
+		draw_placed(view, projection, &(PlacedMesh){.draw_with = &mesh_player, .t = (Transform){.offset = AddV3(plane_point(gs.player->pos), V3(0,0,0)), .rotation = Make_Q(0, 0, 0, 1), .scale = V3(1, 1, 1)}, });
 
 		ENTITIES_ITER(gs.entities)
 		{
 			if(it->is_npc)
 			{
-				draw_placed(view, projection, &(PlacedMesh){.draw_with = &mesh_player, .t = (Transform){.offset = AddV3(plane_point(it->pos), V3(0,1,0)), .rotation = Make_Q(0, 0, 0, 1), .scale = V3(1, 1, 1)}, });
+				draw_placed(view, projection, &(PlacedMesh){.draw_with = &mesh_player, .t = (Transform){.offset = AddV3(plane_point(it->pos), V3(0,0,0)), .rotation = Make_Q(0, 0, 0, 1), .scale = V3(1, 1, 1)}, });
 			}
 		}
 

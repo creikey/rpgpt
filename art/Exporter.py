@@ -28,7 +28,6 @@ def write_u64(f, number: int):
 def write_string(f, s: str):
     encoded = s.encode("utf8")
     write_u64(f, len(encoded))
-    print(f"Writing string '{s}' of length {len(encoded)}")
     f.write(encoded)
 
 
