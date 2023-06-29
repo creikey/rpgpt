@@ -374,6 +374,7 @@ typedef struct ChatRequest
 {
 	struct ChatRequest *next;
 	struct ChatRequest *prev;
+	bool should_close;
 	int id;
 	int status;
 	char generated[MAX_SENTENCE_LENGTH];
@@ -416,6 +417,7 @@ void generation_thread(void* my_request_voidptr)
 	// according to https://learn.microsoft.com/en-us/windows/win32/api/winhttp/nf-winhttp-winhttpsendrequest
 	// the buffer needs to remain available as long as the http request is running, so to make this async and do the loading thing need some other way to allocate the winndows string.... arenas bad?
 	succeeded = WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, (LPVOID)my_request->post_req_body.str, (DWORD)my_request->post_req_body.size, (DWORD)my_request->post_req_body.size, 0);
+	if(my_request->should_close) return;
 	if(!succeeded)
 	{
 		Log("Couldn't do the web: %u\n", GetLastError());
@@ -854,6 +856,8 @@ Mesh load_mesh(MD_Arena *arena, MD_String8 binary_file, MD_String8 mesh_name)
 			.data = (sg_range){.ptr = out.vertices, .size = out.num_vertices * sizeof(Vertex)},
 			.label = (const char*)nullterm(arena, MD_S8Fmt(arena, "%.*s-vertices", MD_S8VArg(mesh_name))).str,
 			});
+
+	out.name = mesh_name;
 
 
 	return out;
@@ -1855,7 +1859,7 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 
 
 	// parse and enact the drama document
-	if(0)
+	if(1)
 	{
 		MD_String8List drama_errors = {0};
 
@@ -2552,19 +2556,16 @@ void do_parsing_tests()
 
 	MD_ReleaseScratch(scratch);
 }
+
+// these tests rely on the base level having been loaded
 void do_serialization_tests()
 {
 	Log("Testing serialization...\n");
 
 	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 	
-	ThreeDeeLevel level = {0};
-	PlacedEntity *placed_player = MD_PushArray(scratch.arena, PlacedEntity, 1);
-	placed_player->npc_kind = NPC_Player;
-	MD_StackPush(level.placed_entity_list, placed_player);
-
 	GameState gs = {0};
-	initialize_gamestate_from_threedee_level(&gs, &level);
+	initialize_gamestate_from_threedee_level(&gs, &level_threedee);
 
 	gs.player->pos = V2(50.0f, 0.0);
 
@@ -2575,7 +2576,7 @@ void do_serialization_tests()
 	assert(saved.size > 0);
 	assert(saved.str != 0);
 
-	initialize_gamestate_from_threedee_level(&gs, &level);
+	initialize_gamestate_from_threedee_level(&gs, &level_threedee);
 	gs = load_from_string(persistent_arena, scratch.arena, saved, &error);
 	assert(gs.player->pos.x == 50.0f);
 	assert(error.size == 0);
@@ -2616,12 +2617,6 @@ void init(void)
 #endif
 
 
-#ifdef DEVTOOLS
-	do_metadesk_tests();
-	do_parsing_tests();
-	do_serialization_tests();
-#endif
-
 
 	Log("Size of entity struct: %zu\n", sizeof(Entity));
 	Log("Size of %d gs.entities: %zu kb\n", (int)ARRLEN(gs.entities), sizeof(gs.entities) / 1024);
@@ -2646,6 +2641,12 @@ void init(void)
 	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/level.bin"));
 	level_threedee = load_level(persistent_arena, binary_file);
 	reset_level();
+
+#ifdef DEVTOOLS
+	do_metadesk_tests();
+	do_parsing_tests();
+	do_serialization_tests();
+#endif
 
 #ifdef WEB
 	EM_ASM( {
@@ -2884,15 +2885,6 @@ Vec2 attack_button_pos()
 // everything is in pixels in world space, 43 pixels is approx 1 meter measured from 
 // merchant sprite being 5'6"
 const float pixels_per_meter = 43.0f;
-Camera cam = { .scale = 2.0f };
-
-Vec2 cam_offset()
-{
-	Vec2 to_return = AddV2(cam.pos, MulV2F(screen_size(), 0.5f));
-	to_return = FloorV2(to_return); // avoid pixel glitching on tilemap atlas
-	return to_return;
-}
-
 
 #define IMG(img) img, full_region(img)
 
@@ -2904,28 +2896,6 @@ AABB full_region(sg_image img)
 		.upper_left = V2(0.0f, 0.0f),
 			.lower_right = img_size(img),
 	};
-}
-
-// screen coords are in pixels counting from bottom left as (0,0), Y+ is up
-Vec2 world_to_screen(Vec2 world)
-{
-	Vec2 to_return = world;
-	to_return = MulV2F(to_return, cam.scale);
-	to_return = AddV2(to_return, cam_offset());
-	return to_return;
-}
-
-Vec2 screen_to_world(Vec2 screen)
-{
-	Vec2 to_return = screen;
-	to_return = SubV2(to_return, cam_offset());
-	to_return = MulV2F(to_return, 1.0f / cam.scale);
-	return to_return;
-}
-
-AABB aabb_screen_to_world(AABB screen)
-{
-	return (AABB) { .upper_left = screen_to_world(screen.upper_left), .lower_right = screen_to_world(screen.lower_right ), };
 }
 
 AABB aabb_at(Vec2 at, Vec2 size)
@@ -3081,15 +3051,6 @@ AABB screen_cam_aabb()
 {
 	return (AABB) { .upper_left = V2(0.0, screen_size().Y), .lower_right = V2(screen_size().X, 0.0) };
 }
-
-AABB world_cam_aabb()
-{
-	AABB to_return = screen_cam_aabb();
-	to_return.upper_left = screen_to_world(to_return.upper_left);
-	to_return.lower_right = screen_to_world(to_return.lower_right);
-	return to_return;
-}
-
 
 #define FLOATS_PER_VERTEX (3 + 2)
 float cur_batch_data[1024*10] = { 0 };
@@ -3730,6 +3691,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 
 	BUFF_ITER(CollisionObj, &to_check)
 	{
+		dbgplanerect(it->aabb);
 		if (overlapping(at_new, it->aabb))
 		{
 			BUFF_APPEND(&actually_overlapping, *it);
@@ -3797,7 +3759,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 			while (overlapping(to_depenetrate_from, at_new) && iters_tried_to_push_apart < 500)
 			{
 				happened_with_this_one = true;
-				const float move_dist = 0.1f;
+				const float move_dist = 0.01f;
 
 				info.happened = true;
 				Vec2 from_point = aabb_center(to_depenetrate_from);
@@ -4119,7 +4081,7 @@ void draw_dialog_panel(Entity *talking_to, float alpha)
 		.upper_left = AddV2(talking_to->pos, V2(-panel_width / 2.0f, panel_vert_offset + panel_height)),
 			.lower_right = AddV2(talking_to->pos, V2(panel_width / 2.0f, panel_vert_offset)),
 	};
-	AABB constrict_to = world_cam_aabb();
+	AABB constrict_to = (AABB){0};
 	dialog_panel.upper_left.x = fmaxf(constrict_to.upper_left.x, dialog_panel.upper_left.x);
 	dialog_panel.lower_right.y = fmaxf(constrict_to.lower_right.y, dialog_panel.lower_right.y);
 	dialog_panel.upper_left.y = fminf(constrict_to.upper_left.y, dialog_panel.upper_left.y);
@@ -4344,18 +4306,6 @@ void frame(void)
 
 	PROFILE_SCOPE("frame")
 	{
-
-		// better for vertical aspect ratios
-		if (screen_size().x < 0.7f*screen_size().y)
-		{
-			cam.scale = 2.3f;
-		}
-		else
-		{
-			cam.scale = 2.0f;
-		}
-
-
 		uint64_t time_start_frame = stm_now();
 
 		Vec3 player_pos = V3(gs.player->pos.x, 0.0, gs.player->pos.y);
@@ -4428,16 +4378,13 @@ void frame(void)
 			draw_placed(view, projection, cur);
 		}
 
-		draw_placed(view, projection, &(PlacedMesh){.draw_with = &mesh_player, .t = (Transform){.offset = V3(gs.player->pos.x, 0.0, gs.player->pos.y), .rotation = Make_Q(0, 0, 0, 1), .scale = V3(1, 1, 1)}, });
+		draw_placed(view, projection, &(PlacedMesh){.draw_with = &mesh_player, .t = (Transform){.offset = AddV3(plane_point(gs.player->pos), V3(0,1,0)), .rotation = Make_Q(0, 0, 0, 1), .scale = V3(1, 1, 1)}, });
 
 		ENTITIES_ITER(gs.entities)
 		{
 			if(it->is_npc)
 			{
-				if(it->npc_kind == NPC_Bill)
-				{
-					draw_placed(view, projection, &(PlacedMesh){.draw_with = &mesh_player, .t = (Transform){.offset = plane_point(it->pos), .rotation = Make_Q(0, 0, 0, 1), .scale = V3(1, 1, 1)}, });
-				}
+				draw_placed(view, projection, &(PlacedMesh){.draw_with = &mesh_player, .t = (Transform){.offset = AddV3(plane_point(it->pos), V3(0,1,0)), .rotation = Make_Q(0, 0, 0, 1), .scale = V3(1, 1, 1)}, });
 			}
 		}
 
@@ -4726,18 +4673,6 @@ void frame(void)
 						}
 
 						it->being_hovered = false;
-						if (gs.player->in_conversation_mode)
-						{
-							if (has_point(entity_aabb(it), screen_to_world(mouse_pos)))
-							{
-								it->being_hovered = true;
-								if (pressed.mouse_down)
-								{
-									gs.player->talking_to = frome(it);
-									gs.player->state = CHARACTER_TALKING;
-								}
-							}
-						}
 
 						if (it->is_npc)
 						{
@@ -5348,6 +5283,7 @@ void frame(void)
 							{
 								bool entity_talkable = true;
 								if (entity_talkable) entity_talkable = entity_talkable && (*it)->is_npc;
+								if (entity_talkable) entity_talkable = entity_talkable && !(*it)->is_character;
 #ifdef WEB
 								if (entity_talkable) entity_talkable = entity_talkable && (*it)->gen_request_id == 0;
 #endif
@@ -5830,7 +5766,6 @@ void frame(void)
 									translate_words_by(wrapped, V2(dialog_panel.upper_left.x, new_line_height));
 									new_line_height += line_vertical_offset + font_line_advance * text_scale;
 
-
 									for(PlacedWord *cur = wrapped.first; cur; cur = cur->next)
 									{
 										float this_text_scale = text_scale;
@@ -5840,6 +5775,7 @@ void frame(void)
 										}
 										AABB clipping_aabb = dialog_panel;
 										clipping_aabb.lower_right.y -= 50.0f;
+										dbgrect(clipping_aabb);
 										draw_text((TextParams){ false, cur->text, cur->lower_left_corner, color, this_text_scale, .clip_to = clipping_aabb, .do_clipping = true,});
 									}
 
@@ -6033,7 +5969,7 @@ void frame(void)
 
 #ifdef DEVTOOLS
 
-		dbgsquare(screen_to_world(mouse_pos));
+		dbgsquare(mouse_pos);
 
 		// debug draw font image
 		{
@@ -6060,19 +5996,6 @@ void frame(void)
 			}
 #endif // devtools
 
-
-		// update camera position
-		{
-			Vec2 target = MulV2F(gs.player->pos, -1.0f * cam.scale);
-			if (LenV2(SubV2(target, cam.pos)) <= 0.2)
-			{
-				cam.pos = target;
-			}
-			else
-			{
-				cam.pos = LerpV2(cam.pos, unwarped_dt*8.0f, target);
-			}
-		}
 
 		// @Place(actually render)
 		PROFILE_SCOPE("flush rendering")
@@ -6217,6 +6140,13 @@ void frame(void)
 
 void cleanup(void)
 {
+#ifdef DESKTOP
+	for(ChatRequest *cur = requests_first; cur; cur = cur->next)
+	{
+		cur->should_close = true;
+	}
+#endif
+
 	free(fontBuffer);
 	MD_ArenaRelease(frame_arena);
 	MD_ArenaRelease(persistent_arena);
