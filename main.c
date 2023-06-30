@@ -811,6 +811,12 @@ typedef struct Mesh
 	MD_String8 name;
 } Mesh;
 
+typedef struct Bone
+{
+	struct Bone *next;
+	Mat4 matrix_local;
+} Bone;
+
 typedef struct
 {
 	Vec3 offset;
@@ -879,6 +885,59 @@ Mesh load_mesh(MD_Arena *arena, MD_String8 binary_file, MD_String8 mesh_name)
 	return out;
 }
 
+// stored in row major
+typedef struct
+{
+	float elems[4 * 4];
+} BlenderMat;
+
+void ser_BlenderMat(SerState *ser, BlenderMat *b)
+{
+	for(int i = 0; i < 4 * 4; i++)
+	{
+		ser_float(ser, &b->elems[i]);
+	}
+}
+Mat4 blender_to_handmade_mat(BlenderMat b)
+{
+	Mat4 to_return;
+	assert(sizeof(to_return) == sizeof(b));
+	memcpy(&to_return, &b, sizeof(to_return));
+	return TransposeM4(to_return);
+}
+
+Bone *load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armature_name)
+{
+	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
+	SerState ser = {
+		.data = binary_file.str,
+		.max = binary_file.size,
+		.arena = arena,
+		.error_arena = scratch.arena,
+		.serializing = false,
+	};
+	Bone *to_return = 0;
+	
+	MD_u64 num_bones;
+	ser_MD_u64(&ser, &num_bones);
+	Log("Armature %.*s has %llu vertices\n", MD_S8VArg(armature_name), num_bones);
+
+	for(MD_u64 i = 0; i < num_bones; i++)
+	{
+		Bone *next_bone = MD_PushArray(arena, Bone, 1);
+
+		BlenderMat b;
+		ser_BlenderMat(&ser, &b);
+		next_bone->matrix_local = blender_to_handmade_mat(b);
+
+		MD_StackPush(to_return, next_bone);
+	}
+	assert(!ser.cur_error.failed);
+	MD_ReleaseScratch(scratch);
+
+	return to_return;
+}
+
 typedef struct CollisionCube
 {
 	struct CollisionCube *next;
@@ -899,6 +958,7 @@ void ser_BlenderTransform(SerState *ser, BlenderTransform *t)
 	ser_Vec3(ser, &t->euler_rotation);
 	ser_Vec3(ser, &t->scale);
 }
+
 
 Transform blender_to_game_transform(BlenderTransform blender_transform)
 {
@@ -1056,6 +1116,11 @@ Mat4 projection = {0};
 Vec4 IsPoint(Vec3 point)
 {
 	return V4(point.x, point.y, point.z, 1.0f);
+}
+
+Vec3 MulM4V3(Mat4 m, Vec3 v)
+{
+	return MulM4V4(m, IsPoint(v)).xyz;
 }
 
 typedef struct
@@ -2606,6 +2671,7 @@ void do_serialization_tests()
 }
 #endif
 
+Bone *bones = 0;
 Mesh mesh_player = {0};
 
 void stbi_flip_into_correct_direction(bool do_it)
@@ -2655,6 +2721,8 @@ void init(void)
 	
 	MD_String8 binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/Player.bin"));
 	mesh_player = load_mesh(persistent_arena, binary_file, MD_S8Lit("Player.bin"));
+	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/Armature.bin"));
+	bones = load_armature(persistent_arena, binary_file, MD_S8Lit("Player.bin"));
 	MD_ArenaClear(frame_arena);
 
 	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/level.bin"));
@@ -4405,6 +4473,22 @@ void frame(void)
 			view = LookAt_RH(cam_pos, player_pos, V3(0, 1, 0));
 		}
 		projection = Perspective_RH_NO(PI32/4.0f, screen_size().x / screen_size().y, 0.01f, 1000.0f);
+
+		for(Bone *cur = bones; cur; cur = cur->next)
+		{
+			Vec3 offset = V3(5, 0, 5);
+			if(cur->next)
+			{
+				Vec3 from = MulM4V3(cur->matrix_local, V3(0,0,0));
+				Vec3 to   = MulM4V3(cur->next->matrix_local, V3(0,0,0));
+
+				from = AddV3(from, offset);
+				to = AddV3(to, offset);
+				dbgcol(BLUE)
+					dbg3dline(from, to);
+			}
+		}
+		
 
 		for(PlacedMesh *cur = level_threedee.placed_mesh_list; cur; cur = cur->next)
 		{
