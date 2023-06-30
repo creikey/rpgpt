@@ -206,6 +206,22 @@ Vec2 ReflectV2(Vec2 v, Vec2 normal)
 	return to_return;
 }
 
+
+float AngleOfV2(Vec2 v)
+{
+	return atan2f(v.y, v.x);
+}
+
+
+#define TAU (PI*2.0)
+
+float lerp_angle(float from, float t, float to)
+{
+	double difference = fmod(to - from, TAU);
+	double distance = fmod(2.0 * difference, TAU) - difference;
+	return (float)(from + distance * t);
+}
+
 typedef struct AABB
 {
 	Vec2 upper_left;
@@ -1820,14 +1836,17 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 	for(PlacedEntity *cur = level->placed_entity_list; cur; cur = cur->next)
 	{
 		Entity *cur_entity = new_entity(gs);
-		cur_entity->pos = point_plane(cur->t.offset);
 		cur_entity->npc_kind = cur->npc_kind;
-		cur_entity->is_npc = true;
+		cur_entity->pos = point_plane(cur->t.offset);
 		if(cur_entity->npc_kind == NPC_Player)
 		{
 			found_player = true;
 			cur_entity->is_character = true;
 			gs->player = cur_entity;
+		}
+		else
+		{
+			cur_entity->is_npc = true;
 		}
 	}
 	assert(found_player);
@@ -4268,6 +4287,20 @@ void draw_item(ItemKind kind, AABB in_aabb, float alpha)
 	}
 }
 
+Transform entity_transform(Entity *e)
+{
+	// the mods to e->rotation here are just chosen based on what looks right with model
+	// facing forward towards
+	Quat entity_rot = QFromAxisAngle_RH(V3(0,1,0), AngleRad(-e->rotation - PI32/2.0f));
+	dbgplaneline(e->pos, AddV2(e->pos, RotateV2(V2(5.0f, 0.0), e->rotation)));
+
+	return (Transform){.offset = AddV3(plane_point(e->pos), V3(0,0,0)), .rotation = entity_rot, .scale = V3(1, 1, 1)};
+	/*
+	(void)entity_rot;
+	return (Transform){.offset = AddV3(plane_point(e->pos), V3(0,0,0)), .rotation = Make_Q(0,0,0,1), .scale = V3(1, 1, 1)};
+	*/
+}
+
 void frame(void)
 {
 	static float speed_factor = 1.0f;
@@ -4378,15 +4411,16 @@ void frame(void)
 			draw_placed(view, projection, cur);
 		}
 
-		draw_placed(view, projection, &(PlacedMesh){.draw_with = &mesh_player, .t = (Transform){.offset = AddV3(plane_point(gs.player->pos), V3(0,0,0)), .rotation = Make_Q(0, 0, 0, 1), .scale = V3(1, 1, 1)}, });
 
 		ENTITIES_ITER(gs.entities)
 		{
-			if(it->is_npc)
+			if(it->is_npc || it->is_character)
 			{
-				draw_placed(view, projection, &(PlacedMesh){.draw_with = &mesh_player, .t = (Transform){.offset = AddV3(plane_point(it->pos), V3(0,0,0)), .rotation = Make_Q(0, 0, 0, 1), .scale = V3(1, 1, 1)}, });
+				Transform draw_with = entity_transform(it);
+				draw_placed(view, projection, &(PlacedMesh){.draw_with = &mesh_player, .t = draw_with, });
 			}
 		}
+
 
 		sg_end_pass();
 
@@ -4559,7 +4593,7 @@ void frame(void)
 					}
 				}
 
-				// process gs.entities
+				// process gs.entities process entities
 				player_in_combat = false; // in combat set by various enemies when they fight the player
 				PROFILE_SCOPE("entity processing")
 				{
@@ -4570,8 +4604,16 @@ void frame(void)
 					ENTITIES_ITER(gs.entities)
 					{
 						assert(!(it->exists && it->generation == 0));
+						
+						if (it->is_npc || it->is_character)
+						{
+							if(LenV2(it->last_moved) > 0.0f)
+								it->rotation = lerp_angle(it->rotation, dt * 8.0f, AngleOfV2(it->last_moved));
+						}
+
 						if (it->is_npc)
 						{
+
 							// @Place(entity processing)
 							if (it->gen_request_id != 0)
 							{
@@ -4735,9 +4777,14 @@ void frame(void)
 									}
 								}
 
-								Vec2 target = get_point_along_trail(BUFF_MAKEREF(&gs.player->position_history), (float)place_in_line * TILE_SIZE);
+								Vec2 target = get_point_along_trail(BUFF_MAKEREF(&gs.player->position_history), (float)place_in_line * 1.0f);
 
+								Vec2 last_pos = it->pos;
 								it->pos = LerpV2(it->pos, dt*5.0f, target);
+								if(LenV2(SubV2(it->pos, last_pos)) > 0.01f)
+								{
+									it->last_moved = NormV2(SubV2(it->pos, last_pos));
+								}
 							}
 
 
@@ -5212,7 +5259,8 @@ void frame(void)
 									}
 									else
 									{
-										ai_response = MD_S8Lit(" Within the player's party, while the player is talking to Meld, you hear: ACT_none \"Better have a good reason for bothering me. fjdskfjdsakfjsdakf\"");
+										//ai_response = MD_S8Lit(" Within the player's party, while the player is talking to Meld, you hear: ACT_none \"Better have a good reason for bothering me. fjdskfjdsakfjsdakf\"");
+										ai_response = MD_S8Fmt(frame_arena, "{who_i_am: \"%s\", talking_to: nobody, action: joins_player, thoughts: \"I'm thinking...\", mood: Happy}", characters[it->npc_kind].name);
 									}
 								}
 								else
@@ -5416,6 +5464,7 @@ void frame(void)
 
 					// velocity processing
 					{
+						gs.player->last_moved = NormV2(movement);
 						Vec2 target_vel = MulV2F(movement, pixels_per_meter * speed);
 						gs.player->vel = LerpV2(gs.player->vel, dt * 15.0f, target_vel);
 						gs.player->pos = move_and_slide((MoveSlideParams) { gs.player, gs.player->pos, MulV2F(gs.player->vel, dt) });
