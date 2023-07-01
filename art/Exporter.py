@@ -48,6 +48,7 @@ mapping = axis_conversion(
     to_forward = "-Z",
     to_up = "Y",
 )
+mapping.resize_4x4()
 
 for o in D.objects:
     if o.type == "ARMATURE":
@@ -57,8 +58,10 @@ for o in D.objects:
         with open(output_filepath, "wb") as f:
             write_u64(f, len(o.data.bones))
             for b in o.data.bones:
+                print(mapping)
+                print(b.matrix_local)
                 in_game_coordinate_system = mapping @ b.matrix_local
-                write_4x4matrix(f, b.matrix_local)
+                write_4x4matrix(f, in_game_coordinate_system)
             
     elif o.type == "MESH":
         
@@ -80,7 +83,6 @@ for o in D.objects:
                 continue
             saved_meshes.add(mesh_name)
             
-            mapping.resize_4x4()
             assert(mesh_name != LEVEL_EXPORT_NAME)
             output_filepath = bpy.path.abspath(f"//{EXPORT_DIRECTORY}/{mesh_name}.bin")
             print(f"Exporting mesh to {output_filepath}")

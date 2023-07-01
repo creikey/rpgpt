@@ -815,6 +815,7 @@ typedef struct Bone
 {
 	struct Bone *next;
 	Mat4 matrix_local;
+	float length;
 } Bone;
 
 typedef struct
@@ -929,7 +930,7 @@ Bone *load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armature
 		BlenderMat b;
 		ser_BlenderMat(&ser, &b);
 		next_bone->matrix_local = blender_to_handmade_mat(b);
-
+		ser_float(&ser, &next_bone->length);
 		MD_StackPush(to_return, next_bone);
 	}
 	assert(!ser.cur_error.failed);
@@ -2524,12 +2525,13 @@ void audio_stream_callback(float *buffer, int num_frames, int num_channels)
 }
 
 
-#define WHITE ((Color) { 1.0f, 1.0f, 1.0f, 1.0f })
-#define GREY  ((Color) { 0.4f, 0.4f, 0.4f, 1.0f })
+#define WHITE     ((Color) { 1.0f, 1.0f, 1.0f, 1.0f })
+#define GREY      ((Color) { 0.4f, 0.4f, 0.4f, 1.0f })
 #define BLACK ((Color) { 0.0f, 0.0f, 0.0f, 1.0f })
 #define RED   ((Color) { 1.0f, 0.0f, 0.0f, 1.0f })
 #define PINK  ((Color) { 1.0f, 0.0f, 1.0f, 1.0f })
 #define BLUE  ((Color) { 0.0f, 0.0f, 1.0f, 1.0f })
+#define LIGHTBLUE ((Color) { 0.2f, 0.2f, 0.8f, 1.0f })
 #define GREEN ((Color) { 0.0f, 1.0f, 0.0f, 1.0f })
 #define BROWN (colhex(0x4d3d25))
 
@@ -3364,7 +3366,7 @@ void dbgsquare(Vec2 at)
 {
 #ifdef DEVTOOLS
 	if (!show_devtools) return;
-	colorquad(quad_centered(at, V2(3.0, 3.0)), debug_color);
+	colorquad(quad_centered(at, V2(10.0, 10.0)), debug_color);
 #else
 	(void)at;
 #endif
@@ -3481,6 +3483,12 @@ void colorquadplane(Quad q, Color col)
 		q.points[i] = threedee_to_screenspace(plane_point(q.points[i]));
 	}
 	colorquad(warped, col);
+}
+
+void dbgsquare3d(Vec3 point)
+{
+	Vec2 in_screen = threedee_to_screenspace(point);
+	dbgsquare(in_screen);
 }
 
 void dbgplanesquare(Vec2 at)
@@ -4477,16 +4485,15 @@ void frame(void)
 		for(Bone *cur = bones; cur; cur = cur->next)
 		{
 			Vec3 offset = V3(5, 0, 5);
-			if(cur->next)
-			{
-				Vec3 from = MulM4V3(cur->matrix_local, V3(0,0,0));
-				Vec3 to   = MulM4V3(cur->next->matrix_local, V3(0,0,0));
+			Vec3 from = MulM4V3(cur->matrix_local, V3(0,0,0));
+			Vec3 to   = MulM4V3(cur->matrix_local, V3(0,cur->length,0));
 
-				from = AddV3(from, offset);
-				to = AddV3(to, offset);
-				dbgcol(BLUE)
-					dbg3dline(from, to);
-			}
+			from = AddV3(from, offset);
+			to = AddV3(to, offset);
+			dbgcol(LIGHTBLUE)
+				dbgsquare3d(to);
+			dbgcol(BLUE)
+				dbg3dline(from, to);
 		}
 		
 
