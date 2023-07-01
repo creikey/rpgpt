@@ -660,6 +660,10 @@ Vec2 entity_aabb_size(Entity *e)
 		{
 			return V2(1.0f*2.0f, 1.0f*2.0f);
 		}
+		else if (e->npc_kind == NPC_SimpleWorm)
+		{
+			return V2(1.0f, 1.0f);
+		}
 		else
 		{
 			assert(false);
@@ -815,6 +819,7 @@ typedef struct Bone
 {
 	struct Bone *next;
 	Mat4 matrix_local;
+	Mat4 inverse_model_space_pos;
 	float length;
 } Bone;
 
@@ -907,7 +912,21 @@ Mat4 blender_to_handmade_mat(BlenderMat b)
 	return TransposeM4(to_return);
 }
 
-Bone *load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armature_name)
+typedef struct PoseBone
+{
+	struct PoseBone *next;
+	struct PoseBone *parent;
+	Mat4 parent_space_pose;
+	MD_String8 name;
+} PoseBone;
+
+typedef struct
+{
+	Bone *bone_list;
+	PoseBone *pose_bone_list;
+} Armature;
+
+Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armature_name)
 {
 	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
 	SerState ser = {
@@ -917,7 +936,7 @@ Bone *load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armature
 		.error_arena = scratch.arena,
 		.serializing = false,
 	};
-	Bone *to_return = 0;
+	Armature to_return = {0};
 	
 	MD_u64 num_bones;
 	ser_MD_u64(&ser, &num_bones);
@@ -927,14 +946,93 @@ Bone *load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armature
 	{
 		Bone *next_bone = MD_PushArray(arena, Bone, 1);
 
-		BlenderMat b;
-		ser_BlenderMat(&ser, &b);
-		next_bone->matrix_local = blender_to_handmade_mat(b);
+		BlenderMat model_space_pose;
+		BlenderMat inverse_model_space_pose;
+
+		ser_BlenderMat(&ser, &model_space_pose);
+		ser_BlenderMat(&ser, &inverse_model_space_pose);
 		ser_float(&ser, &next_bone->length);
-		MD_StackPush(to_return, next_bone);
+
+		next_bone->matrix_local = blender_to_handmade_mat(model_space_pose);
+		next_bone->inverse_model_space_pos = blender_to_handmade_mat(inverse_model_space_pose);
+
+		MD_StackPush(to_return.bone_list, next_bone);
 	}
+
+
+	MD_u64 num_pose_bones;
+	ser_MD_u64(&ser, &num_pose_bones);
+	assert(num_pose_bones == num_bones);
+
+	MD_i32 *parent_indices = MD_PushArray(scratch.arena, MD_i32, num_pose_bones);
+	for(MD_u64 i = 0; i < num_bones; i++)
+		parent_indices[i] = -1;
+
+	for(MD_u64 i = 0; i < num_pose_bones; i++)
+	{
+		PoseBone *next_pose_bone = MD_PushArray(arena, PoseBone, 1);
+
+		BlenderMat parent_space_pose;
+
+		ser_MD_String8(&ser, &next_pose_bone->name, arena);
+		ser_int(&ser, &parent_indices[i]);
+		ser_BlenderMat(&ser, &parent_space_pose);
+
+		next_pose_bone->parent_space_pose = blender_to_handmade_mat(parent_space_pose);
+		next_pose_bone->parent = 0;
+
+		MD_StackPush(to_return.pose_bone_list, next_pose_bone);
+	}
+
+	PoseBone *to_attach_parent_to = to_return.pose_bone_list;
+	// i goes backwards here, because in the pose_bone_list bones are in reverse order
+	// compared to how they're serialized, because MD_StackPush causes the list to be in
+	// reverse order! Each successive element is prepended to the beginning
+	for(int i = (int)num_pose_bones - 1; i >= 0; i--)
+	{
+		assert(to_attach_parent_to);
+
+		MD_i32 target_index = parent_indices[i];
+		if(target_index != -1)
+		{
+			int i = (int)num_pose_bones - 1;
+			for(PoseBone *cur = to_return.pose_bone_list; cur; cur = cur->next)
+			{
+				if(i == target_index)
+				{
+					to_attach_parent_to->parent = cur;
+					break;
+				}
+				i--;
+			}
+			assert(to_attach_parent_to->parent);
+		}
+		to_attach_parent_to = to_attach_parent_to->next;
+	}
+
 	assert(!ser.cur_error.failed);
 	MD_ReleaseScratch(scratch);
+
+
+	// a sanity check
+	for(Bone *cur = to_return.bone_list; cur; cur = cur->next)
+	{
+		Mat4 should_be_identity = MulM4(cur->matrix_local, cur->inverse_model_space_pos);
+		for(int r = 0; r < 4; r++)
+		{
+			for(int c = 0; c < 4; c++)
+			{
+				if(r == c)
+				{
+					assert(should_be_identity.Elements[c][r] == 1.0f);
+				}
+				else
+				{
+					assert(should_be_identity.Elements[c][r] == 0.0f);
+				}
+			}
+		}
+	}
 
 	return to_return;
 }
@@ -1079,16 +1177,16 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 					new_placed->npc_kind = kind;
 				}
 			}
+			BlenderTransform blender_transform = {0};
+			ser_BlenderTransform(&ser, &blender_transform);
 			if(found)
 			{
-				BlenderTransform blender_transform = {0};
-				ser_BlenderTransform(&ser, &blender_transform);
 				new_placed->t = blender_to_game_transform(blender_transform);
 				MD_StackPush(out.placed_entity_list, new_placed);
 			}
 			else
 			{
-				Log("Couldn't find placed npc kind '%.*s'...\n", MD_S8VArg(placed_entity_name));
+				ser.cur_error = (SerError){.failed = true, .why = MD_S8Fmt(arena, "Couldn't find placed npc kind '%.*s'...\n", MD_S8VArg(placed_entity_name))};
 			}
 		}
 	}
@@ -2534,6 +2632,7 @@ void audio_stream_callback(float *buffer, int num_frames, int num_channels)
 #define LIGHTBLUE ((Color) { 0.2f, 0.2f, 0.8f, 1.0f })
 #define GREEN ((Color) { 0.0f, 1.0f, 0.0f, 1.0f })
 #define BROWN (colhex(0x4d3d25))
+#define YELLOW (colhex(0xffdd00))
 
 Color oflightness(float dark)
 {
@@ -2673,8 +2772,9 @@ void do_serialization_tests()
 }
 #endif
 
-Bone *bones = 0;
+Armature armature = {0};
 Mesh mesh_player = {0};
+Mesh mesh_simple_worm = {0};
 
 void stbi_flip_into_correct_direction(bool do_it)
 {
@@ -2723,8 +2823,15 @@ void init(void)
 	
 	MD_String8 binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/Player.bin"));
 	mesh_player = load_mesh(persistent_arena, binary_file, MD_S8Lit("Player.bin"));
+
+	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/SimpleWorm.bin"));
+	mesh_simple_worm = load_mesh(persistent_arena, binary_file, MD_S8Lit("SimpleWorm.bin"));
+
 	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/Armature.bin"));
-	bones = load_armature(persistent_arena, binary_file, MD_S8Lit("Player.bin"));
+	armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Player.bin"));
+
+
+
 	MD_ArenaClear(frame_arena);
 
 	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/level.bin"));
@@ -4368,7 +4475,7 @@ Transform entity_transform(Entity *e)
 	// the mods to e->rotation here are just chosen based on what looks right with model
 	// facing forward towards
 	Quat entity_rot = QFromAxisAngle_RH(V3(0,1,0), AngleRad(-e->rotation - PI32/2.0f));
-	dbgplaneline(e->pos, AddV2(e->pos, RotateV2(V2(5.0f, 0.0), e->rotation)));
+	//dbgplaneline(e->pos, AddV2(e->pos, RotateV2(V2(5.0f, 0.0), e->rotation)));
 
 	return (Transform){.offset = AddV3(plane_point(e->pos), V3(0,0,0)), .rotation = entity_rot, .scale = V3(1, 1, 1)};
 	/*
@@ -4482,18 +4589,63 @@ void frame(void)
 		}
 		projection = Perspective_RH_NO(PI32/4.0f, screen_size().x / screen_size().y, 0.01f, 1000.0f);
 
-		for(Bone *cur = bones; cur; cur = cur->next)
+		PoseBone *cur_pose_bone = armature.pose_bone_list;
+		for(Bone *cur = armature.bone_list; cur; cur = cur->next)
 		{
-			Vec3 offset = V3(5, 0, 5);
+			Vec3 offset = V3(1.5, 0, 5);
+
 			Vec3 from = MulM4V3(cur->matrix_local, V3(0,0,0));
-			Vec3 to   = MulM4V3(cur->matrix_local, V3(0,cur->length,0));
+			Vec3 x = MulM4V3(cur->matrix_local, V3(cur->length,0,0));
+			Vec3 y = MulM4V3(cur->matrix_local, V3(0,cur->length,0));
+			Vec3 z = MulM4V3(cur->matrix_local, V3(0,0,cur->length));
+
+			Vec3 should_be_zero = MulM4V3(cur->inverse_model_space_pos, from);
+			assert(should_be_zero.x == 0.0);
+			assert(should_be_zero.y == 0.0);
+			assert(should_be_zero.z == 0.0);
+
+			if(cur_pose_bone->parent == 0)
+			{
+				// do some testing on the bone with no parent
+				Vec3 should_be_zero = MulM4V3(cur_pose_bone->parent_space_pose, V3(0,0,0));
+				assert(should_be_zero.x == 0.0);
+				assert(should_be_zero.y == 0.0);
+				assert(should_be_zero.z == 0.0);
+			}
+
+			// from, x, y, and z are like vertex points. They are model-space
+			// points *around* the bones they should be influenced by. Now we
+			// need to transform them according to how much the pose bones
+			// have moved and in the way they moved.
+
+			Mat4 final_mat = M4D(1.0f);
+			final_mat = MulM4(cur->inverse_model_space_pos, final_mat);
+			for(PoseBone *cur = cur_pose_bone; cur; cur = cur->parent)
+			{
+				final_mat = MulM4(cur->parent_space_pose, final_mat);
+			}
+
+			from = MulM4V3(final_mat, from);
+			x = MulM4V3(final_mat, x);
+			y = MulM4V3(final_mat, y);
+			z = MulM4V3(final_mat, z);
+
 
 			from = AddV3(from, offset);
-			to = AddV3(to, offset);
+			x = AddV3(x, offset);
+			y = AddV3(y, offset);
+			z = AddV3(z, offset);
+
 			dbgcol(LIGHTBLUE)
-				dbgsquare3d(to);
+				dbgsquare3d(y);
+			dbgcol(RED)
+				dbg3dline(from, x);
 			dbgcol(BLUE)
-				dbg3dline(from, to);
+				dbg3dline(from, y);
+			dbgcol(YELLOW)
+				dbg3dline(from, z);
+
+			cur_pose_bone = cur_pose_bone->next;
 		}
 		
 
@@ -4508,7 +4660,14 @@ void frame(void)
 			if(it->is_npc || it->is_character)
 			{
 				Transform draw_with = entity_transform(it);
-				draw_placed(view, projection, &(PlacedMesh){.draw_with = &mesh_player, .t = draw_with, });
+				if(it->npc_kind == NPC_SimpleWorm)
+				{
+					draw_placed(view, projection, &(PlacedMesh){.draw_with = &mesh_simple_worm, .t = draw_with, });
+				}
+				else
+				{
+					draw_placed(view, projection, &(PlacedMesh){.draw_with = &mesh_player, .t = draw_with, });
+				}
 			}
 		}
 

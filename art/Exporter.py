@@ -25,6 +25,9 @@ def write_f32(f, number: float):
 def write_u64(f, number: int):
     f.write(bytes(struct.pack("Q", number)))
 
+def write_i32(f, number: int):
+    f.write(bytes(struct.pack("i", number)))
+
 def write_string(f, s: str):
     encoded = s.encode("utf8")
     write_u64(f, len(encoded))
@@ -56,12 +59,47 @@ for o in D.objects:
         output_filepath = bpy.path.abspath(f"//{EXPORT_DIRECTORY}/{armature_name}.bin")
         print(f"Exporting armature to {output_filepath}")
         with open(output_filepath, "wb") as f:
-            write_u64(f, len(o.data.bones))
+            bones_in_armature = []
             for b in o.data.bones:
-                print(mapping)
+                bones_in_armature.append(b)
+                
+            # the inverse model space pos of the bones
+            write_u64(f, len(bones_in_armature))
+            for b in bones_in_armature:
+                model_space_pose = mapping @ b.matrix_local
+                print(b.name)
                 print(b.matrix_local)
-                in_game_coordinate_system = mapping @ b.matrix_local
-                write_4x4matrix(f, in_game_coordinate_system)
+                inverse_model_space_pose = (mapping @ b.matrix_local).inverted()
+
+                write_4x4matrix(f, model_space_pose)
+                write_4x4matrix(f, inverse_model_space_pose)
+                write_f32(f, b.length)
+            
+            # write the pose information
+            write_u64(f, len(o.pose.bones))
+            for pose_bone in o.pose.bones:
+                parent_index = -1
+                if pose_bone.parent:
+                    for i in range(len(bones_in_armature)):
+                        if bones_in_armature[i] == pose_bone.parent.bone:
+                            parent_index = i
+                            break
+                    if parent_index == -1:
+                        assert(false, f"Couldn't find parent of bone {pose_bone}")
+                    print(f"Parent of bone {pose_bone.name} is index {parent_index} in list {bones_in_armature}")
+                parent_space_pose = None
+                
+                if pose_bone.parent:
+                    parent_space_pose = pose_bone.parent.matrix.inverted() @ pose_bone.matrix
+                else:
+                    parent_space_pose = mapping @ pose_bone.matrix
+                    print("parent_space_pose of the bone with no parent:")
+                    print(parent_space_pose)
+                
+                write_string(f, pose_bone.bone.name)
+                write_i32(f, parent_index)
+                #parent_space_pose = mapping @ pose_bone.matrix
+                write_4x4matrix(f, parent_space_pose)
             
     elif o.type == "MESH":
         
