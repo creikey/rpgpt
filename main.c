@@ -922,8 +922,10 @@ typedef struct PoseBone
 
 typedef struct
 {
-	Bone *bone_list;
-	PoseBone *pose_bone_list;
+	Bone *bones;
+	MD_u64 bones_length;
+	PoseBone *poses;
+	MD_u64 poses_length;
 } Armature;
 
 Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armature_name)
@@ -938,13 +940,13 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 	};
 	Armature to_return = {0};
 	
-	MD_u64 num_bones;
-	ser_MD_u64(&ser, &num_bones);
-	Log("Armature %.*s has %llu vertices\n", MD_S8VArg(armature_name), num_bones);
+	ser_MD_u64(&ser, &to_return.bones_length);
+	Log("Armature %.*s has %llu vertices\n", MD_S8VArg(armature_name), to_return.bones_length);
+	to_return.bones = MD_PushArray(arena, Bone, to_return.bones_length);
 
-	for(MD_u64 i = 0; i < num_bones; i++)
+	for(MD_u64 i = 0; i < to_return.bones_length; i++)
 	{
-		Bone *next_bone = MD_PushArray(arena, Bone, 1);
+		Bone *next_bone = &to_return.bones[i];
 
 		BlenderMat model_space_pose;
 		BlenderMat inverse_model_space_pose;
@@ -955,69 +957,46 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 
 		next_bone->matrix_local = blender_to_handmade_mat(model_space_pose);
 		next_bone->inverse_model_space_pos = blender_to_handmade_mat(inverse_model_space_pose);
-
-		MD_StackPush(to_return.bone_list, next_bone);
 	}
 
 
-	MD_u64 num_pose_bones;
-	ser_MD_u64(&ser, &num_pose_bones);
-	assert(num_pose_bones == num_bones);
+	ser_MD_u64(&ser, &to_return.poses_length);
+	to_return.poses = MD_PushArray(arena, PoseBone, to_return.poses_length);
 
-	MD_i32 *parent_indices = MD_PushArray(scratch.arena, MD_i32, num_pose_bones);
-	for(MD_u64 i = 0; i < num_bones; i++)
-		parent_indices[i] = -1;
+	assert(to_return.poses_length == to_return.bones_length);
 
-	for(MD_u64 i = 0; i < num_pose_bones; i++)
+	for(MD_u64 i = 0; i < to_return.poses_length; i++)
 	{
-		PoseBone *next_pose_bone = MD_PushArray(arena, PoseBone, 1);
+		PoseBone *next_pose_bone = &to_return.poses[i];
 
 		BlenderMat parent_space_pose;
+		MD_i32 parent_index;
 
 		ser_MD_String8(&ser, &next_pose_bone->name, arena);
-		ser_int(&ser, &parent_indices[i]);
+		ser_int(&ser, &parent_index);
 		ser_BlenderMat(&ser, &parent_space_pose);
 
 		next_pose_bone->parent_space_pose = blender_to_handmade_mat(parent_space_pose);
-		next_pose_bone->parent = 0;
-
-		MD_StackPush(to_return.pose_bone_list, next_pose_bone);
-	}
-
-	PoseBone *to_attach_parent_to = to_return.pose_bone_list;
-	// i goes backwards here, because in the pose_bone_list bones are in reverse order
-	// compared to how they're serialized, because MD_StackPush causes the list to be in
-	// reverse order! Each successive element is prepended to the beginning
-	for(int i = (int)num_pose_bones - 1; i >= 0; i--)
-	{
-		assert(to_attach_parent_to);
-
-		MD_i32 target_index = parent_indices[i];
-		if(target_index != -1)
+		if(parent_index != -1)
 		{
-			int i = (int)num_pose_bones - 1;
-			for(PoseBone *cur = to_return.pose_bone_list; cur; cur = cur->next)
+			if(parent_index < 0 || parent_index >= to_return.poses_length)
 			{
-				if(i == target_index)
-				{
-					to_attach_parent_to->parent = cur;
-					break;
-				}
-				i--;
+				ser.cur_error = (SerError){.failed = true, .why = MD_S8Fmt(arena, "Parent index deserialized %d is out of range of the pose bones, which has a size of %llu", parent_index, to_return.poses_length)};
 			}
-			assert(to_attach_parent_to->parent);
+			else
+			{
+				next_pose_bone->parent = &to_return.poses[parent_index];
+			}
 		}
-		to_attach_parent_to = to_attach_parent_to->next;
 	}
-
 	assert(!ser.cur_error.failed);
 	MD_ReleaseScratch(scratch);
 
 
 	// a sanity check
-	for(Bone *cur = to_return.bone_list; cur; cur = cur->next)
+	SLICE_ITER(Bone, to_return.bones)
 	{
-		Mat4 should_be_identity = MulM4(cur->matrix_local, cur->inverse_model_space_pos);
+		Mat4 should_be_identity = MulM4(it->matrix_local, it->inverse_model_space_pos);
 		for(int r = 0; r < 4; r++)
 		{
 			for(int c = 0; c < 4; c++)
@@ -4589,9 +4568,12 @@ void frame(void)
 		}
 		projection = Perspective_RH_NO(PI32/4.0f, screen_size().x / screen_size().y, 0.01f, 1000.0f);
 
-		PoseBone *cur_pose_bone = armature.pose_bone_list;
-		for(Bone *cur = armature.bone_list; cur; cur = cur->next)
+		assert(armature.bones_length == armature.poses_length);
+		for(MD_u64 i = 0; i < armature.bones_length; i++)
 		{
+			PoseBone *cur_pose_bone = &armature.poses[i];
+			Bone *cur = &armature.bones[i];
+
 			Vec3 offset = V3(1.5, 0, 5);
 
 			Vec3 from = MulM4V3(cur->matrix_local, V3(0,0,0));

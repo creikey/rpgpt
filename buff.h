@@ -5,6 +5,7 @@
 #define ARRLEN(x) ((sizeof(x)/sizeof(0[x])) / ((size_t)(!(sizeof(x) % sizeof(0[x])))))
 #define ARR_ITER(type, arr) for(type *it = &arr[0]; it < &arr[ARRLEN(arr)]; it++)
 #define ARR_ITER_I(type, arr, i_var) ARR_ITER(type, arr) for(int i_var = (int)(it - &arr[0]); i_var != -1; i_var = -1)
+#define SLICE_ITER(type, slice_ptr) for(type *it = &slice_ptr[0]; it < &(slice_ptr[slice_ptr ##_length]); it++)
 #define GET_TABLE(table, index) (assert(index < ARRLEN(table) && index >= 0), table[index])
 // you can't do &(some func, variable) to get the variable's address in C. Sad!
 #define GET_TABLE_PTR(table, index) (assert(index < ARRLEN(table) && index >= 0), &table[index])
