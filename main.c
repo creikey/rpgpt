@@ -187,6 +187,7 @@ int min(int a, int b)
 // so can be grep'd and removed
 #define dbgprint(...) { printf("Debug | %s:%d | ", __FILE__, __LINE__); printf(__VA_ARGS__); }
 #define v3varg(v) v.x, v.y, v.z
+#define v2varg(v) v.x, v.y
 #define qvarg(v) v.x, v.y, v.z, v.w
 Vec2 RotateV2(Vec2 v, float theta)
 {
@@ -795,6 +796,7 @@ SER_MAKE_FOR_TYPE(Vec3);
 SER_MAKE_FOR_TYPE(AnimKind);
 SER_MAKE_FOR_TYPE(EntityRef);
 SER_MAKE_FOR_TYPE(NPCPlayerStanding);
+SER_MAKE_FOR_TYPE(MD_u16);
 
 void ser_Quat(SerState *ser, Quat *q)
 {
@@ -816,6 +818,8 @@ typedef struct
 {
 	Vec3 position;
 	Vec2 uv;
+	MD_u16   joint_indices[4];
+	float joint_weights[4];
 } ArmatureVertex;
 
 SER_MAKE_FOR_TYPE(Vertex);
@@ -1037,6 +1041,17 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 	{
 		ser_Vec3(&ser, &to_return.vertices[i].position);
 		ser_Vec2(&ser, &to_return.vertices[i].uv);
+		MD_u16 joint_indices[4];
+		float joint_weights[4];
+		for(int ii = 0; ii < 4; ii++)
+			ser_MD_u16(&ser, &joint_indices[ii]);
+		for(int ii = 0; ii < 4; ii++)
+			ser_float(&ser, &joint_weights[ii]);
+
+		for(int ii = 0; ii < 4; ii++)
+			to_return.vertices[i].joint_indices[ii] = joint_indices[ii];
+		for(int ii = 0; ii < 4; ii++)
+			to_return.vertices[i].joint_weights[ii] = joint_weights[ii];
 	}
 	Log("Armature %.*s has %llu vertices\n", MD_S8VArg(armature_name), to_return.vertices_length);
 
@@ -1163,7 +1178,7 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 			if(!mesh_found)
 			{
 				MD_String8 to_load_filepath = MD_S8Fmt(scratch.arena, "assets/exported_3d/%.*s.bin", MD_S8VArg(placed_mesh_name));
-				Log("Loading '%.*s'...\n", MD_S8VArg(to_load_filepath));
+				Log("Loading mesh '%.*s'...\n", MD_S8VArg(to_load_filepath));
 				MD_String8 binary_mesh_file = MD_LoadEntireFile(scratch.arena, to_load_filepath);
 				if(!binary_mesh_file.str)
 				{
@@ -1204,6 +1219,7 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 			MD_String8 placed_entity_name = {0};
 			ser_MD_String8(&ser, &placed_entity_name, scratch.arena);
 
+
 			bool found = false;
 			ARR_ITER_I(CharacterGen, characters, kind)
 			{
@@ -1224,6 +1240,8 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 			{
 				ser.cur_error = (SerError){.failed = true, .why = MD_S8Fmt(arena, "Couldn't find placed npc kind '%.*s'...\n", MD_S8VArg(placed_entity_name))};
 			}
+
+			Log("Loaded placed entity '%.*s' at %f %f %f\n", MD_S8VArg(placed_entity_name), v3varg(new_placed->t.offset));
 		}
 	}
 
@@ -1237,6 +1255,7 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 #include "assets.gen.c"
 #include "quad-sapp.glsl.h"
 #include "threedee.glsl.h"
+#include "armature.glsl.h"
 
 AABB level_aabb = { .upper_left = { 0.0f, 0.0f }, .lower_right = { TILE_SIZE * LEVEL_TILES, -(TILE_SIZE * LEVEL_TILES) } };
 GameState gs = { 0 };
@@ -2599,6 +2618,7 @@ static struct
 	sg_bindings bind;
 
 	sg_pipeline threedee_pip;
+	sg_pipeline armature_pip;
 	sg_bindings threedee_bind;
 } state;
 
@@ -2610,6 +2630,7 @@ void draw_placed(Mat4 view, Mat4 projection, PlacedMesh *cur)
 {
 	Mesh *drawing = cur->draw_with;
 	state.threedee_bind.vertex_buffers[0] = drawing->loaded_buffer;
+	sg_apply_pipeline(state.threedee_pip);
 	sg_apply_bindings(&state.threedee_bind);
 
 	Mat4 model = transform_to_mat(cur->t);
@@ -2628,16 +2649,32 @@ void draw_placed(Mat4 view, Mat4 projection, PlacedMesh *cur)
 void draw_armature(Mat4 view, Mat4 projection, Transform t, Armature *armature)
 {
 	state.threedee_bind.vertex_buffers[0] = armature->loaded_buffer;
+	sg_apply_pipeline(state.armature_pip);
 	sg_apply_bindings(&state.threedee_bind);
 
 	Mat4 model = transform_to_mat(t);
 
-	threedee_vs_params_t params = {0};
+	armature_vs_params_t params = {0};
 	memcpy(params.model, (float*)&model, sizeof(model));
 	memcpy(params.view, (float*)&view, sizeof(view));
 	memcpy(params.projection, (float*)&projection, sizeof(projection));
 
-	sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_vs_params, &SG_RANGE(params));
+	for(MD_u64 i = 0; i < armature->bones_length; i++)
+	{
+		Bone *cur = &armature->bones[i];
+		PoseBone *cur_pose_bone = &armature->poses[i];
+
+		Mat4 final = M4D(1.0f);
+		final = MulM4(cur->inverse_model_space_pos, final);
+		for(PoseBone *cur_posebone = cur_pose_bone; cur_posebone; cur_posebone = cur_posebone->parent)
+		{
+			final = MulM4(cur_posebone->parent_space_pose, final);
+		}
+
+		memcpy(params.bones[i], (float*)&final, sizeof(final));
+	}
+
+	sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_armature_vs_params, &SG_RANGE(params));
 	num_draw_calls += 1;
 	num_vertices += (int)armature->vertices_length;
 	sg_draw(0, (int)armature->vertices_length, 1);
@@ -2871,8 +2908,13 @@ void init(void)
 	DialogNode cur_node = { 0 };
 
 	load_assets();
-	
-	MD_String8 binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/Player.bin"));
+
+	MD_String8 binary_file;
+
+	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/level.bin"));
+	level_threedee = load_level(persistent_arena, binary_file);
+
+	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/Player.bin"));
 	mesh_player = load_mesh(persistent_arena, binary_file, MD_S8Lit("Player.bin"));
 
 
@@ -2883,8 +2925,6 @@ void init(void)
 
 	MD_ArenaClear(frame_arena);
 
-	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/level.bin"));
-	level_threedee = load_level(persistent_arena, binary_file);
 	reset_level();
 
 #ifdef DEVTOOLS
@@ -3028,6 +3068,40 @@ void init(void)
 			},
 			.label = "threedee",
 			});
+
+	desc = armature_program_shader_desc(sg_query_backend());
+	assert(desc);
+	shd = sg_make_shader(desc);
+
+	state.armature_pip = sg_make_pipeline(&(sg_pipeline_desc)
+			{
+			.shader = shd,
+			.depth = {
+			.compare = SG_COMPAREFUNC_LESS_EQUAL,
+			.write_enabled = true
+			},
+			.layout = {
+			.attrs =
+			{
+			[ATTR_armature_vs_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
+			[ATTR_armature_vs_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
+			[ATTR_armature_vs_indices_in].format = SG_VERTEXFORMAT_USHORT4N,
+			[ATTR_armature_vs_weights_in].format = SG_VERTEXFORMAT_FLOAT4,
+			}
+			},
+			.colors[0].blend = (sg_blend_state) { // allow transparency
+			.enabled = true,
+			.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
+			.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+			.op_rgb = SG_BLENDOP_ADD,
+			.src_factor_alpha = SG_BLENDFACTOR_ONE,
+			.dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+			.op_alpha = SG_BLENDOP_ADD,
+			},
+			.label = "armature",
+			});
+
+
 
 	state.clear_depth_buffer_pass_action = (sg_pass_action)
 	{
@@ -3942,7 +4016,6 @@ Vec2 move_and_slide(MoveSlideParams p)
 
 	BUFF_ITER(CollisionObj, &to_check)
 	{
-		dbgplanerect(it->aabb);
 		if (overlapping(at_new, it->aabb))
 		{
 			BUFF_APPEND(&actually_overlapping, *it);
@@ -4521,10 +4594,11 @@ void draw_item(ItemKind kind, AABB in_aabb, float alpha)
 
 Transform entity_transform(Entity *e)
 {
-	// the mods to e->rotation here are just chosen based on what looks right with model
-	// facing forward towards
-	Quat entity_rot = QFromAxisAngle_RH(V3(0,1,0), AngleRad(-e->rotation - PI32/2.0f));
-	//dbgplaneline(e->pos, AddV2(e->pos, RotateV2(V2(5.0f, 0.0), e->rotation)));
+	// Models must face +X in blender. This is because, in the 2d game coordinate system,
+	// a zero degree 2d rotation means you're facing +x, and this is how it is in the game logic.
+	// The rotation is negative for some reason that I'm not quite sure about though, something about
+	// the handedness of the 3d coordinate system not matching the handedness of the 2d coordinate system
+	Quat entity_rot = QFromAxisAngle_RH(V3(0,1,0), AngleRad(-e->rotation));
 
 	return (Transform){.offset = AddV3(plane_point(e->pos), V3(0,0,0)), .rotation = entity_rot, .scale = V3(1, 1, 1)};
 	/*
@@ -4574,7 +4648,6 @@ void frame(void)
 		uint64_t time_start_frame = stm_now();
 
 		Vec3 player_pos = V3(gs.player->pos.x, 0.0, gs.player->pos.y);
-		dbg3dline(player_pos, V3(0,0,0));
 		//dbgline(V2(0,0), V2(500, 500));
 		const float vertical_to_horizontal_ratio = 0.8f;
 		const float cam_distance = 20.0f;
@@ -4638,6 +4711,7 @@ void frame(void)
 		}
 		projection = Perspective_RH_NO(PI32/4.0f, screen_size().x / screen_size().y, 0.01f, 1000.0f);
 
+		// debug draw armature
 		assert(armature.bones_length == armature.poses_length);
 		for(MD_u64 i = 0; i < armature.bones_length; i++)
 		{
@@ -4650,6 +4724,7 @@ void frame(void)
 			Vec3 x = MulM4V3(cur->matrix_local, V3(cur->length,0,0));
 			Vec3 y = MulM4V3(cur->matrix_local, V3(0,cur->length,0));
 			Vec3 z = MulM4V3(cur->matrix_local, V3(0,0,cur->length));
+			Vec3 dot = MulM4V3(cur->matrix_local, V3(cur->length,0,cur->length));
 
 			Vec3 should_be_zero = MulM4V3(cur->inverse_model_space_pos, from);
 			assert(should_be_zero.x == 0.0);
@@ -4660,9 +4735,16 @@ void frame(void)
 			{
 				// do some testing on the bone with no parent
 				Vec3 should_be_zero = MulM4V3(cur_pose_bone->parent_space_pose, V3(0,0,0));
-				assert(should_be_zero.x == 0.0);
+
+				// there is another bone, that's not at (0,0,0) in model space on the model
+				// for debugging purposes right now
+
 				assert(should_be_zero.y == 0.0);
+
+				/*
+				assert(should_be_zero.x == 0.0);
 				assert(should_be_zero.z == 0.0);
+				*/
 			}
 
 			// from, x, y, and z are like vertex points. They are model-space
@@ -4677,25 +4759,35 @@ void frame(void)
 				final_mat = MulM4(cur->parent_space_pose, final_mat);
 			}
 
+			// uncommenting this skips the pose transform, showing the debug skeleton
+			// as if it were in "edit mode" in blender
+			//final_mat = M4D(1.0f);
+
 			from = MulM4V3(final_mat, from);
 			x = MulM4V3(final_mat, x);
 			y = MulM4V3(final_mat, y);
 			z = MulM4V3(final_mat, z);
+			dot = MulM4V3(final_mat, dot);
 
 
 			from = AddV3(from, offset);
 			x = AddV3(x, offset);
 			y = AddV3(y, offset);
 			z = AddV3(z, offset);
+			dot = AddV3(dot, offset);
 
 			dbgcol(LIGHTBLUE)
 				dbgsquare3d(y);
 			dbgcol(RED)
 				dbg3dline(from, x);
-			dbgcol(BLUE)
+			dbgcol(GREEN)
 				dbg3dline(from, y);
-			dbgcol(YELLOW)
+			dbgcol(BLUE)
 				dbg3dline(from, z);
+			dbgcol(YELLOW)
+				dbg3dline(from, dot);
+			dbgcol(PINK)
+				dbgsquare3d(dot);
 
 			cur_pose_bone = cur_pose_bone->next;
 		}
@@ -6334,7 +6426,7 @@ void frame(void)
 				Vec2 pos = V2(0.0, screen_size().Y);
 				int num_entities = 0;
 				ENTITIES_ITER(gs.entities) num_entities++;
-				MD_String8 stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nGameplay processing: %.1f ms\nEntities: %d\nDraw calls: %d\nDrawn Vertices: %d\nProfiling: %s\nNumber gameplay processing loops: %d\nFlyecam: %s\n", dt*1000.0, last_frame_processing_time*1000.0, last_frame_gameplay_processing_time*1000.0, num_entities, num_draw_calls, num_vertices, profiling ? "yes" : "no", num_timestep_loops, flycam ? "yes" : "no");
+				MD_String8 stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nGameplay processing: %.1f ms\nEntities: %d\nDraw calls: %d\nDrawn Vertices: %d\nProfiling: %s\nNumber gameplay processing loops: %d\nFlyecam: %s\nPlayer position: %f %f\n", dt*1000.0, last_frame_processing_time*1000.0, last_frame_gameplay_processing_time*1000.0, num_entities, num_draw_calls, num_vertices, profiling ? "yes" : "no", num_timestep_loops, flycam ? "yes" : "no", v2varg(gs.player->pos));
 				AABB bounds = draw_text((TextParams) { true, stats, pos, BLACK, 1.0f });
 				pos.Y -= bounds.upper_left.Y - screen_size().Y;
 				bounds = draw_text((TextParams) { true, stats, pos, BLACK, 1.0f });

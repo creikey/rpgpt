@@ -30,6 +30,9 @@ def write_u64(f, number: int):
 def write_i32(f, number: int):
     f.write(bytes(struct.pack("i", number)))
 
+def write_u16(f, number: int): # unsigned short, used in shaders to figure out which bone index is current
+    f.write(bytes(struct.pack("H", number)))
+
 def write_v3(f, vector):
     write_f32(f, vector.x)
     write_f32(f, vector.y)
@@ -52,6 +55,13 @@ def write_4x4matrix(f, m):
         for col in range(4):
             write_f32(f, m[row][col])
 
+def normalize_joint_weights(weights):
+    total_weights = sum(weights)
+    result = [0,0,0,0]
+    if total_weights != 0:
+        for i, weight in enumerate(weights): result[i] = weight/total_weights
+    return result
+
 # for the level.bin 
 level_object_data = []
 collision_cubes = []
@@ -66,6 +76,10 @@ mapping = axis_conversion(
 )
 mapping.resize_4x4()
 
+with open(bpy.path.abspath(f"//{EXPORT_DIRECTORY}/shorttest.bin"), "wb") as f:
+    for i in range(4):
+        write_u16(f, i)
+
 # meshes can either be Meshes, or Armatures. Armatures contain all mesh data to draw it, and any anims it has
 
 for o in D.objects:
@@ -73,9 +87,9 @@ for o in D.objects:
         if o.parent and o.parent.type == "ARMATURE":
             mesh_object = o
             o = o.parent
-            object_transform_info = (mesh_name, mapping @ mesh_object.location, mesh_object.rotation_euler, mesh_object.scale)
+            object_transform_info = (mesh_name, mapping @ o.location, o.rotation_euler, o.scale)
             if o.users_collection[0].name == 'Level':
-                assert(False, "Cannot put armatures in the level. The level is for static placed meshes. For dynamic entities, you put them outside of the level collection")
+                assert(False, "Cannot put armatures in the level. The level is for static placed meshes. For dynamic entities, you put them outside of the level collection, their entity kind is encoded, and the game code decides how to draw them")
             else:
                 placed_entities.append((mesh_object.name,) + object_transform_info)
             armature_name = o.data.name
@@ -115,6 +129,7 @@ for o in D.objects:
                         parent_space_pose = pose_bone.parent.matrix.inverted() @ pose_bone.matrix
                     else:
                         parent_space_pose = mapping @ pose_bone.matrix
+                        #parent_space_pose = pose_bone.matrix
                         print("parent_space_pose of the bone with no parent:")
                         print(parent_space_pose)
                     
@@ -138,7 +153,7 @@ for o in D.objects:
                 
                 
                 vertices = []
-
+                armature = o
                 for polygon in mesh.polygons:
                     if len(polygon.loop_indices) == 3:
                         for loopIndex in polygon.loop_indices:
@@ -147,16 +162,38 @@ for o in D.objects:
                             uv = mesh.uv_layers.active.data[loop.index].uv
                             normal = loop.normal
                             
-                            vertices.append((position, uv))
+                            jointIndices = [0,0,0,0]
+                            jointWeights = [0,0,0,0]
+                            for jointBindingIndex, group in enumerate(mesh.vertices[loop.vertex_index].groups):
+                                if jointBindingIndex < 4:
+                                    groupIndex = group.group
+                                    boneName = mesh_object.vertex_groups[groupIndex].name
+                                    jointIndices[jointBindingIndex] = armature.data.bones.find(boneName)
+                                    if jointIndices[jointBindingIndex] == -1:
+                                        # it's fine that this references a real bone, the bone at index 0,
+                                        # because the weight of its influence is 0
+                                        jointIndices[jointBindingIndex] = 0
+                                        jointWeights[jointBindingIndex] = 0.0
+                                    else:
+                                        jointWeights[jointBindingIndex] = group.weight
+                            
+                            
+                            vertices.append((position, uv, jointIndices, normalize_joint_weights(jointWeights)))
                 
                 write_u64(f, len(vertices))
+                vertex_i = 0
                 for v_and_uv in vertices:
-                    v, uv = v_and_uv
+                    v, uv, jointIndices, jointWeights = v_and_uv
                     write_f32(f, v.x)
                     write_f32(f, v.y)
                     write_f32(f, v.z)
                     write_f32(f, uv.x)
                     write_f32(f, uv.y)
+                    for i in range(4):
+                        write_u16(f, jointIndices[i])
+                    for i in range(4):
+                        write_f32(f, jointWeights[i])
+                    vertex_i += 1
                 print(f"Wrote {len(vertices)} vertices")
 
         else: # if the parent type isn't an armature, i.e just a bog standard mesh
