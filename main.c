@@ -796,6 +796,14 @@ SER_MAKE_FOR_TYPE(AnimKind);
 SER_MAKE_FOR_TYPE(EntityRef);
 SER_MAKE_FOR_TYPE(NPCPlayerStanding);
 
+void ser_Quat(SerState *ser, Quat *q)
+{
+	ser_float(ser, &q->x);
+	ser_float(ser, &q->y);
+	ser_float(ser, &q->z);
+	ser_float(ser, &q->w);
+}
+
 typedef struct
 {
 	Vec3 pos;
@@ -911,6 +919,16 @@ Mat4 blender_to_handmade_mat(BlenderMat b)
 	memcpy(&to_return, &b, sizeof(to_return));
 	return TransposeM4(to_return);
 }
+Mat4 transform_to_mat(Transform t)
+{
+	Mat4 to_return = M4D(1.0f);
+
+	to_return = MulM4(Scale(t.scale), to_return);
+	to_return = MulM4(QToM4(t.rotation), to_return);
+  to_return = MulM4(Translate(t.offset), to_return);
+
+	return to_return;
+}
 
 typedef struct PoseBone
 {
@@ -969,14 +987,16 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 	{
 		PoseBone *next_pose_bone = &to_return.poses[i];
 
-		BlenderMat parent_space_pose;
 		MD_i32 parent_index;
 
 		ser_MD_String8(&ser, &next_pose_bone->name, arena);
 		ser_int(&ser, &parent_index);
-		ser_BlenderMat(&ser, &parent_space_pose);
+		Transform t;
+		ser_Vec3(&ser, &t.offset);
+		ser_Quat(&ser, &t.rotation);
+		ser_Vec3(&ser, &t.scale);
 
-		next_pose_bone->parent_space_pose = blender_to_handmade_mat(parent_space_pose);
+		next_pose_bone->parent_space_pose = transform_to_mat(t);
 		if(parent_index != -1)
 		{
 			if(parent_index < 0 || parent_index >= to_return.poses_length)
@@ -2548,17 +2568,14 @@ static struct
 int num_draw_calls = 0;
 int num_vertices = 0;
 
+
 void draw_placed(Mat4 view, Mat4 projection, PlacedMesh *cur)
 {
 	Mesh *drawing = cur->draw_with;
 	state.threedee_bind.vertex_buffers[0] = drawing->loaded_buffer;
 	sg_apply_bindings(&state.threedee_bind);
 
-	Mat4 model =  M4D(1.0f);
-
-	model = MulM4(Scale(cur->t.scale), model);
-	model = MulM4(QToM4(cur->t.rotation), model);
-  model = MulM4(Translate(cur->t.offset), model);
+	Mat4 model = transform_to_mat(cur->t);
 
 	threedee_vs_params_t params = {0};
 	memcpy(params.model, (float*)&model, sizeof(model));

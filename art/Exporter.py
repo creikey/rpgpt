@@ -28,6 +28,17 @@ def write_u64(f, number: int):
 def write_i32(f, number: int):
     f.write(bytes(struct.pack("i", number)))
 
+def write_v3(f, vector):
+    write_f32(f, vector.x)
+    write_f32(f, vector.y)
+    write_f32(f, vector.z)
+
+def write_quat(f, quat):
+    write_f32(f, quat.x)
+    write_f32(f, quat.y)
+    write_f32(f, quat.z)
+    write_f32(f, quat.w)
+
 def write_string(f, s: str):
     encoded = s.encode("utf8")
     write_u64(f, len(encoded))
@@ -99,7 +110,12 @@ for o in D.objects:
                 write_string(f, pose_bone.bone.name)
                 write_i32(f, parent_index)
                 #parent_space_pose = mapping @ pose_bone.matrix
-                write_4x4matrix(f, parent_space_pose)
+                translation = parent_space_pose.to_translation()
+                rotation = parent_space_pose.to_quaternion()
+                scale = parent_space_pose.to_scale()
+                write_v3(f, translation)
+                write_quat(f, rotation)
+                write_v3(f, scale)
             
     elif o.type == "MESH":
         
