@@ -804,11 +804,19 @@ void ser_Quat(SerState *ser, Quat *q)
 	ser_float(ser, &q->w);
 }
 
+#pragma pack(1)
 typedef struct
 {
 	Vec3 pos;
 	Vec2 uv; // CANNOT have struct padding
 }  Vertex;
+
+#pragma pack(1)
+typedef struct
+{
+	Vec3 position;
+	Vec2 uv;
+} ArmatureVertex;
 
 SER_MAKE_FOR_TYPE(Vertex);
 
@@ -874,6 +882,11 @@ Mesh load_mesh(MD_Arena *arena, MD_String8 binary_file, MD_String8 mesh_name)
 		.serializing = false,
 	};
 	Mesh out = {0};
+
+	bool is_armature;
+	ser_bool(&ser, &is_armature);
+	assert(!is_armature);
+
 	ser_MD_u64(&ser, &out.num_vertices);
 	Log("Mesh %.*s has %llu vertices\n", MD_S8VArg(mesh_name), out.num_vertices);
 
@@ -938,12 +951,17 @@ typedef struct PoseBone
 	MD_String8 name;
 } PoseBone;
 
+
 typedef struct
 {
 	Bone *bones;
 	MD_u64 bones_length;
 	PoseBone *poses;
 	MD_u64 poses_length;
+	ArmatureVertex *vertices;
+	MD_u64 vertices_length;
+	sg_buffer loaded_buffer;
+	MD_String8 name;
 } Armature;
 
 Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armature_name)
@@ -957,9 +975,13 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 		.serializing = false,
 	};
 	Armature to_return = {0};
+
+	bool is_armature;
+	ser_bool(&ser, &is_armature);
+	assert(is_armature);
 	
 	ser_MD_u64(&ser, &to_return.bones_length);
-	Log("Armature %.*s has %llu vertices\n", MD_S8VArg(armature_name), to_return.bones_length);
+	Log("Armature %.*s has %llu bones\n", MD_S8VArg(armature_name), to_return.bones_length);
 	to_return.bones = MD_PushArray(arena, Bone, to_return.bones_length);
 
 	for(MD_u64 i = 0; i < to_return.bones_length; i++)
@@ -976,7 +998,6 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 		next_bone->matrix_local = blender_to_handmade_mat(model_space_pose);
 		next_bone->inverse_model_space_pos = blender_to_handmade_mat(inverse_model_space_pose);
 	}
-
 
 	ser_MD_u64(&ser, &to_return.poses_length);
 	to_return.poses = MD_PushArray(arena, PoseBone, to_return.poses_length);
@@ -1009,9 +1030,25 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 			}
 		}
 	}
+
+	ser_MD_u64(&ser, &to_return.vertices_length);
+	to_return.vertices = MD_PushArray(arena, ArmatureVertex, to_return.vertices_length);
+	for(MD_u64 i = 0; i < to_return.vertices_length; i++)
+	{
+		ser_Vec3(&ser, &to_return.vertices[i].position);
+		ser_Vec2(&ser, &to_return.vertices[i].uv);
+	}
+	Log("Armature %.*s has %llu vertices\n", MD_S8VArg(armature_name), to_return.vertices_length);
+
 	assert(!ser.cur_error.failed);
 	MD_ReleaseScratch(scratch);
 
+	to_return.loaded_buffer = sg_make_buffer(&(sg_buffer_desc)
+			{
+			.usage = SG_USAGE_IMMUTABLE,
+			.data = (sg_range){.ptr = to_return.vertices, .size = to_return.vertices_length * sizeof(ArmatureVertex)},
+			.label = (const char*)nullterm(arena, MD_S8Fmt(arena, "%.*s-vertices", MD_S8VArg(armature_name))).str,
+			});
 
 	// a sanity check
 	SLICE_ITER(Bone, to_return.bones)
@@ -2588,6 +2625,24 @@ void draw_placed(Mat4 view, Mat4 projection, PlacedMesh *cur)
 	sg_draw(0, (int)drawing->num_vertices, 1);
 }
 
+void draw_armature(Mat4 view, Mat4 projection, Transform t, Armature *armature)
+{
+	state.threedee_bind.vertex_buffers[0] = armature->loaded_buffer;
+	sg_apply_bindings(&state.threedee_bind);
+
+	Mat4 model = transform_to_mat(t);
+
+	threedee_vs_params_t params = {0};
+	memcpy(params.model, (float*)&model, sizeof(model));
+	memcpy(params.view, (float*)&view, sizeof(view));
+	memcpy(params.projection, (float*)&projection, sizeof(projection));
+
+	sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_vs_params, &SG_RANGE(params));
+	num_draw_calls += 1;
+	num_vertices += (int)armature->vertices_length;
+	sg_draw(0, (int)armature->vertices_length, 1);
+}
+
 
 void audio_stream_callback(float *buffer, int num_frames, int num_channels)
 {
@@ -2820,11 +2875,9 @@ void init(void)
 	MD_String8 binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/Player.bin"));
 	mesh_player = load_mesh(persistent_arena, binary_file, MD_S8Lit("Player.bin"));
 
-	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/SimpleWorm.bin"));
-	mesh_simple_worm = load_mesh(persistent_arena, binary_file, MD_S8Lit("SimpleWorm.bin"));
 
 	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/Armature.bin"));
-	armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Player.bin"));
+	armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Armature.bin"));
 
 
 
@@ -4661,7 +4714,7 @@ void frame(void)
 				Transform draw_with = entity_transform(it);
 				if(it->npc_kind == NPC_SimpleWorm)
 				{
-					draw_placed(view, projection, &(PlacedMesh){.draw_with = &mesh_simple_worm, .t = draw_with, });
+					draw_armature(view, projection, draw_with, &armature);
 				}
 				else
 				{

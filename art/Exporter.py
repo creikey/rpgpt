@@ -18,6 +18,8 @@ if os.path.exists(bpy.path.abspath(f"//{EXPORT_DIRECTORY}")):
     shutil.rmtree(bpy.path.abspath(f"//{EXPORT_DIRECTORY}"))
 os.makedirs(bpy.path.abspath(f"//{EXPORT_DIRECTORY}"))
 
+def write_b8(f, boolean: bool):
+    f.write(bytes(struct.pack("?", boolean)))
 
 def write_f32(f, number: float):
     f.write(bytes(struct.pack("f", number)))
@@ -64,85 +66,71 @@ mapping = axis_conversion(
 )
 mapping.resize_4x4()
 
-for o in D.objects:
-    if o.type == "ARMATURE":
-        armature_name = o.data.name
-        output_filepath = bpy.path.abspath(f"//{EXPORT_DIRECTORY}/{armature_name}.bin")
-        print(f"Exporting armature to {output_filepath}")
-        with open(output_filepath, "wb") as f:
-            bones_in_armature = []
-            for b in o.data.bones:
-                bones_in_armature.append(b)
-                
-            # the inverse model space pos of the bones
-            write_u64(f, len(bones_in_armature))
-            for b in bones_in_armature:
-                model_space_pose = mapping @ b.matrix_local
-                print(b.name)
-                print(b.matrix_local)
-                inverse_model_space_pose = (mapping @ b.matrix_local).inverted()
+# meshes can either be Meshes, or Armatures. Armatures contain all mesh data to draw it, and any anims it has
 
-                write_4x4matrix(f, model_space_pose)
-                write_4x4matrix(f, inverse_model_space_pose)
-                write_f32(f, b.length)
-            
-            # write the pose information
-            write_u64(f, len(o.pose.bones))
-            for pose_bone in o.pose.bones:
-                parent_index = -1
-                if pose_bone.parent:
-                    for i in range(len(bones_in_armature)):
-                        if bones_in_armature[i] == pose_bone.parent.bone:
-                            parent_index = i
-                            break
-                    if parent_index == -1:
-                        assert(false, f"Couldn't find parent of bone {pose_bone}")
-                    print(f"Parent of bone {pose_bone.name} is index {parent_index} in list {bones_in_armature}")
-                parent_space_pose = None
-                
-                if pose_bone.parent:
-                    parent_space_pose = pose_bone.parent.matrix.inverted() @ pose_bone.matrix
-                else:
-                    parent_space_pose = mapping @ pose_bone.matrix
-                    print("parent_space_pose of the bone with no parent:")
-                    print(parent_space_pose)
-                
-                write_string(f, pose_bone.bone.name)
-                write_i32(f, parent_index)
-                #parent_space_pose = mapping @ pose_bone.matrix
-                translation = parent_space_pose.to_translation()
-                rotation = parent_space_pose.to_quaternion()
-                scale = parent_space_pose.to_scale()
-                write_v3(f, translation)
-                write_quat(f, rotation)
-                write_v3(f, scale)
-            
-    elif o.type == "MESH":
-        
-        mesh_name = o.to_mesh().name # use this over o.name so instanced objects which refer to the same mesh, both use the same serialized mesh.
-        
-        object_transform_info = (mesh_name, mapping @ o.location, o.rotation_euler, o.scale)
-        
-        if o.users_collection[0].name == 'Level' and mesh_name == "CollisionCube":
-            collision_cubes.append((o.location, o.dimensions))
-        else:
+for o in D.objects:
+    if o.type == "MESH":
+        if o.parent and o.parent.type == "ARMATURE":
+            mesh_object = o
+            o = o.parent
+            object_transform_info = (mesh_name, mapping @ mesh_object.location, mesh_object.rotation_euler, mesh_object.scale)
             if o.users_collection[0].name == 'Level':
-                print(f"Object {o.name} has mesh name {o.to_mesh().name}")
-                assert(o.rotation_euler.order == 'XYZ')
-                level_object_data.append(object_transform_info)
+                assert(False, "Cannot put armatures in the level. The level is for static placed meshes. For dynamic entities, you put them outside of the level collection")
             else:
-                placed_entities.append((o.name,) + object_transform_info)
-            
-            if mesh_name in saved_meshes:
-                continue
-            saved_meshes.add(mesh_name)
-            
-            assert(mesh_name != LEVEL_EXPORT_NAME)
-            output_filepath = bpy.path.abspath(f"//{EXPORT_DIRECTORY}/{mesh_name}.bin")
-            print(f"Exporting mesh to {output_filepath}")
+                placed_entities.append((mesh_object.name,) + object_transform_info)
+            armature_name = o.data.name
+            output_filepath = bpy.path.abspath(f"//{EXPORT_DIRECTORY}/{armature_name}.bin")
+            print(f"Exporting armature to {output_filepath}")
             with open(output_filepath, "wb") as f:
+                write_b8(f, True)
+                bones_in_armature = []
+                for b in o.data.bones:
+                    bones_in_armature.append(b)
+                    
+                # the inverse model space pos of the bones
+                write_u64(f, len(bones_in_armature))
+                for b in bones_in_armature:
+                    model_space_pose = mapping @ b.matrix_local
+                    inverse_model_space_pose = (mapping @ b.matrix_local).inverted()
+
+                    write_4x4matrix(f, model_space_pose)
+                    write_4x4matrix(f, inverse_model_space_pose)
+                    write_f32(f, b.length)
+                
+                # write the pose information
+                write_u64(f, len(o.pose.bones))
+                for pose_bone in o.pose.bones:
+                    parent_index = -1
+                    if pose_bone.parent:
+                        for i in range(len(bones_in_armature)):
+                            if bones_in_armature[i] == pose_bone.parent.bone:
+                                parent_index = i
+                                break
+                        if parent_index == -1:
+                            assert(false, f"Couldn't find parent of bone {pose_bone}")
+                        print(f"Parent of bone {pose_bone.name} is index {parent_index} in list {bones_in_armature}")
+                    parent_space_pose = None
+                    
+                    if pose_bone.parent:
+                        parent_space_pose = pose_bone.parent.matrix.inverted() @ pose_bone.matrix
+                    else:
+                        parent_space_pose = mapping @ pose_bone.matrix
+                        print("parent_space_pose of the bone with no parent:")
+                        print(parent_space_pose)
+                    
+                    write_string(f, pose_bone.bone.name)
+                    write_i32(f, parent_index)
+                    #parent_space_pose = mapping @ pose_bone.matrix
+                    translation = parent_space_pose.to_translation()
+                    rotation = parent_space_pose.to_quaternion()
+                    scale = parent_space_pose.to_scale()
+                    write_v3(f, translation)
+                    write_quat(f, rotation)
+                    write_v3(f, scale)
+
+                # write the mesh data for the armature
                 bm = bmesh.new()
-                mesh = o.to_mesh()
+                mesh = mesh_object.to_mesh()
                 bm.from_mesh(mesh)
                 bmesh.ops.triangulate(bm, faces=bm.faces)
                 bm.transform(mapping)
@@ -170,6 +158,60 @@ for o in D.objects:
                     write_f32(f, uv.x)
                     write_f32(f, uv.y)
                 print(f"Wrote {len(vertices)} vertices")
+
+        else: # if the parent type isn't an armature, i.e just a bog standard mesh
+            mesh_name = o.to_mesh().name # use this over o.name so instanced objects which refer to the same mesh, both use the same serialized mesh.
+            
+            object_transform_info = (mesh_name, mapping @ o.location, o.rotation_euler, o.scale)
+            
+            if o.users_collection[0].name == 'Level' and mesh_name == "CollisionCube":
+                collision_cubes.append((o.location, o.dimensions))
+            else:
+                if o.users_collection[0].name == 'Level':
+                    print(f"Object {o.name} has mesh name {o.to_mesh().name}")
+                    assert(o.rotation_euler.order == 'XYZ')
+                    level_object_data.append(object_transform_info)
+                else:
+                    placed_entities.append((o.name,) + object_transform_info)
+                
+                if mesh_name in saved_meshes:
+                    continue
+                saved_meshes.add(mesh_name)
+                
+                assert(mesh_name != LEVEL_EXPORT_NAME)
+                output_filepath = bpy.path.abspath(f"//{EXPORT_DIRECTORY}/{mesh_name}.bin")
+                print(f"Exporting mesh to {output_filepath}")
+                with open(output_filepath, "wb") as f:
+                    write_b8(f, False)
+                    bm = bmesh.new()
+                    mesh = o.to_mesh()
+                    bm.from_mesh(mesh)
+                    bmesh.ops.triangulate(bm, faces=bm.faces)
+                    bm.transform(mapping)
+                    bm.to_mesh(mesh)
+                    
+                    
+                    vertices = []
+
+                    for polygon in mesh.polygons:
+                        if len(polygon.loop_indices) == 3:
+                            for loopIndex in polygon.loop_indices:
+                                loop = mesh.loops[loopIndex]
+                                position = mesh.vertices[loop.vertex_index].undeformed_co
+                                uv = mesh.uv_layers.active.data[loop.index].uv
+                                normal = loop.normal
+                                
+                                vertices.append((position, uv))
+                    
+                    write_u64(f, len(vertices))
+                    for v_and_uv in vertices:
+                        v, uv = v_and_uv
+                        write_f32(f, v.x)
+                        write_f32(f, v.y)
+                        write_f32(f, v.z)
+                        write_f32(f, uv.x)
+                        write_f32(f, uv.y)
+                    print(f"Wrote {len(vertices)} vertices")
 
 with open(bpy.path.abspath(f"//{EXPORT_DIRECTORY}/{LEVEL_EXPORT_NAME}.bin"), "wb") as f:
     write_u64(f, len(level_object_data))
