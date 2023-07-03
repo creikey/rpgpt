@@ -806,6 +806,13 @@ void ser_Quat(SerState *ser, Quat *q)
 	ser_float(ser, &q->w);
 }
 
+typedef struct
+{
+	Vec3 offset;
+	Quat rotation;
+	Vec3 scale;
+} Transform;
+
 #pragma pack(1)
 typedef struct
 {
@@ -838,7 +845,7 @@ typedef struct Mesh
 typedef struct PoseBone
 {
 	float time; // time through animation this pose occurs at
-	Mat4 parent_space_pose;
+	Transform parent_space_pose;
 } PoseBone;
 
 typedef struct Bone
@@ -851,12 +858,6 @@ typedef struct Bone
 	float length;
 } Bone;
 
-typedef struct
-{
-	Vec3 offset;
-	Quat rotation;
-	Vec3 scale;
-} Transform;
 
 typedef struct
 {
@@ -954,7 +955,14 @@ Mat4 transform_to_mat(Transform t)
 
 	return to_return;
 }
-
+Transform lerp_transforms(Transform from, float t, Transform to)
+{
+	return (Transform) {
+			.offset = LerpV3(from.offset,  t, to.offset),
+			.rotation = SLerp(from.rotation, t, to.rotation),
+			.scale = LerpV3(from.scale,  t, to.scale),
+	};
+}
 
 
 typedef struct
@@ -1033,13 +1041,12 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 		for(MD_u64 pose_bone_i = 0; pose_bone_i < to_return.bones_length; pose_bone_i++)
 		{
 			PoseBone *next_pose_bone = &to_return.bones[pose_bone_i].anim_poses[anim_i];
-			Transform t;
-			ser_Vec3(&ser, &t.offset);
-			ser_Quat(&ser, &t.rotation);
-			ser_Vec3(&ser, &t.scale);
+
+			ser_Vec3(&ser, &next_pose_bone->parent_space_pose.offset);
+			ser_Quat(&ser, &next_pose_bone->parent_space_pose.rotation);
+			ser_Vec3(&ser, &next_pose_bone->parent_space_pose.scale);
 
 			next_pose_bone->time = time_through;
-			next_pose_bone->parent_space_pose = transform_to_mat(t);
 		}
 	}
 
@@ -2654,7 +2661,7 @@ void draw_placed(Mat4 view, Mat4 projection, PlacedMesh *cur)
 	sg_draw(0, (int)drawing->num_vertices, 1);
 }
 
-Mat4 get_transform_along_time(Bone *bone, float time)
+Mat4 get_animated_bone_transform(Bone *bone, float time)
 {
 	float total_anim_time = bone->anim_poses[bone->anim_poses_length - 1].time;
 	assert(total_anim_time > 0.0f);
@@ -2663,11 +2670,13 @@ Mat4 get_transform_along_time(Bone *bone, float time)
 	{
 		if(bone->anim_poses[i].time <= time && time <= bone->anim_poses[i + 1].time)
 		{
-			float gap_btwn_keyframes = bone->anim_poses[i + 1].time - bone->anim_poses[i].time;
-			float t = (time - bone->anim_poses[i].time)/gap_btwn_keyframes;
+			PoseBone from = bone->anim_poses[i];
+			PoseBone to = bone->anim_poses[i + 1];
+			float gap_btwn_keyframes = to.time - from.time;
+			float t = (time - from.time)/gap_btwn_keyframes;
 			assert(t >= 0.0f);
 			assert(t <= 1.0f);
-			return bone->anim_poses[i].parent_space_pose;
+			return transform_to_mat(lerp_transforms(from.parent_space_pose, t, to.parent_space_pose));
 		}
 	}
 	assert(false);
@@ -2696,7 +2705,7 @@ void draw_armature(Mat4 view, Mat4 projection, Transform t, Armature *armature, 
 		for(Bone *cur_in_hierarchy = cur; cur_in_hierarchy; cur_in_hierarchy = cur_in_hierarchy->parent)
 		{
 			//final = MulM4(cur_in_hierarchy->anim_poses[0].parent_space_pose, final);
-			final = MulM4(get_transform_along_time(cur_in_hierarchy, elapsed_time), final);
+			final = MulM4(get_animated_bone_transform(cur_in_hierarchy, elapsed_time), final);
 		}
 
 		memcpy(params.bones[i], (float*)&final, sizeof(final));
@@ -4761,7 +4770,7 @@ void frame(void)
 			if(cur->parent == 0)
 			{
 				// do some testing on the bone with no parent
-				Vec3 should_be_zero = MulM4V3(cur_pose_bone->parent_space_pose, V3(0,0,0));
+				Vec3 should_be_zero = MulM4V3(transform_to_mat(cur_pose_bone->parent_space_pose), V3(0,0,0));
 
 				// there is another bone, that's not at (0,0,0) in model space on the model
 				// for debugging purposes right now
@@ -4783,7 +4792,7 @@ void frame(void)
 			final_mat = MulM4(cur->inverse_model_space_pos, final_mat);
 			for(Bone *cur_in_hierarchy = cur; cur_in_hierarchy; cur_in_hierarchy = cur_in_hierarchy->parent)
 			{
-				final_mat = MulM4(get_transform_along_time(cur_in_hierarchy, (float)elapsed_time), final_mat);
+				final_mat = MulM4(get_animated_bone_transform(cur_in_hierarchy, (float)elapsed_time), final_mat);
 				//final_mat = MulM4(cur_in_hierarchy->anim_poses[0].parent_space_pose, final_mat);
 			}
 
