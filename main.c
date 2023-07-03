@@ -972,7 +972,10 @@ typedef struct
 	ArmatureVertex *vertices;
 	MD_u64 vertices_length;
 	sg_buffer loaded_buffer;
+	sg_image bones_texture;
 	MD_String8 name;
+	int bones_texture_width;
+	int bones_texture_height;
 } Armature;
 
 Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armature_name)
@@ -1079,6 +1082,19 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 			.data = (sg_range){.ptr = to_return.vertices, .size = to_return.vertices_length * sizeof(ArmatureVertex)},
 			.label = (const char*)nullterm(arena, MD_S8Fmt(arena, "%.*s-vertices", MD_S8VArg(armature_name))).str,
 			});
+
+	to_return.bones_texture_width = 4;
+	to_return.bones_texture_height = (int)to_return.bones_length;
+
+	Log("Amrature %.*s has bones texture size (%d, %d)\n", MD_S8VArg(armature_name), to_return.bones_texture_width, to_return.bones_texture_height);
+	to_return.bones_texture = sg_make_image(&(sg_image_desc) {
+		.width = to_return.bones_texture_width,
+		.height = to_return.bones_texture_height,
+		.pixel_format = SG_PIXELFORMAT_RGBA8,
+		.min_filter = SG_FILTER_NEAREST,
+		.mag_filter = SG_FILTER_NEAREST,
+		.usage = SG_USAGE_STREAM,
+	});
 
 	// a sanity check
 	SLICE_ITER(Bone, to_return.bones)
@@ -2643,9 +2659,15 @@ int num_vertices = 0;
 
 void draw_placed(Mat4 view, Mat4 projection, PlacedMesh *cur)
 {
-	Mesh *drawing = cur->draw_with;
-	state.threedee_bind.vertex_buffers[0] = drawing->loaded_buffer;
 	sg_apply_pipeline(state.threedee_pip);
+
+	Mesh *drawing = cur->draw_with;
+	state.threedee_bind.fs_images[SLOT_threedee_tex] = image_gigatexture;
+	ARR_ITER(sg_image, state.threedee_bind.vs_images)
+	{
+		*it = (sg_image){0};
+	}
+	state.threedee_bind.vertex_buffers[0] = drawing->loaded_buffer;
 	sg_apply_bindings(&state.threedee_bind);
 
 	Mat4 model = transform_to_mat(cur->t);
@@ -2685,9 +2707,8 @@ Mat4 get_animated_bone_transform(Bone *bone, float time)
 
 void draw_armature(Mat4 view, Mat4 projection, Transform t, Armature *armature, float elapsed_time)
 {
-	state.threedee_bind.vertex_buffers[0] = armature->loaded_buffer;
+	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 	sg_apply_pipeline(state.armature_pip);
-	sg_apply_bindings(&state.threedee_bind);
 
 	Mat4 model = transform_to_mat(t);
 
@@ -2695,6 +2716,11 @@ void draw_armature(Mat4 view, Mat4 projection, Transform t, Armature *armature, 
 	memcpy(params.model, (float*)&model, sizeof(model));
 	memcpy(params.view, (float*)&view, sizeof(view));
 	memcpy(params.projection, (float*)&projection, sizeof(projection));
+	params.bones_tex_size[0] = (float)armature->bones_texture_width;
+	params.bones_tex_size[1] = (float)armature->bones_texture_height;
+
+	int bones_tex_size = 4 * armature->bones_texture_width * armature->bones_texture_height;
+	MD_u8 *bones_tex = MD_ArenaPush(scratch.arena, bones_tex_size);
 
 	for(MD_u64 i = 0; i < armature->bones_length; i++)
 	{
@@ -2708,13 +2734,48 @@ void draw_armature(Mat4 view, Mat4 projection, Transform t, Armature *armature, 
 			final = MulM4(get_animated_bone_transform(cur_in_hierarchy, elapsed_time), final);
 		}
 
-		memcpy(params.bones[i], (float*)&final, sizeof(final));
+		for(int col = 0; col < 4; col++)
+		{
+			Vec4 to_upload = final.Columns[col];
+			assert(-1.1f <= to_upload.x && to_upload.x <= 1.1f);
+			assert(-1.1f <= to_upload.y && to_upload.y <= 1.1f);
+			assert(-1.1f <= to_upload.z && to_upload.z <= 1.1f);
+			assert(-1.1f <= to_upload.w && to_upload.w <= 1.1f);
+
+			// make them normalized
+			to_upload.x = to_upload.x/2.0f + 0.5f;
+			to_upload.y = to_upload.y/2.0f + 0.5f;
+			to_upload.z = to_upload.z/2.0f + 0.5f;
+			to_upload.w = to_upload.w/2.0f + 0.5f;
+
+			to_upload.x = clamp01(to_upload.x);
+			to_upload.y = clamp01(to_upload.y);
+			to_upload.z = clamp01(to_upload.z);
+			to_upload.w = clamp01(to_upload.w);
+
+			int bytes_per_pixel = 4;
+			int bytes_per_row = bytes_per_pixel * 4;
+			bones_tex[bytes_per_pixel*col + bytes_per_row*i + 0] = (MD_u8)(to_upload.x * 255.0);
+			bones_tex[bytes_per_pixel*col + bytes_per_row*i + 1] = (MD_u8)(to_upload.y * 255.0);
+			bones_tex[bytes_per_pixel*col + bytes_per_row*i + 2] = (MD_u8)(to_upload.z * 255.0);
+			bones_tex[bytes_per_pixel*col + bytes_per_row*i + 3] = (MD_u8)(to_upload.w * 255.0);
+		}
 	}
+	sg_update_image(armature->bones_texture, &(sg_image_data){
+			.subimage[0][0] = (sg_range){bones_tex, bones_tex_size},
+	});
+
+	state.threedee_bind.vertex_buffers[0] = armature->loaded_buffer;
+	state.threedee_bind.vs_images[SLOT_armature_bones_tex] = armature->bones_texture;
+	state.threedee_bind.fs_images[SLOT_armature_tex] = image_gigatexture;
+	sg_apply_bindings(&state.threedee_bind);
 
 	sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_armature_vs_params, &SG_RANGE(params));
 	num_draw_calls += 1;
 	num_vertices += (int)armature->vertices_length;
 	sg_draw(0, (int)armature->vertices_length, 1);
+
+	MD_ReleaseScratch(scratch);
 }
 
 
