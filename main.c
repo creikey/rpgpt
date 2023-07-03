@@ -837,13 +837,15 @@ typedef struct Mesh
 
 typedef struct PoseBone
 {
+	float time; // time through animation this pose occurs at
 	Mat4 parent_space_pose;
 } PoseBone;
 
 typedef struct Bone
 {
 	struct Bone *parent;
-	PoseBone pose_bone;
+	PoseBone *anim_poses;
+	MD_u64 anim_poses_length;
 	Mat4 matrix_local;
 	Mat4 inverse_model_space_pos;
 	float length;
@@ -1014,20 +1016,31 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 		}
 	}
 
-	MD_u64 poses_length;
-	ser_MD_u64(&ser, &poses_length);
+	MD_u64 frames_in_anim;
+	ser_MD_u64(&ser, &frames_in_anim);
+	Log("There are %llu animation frames\n", frames_in_anim);
 
-	assert(poses_length == to_return.bones_length);
-	for(MD_u64 i = 0; i < poses_length; i++)
+	for(MD_u64 i = 0; i < to_return.bones_length; i++)
 	{
-		PoseBone *next_pose_bone = &to_return.bones[i].pose_bone;
+		to_return.bones[i].anim_poses = MD_PushArray(arena, PoseBone, frames_in_anim);
+		to_return.bones[i].anim_poses_length = frames_in_anim;
+	}
 
-		Transform t;
-		ser_Vec3(&ser, &t.offset);
-		ser_Quat(&ser, &t.rotation);
-		ser_Vec3(&ser, &t.scale);
+	for(MD_u64 anim_i = 0; anim_i < frames_in_anim; anim_i++)
+	{
+		float time_through;
+		ser_float(&ser, &time_through);
+		for(MD_u64 pose_bone_i = 0; pose_bone_i < to_return.bones_length; pose_bone_i++)
+		{
+			PoseBone *next_pose_bone = &to_return.bones[pose_bone_i].anim_poses[anim_i];
+			Transform t;
+			ser_Vec3(&ser, &t.offset);
+			ser_Quat(&ser, &t.rotation);
+			ser_Vec3(&ser, &t.scale);
 
-		next_pose_bone->parent_space_pose = transform_to_mat(t);
+			next_pose_bone->time = time_through;
+			next_pose_bone->parent_space_pose = transform_to_mat(t);
+		}
 	}
 
 	ser_MD_u64(&ser, &to_return.vertices_length);
@@ -2641,7 +2654,27 @@ void draw_placed(Mat4 view, Mat4 projection, PlacedMesh *cur)
 	sg_draw(0, (int)drawing->num_vertices, 1);
 }
 
-void draw_armature(Mat4 view, Mat4 projection, Transform t, Armature *armature)
+Mat4 get_transform_along_time(Bone *bone, float time)
+{
+	float total_anim_time = bone->anim_poses[bone->anim_poses_length - 1].time;
+	assert(total_anim_time > 0.0f);
+	time = fmodf(time, total_anim_time);
+	for(MD_u64 i = 0; i < bone->anim_poses_length - 1; i++)
+	{
+		if(bone->anim_poses[i].time <= time && time <= bone->anim_poses[i + 1].time)
+		{
+			float gap_btwn_keyframes = bone->anim_poses[i + 1].time - bone->anim_poses[i].time;
+			float t = (time - bone->anim_poses[i].time)/gap_btwn_keyframes;
+			assert(t >= 0.0f);
+			assert(t <= 1.0f);
+			return bone->anim_poses[i].parent_space_pose;
+		}
+	}
+	assert(false);
+	return M4D(1.0f);
+}
+
+void draw_armature(Mat4 view, Mat4 projection, Transform t, Armature *armature, float elapsed_time)
 {
 	state.threedee_bind.vertex_buffers[0] = armature->loaded_buffer;
 	sg_apply_pipeline(state.armature_pip);
@@ -2662,7 +2695,8 @@ void draw_armature(Mat4 view, Mat4 projection, Transform t, Armature *armature)
 		final = MulM4(cur->inverse_model_space_pos, final);
 		for(Bone *cur_in_hierarchy = cur; cur_in_hierarchy; cur_in_hierarchy = cur_in_hierarchy->parent)
 		{
-			final = MulM4(cur_in_hierarchy->pose_bone.parent_space_pose, final);
+			//final = MulM4(cur_in_hierarchy->anim_poses[0].parent_space_pose, final);
+			final = MulM4(get_transform_along_time(cur_in_hierarchy, elapsed_time), final);
 		}
 
 		memcpy(params.bones[i], (float*)&final, sizeof(final));
@@ -4708,7 +4742,7 @@ void frame(void)
 		// debug draw armature
 		for(MD_u64 i = 0; i < armature.bones_length; i++)
 		{
-			PoseBone *cur_pose_bone = &armature.bones[i].pose_bone;
+			PoseBone *cur_pose_bone = &armature.bones[i].anim_poses[0];
 			Bone *cur = &armature.bones[i];
 
 			Vec3 offset = V3(1.5, 0, 5);
@@ -4749,7 +4783,8 @@ void frame(void)
 			final_mat = MulM4(cur->inverse_model_space_pos, final_mat);
 			for(Bone *cur_in_hierarchy = cur; cur_in_hierarchy; cur_in_hierarchy = cur_in_hierarchy->parent)
 			{
-				final_mat = MulM4(cur_in_hierarchy->pose_bone.parent_space_pose, final_mat);
+				final_mat = MulM4(get_transform_along_time(cur_in_hierarchy, (float)elapsed_time), final_mat);
+				//final_mat = MulM4(cur_in_hierarchy->anim_poses[0].parent_space_pose, final_mat);
 			}
 
 			// uncommenting this skips the pose transform, showing the debug skeleton
@@ -4798,7 +4833,7 @@ void frame(void)
 				Transform draw_with = entity_transform(it);
 				if(it->npc_kind == NPC_SimpleWorm)
 				{
-					draw_armature(view, projection, draw_with, &armature);
+					draw_armature(view, projection, draw_with, &armature, (float)elapsed_time);
 				}
 				else
 				{

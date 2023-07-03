@@ -89,7 +89,7 @@ for o in D.objects:
             o = o.parent
             object_transform_info = (mesh_name, mapping @ o.location, o.rotation_euler, o.scale)
             if o.users_collection[0].name == 'Level':
-                assert(False, "Cannot put armatures in the level. The level is for static placed meshes. For dynamic entities, you put them outside of the level collection, their entity kind is encoded, and the game code decides how to draw them")
+                assert False, "Cannot put armatures in the level. The level is for static placed meshes. For dynamic entities, you put them outside of the level collection, their entity kind is encoded, and the game code decides how to draw them"
             else:
                 placed_entities.append((mesh_object.name,) + object_transform_info)
             armature_name = o.data.name
@@ -114,7 +114,7 @@ for o in D.objects:
                                 parent_index = i
                                 break
                         if parent_index == -1:
-                            assert(false, f"Couldn't find parent of bone {b}")
+                            assert False, f"Couldn't find parent of bone {b}"
                         print(f"Parent of bone {b.name} is index {parent_index} in list {bones_in_armature}")
 
                     write_i32(f, parent_index)
@@ -123,26 +123,52 @@ for o in D.objects:
                     write_f32(f, b.length)
                 
                 # write the pose information
-                write_u64(f, len(o.pose.bones))
-                for pose_bone in o.pose.bones:
+                
+                # it's very important that the array of pose bones contains the same amount of bones
+                # as there are in the edit bones. Because the edit bones are exported, etc etc. Cowabunga!
+                assert(len(o.pose.bones) == len(bones_in_armature))
 
-                    parent_space_pose = None
+                armature = o
+                for animation in bpy.data.actions:
+                    armature.animation_data.action = animation
+                    startFrame = int(animation.frame_range.x)
+                    endFrame = int(animation.frame_range.y)
+                    total_frames = (endFrame - startFrame) + 1 # the end frame is inclusive
+                    print(f"Exporting animation {animation.name} with {total_frames} frames")
                     
-                    if pose_bone.parent:
-                        parent_space_pose = pose_bone.parent.matrix.inverted() @ pose_bone.matrix
-                    else:
-                        parent_space_pose = mapping @ pose_bone.matrix
-                        #parent_space_pose = pose_bone.matrix
-                        print("parent_space_pose of the bone with no parent:")
-                        print(parent_space_pose)
+                    write_u64(f, total_frames)
+                    
+                    time_per_anim_frame = 1.0 / float(bpy.context.scene.render.fps)
+                    for frame in range(startFrame, endFrame+1):
+                        time_through_this_frame_occurs_at = (frame - startFrame) * time_per_anim_frame
+                        bpy.context.scene.frame_set(frame)
 
-                    #parent_space_pose = mapping @ pose_bone.matrix
-                    translation = parent_space_pose.to_translation()
-                    rotation = parent_space_pose.to_quaternion()
-                    scale = parent_space_pose.to_scale()
-                    write_v3(f, translation)
-                    write_quat(f, rotation)
-                    write_v3(f, scale)
+                        write_f32(f, time_through_this_frame_occurs_at)
+                        for pose_bone_i in range(len(o.pose.bones)):
+                            pose_bone = o.pose.bones[pose_bone_i]
+                            
+                            # in the engine, it's assumed that the poses are in the same order as the bones
+                            # they're referring to. This checks that that is the case.
+                            assert(pose_bone.bone == bones_in_armature[pose_bone_i])
+                            
+                            parent_space_pose = None
+                            
+                            if pose_bone.parent:
+                                parent_space_pose = pose_bone.parent.matrix.inverted() @ pose_bone.matrix
+                            else:
+                                parent_space_pose = mapping @ pose_bone.matrix
+                                #parent_space_pose = pose_bone.matrix
+                                #print("parent_space_pose of the bone with no parent:")
+                                #print(parent_space_pose)
+
+                            #parent_space_pose = mapping @ pose_bone.matrix
+                            translation = parent_space_pose.to_translation()
+                            rotation = parent_space_pose.to_quaternion()
+                            scale = parent_space_pose.to_scale()
+                            
+                            write_v3(f, translation)
+                            write_quat(f, rotation)
+                            write_v3(f, scale)
 
                 # write the mesh data for the armature
                 bm = bmesh.new()
