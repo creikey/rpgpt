@@ -835,9 +835,15 @@ typedef struct Mesh
 	MD_String8 name;
 } Mesh;
 
+typedef struct PoseBone
+{
+	Mat4 parent_space_pose;
+} PoseBone;
+
 typedef struct Bone
 {
-	struct Bone *next;
+	struct Bone *parent;
+	PoseBone pose_bone;
 	Mat4 matrix_local;
 	Mat4 inverse_model_space_pos;
 	float length;
@@ -947,21 +953,12 @@ Mat4 transform_to_mat(Transform t)
 	return to_return;
 }
 
-typedef struct PoseBone
-{
-	struct PoseBone *next;
-	struct PoseBone *parent;
-	Mat4 parent_space_pose;
-	MD_String8 name;
-} PoseBone;
 
 
 typedef struct
 {
 	Bone *bones;
 	MD_u64 bones_length;
-	PoseBone *poses;
-	MD_u64 poses_length;
 	ArmatureVertex *vertices;
 	MD_u64 vertices_length;
 	sg_buffer loaded_buffer;
@@ -994,45 +991,43 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 
 		BlenderMat model_space_pose;
 		BlenderMat inverse_model_space_pose;
+		MD_i32 parent_index;
 
+		ser_int(&ser, &parent_index);
 		ser_BlenderMat(&ser, &model_space_pose);
 		ser_BlenderMat(&ser, &inverse_model_space_pose);
 		ser_float(&ser, &next_bone->length);
 
 		next_bone->matrix_local = blender_to_handmade_mat(model_space_pose);
 		next_bone->inverse_model_space_pos = blender_to_handmade_mat(inverse_model_space_pose);
+
+		if(parent_index != -1)
+		{
+			if(parent_index < 0 || parent_index >= to_return.bones_length)
+			{
+				ser.cur_error = (SerError){.failed = true, .why = MD_S8Fmt(arena, "Parent index deserialized %d is out of range of the pose bones, which has a size of %llu", parent_index, to_return.bones_length)};
+			}
+			else
+			{
+				next_bone->parent = &to_return.bones[parent_index];
+			}
+		}
 	}
 
-	ser_MD_u64(&ser, &to_return.poses_length);
-	to_return.poses = MD_PushArray(arena, PoseBone, to_return.poses_length);
+	MD_u64 poses_length;
+	ser_MD_u64(&ser, &poses_length);
 
-	assert(to_return.poses_length == to_return.bones_length);
-
-	for(MD_u64 i = 0; i < to_return.poses_length; i++)
+	assert(poses_length == to_return.bones_length);
+	for(MD_u64 i = 0; i < poses_length; i++)
 	{
-		PoseBone *next_pose_bone = &to_return.poses[i];
+		PoseBone *next_pose_bone = &to_return.bones[i].pose_bone;
 
-		MD_i32 parent_index;
-
-		ser_MD_String8(&ser, &next_pose_bone->name, arena);
-		ser_int(&ser, &parent_index);
 		Transform t;
 		ser_Vec3(&ser, &t.offset);
 		ser_Quat(&ser, &t.rotation);
 		ser_Vec3(&ser, &t.scale);
 
 		next_pose_bone->parent_space_pose = transform_to_mat(t);
-		if(parent_index != -1)
-		{
-			if(parent_index < 0 || parent_index >= to_return.poses_length)
-			{
-				ser.cur_error = (SerError){.failed = true, .why = MD_S8Fmt(arena, "Parent index deserialized %d is out of range of the pose bones, which has a size of %llu", parent_index, to_return.poses_length)};
-			}
-			else
-			{
-				next_pose_bone->parent = &to_return.poses[parent_index];
-			}
-		}
 	}
 
 	ser_MD_u64(&ser, &to_return.vertices_length);
@@ -2662,13 +2657,12 @@ void draw_armature(Mat4 view, Mat4 projection, Transform t, Armature *armature)
 	for(MD_u64 i = 0; i < armature->bones_length; i++)
 	{
 		Bone *cur = &armature->bones[i];
-		PoseBone *cur_pose_bone = &armature->poses[i];
 
 		Mat4 final = M4D(1.0f);
 		final = MulM4(cur->inverse_model_space_pos, final);
-		for(PoseBone *cur_posebone = cur_pose_bone; cur_posebone; cur_posebone = cur_posebone->parent)
+		for(Bone *cur_in_hierarchy = cur; cur_in_hierarchy; cur_in_hierarchy = cur_in_hierarchy->parent)
 		{
-			final = MulM4(cur_posebone->parent_space_pose, final);
+			final = MulM4(cur_in_hierarchy->pose_bone.parent_space_pose, final);
 		}
 
 		memcpy(params.bones[i], (float*)&final, sizeof(final));
@@ -4712,10 +4706,9 @@ void frame(void)
 		projection = Perspective_RH_NO(PI32/4.0f, screen_size().x / screen_size().y, 0.01f, 1000.0f);
 
 		// debug draw armature
-		assert(armature.bones_length == armature.poses_length);
 		for(MD_u64 i = 0; i < armature.bones_length; i++)
 		{
-			PoseBone *cur_pose_bone = &armature.poses[i];
+			PoseBone *cur_pose_bone = &armature.bones[i].pose_bone;
 			Bone *cur = &armature.bones[i];
 
 			Vec3 offset = V3(1.5, 0, 5);
@@ -4731,7 +4724,7 @@ void frame(void)
 			assert(should_be_zero.y == 0.0);
 			assert(should_be_zero.z == 0.0);
 
-			if(cur_pose_bone->parent == 0)
+			if(cur->parent == 0)
 			{
 				// do some testing on the bone with no parent
 				Vec3 should_be_zero = MulM4V3(cur_pose_bone->parent_space_pose, V3(0,0,0));
@@ -4754,9 +4747,9 @@ void frame(void)
 
 			Mat4 final_mat = M4D(1.0f);
 			final_mat = MulM4(cur->inverse_model_space_pos, final_mat);
-			for(PoseBone *cur = cur_pose_bone; cur; cur = cur->parent)
+			for(Bone *cur_in_hierarchy = cur; cur_in_hierarchy; cur_in_hierarchy = cur_in_hierarchy->parent)
 			{
-				final_mat = MulM4(cur->parent_space_pose, final_mat);
+				final_mat = MulM4(cur_in_hierarchy->pose_bone.parent_space_pose, final_mat);
 			}
 
 			// uncommenting this skips the pose transform, showing the debug skeleton
@@ -4789,7 +4782,6 @@ void frame(void)
 			dbgcol(PINK)
 				dbgsquare3d(dot);
 
-			cur_pose_bone = cur_pose_bone->next;
 		}
 		
 

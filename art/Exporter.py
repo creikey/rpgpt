@@ -107,6 +107,17 @@ for o in D.objects:
                     model_space_pose = mapping @ b.matrix_local
                     inverse_model_space_pose = (mapping @ b.matrix_local).inverted()
 
+                    parent_index = -1
+                    if b.parent:
+                        for i in range(len(bones_in_armature)):
+                            if bones_in_armature[i] == b.parent:
+                                parent_index = i
+                                break
+                        if parent_index == -1:
+                            assert(false, f"Couldn't find parent of bone {b}")
+                        print(f"Parent of bone {b.name} is index {parent_index} in list {bones_in_armature}")
+
+                    write_i32(f, parent_index)
                     write_4x4matrix(f, model_space_pose)
                     write_4x4matrix(f, inverse_model_space_pose)
                     write_f32(f, b.length)
@@ -114,15 +125,7 @@ for o in D.objects:
                 # write the pose information
                 write_u64(f, len(o.pose.bones))
                 for pose_bone in o.pose.bones:
-                    parent_index = -1
-                    if pose_bone.parent:
-                        for i in range(len(bones_in_armature)):
-                            if bones_in_armature[i] == pose_bone.parent.bone:
-                                parent_index = i
-                                break
-                        if parent_index == -1:
-                            assert(false, f"Couldn't find parent of bone {pose_bone}")
-                        print(f"Parent of bone {pose_bone.name} is index {parent_index} in list {bones_in_armature}")
+
                     parent_space_pose = None
                     
                     if pose_bone.parent:
@@ -132,9 +135,7 @@ for o in D.objects:
                         #parent_space_pose = pose_bone.matrix
                         print("parent_space_pose of the bone with no parent:")
                         print(parent_space_pose)
-                    
-                    write_string(f, pose_bone.bone.name)
-                    write_i32(f, parent_index)
+
                     #parent_space_pose = mapping @ pose_bone.matrix
                     translation = parent_space_pose.to_translation()
                     rotation = parent_space_pose.to_quaternion()
