@@ -3846,6 +3846,11 @@ Vec2 threedee_to_screenspace(Vec3 world)
 		// In that case the projected value is undefined, because the perspective
 		// divide produces nans. 
 		Vec3 clip_space;
+
+		if (clip_space_no_perspective_divide.z < 0.0) {
+			return V2(0.0, 0.0);
+		}
+
 		if(clip_space_no_perspective_divide.w != 0.0)
 		{
 			clip_space = perspective_divide(clip_space_no_perspective_divide);
@@ -4859,6 +4864,124 @@ Shadow_State init_shadow_state() {
 }
 
 
+typedef struct {
+	float l; 
+	float r; 
+	float t; 
+	float b; 
+	float n;
+	float f;
+} Shadow_Volume_Params;
+
+float round_to_nearest(float input, float round_target)
+{
+    float result = 0.0f;
+    if(round_target != 0.0f)
+    {
+        float div = roundf(input / round_target);
+        result = div * round_target;
+    }
+    return result;
+}
+
+Shadow_Volume_Params calculate_shadow_volume_params(Vec3 light_dir) 
+{
+	Shadow_Volume_Params result = {0};
+
+
+	//first, we calculate the scene bound
+	//NOTE: Once we are moved to a pre-pass queue making type deal, this could be moved into that 
+	//      loop.
+
+	//For simplicity and speed, at the moment we consider only entity positions, not their extents when constructing the scene bounds.
+	//To make up for this, we add an extra padding-skirt to the bounds.
+	Mat4 light_space_matrix = LookAt_RH((Vec3){0}, light_dir, V3(0, 1, 0));
+
+	Vec3 scene_min = V3( INFINITY,  INFINITY,  INFINITY);
+	Vec3 scene_max = V3(-INFINITY, -INFINITY, -INFINITY);
+
+	for(PlacedMesh *cur = level_threedee.placed_mesh_list; cur; cur = cur->next)
+	{
+		Vec3 p = MulM4V3(light_space_matrix, cur->t.offset);
+
+		scene_min.x = fminf(scene_min.x, p.x);
+		scene_max.x = fmaxf(scene_max.x, p.x);
+
+		scene_min.y = fminf(scene_min.y, p.y);
+		scene_max.y = fmaxf(scene_max.y, p.y);
+		
+		scene_min.z = fminf(scene_min.z, p.z);
+		scene_max.z = fmaxf(scene_max.z, p.z);
+	}
+
+	ENTITIES_ITER(gs.entities)
+	{
+		if(it->is_npc || it->is_character)
+		{
+			Transform draw_with = entity_transform(it);
+			Vec3 p = MulM4V3(light_space_matrix, draw_with.offset);
+
+			scene_min.x = fminf(scene_min.x, p.x);
+			scene_max.x = fmaxf(scene_max.x, p.x);
+	
+			scene_min.y = fminf(scene_min.y, p.y);
+			scene_max.y = fmaxf(scene_max.y, p.y);
+			
+			scene_min.z = fminf(scene_min.z, p.z);
+			scene_max.z = fmaxf(scene_max.z, p.z);
+		}
+	}
+
+	//pad to account for entity width
+	float pad = 2.5f;
+
+	scene_min.x -= pad;
+	scene_min.y -= pad;
+
+	scene_max.x += pad;
+	scene_max.y += pad;
+
+	result.l = scene_min.x;
+	result.r = scene_max.x;
+
+	result.b = scene_min.y;
+	result.t = scene_max.y;
+
+	float w = result.r - result.l;
+	float h = result.t - result.b;
+	float actual_size = fmaxf(w, h);
+
+	{//Make sure it is square
+		float diff = actual_size - h;
+		if (diff > 0) {
+			float half_diff = diff * 0.5f;
+			result.t += half_diff;
+			result.b -= half_diff;
+		}
+		diff = actual_size - w;
+		if (diff > 0) {
+			float half_diff = diff * 0.5f;
+			result.r += half_diff;
+			result.l -= half_diff;
+		}
+	}
+
+
+	{//Snap the light position to shadow_map texel grid, to reduce shimmering when moving
+		float texel_size = actual_size / (float)SHADOW_MAP_DIMENSION;
+		result.l = round_to_nearest(result.l, texel_size);
+		result.r = round_to_nearest(result.r, texel_size);
+		result.b = round_to_nearest(result.b, texel_size);
+		result.t = round_to_nearest(result.t, texel_size);
+	}
+
+	result.n = -100.0;
+	result.f = 200.0;
+
+
+	return result;
+}
+
 
 void frame(void)
 {
@@ -4895,6 +5018,7 @@ void frame(void)
 	}
 	return;
 #endif
+
 
 	PROFILE_SCOPE("frame")
 	{
@@ -4940,22 +5064,17 @@ void frame(void)
 
 
 		float spin_factor = 0.5f;
-		float x = cosf((float)elapsed_time * spin_factor);
-		float z = sinf((float)elapsed_time * spin_factor);
+		float t = (float)elapsed_time * spin_factor;
+
+		float x = cosf(t);
+		float z = sinf(t);
+
 	    Vec3 light_dir = NormV3(V3(x, -0.5, z));
-		Vec3 light_pos = V3(0, 10, 0);
 
-		float shadow_volume_half_dim = 25.0;
+		Shadow_Volume_Params svp = calculate_shadow_volume_params(light_dir);
 
-		float l = -shadow_volume_half_dim;
-		float r =  shadow_volume_half_dim;
-		float t =  shadow_volume_half_dim;
-		float b = -shadow_volume_half_dim;
-		float n = -100.0;
-		float f =  200.0;
-
-		Mat4 shadow_view_matrix       = LookAt_RH(light_pos, AddV3(light_pos, light_dir), V3(0, 1, 0));
-		Mat4 shadow_projection_matrix = Orthographic_RH_NO(l, r, b, t, n, f);
+		Mat4 shadow_view_matrix       = LookAt_RH(V3(0, 0, 0), light_dir, V3(0, 1, 0));
+		Mat4 shadow_projection_matrix = Orthographic_RH_NO(svp.l, svp.r, svp.b, svp.t, svp.n, svp.f);
 		Mat4 light_space_matrix = MulM4(shadow_projection_matrix, shadow_view_matrix);
 
 		do_shadow_pass(&state.shadows, shadow_view_matrix, shadow_projection_matrix);
@@ -4986,7 +5105,7 @@ void frame(void)
 		{
 			view = LookAt_RH(cam_pos, player_pos, V3(0, 1, 0));
 		}
-		projection = Perspective_RH_NO(PI32/4.0f, screen_size().x / screen_size().y, 0.01f, 1000.0f);
+		projection = Perspective_RH_NO(FIELD_OF_VIEW, screen_size().x / screen_size().y, NEAR_PLANE_DISTANCE, FAR_PLANE_DISTANCE);
 
 		// debug draw armature
 		for(MD_u64 i = 0; i < armature.bones_length; i++)
@@ -5426,7 +5545,7 @@ void frame(void)
 											&sound_grunt_2,
 											&sound_grunt_3,
 										};
-										play_audio(possible_grunts[rand() % ARRLEN(possible_grunts)], volume); //nocheckin
+										play_audio(possible_grunts[rand() % ARRLEN(possible_grunts)], volume);
 									}
 								}
 
