@@ -1083,7 +1083,7 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 			.label = (const char*)nullterm(arena, MD_S8Fmt(arena, "%.*s-vertices", MD_S8VArg(armature_name))).str,
 			});
 
-	to_return.bones_texture_width = 4;
+	to_return.bones_texture_width = 16;
 	to_return.bones_texture_height = (int)to_return.bones_length;
 
 	Log("Amrature %.*s has bones texture size (%d, %d)\n", MD_S8VArg(armature_name), to_return.bones_texture_width, to_return.bones_texture_height);
@@ -2726,7 +2726,9 @@ PixelData encode_normalized_float32(float to_encode)
 	assert(to_return_vector.z < 255.0f);
 	to_return_vector.z /= 255.0f;
 
-	// w is unused for now
+	// w is unused for now, but is 1.0f (and is the alpha channel in Vec4) so that it displays properly as a texture
+	to_return_vector.w = 1.0f;
+
 
 	PixelData to_return = {0};
 
@@ -2735,6 +2737,21 @@ PixelData encode_normalized_float32(float to_encode)
 		assert(0.0f <= to_return_vector.Elements[i] && to_return_vector.Elements[i] <= 1.0f);
 		to_return.rgba[i] = (MD_u8)(to_return_vector.Elements[i] * 255.0f);
 	}
+
+	return to_return;
+}
+
+float decode_normalized_float32(PixelData encoded)
+{
+	Vec4 v = {0};
+	for(int i = 0; i < 4; i++)
+	{
+		v.Elements[i] = (float)encoded.rgba[i] / 255.0f;
+	}
+
+	float sign = 2.0f * v.x - 1.0f;
+
+	float to_return = sign * (v.z*255.0f + v.y);
 
 	return to_return;
 }
@@ -2772,28 +2789,19 @@ void draw_armature(Mat4 view, Mat4 projection, Transform t, Armature *armature, 
 		for(int col = 0; col < 4; col++)
 		{
 			Vec4 to_upload = final.Columns[col];
-			assert(-1.1f <= to_upload.x && to_upload.x <= 1.1f);
-			assert(-1.1f <= to_upload.y && to_upload.y <= 1.1f);
-			assert(-1.1f <= to_upload.z && to_upload.z <= 1.1f);
-			assert(-1.1f <= to_upload.w && to_upload.w <= 1.1f);
-
-			// make them normalized
-			to_upload.x = to_upload.x/2.0f + 0.5f;
-			to_upload.y = to_upload.y/2.0f + 0.5f;
-			to_upload.z = to_upload.z/2.0f + 0.5f;
-			to_upload.w = to_upload.w/2.0f + 0.5f;
-
-			to_upload.x = clamp01(to_upload.x);
-			to_upload.y = clamp01(to_upload.y);
-			to_upload.z = clamp01(to_upload.z);
-			to_upload.w = clamp01(to_upload.w);
 
 			int bytes_per_pixel = 4;
-			int bytes_per_row = bytes_per_pixel * 4;
-			bones_tex[bytes_per_pixel*col + bytes_per_row*i + 0] = (MD_u8)(to_upload.x * 255.0);
-			bones_tex[bytes_per_pixel*col + bytes_per_row*i + 1] = (MD_u8)(to_upload.y * 255.0);
-			bones_tex[bytes_per_pixel*col + bytes_per_row*i + 2] = (MD_u8)(to_upload.z * 255.0);
-			bones_tex[bytes_per_pixel*col + bytes_per_row*i + 3] = (MD_u8)(to_upload.w * 255.0);
+			int bytes_per_column_of_mat = bytes_per_pixel * 4;
+			int bytes_per_row = bytes_per_pixel * armature->bones_texture_width;
+			for(int elem = 0; elem < 4; elem++)
+			{
+				float after_decoding = decode_normalized_float32(encode_normalized_float32(to_upload.Elements[elem]));
+				assert(fabsf(after_decoding - to_upload.Elements[elem]) < 0.01f);
+			}
+			memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*0], encode_normalized_float32(to_upload.Elements[0]).rgba, bytes_per_pixel);
+			memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*1], encode_normalized_float32(to_upload.Elements[1]).rgba, bytes_per_pixel);
+			memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*2], encode_normalized_float32(to_upload.Elements[2]).rgba, bytes_per_pixel);
+			memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*3], encode_normalized_float32(to_upload.Elements[3]).rgba, bytes_per_pixel);
 		}
 	}
 	sg_update_image(armature->bones_texture, &(sg_image_data){
@@ -2991,6 +2999,22 @@ void do_serialization_tests()
 
 	MD_ReleaseScratch(scratch);
 }
+
+void do_float_encoding_tests()
+{
+	float to_test[] = {
+		7.5f,
+		-2.12f,
+		100.2f,
+		-5.35f,
+	};
+	ARR_ITER(float, to_test)
+	{
+		PixelData encoded = encode_normalized_float32(*it);
+		float decoded = decode_normalized_float32(encoded);
+		assert(fabsf(decoded - *it) < 0.01f);
+	}
+}
 #endif
 
 Armature armature = {0};
@@ -3064,6 +3088,7 @@ void init(void)
 	do_metadesk_tests();
 	do_parsing_tests();
 	do_serialization_tests();
+	do_float_encoding_tests();
 #endif
 
 #ifdef WEB
