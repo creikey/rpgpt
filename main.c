@@ -1287,6 +1287,7 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 #include "quad-sapp.glsl.h"
 #include "threedee.glsl.h"
 #include "armature.glsl.h"
+#include "shadow_mapper.glsl.h"
 
 AABB level_aabb = { .upper_left = { 0.0f, 0.0f }, .lower_right = { TILE_SIZE * LEVEL_TILES, -(TILE_SIZE * LEVEL_TILES) } };
 GameState gs = { 0 };
@@ -2640,6 +2641,17 @@ stbtt_bakedchar cdata[96]; // ASCII 32..126 is 95 glyphs
 stbtt_fontinfo font;
 
 
+typedef struct {
+	sg_pass_action pass_action;
+	sg_pass pass;
+	sg_pipeline pip;
+	sg_image color_img;
+	sg_image depth_img;
+} Shadow_State;
+Shadow_State init_shadow_state();
+
+
+
 // @Place(sokol state struct)
 static struct
 {
@@ -2651,35 +2663,80 @@ static struct
 	sg_pipeline threedee_pip;
 	sg_pipeline armature_pip;
 	sg_bindings threedee_bind;
+
+	Shadow_State shadows;
 } state;
 
 int num_draw_calls = 0;
 int num_vertices = 0;
 
 
-void draw_placed(Mat4 view, Mat4 projection, PlacedMesh *cur)
+void draw_shadow(Mat4 view, Mat4 projection, PlacedMesh *cur)
 {
-	sg_apply_pipeline(state.threedee_pip);
+	sg_apply_pipeline(state.shadows.pip);
 
 	Mesh *drawing = cur->draw_with;
-	state.threedee_bind.fs_images[SLOT_threedee_tex] = image_gigatexture;
+
+	sg_bindings bindings = {0};
+
+	bindings.fs_images[SLOT_threedee_tex] = image_gigatexture;
 	ARR_ITER(sg_image, state.threedee_bind.vs_images)
 	{
 		*it = (sg_image){0};
 	}
+	bindings.vertex_buffers[0] = drawing->loaded_buffer;
+	sg_apply_bindings(&bindings);
+
+	Mat4 model = transform_to_mat(cur->t);
+
+	shadow_mapper_vs_params_t vs_params = {0};
+	memcpy(vs_params.model, (float*)&model, sizeof(model));
+	memcpy(vs_params.view, (float*)&view, sizeof(view));
+	memcpy(vs_params.projection, (float*)&projection, sizeof(projection));
+
+	sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_shadow_mapper_vs_params, &SG_RANGE(vs_params));
+	num_draw_calls += 1;
+	num_vertices += (int)drawing->num_vertices;
+
+	sg_draw(0, (int)drawing->num_vertices, 1);
+}
+
+
+void draw_placed(Mat4 view, Mat4 projection, Mat4 light_matrix, PlacedMesh *cur)
+{
+	sg_apply_pipeline(state.threedee_pip);
+
+	Mesh *drawing = cur->draw_with;
+	ARR_ITER(sg_image, state.threedee_bind.vs_images)
+	{
+		*it = (sg_image){0};
+	}
+	ARR_ITER(sg_image, state.threedee_bind.fs_images)
+	{
+		*it = (sg_image){0};
+	}
+	state.threedee_bind.fs_images[SLOT_threedee_tex]        = image_gigatexture;
+	state.threedee_bind.fs_images[SLOT_threedee_shadow_map] = state.shadows.color_img;
 	state.threedee_bind.vertex_buffers[0] = drawing->loaded_buffer;
 	sg_apply_bindings(&state.threedee_bind);
 
 	Mat4 model = transform_to_mat(cur->t);
 
-	threedee_vs_params_t params = {0};
-	memcpy(params.model, (float*)&model, sizeof(model));
-	memcpy(params.view, (float*)&view, sizeof(view));
-	memcpy(params.projection, (float*)&projection, sizeof(projection));
+	threedee_vs_params_t vs_params = {0};
+	memcpy(vs_params.model, (float*)&model, sizeof(model));
+	memcpy(vs_params.view, (float*)&view, sizeof(view));
+	memcpy(vs_params.projection, (float*)&projection, sizeof(projection));
 
-	sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_vs_params, &SG_RANGE(params));
+	memcpy(vs_params.directional_light_space_matrix, (float*)&light_matrix, sizeof(light_matrix));
+
+	sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_vs_params, &SG_RANGE(vs_params));
 	num_draw_calls += 1;
 	num_vertices += (int)drawing->num_vertices;
+
+	threedee_fs_params_t fs_params = {0};
+	fs_params.shadow_map_dimension = SHADOW_MAP_DIMENSION;
+	sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_threedee_fs_params, &SG_RANGE(fs_params));
+
 	sg_draw(0, (int)drawing->num_vertices, 1);
 }
 
@@ -2765,9 +2822,19 @@ void draw_armature(Mat4 view, Mat4 projection, Transform t, Armature *armature, 
 			.subimage[0][0] = (sg_range){bones_tex, bones_tex_size},
 	});
 
+	ARR_ITER(sg_image, state.threedee_bind.vs_images)
+	{
+		*it = (sg_image){0};
+	}
+	ARR_ITER(sg_image, state.threedee_bind.fs_images)
+	{
+		*it = (sg_image){0};
+	}
+
 	state.threedee_bind.vertex_buffers[0] = armature->loaded_buffer;
 	state.threedee_bind.vs_images[SLOT_armature_bones_tex] = armature->bones_texture;
 	state.threedee_bind.fs_images[SLOT_armature_tex] = image_gigatexture;
+
 	sg_apply_bindings(&state.threedee_bind);
 
 	sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_armature_vs_params, &SG_RANGE(params));
@@ -3105,6 +3172,9 @@ void init(void)
 #endif
 			.label = "quad-vertices"
 			});
+
+
+	state.shadows = init_shadow_state();
 
 	const sg_shader_desc *desc = quad_program_shader_desc(sg_query_backend());
 	assert(desc);
@@ -3978,24 +4048,6 @@ int sorting_key_at(Vec2 pos)
 	return -(int)pos.y;
 }
 
-void draw_shadow_for(DrawParams d)
-{
-	Quad sheared_quad = d.quad;
-	float height = d.quad.ur.y - d.quad.lr.y;
-	Vec2 shear_addition = V2(-height*0.35f, -height*0.2f);
-	sheared_quad.ul = AddV2(sheared_quad.ul, shear_addition);
-	sheared_quad.ur = AddV2(sheared_quad.ur, shear_addition);
-	d.quad = sheared_quad;
-	d.tint = (Color) { 0, 0, 0, 0.2f };
-	d.sorting_key -= 1;
-	d.alpha_clip_threshold = 0.0f;
-	dbgline(sheared_quad.ul, sheared_quad.ur);
-	dbgline(sheared_quad.ur, sheared_quad.lr);
-	dbgline(sheared_quad.lr, sheared_quad.ll);
-	dbgline(sheared_quad.ll, sheared_quad.ul);
-	draw_quad(d);
-}
-
 //void draw_animated_sprite(AnimatedSprite *s, double elapsed_time, bool flipped, Vec2 pos, Color tint)
 void draw_animated_sprite(DrawnAnimatedSprite d)
 {
@@ -4029,7 +4081,6 @@ void draw_animated_sprite(DrawnAnimatedSprite d)
 	region.lower_right = AddV2(region.upper_left, s->region_size);
 
 	DrawParams drawn = (DrawParams) { q, spritesheet_img, region, d.tint, .sorting_key = sorting_key_at(d.pos), .layer = LAYER_WORLD, };
-	if (!d.no_shadow) draw_shadow_for(drawn);
 	draw_quad(drawn);
 }
 
@@ -4705,6 +4756,110 @@ Transform entity_transform(Entity *e)
 	*/
 }
 
+
+void do_shadow_pass(Shadow_State* shadow_state, Mat4 shadow_view_matrix, Mat4 shadow_projection_matrix) {
+    sg_begin_pass(shadow_state->pass, &shadow_state->pass_action);
+
+    sg_apply_pipeline(shadow_state->pip);
+
+	//We use the texture, just in case we want to do alpha cards. I.e. we need to test alpha for leaf quads etc. 
+	state.threedee_bind.fs_images[SLOT_threedee_tex] = image_gigatexture;
+	state.threedee_bind.fs_images[SLOT_threedee_shadow_map].id = 0;
+
+    for(PlacedMesh *cur = level_threedee.placed_mesh_list; cur; cur = cur->next)
+    {
+        draw_shadow(shadow_view_matrix, shadow_projection_matrix, cur);
+    }
+
+
+    ENTITIES_ITER(gs.entities)
+    {
+        if(it->is_npc || it->is_character)
+        {
+            Transform draw_with = entity_transform(it);
+			if(it->npc_kind == NPC_SimpleWorm)
+			{
+				// draw_armature_shadow(shadow_view_matrix, shadow_projection_matrix, draw_with, &armature, (float)elapsed_time);
+			} else {
+				draw_shadow(shadow_view_matrix, shadow_projection_matrix, &(PlacedMesh){.draw_with = &mesh_player, .t = draw_with, });
+			}
+        }
+    }
+
+    sg_end_pass();
+}
+
+
+Shadow_State init_shadow_state() {
+	//To start off with, most of this initialisation code is taken from the
+	// sokol shadows sample, which can be found here. 
+	// https://floooh.github.io/sokol-html5/shadows-sapp.html
+
+	Shadow_State shadows = {0};
+
+	shadows.pass_action = (sg_pass_action) {
+        .colors[0] = {
+            .action = SG_ACTION_CLEAR,
+            .value = { 1.0f, 1.0f, 1.0f, 1.0f }
+        }
+    };
+
+	/*
+		As of right now, it looks like sokol_gfx does not support depth only
+		rendering passes, so we create the colour buffer always. It will likely
+		be pertinent to just dig into sokol and add the functionality we want later,
+		but as a first pass, we will just do as the romans do. I.e. have both a colour
+		and depth component. - Canada Day 2023.
+	*/
+    sg_image_desc img_desc = {
+        .render_target = true,
+        .width = SHADOW_MAP_DIMENSION,
+        .height = SHADOW_MAP_DIMENSION,
+        .pixel_format = SG_PIXELFORMAT_RGBA8,
+        .min_filter = SG_FILTER_LINEAR,
+        .mag_filter = SG_FILTER_LINEAR,
+		.wrap_u = SG_WRAP_CLAMP_TO_BORDER,
+		.wrap_v = SG_WRAP_CLAMP_TO_BORDER,
+		.border_color = SG_BORDERCOLOR_OPAQUE_WHITE,
+        .sample_count = 1,
+        .label = "shadow-map-color-image"
+    };
+    shadows.color_img = sg_make_image(&img_desc);
+    img_desc.pixel_format = SG_PIXELFORMAT_DEPTH;
+    img_desc.label = "shadow-map-depth-image";
+    shadows.depth_img = sg_make_image(&img_desc);
+    shadows.pass = sg_make_pass(&(sg_pass_desc){
+        .color_attachments[0].image = shadows.color_img,
+        .depth_stencil_attachment.image = shadows.depth_img,
+        .label = "shadow-map-pass"
+    });
+
+
+    shadows.pip = sg_make_pipeline(&(sg_pipeline_desc){
+        .layout = {
+            .attrs = {
+                [ATTR_threedee_vs_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
+				[ATTR_threedee_vs_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
+            }
+        },
+        .shader = sg_make_shader(shadow_mapper_program_shader_desc(sg_query_backend())),
+        // Cull front faces in the shadow map pass
+        .cull_mode = SG_CULLMODE_FRONT,
+        .sample_count = 1,
+        .depth = {
+            .pixel_format = SG_PIXELFORMAT_DEPTH,
+            .compare = SG_COMPAREFUNC_LESS_EQUAL,
+            .write_enabled = true,
+        },
+        .colors[0].pixel_format = SG_PIXELFORMAT_RGBA8,
+        .label = "shadow-map-pipeline"
+    });
+
+	return shadows;
+}
+
+
+
 void frame(void)
 {
 	static float speed_factor = 1.0f;
@@ -4783,6 +4938,29 @@ void frame(void)
 			movement = NormV2(movement);
 		}
 
+
+		float spin_factor = 0.5f;
+		float x = cosf((float)elapsed_time * spin_factor);
+		float z = sinf((float)elapsed_time * spin_factor);
+	    Vec3 light_dir = NormV3(V3(x, -0.5, z));
+		Vec3 light_pos = V3(0, 10, 0);
+
+		float shadow_volume_half_dim = 25.0;
+
+		float l = -shadow_volume_half_dim;
+		float r =  shadow_volume_half_dim;
+		float t =  shadow_volume_half_dim;
+		float b = -shadow_volume_half_dim;
+		float n = -100.0;
+		float f =  200.0;
+
+		Mat4 shadow_view_matrix       = LookAt_RH(light_pos, AddV3(light_pos, light_dir), V3(0, 1, 0));
+		Mat4 shadow_projection_matrix = Orthographic_RH_NO(l, r, b, t, n, f);
+		Mat4 light_space_matrix = MulM4(shadow_projection_matrix, shadow_view_matrix);
+
+		do_shadow_pass(&state.shadows, shadow_view_matrix, shadow_projection_matrix);
+
+
 		// make movement relative to camera forward
 		Vec3 facing = NormV3(SubV3(player_pos, cam_pos));
 		Vec3 right = Cross(facing, V3(0,1,0));
@@ -4794,6 +4972,7 @@ void frame(void)
 
 		sg_apply_pipeline(state.threedee_pip);
 		state.threedee_bind.fs_images[SLOT_threedee_tex] = image_gigatexture;
+		state.threedee_bind.fs_images[SLOT_threedee_shadow_map] = state.shadows.color_img;
 
 		view = Translate(V3(0.0, 1.0, -5.0f));
 		//view = LookAt_RH(V3(0,1,-5
@@ -4892,7 +5071,7 @@ void frame(void)
 
 		for(PlacedMesh *cur = level_threedee.placed_mesh_list; cur; cur = cur->next)
 		{
-			draw_placed(view, projection, cur);
+			draw_placed(view, projection, light_space_matrix, cur);
 		}
 
 
@@ -4907,7 +5086,7 @@ void frame(void)
 				}
 				else
 				{
-					draw_placed(view, projection, &(PlacedMesh){.draw_with = &mesh_player, .t = draw_with, });
+					draw_placed(view, projection, light_space_matrix, &(PlacedMesh){.draw_with = &mesh_player, .t = draw_with, });
 				}
 			}
 		}
@@ -5247,7 +5426,7 @@ void frame(void)
 											&sound_grunt_2,
 											&sound_grunt_3,
 										};
-										play_audio(possible_grunts[rand() % ARRLEN(possible_grunts)], volume);
+										play_audio(possible_grunts[rand() % ARRLEN(possible_grunts)], volume); //nocheckin
 									}
 								}
 
@@ -6131,13 +6310,11 @@ void frame(void)
 
 						draw_centered_text((TextParams){ false, MD_S8Lit("Needs 3 party members"), AddV2(it->pos, V2(0.0, 100.0)), blendalpha(WHITE, it->idol_reminder_opacity), 1.0f});
 
-						draw_shadow_for(d);
 						draw_quad(d);
 					}
 					else if(it->machine_kind == MACH_arrow_shooter)
 					{
 						DrawParams d = (DrawParams){ quad_centered(it->pos, V2(TILE_SIZE, TILE_SIZE)), IMG(image_arrow_shooter), WHITE, .layer = LAYER_WORLD, .sorting_key = sorting_key_at(it->pos) };
-						draw_shadow_for(d);
 						draw_quad(d);
 					}
 

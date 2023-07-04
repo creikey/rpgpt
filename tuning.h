@@ -50,3 +50,7 @@
 #define MAX_ASTAR_NODES 512
 #define TIME_BETWEEN_PATH_GENS (0.5f)
 
+
+
+//Rendering
+#define SHADOW_MAP_DIMENSION (2048)
