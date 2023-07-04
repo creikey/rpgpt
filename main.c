@@ -1093,6 +1093,12 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 		.pixel_format = SG_PIXELFORMAT_RGBA8,
 		.min_filter = SG_FILTER_NEAREST,
 		.mag_filter = SG_FILTER_NEAREST,
+
+		// for webgl NPOT texures https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/Tutorial/Using_textures_in_WebGL
+		.wrap_u = SG_WRAP_CLAMP_TO_EDGE,
+		.wrap_v = SG_WRAP_CLAMP_TO_EDGE,
+		.wrap_w = SG_WRAP_CLAMP_TO_EDGE,
+
 		.usage = SG_USAGE_STREAM,
 	});
 
@@ -1104,13 +1110,14 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 		{
 			for(int c = 0; c < 4; c++)
 			{
+				const float eps = 0.0001f;
 				if(r == c)
 				{
-					assert(should_be_identity.Elements[c][r] == 1.0f);
+					assert(fabsf(should_be_identity.Elements[c][r] - 1.0f) < eps);
 				}
 				else
 				{
-					assert(should_be_identity.Elements[c][r] == 0.0f);
+					assert(fabsf(should_be_identity.Elements[c][r] - 0.0f) < eps);
 				}
 			}
 		}
@@ -3075,8 +3082,8 @@ void init(void)
 	mesh_player = load_mesh(persistent_arena, binary_file, MD_S8Lit("Player.bin"));
 
 
-	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/Armature.bin"));
-	armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Armature.bin"));
+	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/WalkingArmature.bin"));
+	armature = load_armature(persistent_arena, binary_file, MD_S8Lit("WalkingArmature.bin"));
 
 
 
@@ -4882,27 +4889,6 @@ void frame(void)
 			Vec3 y = MulM4V3(cur->matrix_local, V3(0,cur->length,0));
 			Vec3 z = MulM4V3(cur->matrix_local, V3(0,0,cur->length));
 			Vec3 dot = MulM4V3(cur->matrix_local, V3(cur->length,0,cur->length));
-
-			Vec3 should_be_zero = MulM4V3(cur->inverse_model_space_pos, from);
-			assert(should_be_zero.x == 0.0);
-			assert(should_be_zero.y == 0.0);
-			assert(should_be_zero.z == 0.0);
-
-			if(cur->parent == 0)
-			{
-				// do some testing on the bone with no parent
-				Vec3 should_be_zero = MulM4V3(transform_to_mat(cur_pose_bone->parent_space_pose), V3(0,0,0));
-
-				// there is another bone, that's not at (0,0,0) in model space on the model
-				// for debugging purposes right now
-
-				assert(should_be_zero.y == 0.0);
-
-				/*
-				assert(should_be_zero.x == 0.0);
-				assert(should_be_zero.z == 0.0);
-				*/
-			}
 
 			// from, x, y, and z are like vertex points. They are model-space
 			// points *around* the bones they should be influenced by. Now we

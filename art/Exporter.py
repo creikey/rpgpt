@@ -135,7 +135,7 @@ for o in D.objects:
                     for strip in track.strips:
                         anims.append(strip.action)
                 print(f"Writing {len(anims)} animations")
-                assert(len(anims) == 1)
+                assert len(anims) == 1, f"Expected the number of animations, {len(anims)}, to be 1, but it isn't"
                 for animation in anims:
                     armature.animation_data.action = animation
                     startFrame = int(animation.frame_range.x)
