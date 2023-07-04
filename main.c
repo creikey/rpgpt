@@ -2705,6 +2705,41 @@ Mat4 get_animated_bone_transform(Bone *bone, float time)
 	return M4D(1.0f);
 }
 
+typedef struct
+{
+	MD_u8 rgba[4];
+} PixelData;
+
+PixelData encode_normalized_float32(float to_encode)
+{
+	Vec4 to_return_vector = {0};
+
+	// x is just -1.0f or 1.0f, encoded as a [0,1] normalized float. 
+	if(to_encode < 0.0f) to_return_vector.x = -1.0f;
+	else to_return_vector.x = 1.0f;
+	to_return_vector.x = to_return_vector.x / 2.0f + 0.5f;
+
+	float without_sign = fabsf(to_encode);
+	to_return_vector.y = without_sign - floorf(without_sign);
+
+	to_return_vector.z = fabsf(to_encode) - to_return_vector.y;
+	assert(to_return_vector.z < 255.0f);
+	to_return_vector.z /= 255.0f;
+
+	// w is unused for now
+
+	PixelData to_return = {0};
+
+	for(int i = 0; i < 4; i++)
+	{
+		assert(0.0f <= to_return_vector.Elements[i] && to_return_vector.Elements[i] <= 1.0f);
+		to_return.rgba[i] = (MD_u8)(to_return_vector.Elements[i] * 255.0f);
+	}
+
+	return to_return;
+}
+
+
 void draw_armature(Mat4 view, Mat4 projection, Transform t, Armature *armature, float elapsed_time)
 {
 	MD_ArenaTemp scratch = MD_GetScratch(0, 0);

@@ -17,6 +17,13 @@ uniform vs_params {
 };
 uniform sampler2D bones_tex;
 
+float decode_normalized_float32(vec4 v)
+{
+	float sign = 2.0 * v.x - 1.0;
+
+	return sign * (v.z*255.0 + v.y);
+}
+
 // in textures, color elements are delivered as unsigend normalize floats
 // in [0, 1]. This makes them into [-1, 1] as the bone matrices require 
 // such values to be correct
@@ -31,13 +38,14 @@ vec4 make_signed_again(vec4 v) {
 void main() {
 	vec4 total_position = vec4(0.0f);
 
-	for(int i = 0; i < 4; i++)
+	for(int bone_influence_index = 0; bone_influence_index < 4; bone_influence_index++)
 	{
-		float index_float = indices_in[i];
+		float index_float = indices_in[bone_influence_index];
 		int index = int(index_float * 65535.0);
-		float weight = weights_in[i];
+		float weight = weights_in[bone_influence_index];
 
 		float y_coord = (0.5 + index)/bones_tex_size.y;
+		
 		vec4 col0 = texture(bones_tex, vec2((0.5 + 0)/bones_tex_size.x, y_coord));
 		vec4 col1 = texture(bones_tex, vec2((0.5 + 1)/bones_tex_size.x, y_coord));
 		vec4 col2 = texture(bones_tex, vec2((0.5 + 2)/bones_tex_size.x, y_coord));
