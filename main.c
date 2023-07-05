@@ -3848,6 +3848,8 @@ extern bool profiling;
 #else
 bool profiling;
 #endif
+#else
+const bool show_devtools = false;
 #endif
 
 Color debug_color = {1,0,0,1};

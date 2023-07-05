@@ -48,6 +48,13 @@ float decodeDepth(vec4 rgba) {
 }
 
 float do_shadow_sample(sampler2D shadowMap, vec2 uv, float scene_depth) {
+	{
+		//WebGL does not support GL_CLAMP_TO_BORDER, or border colors at all it seems, so we have to check explicitly.
+		//This will probably slow down other versions which do support texture borders, but the current system does
+		// not provide a non-overly complex way to include/not-include this code based on the backend. So here it is.
+		if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
+			return 1.0;
+	}
 	float map_depth = decodeDepth(texture(shadowMap, uv));
 	map_depth += 0.001;//bias to counter self-shadowing
     return step(scene_depth, map_depth);
