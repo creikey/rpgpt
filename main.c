@@ -4982,9 +4982,6 @@ Shadow_Volume_Params calculate_shadow_volume_params(Vec3 light_dir)
 	return result;
 }
 
-
-#include "debug_helpers.c"
-
 void frame(void)
 {
 	static float speed_factor = 1.0f;
@@ -5020,8 +5017,6 @@ void frame(void)
 	}
 	return;
 #endif
-
-	debug_draw_img(state.shadows.color_img, 0);
 
 	PROFILE_SCOPE("frame")
 	{
