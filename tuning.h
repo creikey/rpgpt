@@ -12,7 +12,7 @@
 #define ARROW_SPEED 200.0f
 #define SECONDS_PER_ARROW 1.3f
 
-#define ARENA_SIZE (1024*1024)
+#define ARENA_SIZE (1024*1024*10)
 #define BIG_ARENA_SIZE (ARENA_SIZE * 8)
 
 #ifdef DEVTOOLS

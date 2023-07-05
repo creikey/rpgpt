@@ -851,13 +851,23 @@ typedef struct PoseBone
 typedef struct Bone
 {
 	struct Bone *parent;
-	PoseBone *anim_poses;
-	MD_u64 anim_poses_length;
 	Mat4 matrix_local;
 	Mat4 inverse_model_space_pos;
 	float length;
 } Bone;
 
+typedef struct AnimationTrack
+{
+	PoseBone *poses;
+	MD_u64 poses_length;
+} AnimationTrack;
+
+typedef struct Animation
+{
+	MD_String8 name;
+	// assumed to be the same as the number of bones in the armature the animation is in 
+	AnimationTrack *tracks; 
+} Animation;
 
 typedef struct
 {
@@ -969,6 +979,8 @@ typedef struct
 {
 	Bone *bones;
 	MD_u64 bones_length;
+	Animation *animations;
+	MD_u64 animations_length;
 	ArmatureVertex *vertices;
 	MD_u64 vertices_length;
 	sg_buffer loaded_buffer;
@@ -1027,29 +1039,43 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 		}
 	}
 
-	MD_u64 frames_in_anim;
-	ser_MD_u64(&ser, &frames_in_anim);
-	Log("There are %llu animation frames\n", frames_in_anim);
+	ser_MD_u64(&ser, &to_return.animations_length);
+	Log("Armature %.*s has  %llu animations\n", MD_S8VArg(armature_name), to_return.animations_length);
+	to_return.animations = MD_PushArray(arena, Animation, to_return.animations_length);
 
-	for(MD_u64 i = 0; i < to_return.bones_length; i++)
+	for(MD_u64 i = 0; i < to_return.animations_length; i++)
 	{
-		to_return.bones[i].anim_poses = MD_PushArray(arena, PoseBone, frames_in_anim);
-		to_return.bones[i].anim_poses_length = frames_in_anim;
-	}
+		Animation *new_anim = &to_return.animations[i];
+		*new_anim = (Animation){0};
 
-	for(MD_u64 anim_i = 0; anim_i < frames_in_anim; anim_i++)
-	{
-		float time_through;
-		ser_float(&ser, &time_through);
-		for(MD_u64 pose_bone_i = 0; pose_bone_i < to_return.bones_length; pose_bone_i++)
+		ser_MD_String8(&ser, &new_anim->name, arena);
+
+		new_anim->tracks = MD_PushArray(arena, AnimationTrack, to_return.bones_length);
+
+		MD_u64 frames_in_anim;
+		ser_MD_u64(&ser, &frames_in_anim);
+		Log("There are %llu animation frames in animation '%.*s'\n", frames_in_anim, MD_S8VArg(new_anim->name));
+
+		for(MD_u64 i = 0; i < to_return.bones_length; i++)
 		{
-			PoseBone *next_pose_bone = &to_return.bones[pose_bone_i].anim_poses[anim_i];
+			new_anim->tracks[i].poses = MD_PushArray(arena, PoseBone, frames_in_anim);
+			new_anim->tracks[i].poses_length = frames_in_anim;
+		}
 
-			ser_Vec3(&ser, &next_pose_bone->parent_space_pose.offset);
-			ser_Quat(&ser, &next_pose_bone->parent_space_pose.rotation);
-			ser_Vec3(&ser, &next_pose_bone->parent_space_pose.scale);
+		for(MD_u64 anim_i = 0; anim_i < frames_in_anim; anim_i++)
+		{
+			float time_through;
+			ser_float(&ser, &time_through);
+			for(MD_u64 pose_bone_i = 0; pose_bone_i < to_return.bones_length; pose_bone_i++)
+			{
+				PoseBone *next_pose_bone = &new_anim->tracks[pose_bone_i].poses[anim_i];
 
-			next_pose_bone->time = time_through;
+				ser_Vec3(&ser, &next_pose_bone->parent_space_pose.offset);
+				ser_Quat(&ser, &next_pose_bone->parent_space_pose.rotation);
+				ser_Vec3(&ser, &next_pose_bone->parent_space_pose.scale);
+
+				next_pose_bone->time = time_through;
+			}
 		}
 	}
 
@@ -1083,7 +1109,7 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 			.label = (const char*)nullterm(arena, MD_S8Fmt(arena, "%.*s-vertices", MD_S8VArg(armature_name))).str,
 			});
 
-	to_return.bones_texture_width = 4;
+	to_return.bones_texture_width = 16;
 	to_return.bones_texture_height = (int)to_return.bones_length;
 
 	Log("Amrature %.*s has bones texture size (%d, %d)\n", MD_S8VArg(armature_name), to_return.bones_texture_width, to_return.bones_texture_height);
@@ -1093,6 +1119,12 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 		.pixel_format = SG_PIXELFORMAT_RGBA8,
 		.min_filter = SG_FILTER_NEAREST,
 		.mag_filter = SG_FILTER_NEAREST,
+
+		// for webgl NPOT texures https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/Tutorial/Using_textures_in_WebGL
+		.wrap_u = SG_WRAP_CLAMP_TO_EDGE,
+		.wrap_v = SG_WRAP_CLAMP_TO_EDGE,
+		.wrap_w = SG_WRAP_CLAMP_TO_EDGE,
+
 		.usage = SG_USAGE_STREAM,
 	});
 
@@ -1104,13 +1136,14 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 		{
 			for(int c = 0; c < 4; c++)
 			{
+				const float eps = 0.0001f;
 				if(r == c)
 				{
-					assert(should_be_identity.Elements[c][r] == 1.0f);
+					assert(fabsf(should_be_identity.Elements[c][r] - 1.0f) < eps);
 				}
 				else
 				{
-					assert(should_be_identity.Elements[c][r] == 0.0f);
+					assert(fabsf(should_be_identity.Elements[c][r] - 0.0f) < eps);
 				}
 			}
 		}
@@ -2740,17 +2773,17 @@ void draw_placed(Mat4 view, Mat4 projection, Mat4 light_matrix, PlacedMesh *cur)
 	sg_draw(0, (int)drawing->num_vertices, 1);
 }
 
-Mat4 get_animated_bone_transform(Bone *bone, float time)
+Mat4 get_animated_bone_transform(AnimationTrack *track, Bone *bone, float time)
 {
-	float total_anim_time = bone->anim_poses[bone->anim_poses_length - 1].time;
+	float total_anim_time = track->poses[track->poses_length - 1].time;
 	assert(total_anim_time > 0.0f);
 	time = fmodf(time, total_anim_time);
-	for(MD_u64 i = 0; i < bone->anim_poses_length - 1; i++)
+	for(MD_u64 i = 0; i < track->poses_length - 1; i++)
 	{
-		if(bone->anim_poses[i].time <= time && time <= bone->anim_poses[i + 1].time)
+		if(track->poses[i].time <= time && time <= track->poses[i + 1].time)
 		{
-			PoseBone from = bone->anim_poses[i];
-			PoseBone to = bone->anim_poses[i + 1];
+			PoseBone from = track->poses[i];
+			PoseBone to = track->poses[i + 1];
 			float gap_btwn_keyframes = to.time - from.time;
 			float t = (time - from.time)/gap_btwn_keyframes;
 			assert(t >= 0.0f);
@@ -2761,6 +2794,58 @@ Mat4 get_animated_bone_transform(Bone *bone, float time)
 	assert(false);
 	return M4D(1.0f);
 }
+
+typedef struct
+{
+	MD_u8 rgba[4];
+} PixelData;
+
+PixelData encode_normalized_float32(float to_encode)
+{
+	Vec4 to_return_vector = {0};
+
+	// x is just -1.0f or 1.0f, encoded as a [0,1] normalized float. 
+	if(to_encode < 0.0f) to_return_vector.x = -1.0f;
+	else to_return_vector.x = 1.0f;
+	to_return_vector.x = to_return_vector.x / 2.0f + 0.5f;
+
+	float without_sign = fabsf(to_encode);
+	to_return_vector.y = without_sign - floorf(without_sign);
+
+	to_return_vector.z = fabsf(to_encode) - to_return_vector.y;
+	assert(to_return_vector.z < 255.0f);
+	to_return_vector.z /= 255.0f;
+
+	// w is unused for now, but is 1.0f (and is the alpha channel in Vec4) so that it displays properly as a texture
+	to_return_vector.w = 1.0f;
+
+
+	PixelData to_return = {0};
+
+	for(int i = 0; i < 4; i++)
+	{
+		assert(0.0f <= to_return_vector.Elements[i] && to_return_vector.Elements[i] <= 1.0f);
+		to_return.rgba[i] = (MD_u8)(to_return_vector.Elements[i] * 255.0f);
+	}
+
+	return to_return;
+}
+
+float decode_normalized_float32(PixelData encoded)
+{
+	Vec4 v = {0};
+	for(int i = 0; i < 4; i++)
+	{
+		v.Elements[i] = (float)encoded.rgba[i] / 255.0f;
+	}
+
+	float sign = 2.0f * v.x - 1.0f;
+
+	float to_return = sign * (v.z*255.0f + v.y);
+
+	return to_return;
+}
+
 
 void draw_armature(Mat4 view, Mat4 projection, Transform t, Armature *armature, float elapsed_time)
 {
@@ -2788,34 +2873,26 @@ void draw_armature(Mat4 view, Mat4 projection, Transform t, Armature *armature, 
 		for(Bone *cur_in_hierarchy = cur; cur_in_hierarchy; cur_in_hierarchy = cur_in_hierarchy->parent)
 		{
 			//final = MulM4(cur_in_hierarchy->anim_poses[0].parent_space_pose, final);
-			final = MulM4(get_animated_bone_transform(cur_in_hierarchy, elapsed_time), final);
+			int bone_index = (int)(cur_in_hierarchy - armature->bones);
+			final = MulM4(get_animated_bone_transform(&armature->animations[0].tracks[bone_index], cur_in_hierarchy, elapsed_time), final);
 		}
 
 		for(int col = 0; col < 4; col++)
 		{
 			Vec4 to_upload = final.Columns[col];
-			assert(-1.1f <= to_upload.x && to_upload.x <= 1.1f);
-			assert(-1.1f <= to_upload.y && to_upload.y <= 1.1f);
-			assert(-1.1f <= to_upload.z && to_upload.z <= 1.1f);
-			assert(-1.1f <= to_upload.w && to_upload.w <= 1.1f);
-
-			// make them normalized
-			to_upload.x = to_upload.x/2.0f + 0.5f;
-			to_upload.y = to_upload.y/2.0f + 0.5f;
-			to_upload.z = to_upload.z/2.0f + 0.5f;
-			to_upload.w = to_upload.w/2.0f + 0.5f;
-
-			to_upload.x = clamp01(to_upload.x);
-			to_upload.y = clamp01(to_upload.y);
-			to_upload.z = clamp01(to_upload.z);
-			to_upload.w = clamp01(to_upload.w);
 
 			int bytes_per_pixel = 4;
-			int bytes_per_row = bytes_per_pixel * 4;
-			bones_tex[bytes_per_pixel*col + bytes_per_row*i + 0] = (MD_u8)(to_upload.x * 255.0);
-			bones_tex[bytes_per_pixel*col + bytes_per_row*i + 1] = (MD_u8)(to_upload.y * 255.0);
-			bones_tex[bytes_per_pixel*col + bytes_per_row*i + 2] = (MD_u8)(to_upload.z * 255.0);
-			bones_tex[bytes_per_pixel*col + bytes_per_row*i + 3] = (MD_u8)(to_upload.w * 255.0);
+			int bytes_per_column_of_mat = bytes_per_pixel * 4;
+			int bytes_per_row = bytes_per_pixel * armature->bones_texture_width;
+			for(int elem = 0; elem < 4; elem++)
+			{
+				float after_decoding = decode_normalized_float32(encode_normalized_float32(to_upload.Elements[elem]));
+				assert(fabsf(after_decoding - to_upload.Elements[elem]) < 0.01f);
+			}
+			memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*0], encode_normalized_float32(to_upload.Elements[0]).rgba, bytes_per_pixel);
+			memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*1], encode_normalized_float32(to_upload.Elements[1]).rgba, bytes_per_pixel);
+			memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*2], encode_normalized_float32(to_upload.Elements[2]).rgba, bytes_per_pixel);
+			memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*3], encode_normalized_float32(to_upload.Elements[3]).rgba, bytes_per_pixel);
 		}
 	}
 	sg_update_image(armature->bones_texture, &(sg_image_data){
@@ -3023,6 +3100,22 @@ void do_serialization_tests()
 
 	MD_ReleaseScratch(scratch);
 }
+
+void do_float_encoding_tests()
+{
+	float to_test[] = {
+		7.5f,
+		-2.12f,
+		100.2f,
+		-5.35f,
+	};
+	ARR_ITER(float, to_test)
+	{
+		PixelData encoded = encode_normalized_float32(*it);
+		float decoded = decode_normalized_float32(encoded);
+		assert(fabsf(decoded - *it) < 0.01f);
+	}
+}
 #endif
 
 Armature armature = {0};
@@ -3083,8 +3176,8 @@ void init(void)
 	mesh_player = load_mesh(persistent_arena, binary_file, MD_S8Lit("Player.bin"));
 
 
-	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/Armature.bin"));
-	armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Armature.bin"));
+	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/WalkingArmature.bin"));
+	armature = load_armature(persistent_arena, binary_file, MD_S8Lit("WalkingArmature.bin"));
 
 
 
@@ -3096,6 +3189,7 @@ void init(void)
 	do_metadesk_tests();
 	do_parsing_tests();
 	do_serialization_tests();
+	do_float_encoding_tests();
 #endif
 
 #ifdef WEB
@@ -5108,7 +5202,6 @@ void frame(void)
 		// debug draw armature
 		for(MD_u64 i = 0; i < armature.bones_length; i++)
 		{
-			PoseBone *cur_pose_bone = &armature.bones[i].anim_poses[0];
 			Bone *cur = &armature.bones[i];
 
 			Vec3 offset = V3(1.5, 0, 5);
@@ -5119,27 +5212,6 @@ void frame(void)
 			Vec3 z = MulM4V3(cur->matrix_local, V3(0,0,cur->length));
 			Vec3 dot = MulM4V3(cur->matrix_local, V3(cur->length,0,cur->length));
 
-			Vec3 should_be_zero = MulM4V3(cur->inverse_model_space_pos, from);
-			assert(should_be_zero.x == 0.0);
-			assert(should_be_zero.y == 0.0);
-			assert(should_be_zero.z == 0.0);
-
-			if(cur->parent == 0)
-			{
-				// do some testing on the bone with no parent
-				Vec3 should_be_zero = MulM4V3(transform_to_mat(cur_pose_bone->parent_space_pose), V3(0,0,0));
-
-				// there is another bone, that's not at (0,0,0) in model space on the model
-				// for debugging purposes right now
-
-				assert(should_be_zero.y == 0.0);
-
-				/*
-				assert(should_be_zero.x == 0.0);
-				assert(should_be_zero.z == 0.0);
-				*/
-			}
-
 			// from, x, y, and z are like vertex points. They are model-space
 			// points *around* the bones they should be influenced by. Now we
 			// need to transform them according to how much the pose bones
@@ -5149,7 +5221,8 @@ void frame(void)
 			final_mat = MulM4(cur->inverse_model_space_pos, final_mat);
 			for(Bone *cur_in_hierarchy = cur; cur_in_hierarchy; cur_in_hierarchy = cur_in_hierarchy->parent)
 			{
-				final_mat = MulM4(get_animated_bone_transform(cur_in_hierarchy, (float)elapsed_time), final_mat);
+				int bone_index = (int)(cur_in_hierarchy - armature.bones);
+				final_mat = MulM4(get_animated_bone_transform(&armature.animations[0].tracks[bone_index], cur_in_hierarchy, (float)elapsed_time), final_mat);
 				//final_mat = MulM4(cur_in_hierarchy->anim_poses[0].parent_space_pose, final_mat);
 			}
 

@@ -115,7 +115,7 @@ for o in D.objects:
                                 break
                         if parent_index == -1:
                             assert False, f"Couldn't find parent of bone {b}"
-                        print(f"Parent of bone {b.name} is index {parent_index} in list {bones_in_armature}")
+                        #print(f"Parent of bone {b.name} is index {parent_index} in list {bones_in_armature}")
 
                     write_i32(f, parent_index)
                     write_4x4matrix(f, model_space_pose)
@@ -129,7 +129,16 @@ for o in D.objects:
                 assert(len(o.pose.bones) == len(bones_in_armature))
 
                 armature = o
-                for animation in bpy.data.actions:
+                anims = []
+                assert armature.animation_data, "Armatures are assumed to have an animation right now"
+                for track in armature.animation_data.nla_tracks:
+                    for strip in track.strips:
+                        anims.append(strip.action)
+                print(f"Writing {len(anims)} animations")
+                write_u64(f, len(anims))
+                for animation in anims:
+                    write_string(f, animation.name)
+                    
                     armature.animation_data.action = animation
                     startFrame = int(animation.frame_range.x)
                     endFrame = int(animation.frame_range.y)
