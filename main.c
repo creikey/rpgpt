@@ -851,13 +851,23 @@ typedef struct PoseBone
 typedef struct Bone
 {
 	struct Bone *parent;
-	PoseBone *anim_poses;
-	MD_u64 anim_poses_length;
 	Mat4 matrix_local;
 	Mat4 inverse_model_space_pos;
 	float length;
 } Bone;
 
+typedef struct AnimationTrack
+{
+	PoseBone *poses;
+	MD_u64 poses_length;
+} AnimationTrack;
+
+typedef struct Animation
+{
+	MD_String8 name;
+	// assumed to be the same as the number of bones in the armature the animation is in 
+	AnimationTrack *tracks; 
+} Animation;
 
 typedef struct
 {
@@ -969,6 +979,8 @@ typedef struct
 {
 	Bone *bones;
 	MD_u64 bones_length;
+	Animation *animations;
+	MD_u64 animations_length;
 	ArmatureVertex *vertices;
 	MD_u64 vertices_length;
 	sg_buffer loaded_buffer;
@@ -1027,29 +1039,43 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 		}
 	}
 
-	MD_u64 frames_in_anim;
-	ser_MD_u64(&ser, &frames_in_anim);
-	Log("There are %llu animation frames\n", frames_in_anim);
+	ser_MD_u64(&ser, &to_return.animations_length);
+	Log("Armature %.*s has  %llu animations\n", MD_S8VArg(armature_name), to_return.animations_length);
+	to_return.animations = MD_PushArray(arena, Animation, to_return.animations_length);
 
-	for(MD_u64 i = 0; i < to_return.bones_length; i++)
+	for(MD_u64 i = 0; i < to_return.animations_length; i++)
 	{
-		to_return.bones[i].anim_poses = MD_PushArray(arena, PoseBone, frames_in_anim);
-		to_return.bones[i].anim_poses_length = frames_in_anim;
-	}
+		Animation *new_anim = &to_return.animations[i];
+		*new_anim = (Animation){0};
 
-	for(MD_u64 anim_i = 0; anim_i < frames_in_anim; anim_i++)
-	{
-		float time_through;
-		ser_float(&ser, &time_through);
-		for(MD_u64 pose_bone_i = 0; pose_bone_i < to_return.bones_length; pose_bone_i++)
+		ser_MD_String8(&ser, &new_anim->name, arena);
+
+		new_anim->tracks = MD_PushArray(arena, AnimationTrack, to_return.bones_length);
+
+		MD_u64 frames_in_anim;
+		ser_MD_u64(&ser, &frames_in_anim);
+		Log("There are %llu animation frames in animation '%.*s'\n", frames_in_anim, MD_S8VArg(new_anim->name));
+
+		for(MD_u64 i = 0; i < to_return.bones_length; i++)
 		{
-			PoseBone *next_pose_bone = &to_return.bones[pose_bone_i].anim_poses[anim_i];
+			new_anim->tracks[i].poses = MD_PushArray(arena, PoseBone, frames_in_anim);
+			new_anim->tracks[i].poses_length = frames_in_anim;
+		}
 
-			ser_Vec3(&ser, &next_pose_bone->parent_space_pose.offset);
-			ser_Quat(&ser, &next_pose_bone->parent_space_pose.rotation);
-			ser_Vec3(&ser, &next_pose_bone->parent_space_pose.scale);
+		for(MD_u64 anim_i = 0; anim_i < frames_in_anim; anim_i++)
+		{
+			float time_through;
+			ser_float(&ser, &time_through);
+			for(MD_u64 pose_bone_i = 0; pose_bone_i < to_return.bones_length; pose_bone_i++)
+			{
+				PoseBone *next_pose_bone = &new_anim->tracks[pose_bone_i].poses[anim_i];
 
-			next_pose_bone->time = time_through;
+				ser_Vec3(&ser, &next_pose_bone->parent_space_pose.offset);
+				ser_Quat(&ser, &next_pose_bone->parent_space_pose.rotation);
+				ser_Vec3(&ser, &next_pose_bone->parent_space_pose.scale);
+
+				next_pose_bone->time = time_through;
+			}
 		}
 	}
 
@@ -2690,17 +2716,17 @@ void draw_placed(Mat4 view, Mat4 projection, PlacedMesh *cur)
 	sg_draw(0, (int)drawing->num_vertices, 1);
 }
 
-Mat4 get_animated_bone_transform(Bone *bone, float time)
+Mat4 get_animated_bone_transform(AnimationTrack *track, Bone *bone, float time)
 {
-	float total_anim_time = bone->anim_poses[bone->anim_poses_length - 1].time;
+	float total_anim_time = track->poses[track->poses_length - 1].time;
 	assert(total_anim_time > 0.0f);
 	time = fmodf(time, total_anim_time);
-	for(MD_u64 i = 0; i < bone->anim_poses_length - 1; i++)
+	for(MD_u64 i = 0; i < track->poses_length - 1; i++)
 	{
-		if(bone->anim_poses[i].time <= time && time <= bone->anim_poses[i + 1].time)
+		if(track->poses[i].time <= time && time <= track->poses[i + 1].time)
 		{
-			PoseBone from = bone->anim_poses[i];
-			PoseBone to = bone->anim_poses[i + 1];
+			PoseBone from = track->poses[i];
+			PoseBone to = track->poses[i + 1];
 			float gap_btwn_keyframes = to.time - from.time;
 			float t = (time - from.time)/gap_btwn_keyframes;
 			assert(t >= 0.0f);
@@ -2790,7 +2816,8 @@ void draw_armature(Mat4 view, Mat4 projection, Transform t, Armature *armature, 
 		for(Bone *cur_in_hierarchy = cur; cur_in_hierarchy; cur_in_hierarchy = cur_in_hierarchy->parent)
 		{
 			//final = MulM4(cur_in_hierarchy->anim_poses[0].parent_space_pose, final);
-			final = MulM4(get_animated_bone_transform(cur_in_hierarchy, elapsed_time), final);
+			int bone_index = (int)(cur_in_hierarchy - armature->bones);
+			final = MulM4(get_animated_bone_transform(&armature->animations[0].tracks[bone_index], cur_in_hierarchy, elapsed_time), final);
 		}
 
 		for(int col = 0; col < 4; col++)
@@ -4879,7 +4906,6 @@ void frame(void)
 		// debug draw armature
 		for(MD_u64 i = 0; i < armature.bones_length; i++)
 		{
-			PoseBone *cur_pose_bone = &armature.bones[i].anim_poses[0];
 			Bone *cur = &armature.bones[i];
 
 			Vec3 offset = V3(1.5, 0, 5);
@@ -4899,7 +4925,8 @@ void frame(void)
 			final_mat = MulM4(cur->inverse_model_space_pos, final_mat);
 			for(Bone *cur_in_hierarchy = cur; cur_in_hierarchy; cur_in_hierarchy = cur_in_hierarchy->parent)
 			{
-				final_mat = MulM4(get_animated_bone_transform(cur_in_hierarchy, (float)elapsed_time), final_mat);
+				int bone_index = (int)(cur_in_hierarchy - armature.bones);
+				final_mat = MulM4(get_animated_bone_transform(&armature.animations[0].tracks[bone_index], cur_in_hierarchy, (float)elapsed_time), final_mat);
 				//final_mat = MulM4(cur_in_hierarchy->anim_poses[0].parent_space_pose, final_mat);
 			}
 

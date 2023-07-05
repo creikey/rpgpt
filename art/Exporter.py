@@ -135,8 +135,10 @@ for o in D.objects:
                     for strip in track.strips:
                         anims.append(strip.action)
                 print(f"Writing {len(anims)} animations")
-                assert len(anims) == 1, f"Expected the number of animations, {len(anims)}, to be 1, but it isn't"
+                write_u64(f, len(anims))
                 for animation in anims:
+                    write_string(f, animation.name)
+                    
                     armature.animation_data.action = animation
                     startFrame = int(animation.frame_range.x)
                     endFrame = int(animation.frame_range.y)
