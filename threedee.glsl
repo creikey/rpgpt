@@ -54,6 +54,34 @@ float do_shadow_sample(sampler2D shadowMap, vec2 uv, float scene_depth) {
 }
 
 
+float bilinear_shadow_sample(sampler2D shadowMap, vec2 uv, int texture_width, int texture_height, float scene_depth_light_space) {
+	vec2 texture_dim = vec2(float(texture_width), float(texture_height));
+	vec2 texel_dim  = vec2(1.0 / float(texture_width ), 1.0 / float(texture_height));
+
+	vec2 texel_uv = uv * vec2(texture_dim);
+	vec2 texel_uv_floor = floor(texel_uv) * texel_dim;
+	vec2 texel_uv_ceil  =  ceil(texel_uv) * texel_dim;
+
+
+	vec2 uv_0 = texel_uv_floor;
+	vec2 uv_1 = vec2(texel_uv_ceil.x , texel_uv_floor.y);
+	vec2 uv_2 = vec2(texel_uv_floor.x, texel_uv_ceil.y );
+	vec2 uv_3 = vec2(texel_uv_ceil.x , texel_uv_ceil.y );
+
+	float bl = do_shadow_sample(shadowMap, uv_0, scene_depth_light_space);
+	float br = do_shadow_sample(shadowMap, uv_1, scene_depth_light_space);
+	float tl = do_shadow_sample(shadowMap, uv_2, scene_depth_light_space);
+	float tr = do_shadow_sample(shadowMap, uv_3, scene_depth_light_space);
+
+	vec2 interp = fract(texel_uv);
+
+	float bot = mix(bl, br, interp.x);
+	float top = mix(tl, tr, interp.x);
+	float result = mix(bot, top, interp.y);
+
+	return result;
+}
+
 float calculate_shadow_factor(sampler2D shadowMap, vec4 light_space_fragment_position) {
 	float shadow = 1.0;
 
@@ -73,7 +101,8 @@ float calculate_shadow_factor(sampler2D shadowMap, vec4 light_space_fragment_pos
 	for (int x=-2; x<=2; x++) {
         for (int y=-2; y<=2; y++) {
             vec2 off = vec2(x*texel_step_size, y*texel_step_size);
-            shadow += do_shadow_sample(shadowMap, shadow_uv+off, current_depth);
+			// shadow += do_shadow_sample(shadowMap, shadow_uv+off, current_depth);
+            shadow += bilinear_shadow_sample(shadowMap, shadow_uv+off, shadow_map_dimension, shadow_map_dimension, current_depth);
         }
     }
     shadow /= 25.0;
