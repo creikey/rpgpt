@@ -50,3 +50,10 @@
 #define MAX_ASTAR_NODES 512
 #define TIME_BETWEEN_PATH_GENS (0.5f)
 
+
+
+//Rendering
+#define FIELD_OF_VIEW (PI32/4.0f)
+#define NEAR_PLANE_DISTANCE (0.01f)
+#define FAR_PLANE_DISTANCE (1000.0f)
+#define SHADOW_MAP_DIMENSION (2048)
