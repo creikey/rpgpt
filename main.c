@@ -955,7 +955,7 @@ Mat4 blender_to_handmade_mat(BlenderMat b)
 	memcpy(&to_return, &b, sizeof(to_return));
 	return TransposeM4(to_return);
 }
-Mat4 transform_to_mat(Transform t)
+Mat4 transform_to_matrix(Transform t)
 {
 	Mat4 to_return = M4D(1.0f);
 
@@ -973,19 +973,35 @@ Transform lerp_transforms(Transform from, float t, Transform to)
 			.scale = LerpV3(from.scale,  t, to.scale),
 	};
 }
-
+Transform default_transform()
+{
+	return (Transform){.rotation = Make_Q(0,0,0,1)};
+}
 
 typedef struct
 {
+	MD_String8 name;
+
 	Bone *bones;
 	MD_u64 bones_length;
+
 	Animation *animations;
 	MD_u64 animations_length;
+
+	// when set, blends to that animation next time this armature is processed for that
+	MD_String8 go_to_animation;
+
+	Transform *current_poses; // allocated on loading of the armature
+	MD_String8 target_animation; // CANNOT be null.
+	float animation_blend_t; // [0,1] how much between current_animation and target_animation. Once >= 1, current = target and target = null.
+
+	Transform *anim_blended_poses; // recalculated once per frame depending on above parameters, which at the same code location are calculated. Is `bones_length` long
+
 	ArmatureVertex *vertices;
 	MD_u64 vertices_length;
 	sg_buffer loaded_buffer;
+
 	sg_image bones_texture;
-	MD_String8 name;
 	int bones_texture_width;
 	int bones_texture_height;
 } Armature;
@@ -1038,6 +1054,9 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 			}
 		}
 	}
+
+	to_return.current_poses = MD_PushArray(arena, Transform, to_return.bones_length);
+	to_return.anim_blended_poses = MD_PushArray(arena, Transform, to_return.bones_length);
 
 	ser_MD_u64(&ser, &to_return.animations_length);
 	Log("Armature %.*s has  %llu animations\n", MD_S8VArg(armature_name), to_return.animations_length);
@@ -2720,7 +2739,7 @@ void draw_shadow(Mat4 view, Mat4 projection, PlacedMesh *cur)
 	bindings.vertex_buffers[0] = drawing->loaded_buffer;
 	sg_apply_bindings(&bindings);
 
-	Mat4 model = transform_to_mat(cur->t);
+	Mat4 model = transform_to_matrix(cur->t);
 
 	shadow_mapper_vs_params_t vs_params = {0};
 	memcpy(vs_params.model, (float*)&model, sizeof(model));
@@ -2753,7 +2772,7 @@ void draw_placed(Mat4 view, Mat4 projection, Mat4 light_matrix, PlacedMesh *cur)
 	state.threedee_bind.vertex_buffers[0] = drawing->loaded_buffer;
 	sg_apply_bindings(&state.threedee_bind);
 
-	Mat4 model = transform_to_mat(cur->t);
+	Mat4 model = transform_to_matrix(cur->t);
 
 	threedee_vs_params_t vs_params = {0};
 	memcpy(vs_params.model, (float*)&model, sizeof(model));
@@ -2773,8 +2792,38 @@ void draw_placed(Mat4 view, Mat4 projection, Mat4 light_matrix, PlacedMesh *cur)
 	sg_draw(0, (int)drawing->num_vertices, 1);
 }
 
-Mat4 get_animated_bone_transform(AnimationTrack *track, Bone *bone, float time)
+// if it's an invalid anim name, it just returns the idle animation
+Animation *get_anim_by_name(Armature *armature, MD_String8 anim_name)
 {
+	for(MD_u64 i = 0; i < armature->animations_length; i++)
+	{
+		if(MD_S8Match(armature->animations[i].name, anim_name, 0))
+		{
+			return &armature->animations[i];
+		}
+	}
+
+	if(anim_name.size > 0)
+	{
+		Log("No animation found '%.*s'\n", MD_S8VArg(anim_name));
+	}
+
+	for(MD_u64 i = 0; i < armature->animations_length; i++)
+	{
+		if(MD_S8Match(armature->animations[i].name, MD_S8Lit("Idle"), 0))
+		{
+			return &armature->animations[i];
+		}
+	}
+
+	assert(false); // no animation named 'Idle'
+	return 0;
+}
+
+// you can pass a time greater than the animation length, it's fmodded to wrap no matter what.
+Transform get_animated_bone_transform(AnimationTrack *track, Bone *bone, float time)
+{
+	assert(track);
 	float total_anim_time = track->poses[track->poses_length - 1].time;
 	assert(total_anim_time > 0.0f);
 	time = fmodf(time, total_anim_time);
@@ -2788,11 +2837,11 @@ Mat4 get_animated_bone_transform(AnimationTrack *track, Bone *bone, float time)
 			float t = (time - from.time)/gap_btwn_keyframes;
 			assert(t >= 0.0f);
 			assert(t <= 1.0f);
-			return transform_to_mat(lerp_transforms(from.parent_space_pose, t, to.parent_space_pose));
+			return lerp_transforms(from.parent_space_pose, t, to.parent_space_pose);
 		}
 	}
 	assert(false);
-	return M4D(1.0f);
+	return default_transform();
 }
 
 typedef struct
@@ -2847,80 +2896,6 @@ float decode_normalized_float32(PixelData encoded)
 }
 
 
-void draw_armature(Mat4 view, Mat4 projection, Transform t, Armature *armature, float elapsed_time)
-{
-	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-	sg_apply_pipeline(state.armature_pip);
-
-	Mat4 model = transform_to_mat(t);
-
-	armature_vs_params_t params = {0};
-	memcpy(params.model, (float*)&model, sizeof(model));
-	memcpy(params.view, (float*)&view, sizeof(view));
-	memcpy(params.projection, (float*)&projection, sizeof(projection));
-	params.bones_tex_size[0] = (float)armature->bones_texture_width;
-	params.bones_tex_size[1] = (float)armature->bones_texture_height;
-
-	int bones_tex_size = 4 * armature->bones_texture_width * armature->bones_texture_height;
-	MD_u8 *bones_tex = MD_ArenaPush(scratch.arena, bones_tex_size);
-
-	for(MD_u64 i = 0; i < armature->bones_length; i++)
-	{
-		Bone *cur = &armature->bones[i];
-
-		Mat4 final = M4D(1.0f);
-		final = MulM4(cur->inverse_model_space_pos, final);
-		for(Bone *cur_in_hierarchy = cur; cur_in_hierarchy; cur_in_hierarchy = cur_in_hierarchy->parent)
-		{
-			//final = MulM4(cur_in_hierarchy->anim_poses[0].parent_space_pose, final);
-			int bone_index = (int)(cur_in_hierarchy - armature->bones);
-			final = MulM4(get_animated_bone_transform(&armature->animations[0].tracks[bone_index], cur_in_hierarchy, elapsed_time), final);
-		}
-
-		for(int col = 0; col < 4; col++)
-		{
-			Vec4 to_upload = final.Columns[col];
-
-			int bytes_per_pixel = 4;
-			int bytes_per_column_of_mat = bytes_per_pixel * 4;
-			int bytes_per_row = bytes_per_pixel * armature->bones_texture_width;
-			for(int elem = 0; elem < 4; elem++)
-			{
-				float after_decoding = decode_normalized_float32(encode_normalized_float32(to_upload.Elements[elem]));
-				assert(fabsf(after_decoding - to_upload.Elements[elem]) < 0.01f);
-			}
-			memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*0], encode_normalized_float32(to_upload.Elements[0]).rgba, bytes_per_pixel);
-			memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*1], encode_normalized_float32(to_upload.Elements[1]).rgba, bytes_per_pixel);
-			memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*2], encode_normalized_float32(to_upload.Elements[2]).rgba, bytes_per_pixel);
-			memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*3], encode_normalized_float32(to_upload.Elements[3]).rgba, bytes_per_pixel);
-		}
-	}
-	sg_update_image(armature->bones_texture, &(sg_image_data){
-			.subimage[0][0] = (sg_range){bones_tex, bones_tex_size},
-	});
-
-	ARR_ITER(sg_image, state.threedee_bind.vs_images)
-	{
-		*it = (sg_image){0};
-	}
-	ARR_ITER(sg_image, state.threedee_bind.fs_images)
-	{
-		*it = (sg_image){0};
-	}
-
-	state.threedee_bind.vertex_buffers[0] = armature->loaded_buffer;
-	state.threedee_bind.vs_images[SLOT_armature_bones_tex] = armature->bones_texture;
-	state.threedee_bind.fs_images[SLOT_armature_tex] = image_gigatexture;
-
-	sg_apply_bindings(&state.threedee_bind);
-
-	sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_armature_vs_params, &SG_RANGE(params));
-	num_draw_calls += 1;
-	num_vertices += (int)armature->vertices_length;
-	sg_draw(0, (int)armature->vertices_length, 1);
-
-	MD_ReleaseScratch(scratch);
-}
 
 
 void audio_stream_callback(float *buffer, int num_frames, int num_channels)
@@ -4019,6 +3994,108 @@ void dbgplanerect(AABB aabb)
 	dbgplaneline(q.ll, q.ul);
 }
 
+void draw_armature(Mat4 view, Mat4 projection, Transform t, Armature *armature)
+{
+	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+	sg_apply_pipeline(state.armature_pip);
+
+	Mat4 model = transform_to_matrix(t);
+
+	armature_vs_params_t params = {0};
+	memcpy(params.model, (float*)&model, sizeof(model));
+	memcpy(params.view, (float*)&view, sizeof(view));
+	memcpy(params.projection, (float*)&projection, sizeof(projection));
+	params.bones_tex_size[0] = (float)armature->bones_texture_width;
+	params.bones_tex_size[1] = (float)armature->bones_texture_height;
+
+	int bones_tex_size = 4 * armature->bones_texture_width * armature->bones_texture_height;
+	MD_u8 *bones_tex = MD_ArenaPush(scratch.arena, bones_tex_size);
+
+	for(MD_u64 i = 0; i < armature->bones_length; i++)
+	{
+		Bone *cur = &armature->bones[i];
+
+		// for debug drawing
+		Vec3 from = MulM4V3(cur->matrix_local, V3(0,0,0));
+		Vec3 x = MulM4V3(cur->matrix_local, V3(cur->length,0,0));
+		Vec3 y = MulM4V3(cur->matrix_local, V3(0,cur->length,0));
+		Vec3 z = MulM4V3(cur->matrix_local, V3(0,0,cur->length));
+
+		Mat4 final = M4D(1.0f);
+		final = MulM4(cur->inverse_model_space_pos, final);
+		for(Bone *cur_in_hierarchy = cur; cur_in_hierarchy; cur_in_hierarchy = cur_in_hierarchy->parent)
+		{
+			//final = MulM4(cur_in_hierarchy->anim_poses[0].parent_space_pose, final);
+			int bone_index = (int)(cur_in_hierarchy - armature->bones);
+			//final = MulM4(get_animated_bone_transform(&armature->animations[0].tracks[bone_index], cur_in_hierarchy, elapsed_time), final);
+			final = MulM4(transform_to_matrix(armature->anim_blended_poses[bone_index]), final);
+		}
+
+		from = MulM4V3(final, from);
+		x = MulM4V3(final, x);
+		y = MulM4V3(final, y);
+		z = MulM4V3(final, z);
+
+		Mat4 transform_matrix = transform_to_matrix(t);
+		from = MulM4V3(transform_matrix, from);
+		x = MulM4V3(transform_matrix, x);
+		y = MulM4V3(transform_matrix, y);
+		z = MulM4V3(transform_matrix, z);
+		dbgcol(LIGHTBLUE)
+			dbgsquare3d(y);
+		dbgcol(RED)
+			dbg3dline(from, x);
+		dbgcol(GREEN)
+			dbg3dline(from, y);
+		dbgcol(BLUE)
+			dbg3dline(from, z);
+
+
+		for(int col = 0; col < 4; col++)
+		{
+			Vec4 to_upload = final.Columns[col];
+
+			int bytes_per_pixel = 4;
+			int bytes_per_column_of_mat = bytes_per_pixel * 4;
+			int bytes_per_row = bytes_per_pixel * armature->bones_texture_width;
+			for(int elem = 0; elem < 4; elem++)
+			{
+				float after_decoding = decode_normalized_float32(encode_normalized_float32(to_upload.Elements[elem]));
+				assert(fabsf(after_decoding - to_upload.Elements[elem]) < 0.01f);
+			}
+			memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*0], encode_normalized_float32(to_upload.Elements[0]).rgba, bytes_per_pixel);
+			memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*1], encode_normalized_float32(to_upload.Elements[1]).rgba, bytes_per_pixel);
+			memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*2], encode_normalized_float32(to_upload.Elements[2]).rgba, bytes_per_pixel);
+			memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*3], encode_normalized_float32(to_upload.Elements[3]).rgba, bytes_per_pixel);
+		}
+	}
+	sg_update_image(armature->bones_texture, &(sg_image_data){
+			.subimage[0][0] = (sg_range){bones_tex, bones_tex_size},
+	});
+
+	ARR_ITER(sg_image, state.threedee_bind.vs_images)
+	{
+		*it = (sg_image){0};
+	}
+	ARR_ITER(sg_image, state.threedee_bind.fs_images)
+	{
+		*it = (sg_image){0};
+	}
+
+	state.threedee_bind.vertex_buffers[0] = armature->loaded_buffer;
+	state.threedee_bind.vs_images[SLOT_armature_bones_tex] = armature->bones_texture;
+	state.threedee_bind.fs_images[SLOT_armature_tex] = image_gigatexture;
+
+	sg_apply_bindings(&state.threedee_bind);
+
+	sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_armature_vs_params, &SG_RANGE(params));
+	num_draw_calls += 1;
+	num_vertices += (int)armature->vertices_length;
+	sg_draw(0, (int)armature->vertices_length, 1);
+
+	MD_ReleaseScratch(scratch);
+}
+
 typedef struct TextParams
 {
 	bool dry_run;
@@ -4858,36 +4935,36 @@ Transform entity_transform(Entity *e)
 }
 
 
-void do_shadow_pass(Shadow_State* shadow_state, Mat4 shadow_view_matrix, Mat4 shadow_projection_matrix) {
-    sg_begin_pass(shadow_state->pass, &shadow_state->pass_action);
+void do_shadow_pass(Shadow_State* shadow_state, Mat4 shadow_view_matrix, Mat4 shadow_projection_matrix)
+{
+	sg_begin_pass(shadow_state->pass, &shadow_state->pass_action);
 
-    sg_apply_pipeline(shadow_state->pip);
+	sg_apply_pipeline(shadow_state->pip);
 
 	//We use the texture, just in case we want to do alpha cards. I.e. we need to test alpha for leaf quads etc. 
 	state.threedee_bind.fs_images[SLOT_threedee_tex] = image_gigatexture;
 	state.threedee_bind.fs_images[SLOT_threedee_shadow_map].id = 0;
 
-    for(PlacedMesh *cur = level_threedee.placed_mesh_list; cur; cur = cur->next)
-    {
-        draw_shadow(shadow_view_matrix, shadow_projection_matrix, cur);
-    }
+	for(PlacedMesh *cur = level_threedee.placed_mesh_list; cur; cur = cur->next)
+	{
+		draw_shadow(shadow_view_matrix, shadow_projection_matrix, cur);
+	}
 
-
-    ENTITIES_ITER(gs.entities)
-    {
-        if(it->is_npc || it->is_character)
-        {
-            Transform draw_with = entity_transform(it);
+	ENTITIES_ITER(gs.entities)
+	{
+		if(it->is_npc || it->is_character)
+		{
+			Transform draw_with = entity_transform(it);
 			if(it->npc_kind == NPC_SimpleWorm)
 			{
 				// draw_armature_shadow(shadow_view_matrix, shadow_projection_matrix, draw_with, &armature, (float)elapsed_time);
 			} else {
 				draw_shadow(shadow_view_matrix, shadow_projection_matrix, &(PlacedMesh){.draw_with = &mesh_player, .t = draw_with, });
 			}
-        }
-    }
+		}
+	}
 
-    sg_end_pass();
+	sg_end_pass();
 }
 
 
@@ -5156,6 +5233,50 @@ void frame(void)
 			movement = NormV2(movement);
 		}
 
+		// progress the animation, then blend the two animations if necessary, and finally
+		// output into anim_blended_poses
+		{
+			Armature *cur = &armature;
+
+			if(cur->go_to_animation.size > 0)
+			{
+				if(MD_S8Match(cur->go_to_animation, cur->target_animation, 0))
+				{
+				}
+				else
+				{
+					memcpy(cur->current_poses, cur->anim_blended_poses, cur->bones_length * sizeof(*cur->current_poses));
+					cur->target_animation = cur->go_to_animation;
+					cur->animation_blend_t = 0.0f;
+					cur->go_to_animation = (MD_String8){0};
+				}
+			}
+
+			if(cur->animation_blend_t < 1.0f)
+			{
+				cur->animation_blend_t += dt / ANIMATION_BLEND_TIME;
+				
+				Animation *to_anim = get_anim_by_name(cur, cur->target_animation);
+				assert(to_anim);
+
+				for(MD_u64 i = 0; i < cur->bones_length; i++)
+				{
+					Transform *output_transform = &cur->anim_blended_poses[i];
+					Transform from_transform = cur->current_poses[i];
+					Transform to_transform = get_animated_bone_transform(&to_anim->tracks[i], &cur->bones[i], (float)elapsed_time);
+
+					*output_transform = lerp_transforms(from_transform, cur->animation_blend_t, to_transform);
+				}
+			}
+			else
+			{
+				Animation *cur_anim = get_anim_by_name(cur, cur->target_animation);
+				for(MD_u64 i = 0; i < cur->bones_length; i++)
+				{
+					cur->anim_blended_poses[i] = get_animated_bone_transform(&cur_anim->tracks[i], &cur->bones[i], (float)elapsed_time);
+				}
+			}
+		}
 
 		float spin_factor = 0.5f;
 		float t = (float)elapsed_time * spin_factor;
@@ -5163,7 +5284,7 @@ void frame(void)
 		float x = cosf(t);
 		float z = sinf(t);
 
-	    Vec3 light_dir = NormV3(V3(x, -0.5, z));
+		Vec3 light_dir = NormV3(V3(x, -0.5f, z));
 
 		Shadow_Volume_Params svp = calculate_shadow_volume_params(light_dir);
 
@@ -5201,84 +5322,23 @@ void frame(void)
 		}
 		projection = Perspective_RH_NO(FIELD_OF_VIEW, screen_size().x / screen_size().y, NEAR_PLANE_DISTANCE, FAR_PLANE_DISTANCE);
 
-		// debug draw armature
-		for(MD_u64 i = 0; i < armature.bones_length; i++)
-		{
-			Bone *cur = &armature.bones[i];
-
-			Vec3 offset = V3(1.5, 0, 5);
-
-			Vec3 from = MulM4V3(cur->matrix_local, V3(0,0,0));
-			Vec3 x = MulM4V3(cur->matrix_local, V3(cur->length,0,0));
-			Vec3 y = MulM4V3(cur->matrix_local, V3(0,cur->length,0));
-			Vec3 z = MulM4V3(cur->matrix_local, V3(0,0,cur->length));
-			Vec3 dot = MulM4V3(cur->matrix_local, V3(cur->length,0,cur->length));
-
-			// from, x, y, and z are like vertex points. They are model-space
-			// points *around* the bones they should be influenced by. Now we
-			// need to transform them according to how much the pose bones
-			// have moved and in the way they moved.
-
-			Mat4 final_mat = M4D(1.0f);
-			final_mat = MulM4(cur->inverse_model_space_pos, final_mat);
-			for(Bone *cur_in_hierarchy = cur; cur_in_hierarchy; cur_in_hierarchy = cur_in_hierarchy->parent)
-			{
-				int bone_index = (int)(cur_in_hierarchy - armature.bones);
-				final_mat = MulM4(get_animated_bone_transform(&armature.animations[0].tracks[bone_index], cur_in_hierarchy, (float)elapsed_time), final_mat);
-				//final_mat = MulM4(cur_in_hierarchy->anim_poses[0].parent_space_pose, final_mat);
-			}
-
-			// uncommenting this skips the pose transform, showing the debug skeleton
-			// as if it were in "edit mode" in blender
-			//final_mat = M4D(1.0f);
-
-			from = MulM4V3(final_mat, from);
-			x = MulM4V3(final_mat, x);
-			y = MulM4V3(final_mat, y);
-			z = MulM4V3(final_mat, z);
-			dot = MulM4V3(final_mat, dot);
-
-
-			from = AddV3(from, offset);
-			x = AddV3(x, offset);
-			y = AddV3(y, offset);
-			z = AddV3(z, offset);
-			dot = AddV3(dot, offset);
-
-			dbgcol(LIGHTBLUE)
-				dbgsquare3d(y);
-			dbgcol(RED)
-				dbg3dline(from, x);
-			dbgcol(GREEN)
-				dbg3dline(from, y);
-			dbgcol(BLUE)
-				dbg3dline(from, z);
-			dbgcol(YELLOW)
-				dbg3dline(from, dot);
-			dbgcol(PINK)
-				dbgsquare3d(dot);
-
-		}
-		
-
 		for(PlacedMesh *cur = level_threedee.placed_mesh_list; cur; cur = cur->next)
 		{
 			draw_placed(view, projection, light_space_matrix, cur);
 		}
-
 
 		ENTITIES_ITER(gs.entities)
 		{
 			if(it->is_npc || it->is_character)
 			{
 				Transform draw_with = entity_transform(it);
-				if(it->npc_kind == NPC_SimpleWorm)
+				if(it->npc_kind == NPC_Player)
 				{
-					draw_armature(view, projection, draw_with, &armature, (float)elapsed_time);
+					draw_armature(view, projection, draw_with, &armature);
 				}
 				else
 				{
-					draw_placed(view, projection, light_space_matrix, &(PlacedMesh){.draw_with = &mesh_player, .t = draw_with, });
+					draw_placed(view, projection, light_space_matrix, &(PlacedMesh){.draw_with = &mesh_player, .t = draw_with,});
 				}
 			}
 		}
@@ -6297,6 +6357,15 @@ void frame(void)
 					float speed = 0.0f;
 					{
 						Vec2 target_vel = { 0 };
+
+						if(gs.player->state == CHARACTER_WALKING)
+						{
+							armature.go_to_animation = MD_S8Lit("Walking");
+						}
+						else
+						{
+							armature.go_to_animation = MD_S8Lit("Idle");
+						}
 
 						if (gs.player->state == CHARACTER_WALKING)
 						{
