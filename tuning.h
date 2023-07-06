@@ -35,7 +35,7 @@
 #define SENTENCE_CONST(txt) { .data = txt, .cur_index = sizeof(txt) }
 #define SENTENCE_CONST_CAST(txt) (Sentence)SENTENCE_CONST(txt)
 
-#define ANIMATION_BLEND_TIME 0.1f
+#define ANIMATION_BLEND_TIME 0.3f
 
 #define REMEMBERED_MEMORIES 32
 #define REMEMBERED_ERRORS 6
