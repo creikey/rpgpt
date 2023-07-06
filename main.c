@@ -3974,6 +3974,21 @@ void dbg3dline(Vec3 from, Vec3 to)
 	dbgline(from_screenspace, to_screenspace);
 }
 
+void dbg3dline2d(Vec2 a, Vec2 b)  {
+	Vec3 a_3 = V3(a.x, 0.0, a.y);
+	Vec3 b_3 = V3(b.x, 0.0, b.y);
+
+	dbg3dline(a_3, b_3);
+}
+
+void dbg3dline2dOffset(Vec2 a, Vec2 offset)  {
+	Vec3 a_3 = V3(a.x, 0.0, a.y);
+	Vec3 b_3 = V3(offset.x, 0.0, offset.y);
+
+	dbg3dline(a_3, AddV3(a_3,b_3));
+}
+
+
 void colorquadplane(Quad q, Color col)
 {
 	Quad warped = {0};
@@ -4223,6 +4238,41 @@ typedef struct MoveSlideParams
 } MoveSlideParams;
 
 
+Vec2 get_penetration_vector(AABB stable, AABB dynamic)
+{
+	//Assumes we already know that they are colliding.
+	//It could be faster to use this info for collision detection as well,
+	//but this would require an intrusive refactor, and it is not the common
+	//case that things are colliding anyway, so it's actually not that much
+	//duplicated work.
+	Vec2 dynamic_centre = aabb_center(dynamic);
+	Vec2 dynamic_half_dims = MulV2F(aabb_size(dynamic), 0.5f);
+
+	stable.lower_right.x += dynamic_half_dims.x;
+	stable.lower_right.y -= dynamic_half_dims.y;
+	stable.upper_left.x  -= dynamic_half_dims.x;
+	stable.upper_left.y  += dynamic_half_dims.y;
+
+	float right_delta  = stable.lower_right.x - dynamic_centre.x;
+	float left_delta   = stable.upper_left.x  - dynamic_centre.x;
+	float bottom_delta = stable.lower_right.y - dynamic_centre.y;
+	float top_delta    = stable.upper_left.y  - dynamic_centre.y;
+
+	float r = fabsf( right_delta);
+	float l = fabsf(  left_delta);
+	float b = fabsf(bottom_delta);
+	float t = fabsf(   top_delta);
+
+	if (r <= l && r <= b && r <= t)
+		return V2(right_delta, 0.0);
+	if (left_delta <= r && l <= b && l <= t)
+		return V2(left_delta, 0.0);
+	if (b <= r && b <= l && b <= t)
+		return V2(0.0, bottom_delta);
+	return V2(0.0, top_delta);
+}
+
+
 // returns new pos after moving and sliding against collidable things
 Vec2 move_and_slide(MoveSlideParams p)
 {
@@ -4328,43 +4378,12 @@ Vec2 move_and_slide(MoveSlideParams p)
 		BUFF_ITER(CollisionObj, &overlapping_smallest_first)
 		{
 			AABB to_depenetrate_from = it->aabb;
-			int iters_tried_to_push_apart = 0;
-			bool happened_with_this_one = false;
-			while (overlapping(to_depenetrate_from, at_new) && iters_tried_to_push_apart < 500)
-			{
-				happened_with_this_one = true;
-				const float move_dist = 0.01f;
 
-				info.happened = true;
-				Vec2 from_point = aabb_center(to_depenetrate_from);
-				Vec2 to_player = NormV2(SubV2(aabb_center(at_new), from_point));
-				Vec2 compass_dirs[4] = {
-					V2(1.0, 0.0),
-					V2(-1.0, 0.0),
-					V2(0.0,  1.0),
-					V2(0.0, -1.0),
-				};
-				int closest_index = -1;
-				float closest_dot = -99999999.0f;
-				for (int i = 0; i < 4; i++)
-				{
-					float dot = DotV2(compass_dirs[i], to_player);
-					if (dot > closest_dot)
-					{
-						closest_index = i;
-						closest_dot = dot;
-					}
-				}
-				// sometimes when objects are perfectly overlapping, every dot product is negative infinity
-				if(closest_index == -1) closest_index = 0;
-				Vec2 move_dir = compass_dirs[closest_index];
-				info.normal = move_dir;
-				dbgplanevec(from_point, MulV2F(move_dir, 30.0f));
-				Vec2 move = MulV2F(move_dir, move_dist);
-				at_new.upper_left = AddV2(at_new.upper_left, move);
-				at_new.lower_right = AddV2(at_new.lower_right, move);
-				iters_tried_to_push_apart++;
-			}
+			Vec2 resolution_vector = get_penetration_vector(to_depenetrate_from, at_new);
+			at_new.upper_left  = AddV2(at_new.upper_left , resolution_vector);
+			at_new.lower_right = AddV2(at_new.lower_right, resolution_vector);
+			bool happened_with_this_one = true;
+
 			if(happened_with_this_one)
 			{
 				bool already_in_happened = false;
@@ -4680,7 +4699,7 @@ void draw_dialog_panel(Entity *talking_to, float alpha)
 		line(AddV2(dialog_quad.lr, V2(line_width, 0.0)), AddV2(dialog_quad.ll, V2(-line_width, 0.0)), line_width, line_color);
 		line(dialog_quad.ll, dialog_quad.ul, line_width, line_color);
 
-		float padding = 5.0f;
+		float padding = 7.5f;
 		dialog_panel.upper_left = AddV2(dialog_panel.upper_left, V2(padding, -padding));
 		dialog_panel.lower_right = AddV2(dialog_panel.lower_right, V2(-padding, padding));
 
@@ -4945,7 +4964,7 @@ Shadow_State init_shadow_state() {
         },
         .shader = sg_make_shader(shadow_mapper_program_shader_desc(sg_query_backend())),
         // Cull front faces in the shadow map pass
-        .cull_mode = SG_CULLMODE_FRONT,
+        // .cull_mode = SG_CULLMODE_BACK,
         .sample_count = 1,
         .depth = {
             .pixel_format = SG_PIXELFORMAT_DEPTH,
@@ -5077,6 +5096,7 @@ Shadow_Volume_Params calculate_shadow_volume_params(Vec3 light_dir)
 
 	return result;
 }
+
 
 void frame(void)
 {
