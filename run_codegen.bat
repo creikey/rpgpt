@@ -15,7 +15,6 @@ mkdir gen
 @REM shaders
 thirdparty\sokol-shdc.exe --input quad.glsl --output gen\quad-sapp.glsl.h --slang glsl100:hlsl5:metal_macos:glsl330 || goto :error
 thirdparty\sokol-shdc.exe --input threedee.glsl --output gen\threedee.glsl.h --slang glsl100:hlsl5:metal_macos:glsl330 || goto :error
-thirdparty\sokol-shdc.exe --input armature.glsl --output gen\armature.glsl.h --slang glsl100:hlsl5:metal_macos:glsl330 || goto :error
 thirdparty\sokol-shdc.exe --input shadow_mapper.glsl --output gen\shadow_mapper.glsl.h --slang glsl100:hlsl5:metal_macos:glsl330 || goto :error
 
 @REM metadesk codegen

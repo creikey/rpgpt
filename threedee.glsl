@@ -1,5 +1,88 @@
 @module threedee
 
+@ctype mat4 Mat4
+@ctype vec4 Vec4
+@ctype vec3 Vec3
+@ctype vec2 Vec2
+
+
+// for this block, define a variable called `model_space_pos` to be used as an input
+@block vs_compute_light_output
+	world_space_frag_pos = model * vec4(model_space_pos, 1.0);
+	vec4 frag_pos = view * world_space_frag_pos;
+
+	//@Speed I think we can just take the third row here and be fine.
+	light_dir = normalize(inverse(directional_light_space_matrix) * vec4(0.0, 0.0, -1.0, 0.0)).xyz;
+
+	light_space_fragment_position = directional_light_space_matrix * vec4(world_space_frag_pos.xyz, 1.0);
+
+@end
+
+@vs vs_skeleton
+in vec3 pos_in;
+in vec2 uv_in;
+in vec4 indices_in; // is a sokol SG_VERTEXFORMAT_USHORT4N, a 16 bit unsigned integer treated as a floating point number due to webgl compatibility
+in vec4 weights_in;
+
+out vec3 pos;
+out vec2 uv;
+out vec4 light_space_fragment_position;
+out vec3 light_dir;
+out vec4 world_space_frag_pos;
+
+uniform skeleton_vs_params {
+	mat4 model;
+	mat4 view;
+	mat4 projection;
+	mat4 directional_light_space_matrix;
+	vec2 bones_tex_size;
+};
+
+uniform sampler2D bones_tex;
+
+float decode_normalized_float32(vec4 v)
+{
+	float sign = 2.0 * v.x - 1.0;
+
+	return sign * (v.z*255.0 + v.y);
+}
+
+void main() {
+	vec4 total_position = vec4(0.0f);
+
+	for(int bone_influence_index = 0; bone_influence_index < 4; bone_influence_index++)
+	{
+		float index_float = indices_in[bone_influence_index];
+		int index = int(index_float * 65535.0);
+		float weight = weights_in[bone_influence_index];
+
+		float y_coord = (0.5 + index)/bones_tex_size.y;
+
+		mat4 bone_mat;
+
+		for(int row = 0; row < 4; row++)
+		{
+			for(int col = 0; col < 4; col++)
+			{
+				bone_mat[col][row] = decode_normalized_float32(texture(bones_tex, vec2((0.5 + col*4 + row)/bones_tex_size.x, y_coord)));
+			}
+		}
+
+		vec4 local_position = bone_mat * vec4(pos_in, 1.0f);
+		total_position += local_position * weight;
+	}
+
+	gl_Position = projection * view * model * total_position;
+	//gl_Position = projection * view * model * vec4(pos_in, 1.0);
+
+	pos = gl_Position.xyz;
+	uv = uv_in;
+
+	vec3 model_space_pos = (model * total_position).xyz;
+	@include_block vs_compute_light_output
+}
+@end
+
 @vs vs
 in vec3 pos_in;
 in vec2 uv_in;
@@ -21,14 +104,10 @@ void main() {
 	pos = pos_in;
 	uv = uv_in;
 
-	world_space_frag_pos = model * vec4(pos_in, 1.0);
-	vec4 frag_pos = view * world_space_frag_pos;
-	gl_Position = projection * frag_pos;
+	gl_Position = projection * view * model * vec4(pos_in, 1.0);
 
-	//@Speed I think we can just take the third row here and be fine.
-	light_dir = normalize(inverse(directional_light_space_matrix) * vec4(0.0, 0.0, -1.0, 0.0)).xyz;
-
-	light_space_fragment_position = directional_light_space_matrix * vec4(world_space_frag_pos.xyz, 1.0);
+	vec3 model_space_pos = (model * vec4(pos_in, 1.0f)).xyz;
+	@include_block vs_compute_light_output
 }
 @end
 
@@ -152,10 +231,12 @@ void main() {
 		float lighting_factor = shadow_factor * n_dot_l;
 		lighting_factor = lighting_factor * 0.5 + 0.5;
 
-		frag_color = vec4(col.rgb*lighting_factor, 1.0);
+		//frag_color = vec4(col.rgb*lighting_factor, 1.0);
+		frag_color = vec4(col.rgb, 1.0);
 	
 	}
 }
 @end
 
-@program program vs fs
+@program mesh vs fs
+@program armature vs_skeleton fs

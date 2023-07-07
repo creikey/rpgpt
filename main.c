@@ -1391,7 +1391,6 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 #include "assets.gen.c"
 #include "quad-sapp.glsl.h"
 #include "threedee.glsl.h"
-#include "armature.glsl.h"
 #include "shadow_mapper.glsl.h"
 
 AABB level_aabb = { .upper_left = { 0.0f, 0.0f }, .lower_right = { TILE_SIZE * LEVEL_TILES, -(TILE_SIZE * LEVEL_TILES) } };
@@ -2827,12 +2826,12 @@ void draw_placed(Mat4 view, Mat4 projection, Mat4 light_matrix, PlacedMesh *cur)
 
 	Mat4 model = transform_to_matrix(cur->t);
 
-	threedee_vs_params_t vs_params = {0};
-	memcpy(vs_params.model, (float*)&model, sizeof(model));
-	memcpy(vs_params.view, (float*)&view, sizeof(view));
-	memcpy(vs_params.projection, (float*)&projection, sizeof(projection));
-
-	memcpy(vs_params.directional_light_space_matrix, (float*)&light_matrix, sizeof(light_matrix));
+	threedee_vs_params_t vs_params = {
+		.model = model,
+		.view =	 view,
+		.projection = projection,
+		.directional_light_space_matrix = light_matrix,
+	};
 
 	sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_vs_params, &SG_RANGE(vs_params));
 	num_draw_calls += 1;
@@ -3329,7 +3328,7 @@ void init(void)
 			.label = "quad-pipeline",
 			});
 
-	desc = threedee_program_shader_desc(sg_query_backend());
+	desc = threedee_mesh_shader_desc(sg_query_backend());
 	assert(desc);
 	shd = sg_make_shader(desc);
 
@@ -3359,7 +3358,7 @@ void init(void)
 			.label = "threedee",
 			});
 
-	desc = armature_program_shader_desc(sg_query_backend());
+	desc = threedee_armature_shader_desc(sg_query_backend());
 	assert(desc);
 	shd = sg_make_shader(desc);
 
@@ -3373,10 +3372,10 @@ void init(void)
 			.layout = {
 			.attrs =
 			{
-			[ATTR_armature_vs_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
-			[ATTR_armature_vs_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
-			[ATTR_armature_vs_indices_in].format = SG_VERTEXFORMAT_USHORT4N,
-			[ATTR_armature_vs_weights_in].format = SG_VERTEXFORMAT_FLOAT4,
+			[ATTR_threedee_vs_skeleton_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
+			[ATTR_threedee_vs_skeleton_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
+			[ATTR_threedee_vs_skeleton_indices_in].format = SG_VERTEXFORMAT_USHORT4N,
+			[ATTR_threedee_vs_skeleton_weights_in].format = SG_VERTEXFORMAT_FLOAT4,
 			}
 			},
 			.colors[0].blend = (sg_blend_state) { // allow transparency
@@ -4069,12 +4068,12 @@ void draw_armature(Mat4 view, Mat4 projection, Transform t, Armature *armature)
 
 	Mat4 model = transform_to_matrix(t);
 
-	armature_vs_params_t params = {0};
-	memcpy(params.model, (float*)&model, sizeof(model));
-	memcpy(params.view, (float*)&view, sizeof(view));
-	memcpy(params.projection, (float*)&projection, sizeof(projection));
-	params.bones_tex_size[0] = (float)armature->bones_texture_width;
-	params.bones_tex_size[1] = (float)armature->bones_texture_height;
+	threedee_skeleton_vs_params_t params = {
+		.model = model,
+		.view = view,
+		.projection = projection,
+		.bones_tex_size = V2((float)armature->bones_texture_width,(float)armature->bones_texture_height),
+	};
 
 	int bones_tex_size = 4 * armature->bones_texture_width * armature->bones_texture_height;
 	MD_u8 *bones_tex = MD_ArenaPush(scratch.arena, bones_tex_size);
@@ -4151,12 +4150,13 @@ void draw_armature(Mat4 view, Mat4 projection, Transform t, Armature *armature)
 	}
 
 	state.threedee_bind.vertex_buffers[0] = armature->loaded_buffer;
-	state.threedee_bind.vs_images[SLOT_armature_bones_tex] = armature->bones_texture;
-	state.threedee_bind.fs_images[SLOT_armature_tex] = armature->image;
+	state.threedee_bind.vs_images[SLOT_threedee_bones_tex] = armature->bones_texture;
+	state.threedee_bind.fs_images[SLOT_threedee_tex] = armature->image;
+	state.threedee_bind.fs_images[SLOT_threedee_shadow_map] = state.shadows.color_img;
 
 	sg_apply_bindings(&state.threedee_bind);
 
-	sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_armature_vs_params, &SG_RANGE(params));
+	sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_skeleton_vs_params, &SG_RANGE(params));
 	num_draw_calls += 1;
 	num_vertices += (int)armature->vertices_length;
 	sg_draw(0, (int)armature->vertices_length, 1);
