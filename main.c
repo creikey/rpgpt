@@ -750,18 +750,39 @@ AABB entity_aabb(Entity *e)
 	return entity_aabb_at(e, at);
 }
 
-sg_image load_image(const char *path)
+typedef struct LoadedImage
 {
+	struct LoadedImage *next;
+	MD_String8 name;
+	sg_image image;
+} LoadedImage;
+
+LoadedImage *loaded_images = 0;
+
+sg_image load_image(MD_String8 path)
+{
+	for(LoadedImage *cur = loaded_images; cur; cur = cur->next)
+	{
+		if(MD_S8Match(cur->name, path, 0))
+		{
+			return cur->image;
+		}
+	}
+
+	LoadedImage *loaded = MD_PushArray(persistent_arena, LoadedImage, 1);
+	loaded->name = MD_S8Copy(persistent_arena, path);
+	MD_StackPush(loaded_images, loaded);
+
 	sg_image to_return = { 0 };
 
 	int png_width, png_height, num_channels;
 	const int desired_channels = 4;
 	stbi_uc* pixels = stbi_load(
-			path,
+			(const char*)nullterm(frame_arena, path).str,
 			&png_width, &png_height,
 			&num_channels, 0);
 	assert(pixels);
-	Log("Pah %s | Loading image with dimensions %d %d\n", path, png_width, png_height);
+	Log("Path %.*s | Loading image with dimensions %d %d\n", MD_S8VArg(path), png_width, png_height);
 	to_return = sg_make_image(&(sg_image_desc)
 			{
 			.width = png_width,
@@ -779,6 +800,7 @@ sg_image load_image(const char *path)
 			}
 			});
 	stbi_image_free(pixels);
+	loaded->image = to_return;
 	return to_return;
 }
 
@@ -839,6 +861,7 @@ typedef struct Mesh
 	MD_u64 num_vertices;
 
 	sg_buffer loaded_buffer;
+	sg_image mesh_image;
 	MD_String8 name;
 } Mesh;
 
@@ -910,8 +933,12 @@ Mesh load_mesh(MD_Arena *arena, MD_String8 binary_file, MD_String8 mesh_name)
 	ser_bool(&ser, &is_armature);
 	assert(!is_armature);
 
+	MD_String8 image_filename;
+	ser_MD_String8(&ser, &image_filename, scratch.arena);
+	out.mesh_image = load_image(MD_S8Fmt(scratch.arena, "assets/exported_3d/%.*s", MD_S8VArg(image_filename)));
+
 	ser_MD_u64(&ser, &out.num_vertices);
-	Log("Mesh %.*s has %llu vertices\n", MD_S8VArg(mesh_name), out.num_vertices);
+	Log("Mesh %.*s has %llu vertices and image filename '%.*s'\n", MD_S8VArg(mesh_name), out.num_vertices, MD_S8VArg(image_filename));
 
 	out.vertices = MD_ArenaPush(arena, sizeof(*out.vertices) * out.num_vertices);
 	for(MD_u64 i = 0; i < out.num_vertices; i++)
@@ -2767,7 +2794,7 @@ void draw_placed(Mat4 view, Mat4 projection, Mat4 light_matrix, PlacedMesh *cur)
 	{
 		*it = (sg_image){0};
 	}
-	state.threedee_bind.fs_images[SLOT_threedee_tex]        = image_gigatexture;
+	state.threedee_bind.fs_images[SLOT_threedee_tex]        = drawing->mesh_image;
 	state.threedee_bind.fs_images[SLOT_threedee_shadow_map] = state.shadows.color_img;
 	state.threedee_bind.vertex_buffers[0] = drawing->loaded_buffer;
 	sg_apply_bindings(&state.threedee_bind);
