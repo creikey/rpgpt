@@ -761,6 +761,7 @@ LoadedImage *loaded_images = 0;
 
 sg_image load_image(MD_String8 path)
 {
+	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 	for(LoadedImage *cur = loaded_images; cur; cur = cur->next)
 	{
 		if(MD_S8Match(cur->name, path, 0))
@@ -781,7 +782,26 @@ sg_image load_image(MD_String8 path)
 			(const char*)nullterm(frame_arena, path).str,
 			&png_width, &png_height,
 			&num_channels, 0);
+
+	bool free_the_pixels = true;
+	if(num_channels == 3)
+	{
+		stbi_uc *old_pixels = pixels;
+		pixels = MD_ArenaPush(scratch.arena, png_width * png_height * 4 * sizeof(stbi_uc));
+		for(MD_u64 pixel_i = 0; pixel_i < png_width * png_height; pixel_i++)
+		{
+			pixels[pixel_i*4 + 0] = old_pixels[pixel_i*3 + 0];
+			pixels[pixel_i*4 + 1] = old_pixels[pixel_i*3 + 1];
+			pixels[pixel_i*4 + 2] = old_pixels[pixel_i*3 + 2];
+			pixels[pixel_i*4 + 3] = 255;
+		}
+		num_channels = 4;
+		free_the_pixels = false;
+		stbi_image_free(old_pixels);
+	}
+
 	assert(pixels);
+	assert(desired_channels == num_channels);
 	Log("Path %.*s | Loading image with dimensions %d %d\n", MD_S8VArg(path), png_width, png_height);
 	to_return = sg_make_image(&(sg_image_desc)
 			{
@@ -796,11 +816,11 @@ sg_image load_image(MD_String8 path)
 			.data.subimage[0][0] =
 			{
 			.ptr = pixels,
-			.size = (size_t)(png_width * png_height * 4),
+			.size = (size_t)(png_width * png_height * num_channels),
 			}
 			});
-	stbi_image_free(pixels);
 	loaded->image = to_return;
+	MD_ReleaseScratch(scratch);
 	return to_return;
 }
 
@@ -861,7 +881,7 @@ typedef struct Mesh
 	MD_u64 num_vertices;
 
 	sg_buffer loaded_buffer;
-	sg_image mesh_image;
+	sg_image image;
 	MD_String8 name;
 } Mesh;
 
@@ -927,7 +947,7 @@ Mesh load_mesh(MD_Arena *arena, MD_String8 binary_file, MD_String8 mesh_name)
 		.error_arena = scratch.arena,
 		.serializing = false,
 	};
-	Mesh out = {0};
+	Mesh to_return = {0};
 
 	bool is_armature;
 	ser_bool(&ser, &is_armature);
@@ -935,31 +955,31 @@ Mesh load_mesh(MD_Arena *arena, MD_String8 binary_file, MD_String8 mesh_name)
 
 	MD_String8 image_filename;
 	ser_MD_String8(&ser, &image_filename, scratch.arena);
-	out.mesh_image = load_image(MD_S8Fmt(scratch.arena, "assets/exported_3d/%.*s", MD_S8VArg(image_filename)));
+	to_return.image = load_image(MD_S8Fmt(scratch.arena, "assets/exported_3d/%.*s", MD_S8VArg(image_filename)));
 
-	ser_MD_u64(&ser, &out.num_vertices);
-	Log("Mesh %.*s has %llu vertices and image filename '%.*s'\n", MD_S8VArg(mesh_name), out.num_vertices, MD_S8VArg(image_filename));
+	ser_MD_u64(&ser, &to_return.num_vertices);
+	Log("Mesh %.*s has %llu vertices and image filename '%.*s'\n", MD_S8VArg(mesh_name), to_return.num_vertices, MD_S8VArg(image_filename));
 
-	out.vertices = MD_ArenaPush(arena, sizeof(*out.vertices) * out.num_vertices);
-	for(MD_u64 i = 0; i < out.num_vertices; i++)
+	to_return.vertices = MD_ArenaPush(arena, sizeof(*to_return.vertices) * to_return.num_vertices);
+	for(MD_u64 i = 0; i < to_return.num_vertices; i++)
 	{
-		ser_Vertex(&ser, &out.vertices[i]);
+		ser_Vertex(&ser, &to_return.vertices[i]);
 	}
 
 	assert(!ser.cur_error.failed);
 	MD_ReleaseScratch(scratch);
 
-	out.loaded_buffer = sg_make_buffer(&(sg_buffer_desc)
+	to_return.loaded_buffer = sg_make_buffer(&(sg_buffer_desc)
 			{
 			.usage = SG_USAGE_IMMUTABLE,
-			.data = (sg_range){.ptr = out.vertices, .size = out.num_vertices * sizeof(Vertex)},
+			.data = (sg_range){.ptr = to_return.vertices, .size = to_return.num_vertices * sizeof(Vertex)},
 			.label = (const char*)nullterm(arena, MD_S8Fmt(arena, "%.*s-vertices", MD_S8VArg(mesh_name))).str,
 			});
 
-	out.name = mesh_name;
+	to_return.name = mesh_name;
 
 
-	return out;
+	return to_return;
 }
 
 // stored in row major
@@ -1029,6 +1049,7 @@ typedef struct
 	sg_buffer loaded_buffer;
 
 	sg_image bones_texture;
+	sg_image image;
 	int bones_texture_width;
 	int bones_texture_height;
 } Armature;
@@ -1048,7 +1069,12 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 	bool is_armature;
 	ser_bool(&ser, &is_armature);
 	assert(is_armature);
-	
+
+	MD_String8 image_filename;
+	ser_MD_String8(&ser, &image_filename, scratch.arena);
+	arena->align = 16; // SSE requires quaternions are 16 byte aligned
+	to_return.image = load_image(MD_S8Fmt(scratch.arena, "assets/exported_3d/%.*s", MD_S8VArg(image_filename)));
+
 	ser_MD_u64(&ser, &to_return.bones_length);
 	Log("Armature %.*s has %llu bones\n", MD_S8VArg(armature_name), to_return.bones_length);
 	to_return.bones = MD_PushArray(arena, Bone, to_return.bones_length);
@@ -2794,7 +2820,7 @@ void draw_placed(Mat4 view, Mat4 projection, Mat4 light_matrix, PlacedMesh *cur)
 	{
 		*it = (sg_image){0};
 	}
-	state.threedee_bind.fs_images[SLOT_threedee_tex]        = drawing->mesh_image;
+	state.threedee_bind.fs_images[SLOT_threedee_tex]        = drawing->image;
 	state.threedee_bind.fs_images[SLOT_threedee_shadow_map] = state.shadows.color_img;
 	state.threedee_bind.vertex_buffers[0] = drawing->loaded_buffer;
 	sg_apply_bindings(&state.threedee_bind);
@@ -3178,8 +3204,8 @@ void init(void)
 	mesh_player = load_mesh(persistent_arena, binary_file, MD_S8Lit("Player.bin"));
 
 
-	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/WalkingArmature.bin"));
-	armature = load_armature(persistent_arena, binary_file, MD_S8Lit("WalkingArmature.bin"));
+	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/ArmatureExportedWithAnims.bin"));
+	armature = load_armature(persistent_arena, binary_file, MD_S8Lit("ArmatureExportedWithAnims.bin"));
 
 
 
@@ -4126,7 +4152,7 @@ void draw_armature(Mat4 view, Mat4 projection, Transform t, Armature *armature)
 
 	state.threedee_bind.vertex_buffers[0] = armature->loaded_buffer;
 	state.threedee_bind.vs_images[SLOT_armature_bones_tex] = armature->bones_texture;
-	state.threedee_bind.fs_images[SLOT_armature_tex] = image_gigatexture;
+	state.threedee_bind.fs_images[SLOT_armature_tex] = armature->image;
 
 	sg_apply_bindings(&state.threedee_bind);
 
@@ -5245,7 +5271,7 @@ void frame(void)
 		Vec3 player_pos = V3(gs.player->pos.x, 0.0, gs.player->pos.y);
 		//dbgline(V2(0,0), V2(500, 500));
 		const float vertical_to_horizontal_ratio = 0.8f;
-		const float cam_distance = 20.0f;
+		const float cam_distance = 35.0f;
 		Vec3 away_from_player;
 		{
 			float ratio = vertical_to_horizontal_ratio;
@@ -5354,6 +5380,7 @@ void frame(void)
 		sg_apply_pipeline(state.threedee_pip);
 		state.threedee_bind.fs_images[SLOT_threedee_tex] = image_gigatexture;
 		state.threedee_bind.fs_images[SLOT_threedee_shadow_map] = state.shadows.color_img;
+
 
 		view = Translate(V3(0.0, 1.0, -5.0f));
 		//view = LookAt_RH(V3(0,1,-5
@@ -6407,7 +6434,7 @@ void frame(void)
 
 						if(gs.player->state == CHARACTER_WALKING)
 						{
-							armature.go_to_animation = MD_S8Lit("Walking");
+							armature.go_to_animation = MD_S8Lit("Running");
 						}
 						else
 						{
@@ -7005,6 +7032,9 @@ void frame(void)
 		if (show_devtools)
 			PROFILE_SCOPE("statistics")
 			{
+				// shadow map
+				draw_quad((DrawParams){quad_at(V2(screen_size().x - 512.0f, screen_size().y), V2(512.0f, 512.0f)), IMG(state.shadows.color_img), WHITE, .layer = LAYER_UI_FG});
+
 				Vec2 pos = V2(0.0, screen_size().Y);
 				int num_entities = 0;
 				ENTITIES_ITER(gs.entities) num_entities++;
@@ -7440,6 +7470,7 @@ sapp_desc sokol_main(int argc, char* argv[])
 			.frame_cb = frame,
 			.cleanup_cb = cleanup,
 			.event_cb = event,
+			.sample_count = 4,
 			.width = 800,
 			.height = 600,
 			//.gl_force_gles2 = true, not sure why this was here in example, look into

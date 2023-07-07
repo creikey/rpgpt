@@ -3,7 +3,7 @@
 #define LEVEL_TILES 150 // width and height of level tiles array
 #define LAYERS 3
 #define TILE_SIZE 0.5f // in pixels
-#define PLAYER_SPEED 0.2f // in meters per second
+#define PLAYER_SPEED 0.5f // in meters per second
 #define PLAYER_ROLL_SPEED 7.0f
 #define PERCEPTION_HEARING_RAGE (TILE_SIZE*4.0f)
 #define CHARACTERS_PER_SEC 45.0f
@@ -35,7 +35,7 @@
 #define SENTENCE_CONST(txt) { .data = txt, .cur_index = sizeof(txt) }
 #define SENTENCE_CONST_CAST(txt) (Sentence)SENTENCE_CONST(txt)
 
-#define ANIMATION_BLEND_TIME 0.3f
+#define ANIMATION_BLEND_TIME 0.15f
 
 #define REMEMBERED_MEMORIES 32
 #define REMEMBERED_ERRORS 6

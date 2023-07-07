@@ -117,12 +117,15 @@ for o in D.objects:
             if o.users_collection[0].name == 'Level':
                 assert False, "Cannot put armatures in the level. The level is for static placed meshes. For dynamic entities, you put them outside of the level collection, their entity kind is encoded, and the game code decides how to draw them"
             else:
-                placed_entities.append((mesh_object.name,) + object_transform_info)
+                pass
+                #placed_entities.append((mesh_object.name,) + object_transform_info)
             armature_name = o.data.name
             output_filepath = bpy.path.abspath(f"//{EXPORT_DIRECTORY}/{armature_name}.bin")
-            print(f"Exporting armature to {output_filepath}")
+            image_filename = ensure_tex_saved_and_get_name(mesh_object)
+            print(f"Exporting armature with image filename {image_filename} to {output_filepath}")
             with open(output_filepath, "wb") as f:
                 write_b8(f, True)
+                write_string(f, image_filename)
                 bones_in_armature = []
                 for b in o.data.bones:
                     bones_in_armature.append(b)
