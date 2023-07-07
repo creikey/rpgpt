@@ -45,7 +45,7 @@ EPIC RPG World Pack - Ancient Ruins V 1.7.zip
 EPIC RPG World Pack - Ancient Ruins V 1.7/
 
 # allow shader compiler
-!thirdparty\sokol-shdc.exe
+!thirdparty/sokol-shdc.exe
 
 # generated files
 gen/
