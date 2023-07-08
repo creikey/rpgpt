@@ -2775,75 +2775,6 @@ int num_draw_calls = 0;
 int num_vertices = 0;
 
 
-void draw_shadow(Mat4 view, Mat4 projection, PlacedMesh *cur)
-{
-	sg_apply_pipeline(state.shadows.pip);
-
-	Mesh *drawing = cur->draw_with;
-
-	sg_bindings bindings = {0};
-
-	bindings.fs_images[SLOT_threedee_tex] = image_gigatexture;
-	ARR_ITER(sg_image, state.threedee_bind.vs_images)
-	{
-		*it = (sg_image){0};
-	}
-	bindings.vertex_buffers[0] = drawing->loaded_buffer;
-	sg_apply_bindings(&bindings);
-
-	Mat4 model = transform_to_matrix(cur->t);
-
-	shadow_mapper_vs_params_t vs_params = {0};
-	memcpy(vs_params.model, (float*)&model, sizeof(model));
-	memcpy(vs_params.view, (float*)&view, sizeof(view));
-	memcpy(vs_params.projection, (float*)&projection, sizeof(projection));
-
-	sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_shadow_mapper_vs_params, &SG_RANGE(vs_params));
-	num_draw_calls += 1;
-	num_vertices += (int)drawing->num_vertices;
-
-	sg_draw(0, (int)drawing->num_vertices, 1);
-}
-
-
-void draw_placed(Mat4 view, Mat4 projection, Mat4 light_matrix, PlacedMesh *cur)
-{
-	sg_apply_pipeline(state.threedee_pip);
-
-	Mesh *drawing = cur->draw_with;
-	ARR_ITER(sg_image, state.threedee_bind.vs_images)
-	{
-		*it = (sg_image){0};
-	}
-	ARR_ITER(sg_image, state.threedee_bind.fs_images)
-	{
-		*it = (sg_image){0};
-	}
-	state.threedee_bind.fs_images[SLOT_threedee_tex]        = drawing->image;
-	state.threedee_bind.fs_images[SLOT_threedee_shadow_map] = state.shadows.color_img;
-	state.threedee_bind.vertex_buffers[0] = drawing->loaded_buffer;
-	sg_apply_bindings(&state.threedee_bind);
-
-	Mat4 model = transform_to_matrix(cur->t);
-
-	threedee_vs_params_t vs_params = {
-		.model = model,
-		.view =	 view,
-		.projection = projection,
-		.directional_light_space_matrix = light_matrix,
-	};
-
-	sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_vs_params, &SG_RANGE(vs_params));
-	num_draw_calls += 1;
-	num_vertices += (int)drawing->num_vertices;
-
-	threedee_fs_params_t fs_params = {0};
-	fs_params.shadow_map_dimension = SHADOW_MAP_DIMENSION;
-	sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_threedee_fs_params, &SG_RANGE(fs_params));
-
-	sg_draw(0, (int)drawing->num_vertices, 1);
-}
-
 // if it's an invalid anim name, it just returns the idle animation
 Animation *get_anim_by_name(Armature *armature, MD_String8 anim_name)
 {
@@ -3199,8 +3130,8 @@ void init(void)
 	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/level.bin"));
 	level_threedee = load_level(persistent_arena, binary_file);
 
-	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/Player.bin"));
-	mesh_player = load_mesh(persistent_arena, binary_file, MD_S8Lit("Player.bin"));
+	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/DecimatedPlayer.bin"));
+	mesh_player = load_mesh(persistent_arena, binary_file, MD_S8Lit("DecimatedPlayer.bin"));
 
 
 	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/ArmatureExportedWithAnims.bin"));
@@ -4164,6 +4095,31 @@ void draw_armature(Mat4 view, Mat4 projection, Transform t, Armature *armature)
 	MD_ReleaseScratch(scratch);
 }
 
+typedef struct
+{
+	Mesh *mesh;
+	Armature *armature;
+	Transform t;
+} DrawnThing;
+
+int drawn_this_frame_length = 0;
+DrawnThing drawn_this_frame[MAXIMUM_THREEDEE_THINGS] = {0};
+
+void draw_thing(DrawnThing params)
+{
+	drawn_this_frame[drawn_this_frame_length] = params;
+	drawn_this_frame_length += 1;
+#ifdef DEVTOOLS
+	assert(drawn_this_frame_length < MAXIMUM_THREEDEE_THINGS);
+#else
+	if(drawn_this_frame_length >= MAXIMUM_THREEDEE_THINGS)
+	{
+		Log("Drawing too many things!\n");
+		drawn_this_frame_length = MAXIMUM_THREEDEE_THINGS - 1;
+	}
+#endif
+}
+
 typedef struct TextParams
 {
 	bool dry_run;
@@ -5009,34 +4965,6 @@ Transform entity_transform(Entity *e)
 
 void do_shadow_pass(Shadow_State* shadow_state, Mat4 shadow_view_matrix, Mat4 shadow_projection_matrix)
 {
-	sg_begin_pass(shadow_state->pass, &shadow_state->pass_action);
-
-	sg_apply_pipeline(shadow_state->pip);
-
-	//We use the texture, just in case we want to do alpha cards. I.e. we need to test alpha for leaf quads etc. 
-	state.threedee_bind.fs_images[SLOT_threedee_tex] = image_gigatexture;
-	state.threedee_bind.fs_images[SLOT_threedee_shadow_map].id = 0;
-
-	for(PlacedMesh *cur = level_threedee.placed_mesh_list; cur; cur = cur->next)
-	{
-		draw_shadow(shadow_view_matrix, shadow_projection_matrix, cur);
-	}
-
-	ENTITIES_ITER(gs.entities)
-	{
-		if(it->is_npc || it->is_character)
-		{
-			Transform draw_with = entity_transform(it);
-			if(it->npc_kind == NPC_SimpleWorm)
-			{
-				// draw_armature_shadow(shadow_view_matrix, shadow_projection_matrix, draw_with, &armature, (float)elapsed_time);
-			} else {
-				draw_shadow(shadow_view_matrix, shadow_projection_matrix, &(PlacedMesh){.draw_with = &mesh_player, .t = draw_with, });
-			}
-		}
-	}
-
-	sg_end_pass();
 }
 
 
@@ -5351,21 +5279,17 @@ void frame(void)
 			}
 		}
 
-		float spin_factor = 0.5f;
-		float t = (float)elapsed_time * spin_factor;
+		Vec3 light_dir;
+		{
+			float spin_factor = 0.5f;
+			float t = (float)elapsed_time * spin_factor;
 
-		float x = cosf(t);
-		float z = sinf(t);
+			float x = cosf(t);
+			float z = sinf(t);
 
-		Vec3 light_dir = NormV3(V3(x, -0.5f, z));
+			light_dir = NormV3(V3(x, -0.5f, z));
+		}
 
-		Shadow_Volume_Params svp = calculate_shadow_volume_params(light_dir);
-
-		Mat4 shadow_view_matrix       = LookAt_RH(V3(0, 0, 0), light_dir, V3(0, 1, 0));
-		Mat4 shadow_projection_matrix = Orthographic_RH_NO(svp.l, svp.r, svp.b, svp.t, svp.n, svp.f);
-		Mat4 light_space_matrix = MulM4(shadow_projection_matrix, shadow_view_matrix);
-
-		do_shadow_pass(&state.shadows, shadow_view_matrix, shadow_projection_matrix);
 
 
 		// make movement relative to camera forward
@@ -5374,13 +5298,6 @@ void frame(void)
 		Vec2 forward_2d = NormV2(V2(facing.x, facing.z));
 		Vec2 right_2d = NormV2(V2(right.x, right.z));
 		movement = AddV2(MulV2F(forward_2d, movement.y), MulV2F(right_2d, movement.x));
-
-		sg_begin_default_pass(&state.clear_everything_pass_action, sapp_width(), sapp_height());
-
-		sg_apply_pipeline(state.threedee_pip);
-		state.threedee_bind.fs_images[SLOT_threedee_tex] = image_gigatexture;
-		state.threedee_bind.fs_images[SLOT_threedee_shadow_map] = state.shadows.color_img;
-
 
 		view = Translate(V3(0.0, 1.0, -5.0f));
 		//view = LookAt_RH(V3(0,1,-5
@@ -5394,11 +5311,13 @@ void frame(void)
 		{
 			view = LookAt_RH(cam_pos, player_pos, V3(0, 1, 0));
 		}
+
 		projection = Perspective_RH_NO(FIELD_OF_VIEW, screen_size().x / screen_size().y, NEAR_PLANE_DISTANCE, FAR_PLANE_DISTANCE);
+
 
 		for(PlacedMesh *cur = level_threedee.placed_mesh_list; cur; cur = cur->next)
 		{
-			draw_placed(view, projection, light_space_matrix, cur);
+			draw_thing((DrawnThing){.mesh = cur->draw_with, .t = cur->t});
 		}
 
 		ENTITIES_ITER(gs.entities)
@@ -5408,20 +5327,105 @@ void frame(void)
 				Transform draw_with = entity_transform(it);
 				if(it->npc_kind == NPC_Player)
 				{
-					draw_armature(view, projection, draw_with, &armature);
+					draw_thing((DrawnThing){.armature = &armature, .t = draw_with});
 				}
 				else
 				{
-					draw_placed(view, projection, light_space_matrix, &(PlacedMesh){.draw_with = &mesh_player, .t = draw_with,});
+					draw_thing((DrawnThing){.mesh = &mesh_player, .t = draw_with});
 				}
 			}
 		}
 
 
-		sg_end_pass();
+		// Draw all the 3D drawn things. Draw the shadows, then draw the things with the shadows.
+		// Process armatures and upload their skeleton textures
+		{
+			// do the shadow pass
+			Mat4 light_space_matrix;
+			{
+				Shadow_Volume_Params svp = calculate_shadow_volume_params(light_dir);
+				Mat4 shadow_view       = LookAt_RH(V3(0, 0, 0), light_dir, V3(0, 1, 0));
+				Mat4 shadow_projection = Orthographic_RH_NO(svp.l, svp.r, svp.b, svp.t, svp.n, svp.f);
+				light_space_matrix = MulM4(shadow_projection, shadow_view);
 
+				sg_begin_pass(state.shadows.pass, &state.shadows.pass_action);
+				sg_apply_pipeline(state.shadows.pip);
+				SLICE_ITER(DrawnThing, drawn_this_frame)
+				{
+					assert(it->mesh || it->armature);
+					if(it->mesh)
+					{
+						sg_bindings bindings = {0};
+						bindings.fs_images[SLOT_threedee_tex] = it->mesh->image;
+						bindings.vertex_buffers[0] = it->mesh->loaded_buffer;
+						sg_apply_bindings(&bindings);
+
+						Mat4 model = transform_to_matrix(it->t);
+						shadow_mapper_vs_params_t vs_params = {
+							.model = model,
+							.view = shadow_view,
+							.projection = shadow_projection,
+						};
+						sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_shadow_mapper_vs_params, &SG_RANGE(vs_params));
+						num_draw_calls += 1;
+						num_vertices += (int)it->mesh->num_vertices;
+						sg_draw(0, (int)it->mesh->num_vertices, 1);
+					}
+					if(it->armature)
+					{
+						// @TODO
+					}
+				}
+				sg_end_pass();
+			}
+
+			// actually draw, IMPORTANT after this drawn_this_frame is zeroed out!
+			{
+				sg_begin_default_pass(&state.clear_everything_pass_action, sapp_width(), sapp_height());
+
+				sg_apply_pipeline(state.threedee_pip);
+				state.threedee_bind.fs_images[SLOT_threedee_shadow_map] = state.shadows.color_img;
+				SLICE_ITER(DrawnThing, drawn_this_frame)
+				{
+					if(it->mesh)
+					{
+						sg_bindings bindings = {0};
+						bindings.fs_images[SLOT_threedee_tex] = it->mesh->image;
+						bindings.fs_images[SLOT_threedee_shadow_map] = state.shadows.color_img;
+						bindings.vertex_buffers[0] = it->mesh->loaded_buffer;
+						sg_apply_bindings(&bindings);
+
+						Mat4 model = transform_to_matrix(it->t);
+						threedee_vs_params_t vs_params = {
+							.model = model,
+							.view =	 view,
+							.projection = projection,
+							.directional_light_space_matrix = light_space_matrix,
+						};
+						sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_vs_params, &SG_RANGE(vs_params));
+						num_draw_calls += 1;
+						num_vertices += (int)it->mesh->num_vertices;
+
+						threedee_fs_params_t fs_params = {0};
+						fs_params.shadow_map_dimension = SHADOW_MAP_DIMENSION;
+						sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_threedee_fs_params, &SG_RANGE(fs_params));
+
+						sg_draw(0, (int)it->mesh->num_vertices, 1);
+					}
+					if(it->armature)
+					{
+					}
+					*it = (DrawnThing){0};
+				}
+
+				sg_end_pass();
+			}
+			drawn_this_frame_length = 0;
+		}
+
+
+		// 2d drawing
 		sg_begin_default_pass(&state.clear_depth_buffer_pass_action, sapp_width(), sapp_height());
-
 		sg_apply_pipeline(state.pip);
 
 		// Draw Tilemap draw tilemap tilemap drawing

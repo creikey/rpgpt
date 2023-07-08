@@ -231,8 +231,8 @@ void main() {
 		float lighting_factor = shadow_factor * n_dot_l;
 		lighting_factor = lighting_factor * 0.5 + 0.5;
 
-		//frag_color = vec4(col.rgb*lighting_factor, 1.0);
-		frag_color = vec4(col.rgb, 1.0);
+		frag_color = vec4(col.rgb*lighting_factor, 1.0);
+		//frag_color = vec4(col.rgb, 1.0);
 	
 	}
 }

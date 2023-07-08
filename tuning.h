@@ -35,6 +35,7 @@
 #define SENTENCE_CONST(txt) { .data = txt, .cur_index = sizeof(txt) }
 #define SENTENCE_CONST_CAST(txt) (Sentence)SENTENCE_CONST(txt)
 
+#define MAXIMUM_THREEDEE_THINGS 1024
 #define ANIMATION_BLEND_TIME 0.15f
 
 #define REMEMBERED_MEMORIES 32
