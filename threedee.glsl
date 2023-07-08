@@ -78,7 +78,7 @@ void main() {
 	pos = gl_Position.xyz;
 	uv = uv_in;
 
-	vec3 model_space_pos = (model * total_position).xyz;
+	vec3 model_space_pos = (total_position).xyz;
 	@include_block vs_compute_light_output
 }
 @end
@@ -106,7 +106,7 @@ void main() {
 
 	gl_Position = projection * view * model * vec4(pos_in, 1.0);
 
-	vec3 model_space_pos = (model * vec4(pos_in, 1.0f)).xyz;
+	vec3 model_space_pos = (vec4(pos_in, 1.0f)).xyz;
 	@include_block vs_compute_light_output
 }
 @end
@@ -238,5 +238,37 @@ void main() {
 }
 @end
 
+@fs fs_shadow_mapping
+
+uniform sampler2D tex;
+
+in vec3 pos;
+in vec2 uv;
+in vec4 light_space_fragment_position;
+in vec3 light_dir;
+in vec4 world_space_frag_pos;
+
+out vec4 frag_color;
+
+vec4 encodeDepth(float v) {
+    vec4 enc = vec4(1.0, 255.0, 65025.0, 16581375.0) * v;
+    enc = fract(enc);
+    enc -= enc.yzww * vec4(1.0/255.0,1.0/255.0,1.0/255.0,0.0);
+    return enc;
+}
+
+void main() {
+	vec4 col = texture(tex, uv);
+	if(col.a < 0.5)
+	{
+		discard;
+	}
+	
+	float depth = gl_FragCoord.z;
+	frag_color = encodeDepth(depth);
+}
+@end
+
 @program mesh vs fs
 @program armature vs_skeleton fs
+@program mesh_shadow_mapping vs fs_shadow_mapping

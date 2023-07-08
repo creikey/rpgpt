@@ -1391,7 +1391,6 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 #include "assets.gen.c"
 #include "quad-sapp.glsl.h"
 #include "threedee.glsl.h"
-#include "shadow_mapper.glsl.h"
 
 AABB level_aabb = { .upper_left = { 0.0f, 0.0f }, .lower_right = { TILE_SIZE * LEVEL_TILES, -(TILE_SIZE * LEVEL_TILES) } };
 GameState gs = { 0 };
@@ -3132,7 +3131,6 @@ void init(void)
 
 	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/DecimatedPlayer.bin"));
 	mesh_player = load_mesh(persistent_arena, binary_file, MD_S8Lit("DecimatedPlayer.bin"));
-
 
 	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/ArmatureExportedWithAnims.bin"));
 	armature = load_armature(persistent_arena, binary_file, MD_S8Lit("ArmatureExportedWithAnims.bin"));
@@ -5020,7 +5018,7 @@ Shadow_State init_shadow_state() {
 				[ATTR_threedee_vs_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
             }
         },
-        .shader = sg_make_shader(shadow_mapper_program_shader_desc(sg_query_backend())),
+        .shader = sg_make_shader(threedee_mesh_shadow_mapping_shader_desc(sg_query_backend())),
         // Cull front faces in the shadow map pass
         // .cull_mode = SG_CULLMODE_BACK,
         .sample_count = 1,
@@ -5361,12 +5359,12 @@ void frame(void)
 						sg_apply_bindings(&bindings);
 
 						Mat4 model = transform_to_matrix(it->t);
-						shadow_mapper_vs_params_t vs_params = {
+						threedee_vs_params_t vs_params = {
 							.model = model,
 							.view = shadow_view,
 							.projection = shadow_projection,
 						};
-						sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_shadow_mapper_vs_params, &SG_RANGE(vs_params));
+						sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_vs_params, &SG_RANGE(vs_params));
 						num_draw_calls += 1;
 						num_vertices += (int)it->mesh->num_vertices;
 						sg_draw(0, (int)it->mesh->num_vertices, 1);
