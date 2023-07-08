@@ -186,7 +186,7 @@ float bilinear_shadow_sample(sampler2D shadowMap, vec2 uv, int texture_width, in
 float calculate_shadow_factor(sampler2D shadowMap, vec4 light_space_fragment_position, float n_dot_l) {
 	float shadow = 1.0;
 
-    vec3 projected_coords = light_space_fragment_position.xyz / light_space_fragment_position.w;
+	vec3 projected_coords = light_space_fragment_position.xyz / light_space_fragment_position.w;
 
 	if(projected_coords.z > 1.0)
     	return shadow;
@@ -272,3 +272,4 @@ void main() {
 @program mesh vs fs
 @program armature vs_skeleton fs
 @program mesh_shadow_mapping vs fs_shadow_mapping
+@program armature_shadow_mapping vs_skeleton fs_shadow_mapping
