@@ -80,6 +80,32 @@ with open(bpy.path.abspath(f"//{EXPORT_DIRECTORY}/shorttest.bin"), "wb") as f:
     for i in range(4):
         write_u16(f, i)
 
+saved_images = set()
+def ensure_tex_saved_and_get_name(o) -> str:
+    """returns the path to the mesh's texture's png in the exported directory"""
+    mesh_name = o.to_mesh().name
+    img_obj = None
+    assert len(o.material_slots) == 1, f"Don't know which material slot to pick from in mesh {mesh_name} object {o.name}"
+    mat = o.material_slots[0]
+    for node in mat.material.node_tree.nodes:
+        if node.type == "TEX_IMAGE":
+            img_obj = node.image
+            break
+    assert img_obj, f"Mesh {mesh_name} in its material doesn't have an image object"
+    image_filename = f"{img_obj.name}.png"
+    if image_filename in saved_images:
+        pass
+    else:
+        save_to = f"//{EXPORT_DIRECTORY}/{image_filename}"
+        print(f"Saving image {image_filename} to {bpy.path.abspath((save_to))}...")
+        if img_obj.packed_file:
+            img_obj.save(filepath=bpy.path.abspath(save_to))
+        else:
+            assert img_obj.filepath != "", f"{img_obj.filepath} in mesh {mesh_name} Isn't there but should be, as it has no packed image"
+            shutil.copyfile(bpy.path.abspath(img_obj.filepath),bpy.path.abspath(save_to))
+
+    return image_filename
+
 # meshes can either be Meshes, or Armatures. Armatures contain all mesh data to draw it, and any anims it has
 
 for o in D.objects:
@@ -91,12 +117,15 @@ for o in D.objects:
             if o.users_collection[0].name == 'Level':
                 assert False, "Cannot put armatures in the level. The level is for static placed meshes. For dynamic entities, you put them outside of the level collection, their entity kind is encoded, and the game code decides how to draw them"
             else:
-                placed_entities.append((mesh_object.name,) + object_transform_info)
+                pass
+                #placed_entities.append((mesh_object.name,) + object_transform_info)
             armature_name = o.data.name
             output_filepath = bpy.path.abspath(f"//{EXPORT_DIRECTORY}/{armature_name}.bin")
-            print(f"Exporting armature to {output_filepath}")
+            image_filename = ensure_tex_saved_and_get_name(mesh_object)
+            print(f"Exporting armature with image filename {image_filename} to {output_filepath}")
             with open(output_filepath, "wb") as f:
                 write_b8(f, True)
+                write_string(f, image_filename)
                 bones_in_armature = []
                 for b in o.data.bones:
                     bones_in_armature.append(b)
@@ -235,6 +264,7 @@ for o in D.objects:
         else: # if the parent type isn't an armature, i.e just a bog standard mesh
             mesh_name = o.to_mesh().name # use this over o.name so instanced objects which refer to the same mesh, both use the same serialized mesh.
             
+            
             object_transform_info = (mesh_name, mapping @ o.location, o.rotation_euler, o.scale)
             
             if o.users_collection[0].name == 'Level' and mesh_name == "CollisionCube":
@@ -250,12 +280,15 @@ for o in D.objects:
                 if mesh_name in saved_meshes:
                     continue
                 saved_meshes.add(mesh_name)
+                image_filename = ensure_tex_saved_and_get_name(o)
                 
                 assert(mesh_name != LEVEL_EXPORT_NAME)
                 output_filepath = bpy.path.abspath(f"//{EXPORT_DIRECTORY}/{mesh_name}.bin")
-                print(f"Exporting mesh to {output_filepath}")
+                print(f"Exporting mesh to {output_filepath} with image_filename {image_filename}")
                 with open(output_filepath, "wb") as f:
-                    write_b8(f, False)
+                    write_b8(f, False) # if it's an armature or not, first byte of the file
+                    write_string(f, image_filename) # the image filename!
+    
                     bm = bmesh.new()
                     mesh = o.to_mesh()
                     bm.from_mesh(mesh)

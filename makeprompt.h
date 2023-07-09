@@ -11,8 +11,6 @@
 
 #include "tuning.h"
 
-// TODO do strings: https://pastebin.com/Kwcw2sye
-
 #define DO_CHATGPT_PARSING
 
 #define Log(...) { printf("%s Log %d | ", __FILE__, __LINE__); printf(__VA_ARGS__); }
@@ -168,7 +166,6 @@ typedef enum
 {
 	STANDING_INDIFFERENT,
 	STANDING_JOINED,
-	STANDING_FIGHTING,
 } NPCPlayerStanding;
 
 
@@ -314,8 +311,6 @@ typedef struct Entity
 	BUFF(Vec2, 8) position_history; // so npcs can follow behind the player
 	CharacterState state;
 	EntityRef talking_to;
-	bool is_rolling; // can only roll in idle or walk states
-	double time_not_rolling; // for cooldown for roll, so you can't just hold it and be invincible
 
 	// so doesn't change animations while time is stopped
 	AnimKind cur_animation;
@@ -324,68 +319,10 @@ typedef struct Entity
 
 typedef BUFF(NpcKind, 32) CanTalkTo;
 
-bool npc_is_knight_sprite(Entity *it)
-{
-	return it->is_npc && (false
-		|| it->npc_kind == NPC_Edeline
-		|| it->npc_kind == NPC_TheKing
-		|| it->npc_kind == NPC_TheBlacksmith
-		|| it->npc_kind == NPC_Red 
-		|| it->npc_kind == NPC_Blue
-		|| it->npc_kind == NPC_Davis
-		|| it->npc_kind == NPC_Bill
-		|| it->npc_kind == NPC_Jester
-		);
-}
-
-bool item_is_scroll(ItemKind i)
-{
-	if(i == ITEM_Scroll1 || i == ITEM_Scroll2 || i == ITEM_Scroll3)
-	{
-		return true;
-	}
-	else
-	{
-		return false;
-	}
-}
-
-MD_String8 scroll_secret(ItemKind i)
-{
-	if(i == ITEM_Scroll1)
-	{
-		return MD_S8Lit(Scroll1_Secret);
-	}
-	else if(i == ITEM_Scroll2)
-	{
-		return MD_S8Lit(Scroll2_Secret);
-	}
-	else if(i == ITEM_Scroll3)
-	{
-		return MD_S8Lit(Scroll3_Secret);
-	}
-	else
-	{
-		assert(false);
-		return MD_S8Lit("");
-	}
-}
-
 float entity_max_damage(Entity *e)
 {
 	return 1.0f;
 }
-
-bool npc_attacks_with_sword(Entity *it)
-{
-	return false;
-}
-
-bool npc_attacks_with_shotgun(Entity *it)
-{
-	return it->is_npc && (false);
-}
-
 
 typedef BUFF(ActionKind, 8) AvailableActions;
 
@@ -394,40 +331,18 @@ void fill_available_actions(Entity *it, AvailableActions *a)
 	*a = (AvailableActions) { 0 };
 	BUFF_APPEND(a, ACT_none);
 
-	if(it->npc_kind == NPC_Pile)
+	if(it->held_items.cur_index > 0)
 	{
-		if(!it->gave_away_sword) BUFF_APPEND(a, ACT_releases_sword_of_nazareth);
+		BUFF_APPEND(a, ACT_gift_item_to_targeting);
 	}
-	else if(it->npc_kind == NPC_Door)
+
+	if (it->standing == STANDING_INDIFFERENT)
 	{
-		if(!it->opened) BUFF_APPEND(a, ACT_opens_myself);
+		BUFF_APPEND(a, ACT_joins_player);
 	}
-	else
+	else if (it->standing == STANDING_JOINED)
 	{
-		if(it->held_items.cur_index > 0)
-		{
-			BUFF_APPEND(a, ACT_gift_item_to_targeting);
-		}
-
-		if (it->npc_kind == NPC_TheKing)
-		{
-			BUFF_APPEND(a, ACT_knights_player);
-		}
-
-		if (it->standing == STANDING_INDIFFERENT)
-		{
-			BUFF_APPEND(a, ACT_fights_player);
-			BUFF_APPEND(a, ACT_joins_player);
-		}
-		else if (it->standing == STANDING_JOINED)
-		{
-			BUFF_APPEND(a, ACT_leaves_player);
-			BUFF_APPEND(a, ACT_fights_player);
-		}
-		else if (it->standing == STANDING_FIGHTING)
-		{
-			BUFF_APPEND(a, ACT_stops_fighting_player);
-		}
+		BUFF_APPEND(a, ACT_leaves_player);
 	}
 }
 
@@ -614,10 +529,6 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, Entity *e, CanTalkTo can_tal
 			else if (e->standing == STANDING_JOINED)
 			{
 					standing_string = "You have joined the player, and are following them everywhere they go! This means you're on their side.";
-			}
-			else if (e->standing == STANDING_FIGHTING)
-			{
-					standing_string = "You are fighting the player right now! That means that the player can't leave conversation with you until you stop fighting them, effectively trapping the player with you.";
 			}
 			else
 			{

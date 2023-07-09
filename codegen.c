@@ -194,7 +194,7 @@ int main(int argc, char **argv)
 			fclose(asset_file);
 
 			MD_S8ListPush(cg_arena, &declarations_list, MD_S8Fmt(cg_arena, "sg_image %.*s = {0};\n", MD_S8VArg(variable_name)));
-			MD_S8ListPush(cg_arena, &load_list, MD_S8Fmt(cg_arena, "%.*s = load_image(\"%.*s\");\n", MD_S8VArg(variable_name), MD_S8VArg(filepath)));
+			MD_S8ListPush(cg_arena, &load_list, MD_S8Fmt(cg_arena, "%.*s = load_image(MD_S8Lit(\"%.*s\"));\n", MD_S8VArg(variable_name), MD_S8VArg(filepath)));
 		}
 	}
 

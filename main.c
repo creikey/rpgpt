@@ -645,31 +645,11 @@ Vec2 entity_aabb_size(Entity *e)
 	}
 	else if (e->is_npc)
 	{
-		if (npc_is_knight_sprite(e))
+		if(e->npc_kind == NPC_Farmer)
 		{
-			return V2(1.0f*0.5f, 1.0f*0.5f);
+			return V2(1,1);
 		}
-		else if (e->npc_kind == NPC_Pile)
-		{
-			return V2(1.0f, 1.0f);
-		}
-		else if (e->npc_kind == NPC_Door)
-		{
-			return V2(1.0f*2.0f, 1.0f*2.0f);
-		}
-		else if (e->npc_kind == NPC_Arrow)
-		{
-			return V2(1.0f*2.0f, 1.0f*2.0f);
-		}
-		else if (e->npc_kind == NPC_SimpleWorm)
-		{
-			return V2(1.0f, 1.0f);
-		}
-		else
-		{
-			assert(false);
-			return (Vec2) { 0 };
-		}
+		return V2(0,0);
 	}
 	else if (e->is_prop)
 	{
@@ -750,18 +730,59 @@ AABB entity_aabb(Entity *e)
 	return entity_aabb_at(e, at);
 }
 
-sg_image load_image(const char *path)
+typedef struct LoadedImage
 {
+	struct LoadedImage *next;
+	MD_String8 name;
+	sg_image image;
+} LoadedImage;
+
+LoadedImage *loaded_images = 0;
+
+sg_image load_image(MD_String8 path)
+{
+	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+	for(LoadedImage *cur = loaded_images; cur; cur = cur->next)
+	{
+		if(MD_S8Match(cur->name, path, 0))
+		{
+			return cur->image;
+		}
+	}
+
+	LoadedImage *loaded = MD_PushArray(persistent_arena, LoadedImage, 1);
+	loaded->name = MD_S8Copy(persistent_arena, path);
+	MD_StackPush(loaded_images, loaded);
+
 	sg_image to_return = { 0 };
 
 	int png_width, png_height, num_channels;
 	const int desired_channels = 4;
 	stbi_uc* pixels = stbi_load(
-			path,
+			(const char*)nullterm(frame_arena, path).str,
 			&png_width, &png_height,
 			&num_channels, 0);
+
+	bool free_the_pixels = true;
+	if(num_channels == 3)
+	{
+		stbi_uc *old_pixels = pixels;
+		pixels = MD_ArenaPush(scratch.arena, png_width * png_height * 4 * sizeof(stbi_uc));
+		for(MD_u64 pixel_i = 0; pixel_i < png_width * png_height; pixel_i++)
+		{
+			pixels[pixel_i*4 + 0] = old_pixels[pixel_i*3 + 0];
+			pixels[pixel_i*4 + 1] = old_pixels[pixel_i*3 + 1];
+			pixels[pixel_i*4 + 2] = old_pixels[pixel_i*3 + 2];
+			pixels[pixel_i*4 + 3] = 255;
+		}
+		num_channels = 4;
+		free_the_pixels = false;
+		stbi_image_free(old_pixels);
+	}
+
 	assert(pixels);
-	Log("Pah %s | Loading image with dimensions %d %d\n", path, png_width, png_height);
+	assert(desired_channels == num_channels);
+	Log("Path %.*s | Loading image with dimensions %d %d\n", MD_S8VArg(path), png_width, png_height);
 	to_return = sg_make_image(&(sg_image_desc)
 			{
 			.width = png_width,
@@ -775,10 +796,11 @@ sg_image load_image(const char *path)
 			.data.subimage[0][0] =
 			{
 			.ptr = pixels,
-			.size = (size_t)(png_width * png_height * 4),
+			.size = (size_t)(png_width * png_height * num_channels),
 			}
 			});
-	stbi_image_free(pixels);
+	loaded->image = to_return;
+	MD_ReleaseScratch(scratch);
 	return to_return;
 }
 
@@ -839,6 +861,7 @@ typedef struct Mesh
 	MD_u64 num_vertices;
 
 	sg_buffer loaded_buffer;
+	sg_image image;
 	MD_String8 name;
 } Mesh;
 
@@ -904,35 +927,39 @@ Mesh load_mesh(MD_Arena *arena, MD_String8 binary_file, MD_String8 mesh_name)
 		.error_arena = scratch.arena,
 		.serializing = false,
 	};
-	Mesh out = {0};
+	Mesh to_return = {0};
 
 	bool is_armature;
 	ser_bool(&ser, &is_armature);
 	assert(!is_armature);
 
-	ser_MD_u64(&ser, &out.num_vertices);
-	Log("Mesh %.*s has %llu vertices\n", MD_S8VArg(mesh_name), out.num_vertices);
+	MD_String8 image_filename;
+	ser_MD_String8(&ser, &image_filename, scratch.arena);
+	to_return.image = load_image(MD_S8Fmt(scratch.arena, "assets/exported_3d/%.*s", MD_S8VArg(image_filename)));
 
-	out.vertices = MD_ArenaPush(arena, sizeof(*out.vertices) * out.num_vertices);
-	for(MD_u64 i = 0; i < out.num_vertices; i++)
+	ser_MD_u64(&ser, &to_return.num_vertices);
+	Log("Mesh %.*s has %llu vertices and image filename '%.*s'\n", MD_S8VArg(mesh_name), to_return.num_vertices, MD_S8VArg(image_filename));
+
+	to_return.vertices = MD_ArenaPush(arena, sizeof(*to_return.vertices) * to_return.num_vertices);
+	for(MD_u64 i = 0; i < to_return.num_vertices; i++)
 	{
-		ser_Vertex(&ser, &out.vertices[i]);
+		ser_Vertex(&ser, &to_return.vertices[i]);
 	}
 
 	assert(!ser.cur_error.failed);
 	MD_ReleaseScratch(scratch);
 
-	out.loaded_buffer = sg_make_buffer(&(sg_buffer_desc)
+	to_return.loaded_buffer = sg_make_buffer(&(sg_buffer_desc)
 			{
 			.usage = SG_USAGE_IMMUTABLE,
-			.data = (sg_range){.ptr = out.vertices, .size = out.num_vertices * sizeof(Vertex)},
+			.data = (sg_range){.ptr = to_return.vertices, .size = to_return.num_vertices * sizeof(Vertex)},
 			.label = (const char*)nullterm(arena, MD_S8Fmt(arena, "%.*s-vertices", MD_S8VArg(mesh_name))).str,
 			});
 
-	out.name = mesh_name;
+	to_return.name = mesh_name;
 
 
-	return out;
+	return to_return;
 }
 
 // stored in row major
@@ -955,7 +982,7 @@ Mat4 blender_to_handmade_mat(BlenderMat b)
 	memcpy(&to_return, &b, sizeof(to_return));
 	return TransposeM4(to_return);
 }
-Mat4 transform_to_mat(Transform t)
+Mat4 transform_to_matrix(Transform t)
 {
 	Mat4 to_return = M4D(1.0f);
 
@@ -973,19 +1000,36 @@ Transform lerp_transforms(Transform from, float t, Transform to)
 			.scale = LerpV3(from.scale,  t, to.scale),
 	};
 }
-
+Transform default_transform()
+{
+	return (Transform){.rotation = Make_Q(0,0,0,1)};
+}
 
 typedef struct
 {
+	MD_String8 name;
+
 	Bone *bones;
 	MD_u64 bones_length;
+
 	Animation *animations;
 	MD_u64 animations_length;
+
+	// when set, blends to that animation next time this armature is processed for that
+	MD_String8 go_to_animation;
+
+	Transform *current_poses; // allocated on loading of the armature
+	MD_String8 target_animation; // CANNOT be null.
+	float animation_blend_t; // [0,1] how much between current_animation and target_animation. Once >= 1, current = target and target = null.
+
+	Transform *anim_blended_poses; // recalculated once per frame depending on above parameters, which at the same code location are calculated. Is `bones_length` long
+
 	ArmatureVertex *vertices;
 	MD_u64 vertices_length;
 	sg_buffer loaded_buffer;
+
 	sg_image bones_texture;
-	MD_String8 name;
+	sg_image image;
 	int bones_texture_width;
 	int bones_texture_height;
 } Armature;
@@ -1005,7 +1049,12 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 	bool is_armature;
 	ser_bool(&ser, &is_armature);
 	assert(is_armature);
-	
+
+	MD_String8 image_filename;
+	ser_MD_String8(&ser, &image_filename, scratch.arena);
+	arena->align = 16; // SSE requires quaternions are 16 byte aligned
+	to_return.image = load_image(MD_S8Fmt(scratch.arena, "assets/exported_3d/%.*s", MD_S8VArg(image_filename)));
+
 	ser_MD_u64(&ser, &to_return.bones_length);
 	Log("Armature %.*s has %llu bones\n", MD_S8VArg(armature_name), to_return.bones_length);
 	to_return.bones = MD_PushArray(arena, Bone, to_return.bones_length);
@@ -1038,6 +1087,9 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 			}
 		}
 	}
+
+	to_return.current_poses = MD_PushArray(arena, Transform, to_return.bones_length);
+	to_return.anim_blended_poses = MD_PushArray(arena, Transform, to_return.bones_length);
 
 	ser_MD_u64(&ser, &to_return.animations_length);
 	Log("Armature %.*s has  %llu animations\n", MD_S8VArg(armature_name), to_return.animations_length);
@@ -1319,8 +1371,6 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 #include "assets.gen.c"
 #include "quad-sapp.glsl.h"
 #include "threedee.glsl.h"
-#include "armature.glsl.h"
-#include "shadow_mapper.glsl.h"
 
 AABB level_aabb = { .upper_left = { 0.0f, 0.0f }, .lower_right = { TILE_SIZE * LEVEL_TILES, -(TILE_SIZE * LEVEL_TILES) } };
 GameState gs = { 0 };
@@ -1502,12 +1552,6 @@ Entity *gete(EntityRef ref)
 	}
 }
 
-bool is_fighting(Entity *player)
-{
-	assert(player->is_character);
-	return gete(player->talking_to) && gete(player->talking_to)->standing == STANDING_FIGHTING;
-}
-
 void push_memory(Entity *e, Memory new_memory)
 {
 	new_memory.tick_happened = gs.tick;
@@ -1617,32 +1661,6 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 		}
 	}
 
-	if(error_message.size == 0 && from->npc_kind == NPC_Door)
-	{
-		MD_String8 speech_str = MD_S8(a.speech, a.speech_length);
-		MD_String8 secrets[] = { MD_S8Lit(Scroll1_Secret), MD_S8Lit(Scroll2_Secret), MD_S8Lit(Scroll3_Secret) };
-
-		ARR_ITER(MD_String8, secrets)
-		{
-			if(MD_S8FindSubstring(speech_str, *it, 0, MD_StringMatchFlag_CaseInsensitive) != speech_str.size)
-			{
-				error_message = FmtWithLint(arena, "You can't say the word '%.*s', it would spoil your secret to the player", MD_S8VArg(*it));
-			}
-		}
-	}
-
-	if(error_message.size == 0 && a.kind == ACT_releases_sword_of_nazareth)
-	{
-		if(error_message.size == 0 && from->npc_kind != NPC_Pile)
-		{
-			error_message = FmtWithLint(arena, "Only the pile of rocks can give away the sword of nazareth");
-		}
-		if(error_message.size == 0 && from->gave_away_sword)
-		{
-			error_message = FmtWithLint(arena, "You don't have the sword anymore, so you can't give it away");
-		}
-	}
-
 	if(error_message.size == 0 && a.kind == ACT_gift_item_to_targeting)
 	{
 		assert(a.argument.item_to_give >= 0 && a.argument.item_to_give < ARRLEN(items));
@@ -1725,17 +1743,6 @@ void cause_action_side_effects(Entity *from, Action a)
 		assert(to);
 	}
 
-	if(a.kind == ACT_releases_sword_of_nazareth)
-	{
-		assert(from->npc_kind == NPC_Pile);
-		from->gave_away_sword = true;
-	}
-
-	if(a.kind == ACT_opens_myself)
-	{
-		assert(from->npc_kind == NPC_Door);
-		from->opened = true;
-	}
 
 	if(a.kind == ACT_gift_item_to_targeting)
 	{
@@ -1764,18 +1771,7 @@ void cause_action_side_effects(Entity *from, Action a)
 		}
 	}
 
-	if(a.kind == ACT_fights_player)
-	{
-		from->standing = STANDING_FIGHTING;
-		gs.player->talking_to = frome(from);
-		gs.player->state = CHARACTER_TALKING;
-		assert(is_fighting(gs.player));
-	}
-	if(a.kind == ACT_stops_fighting_player && from->npc_kind == NPC_Arrow)
-	{
-		from->destroy = true;
-	}
-	if(a.kind == ACT_stops_fighting_player || a.kind == ACT_leaves_player)
+	if(a.kind == ACT_leaves_player)
 	{
 		from->standing = STANDING_INDIFFERENT;
 	}
@@ -1836,49 +1832,6 @@ float propagating_radius(PropagatingAction *p)
 {
 	float t = powf(p->progress, 0.65f);
 	return Lerp(0.0f, t, PROPAGATE_ACTIONS_RADIUS );
-}
-
-typedef struct SwordSwipe
-{
-	struct SwordSwipe *next;
-	EntityRef to_ignore;
-	Vec2 from;
-	bool already_propagated_to[MAX_ENTITIES]; // tracks by index of entity
-	float progress;
-} SwordSwipe;
-
-SwordSwipe *swordswipes = 0;
-
-void push_swipe(SwordSwipe s)
-{
-	SwordSwipe *to_set = 0;
-	for(SwordSwipe *cur = swordswipes; cur; cur = cur->next)
-	{
-		if(cur->progress >= 1.0f)
-		{
-			to_set = cur;
-		}
-	}
-	if(!to_set)
-	{
-		to_set = MD_PushArray(persistent_arena, SwordSwipe, 1);
-		MD_StackPush(swordswipes, to_set);
-	}
-
-	*to_set = s;
-}
-
-void use_item(Entity *from, ItemKind kind)
-{
-	if(kind == ITEM_Sword)
-	{
-		push_swipe((SwordSwipe){.to_ignore = frome(from), .from = from->pos});
-	}
-	else if(item_is_scroll(kind))
-	{
-		showing_secret_str = scroll_secret(kind);
-		showing_secret_alpha = 1.0f;
-	}
 }
 
 // only called when the action is instantiated, correctly propagates the information
@@ -2138,28 +2091,6 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 	gs->world_entity = new_entity(gs);
 	gs->world_entity->is_world = true;
 
-#ifdef DEVTOOLS
-	if(false)
-	{
-		for (int i = 0; i < 20; i++)
-			BUFF_APPEND(&gs->player->held_items, ITEM_GoldCoin);
-	}
-
-	ENTITIES_ITER(gs->entities)
-	{
-		if(false)
-		if (it->npc_kind == NPC_TheBlacksmith)
-		{
-			Memory test_memory = {0};
-			test_memory.context.author_npc_kind = NPC_TheBlacksmith;
-			MD_String8 speech = MD_S8Lit("This is some very important testing dialog. Too important to count. Very very very very important. Super caliafradgalisticexpelaladosis");
-			memcpy(test_memory.speech, speech.str, speech.size);
-			test_memory.speech_length = (int)speech.size;
-			push_memory(it, test_memory);
-		}
-	}
-#endif
-
 
 	// parse and enact the drama document
 	if(1)
@@ -2230,10 +2161,7 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 							PushWithLint(scratch.arena, &drama_errors, "Current thought's speech is of size %d, bigger than allowed size %d", (int)thoughts_str.size, (int)ARRLEN(current_action.internal_monologue));
 						}
 
-						if(current_context.author_npc_kind != NPC_Jester)
-						{
-							current_action.mood = parse_enumstr(scratch.arena, mood_str, &drama_errors, moods, "MoodKind", "");
-						}
+						current_action.mood = parse_enumstr(scratch.arena, mood_str, &drama_errors, moods, "MoodKind", "");
 						
 						if(drama_errors.node_count == 0)
 						{
@@ -2442,8 +2370,6 @@ void ser_entity(SerState *ser, Entity *e)
 	SER_BUFF(ser, Vec2, &e->position_history);
 	ser_CharacterState(ser, &e->state);
 	ser_EntityRef(ser, &e->talking_to);
-	ser_bool(ser, &e->is_rolling);
-	ser_double(ser, &e->time_not_rolling);
 
 	ser_AnimKind(ser, &e->cur_animation);
 	ser_float(ser, &e->anim_change_timer);
@@ -2680,6 +2606,8 @@ typedef struct {
 	sg_pipeline pip;
 	sg_image color_img;
 	sg_image depth_img;
+
+	sg_pipeline armature_pip;
 } Shadow_State;
 Shadow_State init_shadow_state();
 
@@ -2704,77 +2632,38 @@ int num_draw_calls = 0;
 int num_vertices = 0;
 
 
-void draw_shadow(Mat4 view, Mat4 projection, PlacedMesh *cur)
+// if it's an invalid anim name, it just returns the idle animation
+Animation *get_anim_by_name(Armature *armature, MD_String8 anim_name)
 {
-	sg_apply_pipeline(state.shadows.pip);
-
-	Mesh *drawing = cur->draw_with;
-
-	sg_bindings bindings = {0};
-
-	bindings.fs_images[SLOT_threedee_tex] = image_gigatexture;
-	ARR_ITER(sg_image, state.threedee_bind.vs_images)
+	for(MD_u64 i = 0; i < armature->animations_length; i++)
 	{
-		*it = (sg_image){0};
+		if(MD_S8Match(armature->animations[i].name, anim_name, 0))
+		{
+			return &armature->animations[i];
+		}
 	}
-	bindings.vertex_buffers[0] = drawing->loaded_buffer;
-	sg_apply_bindings(&bindings);
 
-	Mat4 model = transform_to_mat(cur->t);
+	if(anim_name.size > 0)
+	{
+		Log("No animation found '%.*s'\n", MD_S8VArg(anim_name));
+	}
 
-	shadow_mapper_vs_params_t vs_params = {0};
-	memcpy(vs_params.model, (float*)&model, sizeof(model));
-	memcpy(vs_params.view, (float*)&view, sizeof(view));
-	memcpy(vs_params.projection, (float*)&projection, sizeof(projection));
+	for(MD_u64 i = 0; i < armature->animations_length; i++)
+	{
+		if(MD_S8Match(armature->animations[i].name, MD_S8Lit("Idle"), 0))
+		{
+			return &armature->animations[i];
+		}
+	}
 
-	sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_shadow_mapper_vs_params, &SG_RANGE(vs_params));
-	num_draw_calls += 1;
-	num_vertices += (int)drawing->num_vertices;
-
-	sg_draw(0, (int)drawing->num_vertices, 1);
+	assert(false); // no animation named 'Idle'
+	return 0;
 }
 
-
-void draw_placed(Mat4 view, Mat4 projection, Mat4 light_matrix, PlacedMesh *cur)
+// you can pass a time greater than the animation length, it's fmodded to wrap no matter what.
+Transform get_animated_bone_transform(AnimationTrack *track, Bone *bone, float time)
 {
-	sg_apply_pipeline(state.threedee_pip);
-
-	Mesh *drawing = cur->draw_with;
-	ARR_ITER(sg_image, state.threedee_bind.vs_images)
-	{
-		*it = (sg_image){0};
-	}
-	ARR_ITER(sg_image, state.threedee_bind.fs_images)
-	{
-		*it = (sg_image){0};
-	}
-	state.threedee_bind.fs_images[SLOT_threedee_tex]        = image_gigatexture;
-	state.threedee_bind.fs_images[SLOT_threedee_shadow_map] = state.shadows.color_img;
-	state.threedee_bind.vertex_buffers[0] = drawing->loaded_buffer;
-	sg_apply_bindings(&state.threedee_bind);
-
-	Mat4 model = transform_to_mat(cur->t);
-
-	threedee_vs_params_t vs_params = {0};
-	memcpy(vs_params.model, (float*)&model, sizeof(model));
-	memcpy(vs_params.view, (float*)&view, sizeof(view));
-	memcpy(vs_params.projection, (float*)&projection, sizeof(projection));
-
-	memcpy(vs_params.directional_light_space_matrix, (float*)&light_matrix, sizeof(light_matrix));
-
-	sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_vs_params, &SG_RANGE(vs_params));
-	num_draw_calls += 1;
-	num_vertices += (int)drawing->num_vertices;
-
-	threedee_fs_params_t fs_params = {0};
-	fs_params.shadow_map_dimension = SHADOW_MAP_DIMENSION;
-	sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_threedee_fs_params, &SG_RANGE(fs_params));
-
-	sg_draw(0, (int)drawing->num_vertices, 1);
-}
-
-Mat4 get_animated_bone_transform(AnimationTrack *track, Bone *bone, float time)
-{
+	assert(track);
 	float total_anim_time = track->poses[track->poses_length - 1].time;
 	assert(total_anim_time > 0.0f);
 	time = fmodf(time, total_anim_time);
@@ -2788,11 +2677,11 @@ Mat4 get_animated_bone_transform(AnimationTrack *track, Bone *bone, float time)
 			float t = (time - from.time)/gap_btwn_keyframes;
 			assert(t >= 0.0f);
 			assert(t <= 1.0f);
-			return transform_to_mat(lerp_transforms(from.parent_space_pose, t, to.parent_space_pose));
+			return lerp_transforms(from.parent_space_pose, t, to.parent_space_pose);
 		}
 	}
 	assert(false);
-	return M4D(1.0f);
+	return default_transform();
 }
 
 typedef struct
@@ -2847,80 +2736,6 @@ float decode_normalized_float32(PixelData encoded)
 }
 
 
-void draw_armature(Mat4 view, Mat4 projection, Transform t, Armature *armature, float elapsed_time)
-{
-	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-	sg_apply_pipeline(state.armature_pip);
-
-	Mat4 model = transform_to_mat(t);
-
-	armature_vs_params_t params = {0};
-	memcpy(params.model, (float*)&model, sizeof(model));
-	memcpy(params.view, (float*)&view, sizeof(view));
-	memcpy(params.projection, (float*)&projection, sizeof(projection));
-	params.bones_tex_size[0] = (float)armature->bones_texture_width;
-	params.bones_tex_size[1] = (float)armature->bones_texture_height;
-
-	int bones_tex_size = 4 * armature->bones_texture_width * armature->bones_texture_height;
-	MD_u8 *bones_tex = MD_ArenaPush(scratch.arena, bones_tex_size);
-
-	for(MD_u64 i = 0; i < armature->bones_length; i++)
-	{
-		Bone *cur = &armature->bones[i];
-
-		Mat4 final = M4D(1.0f);
-		final = MulM4(cur->inverse_model_space_pos, final);
-		for(Bone *cur_in_hierarchy = cur; cur_in_hierarchy; cur_in_hierarchy = cur_in_hierarchy->parent)
-		{
-			//final = MulM4(cur_in_hierarchy->anim_poses[0].parent_space_pose, final);
-			int bone_index = (int)(cur_in_hierarchy - armature->bones);
-			final = MulM4(get_animated_bone_transform(&armature->animations[0].tracks[bone_index], cur_in_hierarchy, elapsed_time), final);
-		}
-
-		for(int col = 0; col < 4; col++)
-		{
-			Vec4 to_upload = final.Columns[col];
-
-			int bytes_per_pixel = 4;
-			int bytes_per_column_of_mat = bytes_per_pixel * 4;
-			int bytes_per_row = bytes_per_pixel * armature->bones_texture_width;
-			for(int elem = 0; elem < 4; elem++)
-			{
-				float after_decoding = decode_normalized_float32(encode_normalized_float32(to_upload.Elements[elem]));
-				assert(fabsf(after_decoding - to_upload.Elements[elem]) < 0.01f);
-			}
-			memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*0], encode_normalized_float32(to_upload.Elements[0]).rgba, bytes_per_pixel);
-			memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*1], encode_normalized_float32(to_upload.Elements[1]).rgba, bytes_per_pixel);
-			memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*2], encode_normalized_float32(to_upload.Elements[2]).rgba, bytes_per_pixel);
-			memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*3], encode_normalized_float32(to_upload.Elements[3]).rgba, bytes_per_pixel);
-		}
-	}
-	sg_update_image(armature->bones_texture, &(sg_image_data){
-			.subimage[0][0] = (sg_range){bones_tex, bones_tex_size},
-	});
-
-	ARR_ITER(sg_image, state.threedee_bind.vs_images)
-	{
-		*it = (sg_image){0};
-	}
-	ARR_ITER(sg_image, state.threedee_bind.fs_images)
-	{
-		*it = (sg_image){0};
-	}
-
-	state.threedee_bind.vertex_buffers[0] = armature->loaded_buffer;
-	state.threedee_bind.vs_images[SLOT_armature_bones_tex] = armature->bones_texture;
-	state.threedee_bind.fs_images[SLOT_armature_tex] = image_gigatexture;
-
-	sg_apply_bindings(&state.threedee_bind);
-
-	sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_armature_vs_params, &SG_RANGE(params));
-	num_draw_calls += 1;
-	num_vertices += (int)armature->vertices_length;
-	sg_draw(0, (int)armature->vertices_length, 1);
-
-	MD_ReleaseScratch(scratch);
-}
 
 
 void audio_stream_callback(float *buffer, int num_frames, int num_channels)
@@ -3020,8 +2835,9 @@ void do_parsing_tests()
 
 	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 
+	/*
 	Entity e = {0};
-	e.npc_kind = NPC_TheBlacksmith;
+	e.npc_kind = NPC_Meld;
 	e.exists = true;
 	Action a = {0};
 	MD_String8 error;
@@ -3068,6 +2884,7 @@ void do_parsing_tests()
 	assert(error.size == 0);
 	error = is_action_valid(scratch.arena, &e, a);
 	assert(error.size > 0);
+	*/
 
 	MD_ReleaseScratch(scratch);
 }
@@ -3118,7 +2935,15 @@ void do_float_encoding_tests()
 }
 #endif
 
-Armature armature = {0};
+Armature player_armature = {0};
+Armature farmer_armature = {0};
+
+// armatureanimations are processed once every visual frame from this list
+Armature *armatures[] = {
+	&player_armature,
+	&farmer_armature,
+};
+
 Mesh mesh_player = {0};
 Mesh mesh_simple_worm = {0};
 
@@ -3172,12 +2997,14 @@ void init(void)
 	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/level.bin"));
 	level_threedee = load_level(persistent_arena, binary_file);
 
-	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/Player.bin"));
-	mesh_player = load_mesh(persistent_arena, binary_file, MD_S8Lit("Player.bin"));
+	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/ExportedWithAnims.bin"));
+	mesh_player = load_mesh(persistent_arena, binary_file, MD_S8Lit("ExportedWithAnims.bin"));
 
+	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/ArmatureExportedWithAnims.bin"));
+	player_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("ArmatureExportedWithAnims.bin"));
 
-	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/WalkingArmature.bin"));
-	armature = load_armature(persistent_arena, binary_file, MD_S8Lit("WalkingArmature.bin"));
+	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/Farmer.bin"));
+	farmer_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Farmer.bin"));
 
 
 
@@ -3301,7 +3128,7 @@ void init(void)
 			.label = "quad-pipeline",
 			});
 
-	desc = threedee_program_shader_desc(sg_query_backend());
+	desc = threedee_mesh_shader_desc(sg_query_backend());
 	assert(desc);
 	shd = sg_make_shader(desc);
 
@@ -3331,7 +3158,7 @@ void init(void)
 			.label = "threedee",
 			});
 
-	desc = armature_program_shader_desc(sg_query_backend());
+	desc = threedee_armature_shader_desc(sg_query_backend());
 	assert(desc);
 	shd = sg_make_shader(desc);
 
@@ -3345,10 +3172,10 @@ void init(void)
 			.layout = {
 			.attrs =
 			{
-			[ATTR_armature_vs_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
-			[ATTR_armature_vs_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
-			[ATTR_armature_vs_indices_in].format = SG_VERTEXFORMAT_USHORT4N,
-			[ATTR_armature_vs_weights_in].format = SG_VERTEXFORMAT_FLOAT4,
+			[ATTR_threedee_vs_skeleton_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
+			[ATTR_threedee_vs_skeleton_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
+			[ATTR_threedee_vs_skeleton_indices_in].format = SG_VERTEXFORMAT_USHORT4N,
+			[ATTR_threedee_vs_skeleton_weights_in].format = SG_VERTEXFORMAT_FLOAT4,
 			}
 			},
 			.colors[0].blend = (sg_blend_state) { // allow transparency
@@ -3362,8 +3189,6 @@ void init(void)
 			},
 			.label = "armature",
 			});
-
-
 
 	state.clear_depth_buffer_pass_action = (sg_pass_action)
 	{
@@ -4034,6 +3859,58 @@ void dbgplanerect(AABB aabb)
 	dbgplaneline(q.ll, q.ul);
 }
 
+void draw_armature(Mat4 view, Mat4 projection, Transform t, Armature *armature)
+{
+	sg_apply_pipeline(state.armature_pip);
+
+	Mat4 model = transform_to_matrix(t);
+
+	threedee_skeleton_vs_params_t params = {
+		.model = model,
+		.view = view,
+		.projection = projection,
+		.bones_tex_size = V2((float)armature->bones_texture_width,(float)armature->bones_texture_height),
+	};
+
+	state.threedee_bind.vertex_buffers[0] = armature->loaded_buffer;
+	state.threedee_bind.vs_images[SLOT_threedee_bones_tex] = armature->bones_texture;
+	state.threedee_bind.fs_images[SLOT_threedee_tex] = armature->image;
+	state.threedee_bind.fs_images[SLOT_threedee_shadow_map] = state.shadows.color_img;
+
+	sg_apply_bindings(&state.threedee_bind);
+
+	sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_skeleton_vs_params, &SG_RANGE(params));
+	num_draw_calls += 1;
+	num_vertices += (int)armature->vertices_length;
+	sg_draw(0, (int)armature->vertices_length, 1);
+
+}
+
+typedef struct
+{
+	Mesh *mesh;
+	Armature *armature;
+	Transform t;
+} DrawnThing;
+
+int drawn_this_frame_length = 0;
+DrawnThing drawn_this_frame[MAXIMUM_THREEDEE_THINGS] = {0};
+
+void draw_thing(DrawnThing params)
+{
+	drawn_this_frame[drawn_this_frame_length] = params;
+	drawn_this_frame_length += 1;
+#ifdef DEVTOOLS
+	assert(drawn_this_frame_length < MAXIMUM_THREEDEE_THINGS);
+#else
+	if(drawn_this_frame_length >= MAXIMUM_THREEDEE_THINGS)
+	{
+		Log("Drawing too many things!\n");
+		drawn_this_frame_length = MAXIMUM_THREEDEE_THINGS - 1;
+	}
+#endif
+}
+
 typedef struct TextParams
 {
 	bool dry_run;
@@ -4210,7 +4087,7 @@ Overlapping get_overlapping(AABB aabb)
 	PROFILE_SCOPE("checking the entities")
 		ENTITIES_ITER(gs.entities)
 		{
-			if (!(it->is_character && it->is_rolling) && !it->is_world && overlapping(aabb, entity_aabb(it)))
+			if (!it->is_world && overlapping(aabb, entity_aabb(it)))
 			{
 				BUFF_APPEND(&to_return, it);
 			}
@@ -4296,11 +4173,11 @@ Vec2 move_and_slide(MoveSlideParams p)
 	}
 
 	// add entity boxes
-	if (!p.dont_collide_with_entities && !(p.from->is_character && p.from->is_rolling))
+	if (!p.dont_collide_with_entities)
 	{
 		ENTITIES_ITER(gs.entities)
 		{
-			if (!(it->is_character && it->is_rolling) && it != p.from && !(it->is_npc && it->dead) && !it->is_world && !it->is_item && !(it->is_npc && it->npc_kind == NPC_Door && it->opened))
+			if (it != p.from && !(it->is_npc && it->dead) && !it->is_world && !it->is_item)
 			{
 				BUFF_APPEND(&to_check, ((CollisionObj){aabb_centered(it->pos, entity_aabb_size(it)), it}));
 			}
@@ -4838,27 +4715,7 @@ bool imbutton_key(AABB button_aabb, float text_scale, MD_String8 text, int key, 
 
 void draw_item(ItemKind kind, AABB in_aabb, float alpha)
 {
-	Quad drawn = quad_aabb(in_aabb);
-	if (kind == ITEM_Chalice)
-	{
-		draw_quad((DrawParams) { drawn, IMG(image_chalice), blendalpha(WHITE, alpha), .layer = LAYER_UI_FG });
-	}
-	else if (kind == ITEM_GoldCoin)
-	{
-		draw_quad((DrawParams) { drawn, IMG(image_gold_coin), blendalpha(WHITE, alpha), .layer = LAYER_UI_FG });
-	}
-	else if (kind == ITEM_Sword)
-	{
-		draw_quad((DrawParams) { drawn, IMG(image_sword), blendalpha(WHITE, alpha), .layer = LAYER_UI_FG });
-	}
-	else if (item_is_scroll(kind))
-	{
-		draw_quad((DrawParams) { drawn, IMG(image_scroll), blendalpha(WHITE, alpha), .layer = LAYER_UI_FG });
-	}
-	else
-	{
-		assert(false);
-	}
+	assert(false);
 }
 
 Transform entity_transform(Entity *e)
@@ -4877,36 +4734,8 @@ Transform entity_transform(Entity *e)
 }
 
 
-void do_shadow_pass(Shadow_State* shadow_state, Mat4 shadow_view_matrix, Mat4 shadow_projection_matrix) {
-    sg_begin_pass(shadow_state->pass, &shadow_state->pass_action);
-
-    sg_apply_pipeline(shadow_state->pip);
-
-	//We use the texture, just in case we want to do alpha cards. I.e. we need to test alpha for leaf quads etc. 
-	state.threedee_bind.fs_images[SLOT_threedee_tex] = image_gigatexture;
-	state.threedee_bind.fs_images[SLOT_threedee_shadow_map].id = 0;
-
-    for(PlacedMesh *cur = level_threedee.placed_mesh_list; cur; cur = cur->next)
-    {
-        draw_shadow(shadow_view_matrix, shadow_projection_matrix, cur);
-    }
-
-
-    ENTITIES_ITER(gs.entities)
-    {
-        if(it->is_npc || it->is_character)
-        {
-            Transform draw_with = entity_transform(it);
-			if(it->npc_kind == NPC_SimpleWorm)
-			{
-				// draw_armature_shadow(shadow_view_matrix, shadow_projection_matrix, draw_with, &armature, (float)elapsed_time);
-			} else {
-				draw_shadow(shadow_view_matrix, shadow_projection_matrix, &(PlacedMesh){.draw_with = &mesh_player, .t = draw_with, });
-			}
-        }
-    }
-
-    sg_end_pass();
+void do_shadow_pass(Shadow_State* shadow_state, Mat4 shadow_view_matrix, Mat4 shadow_projection_matrix)
+{
 }
 
 
@@ -4918,63 +4747,76 @@ Shadow_State init_shadow_state() {
 	Shadow_State shadows = {0};
 
 	shadows.pass_action = (sg_pass_action) {
-        .colors[0] = {
-            .action = SG_ACTION_CLEAR,
-            .value = { 1.0f, 1.0f, 1.0f, 1.0f }
-        }
-    };
+		.colors[0] = {
+			.action = SG_ACTION_CLEAR,
+			.value = { 1.0f, 1.0f, 1.0f, 1.0f }
+		}
+	};
 
 	/*
-		As of right now, it looks like sokol_gfx does not support depth only
-		rendering passes, so we create the colour buffer always. It will likely
-		be pertinent to just dig into sokol and add the functionality we want later,
-		but as a first pass, we will just do as the romans do. I.e. have both a colour
-		and depth component. - Canada Day 2023.
-	*/
-    sg_image_desc img_desc = {
-        .render_target = true,
-        .width = SHADOW_MAP_DIMENSION,
-        .height = SHADOW_MAP_DIMENSION,
-        .pixel_format = SG_PIXELFORMAT_RGBA8,
-        .min_filter = SG_FILTER_LINEAR,
-        .mag_filter = SG_FILTER_LINEAR,
+		 As of right now, it looks like sokol_gfx does not support depth only
+		 rendering passes, so we create the colour buffer always. It will likely
+		 be pertinent to just dig into sokol and add the functionality we want later,
+		 but as a first pass, we will just do as the romans do. I.e. have both a colour
+		 and depth component. - Canada Day 2023.
+		 */
+	sg_image_desc img_desc = {
+		.render_target = true,
+		.width = SHADOW_MAP_DIMENSION,
+		.height = SHADOW_MAP_DIMENSION,
+		.pixel_format = SG_PIXELFORMAT_RGBA8,
+		.min_filter = SG_FILTER_LINEAR,
+		.mag_filter = SG_FILTER_LINEAR,
 		.wrap_u = SG_WRAP_CLAMP_TO_BORDER,
 		.wrap_v = SG_WRAP_CLAMP_TO_BORDER,
 		.border_color = SG_BORDERCOLOR_OPAQUE_WHITE,
-        .sample_count = 1,
-        .label = "shadow-map-color-image"
-    };
-    shadows.color_img = sg_make_image(&img_desc);
-    img_desc.pixel_format = SG_PIXELFORMAT_DEPTH;
-    img_desc.label = "shadow-map-depth-image";
-    shadows.depth_img = sg_make_image(&img_desc);
-    shadows.pass = sg_make_pass(&(sg_pass_desc){
-        .color_attachments[0].image = shadows.color_img,
-        .depth_stencil_attachment.image = shadows.depth_img,
-        .label = "shadow-map-pass"
-    });
+		.sample_count = 1,
+		.label = "shadow-map-color-image"
+	};
+	shadows.color_img = sg_make_image(&img_desc);
+	img_desc.pixel_format = SG_PIXELFORMAT_DEPTH;
+	img_desc.label = "shadow-map-depth-image";
+	shadows.depth_img = sg_make_image(&img_desc);
+	shadows.pass = sg_make_pass(&(sg_pass_desc){
+			.color_attachments[0].image = shadows.color_img,
+			.depth_stencil_attachment.image = shadows.depth_img,
+			.label = "shadow-map-pass"
+			});
 
 
-    shadows.pip = sg_make_pipeline(&(sg_pipeline_desc){
-        .layout = {
-            .attrs = {
-                [ATTR_threedee_vs_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
+	sg_pipeline_desc desc = (sg_pipeline_desc){
+		.layout = {
+			.attrs = {
+				[ATTR_threedee_vs_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
 				[ATTR_threedee_vs_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
-            }
-        },
-        .shader = sg_make_shader(shadow_mapper_program_shader_desc(sg_query_backend())),
-        // Cull front faces in the shadow map pass
-        // .cull_mode = SG_CULLMODE_BACK,
-        .sample_count = 1,
-        .depth = {
-            .pixel_format = SG_PIXELFORMAT_DEPTH,
-            .compare = SG_COMPAREFUNC_LESS_EQUAL,
-            .write_enabled = true,
-        },
-        .colors[0].pixel_format = SG_PIXELFORMAT_RGBA8,
-        .label = "shadow-map-pipeline"
-    });
+			}
+		},
+			.shader = sg_make_shader(threedee_mesh_shadow_mapping_shader_desc(sg_query_backend())),
+			// Cull front faces in the shadow map pass
+			// .cull_mode = SG_CULLMODE_BACK,
+			.sample_count = 1,
+			.depth = {
+				.pixel_format = SG_PIXELFORMAT_DEPTH,
+				.compare = SG_COMPAREFUNC_LESS_EQUAL,
+				.write_enabled = true,
+			},
+			.colors[0].pixel_format = SG_PIXELFORMAT_RGBA8,
+			.label = "shadow-map-pipeline"
+	};
 
+	shadows.pip = sg_make_pipeline(&desc);
+
+	desc.label = "armature-shadow-map-pipeline";
+	desc.shader = sg_make_shader(threedee_armature_shadow_mapping_shader_desc(sg_query_backend()));
+	sg_vertex_attr_desc skeleton_vertex_attrs[] = {
+			[ATTR_threedee_vs_skeleton_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
+			[ATTR_threedee_vs_skeleton_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
+			[ATTR_threedee_vs_skeleton_indices_in].format = SG_VERTEXFORMAT_USHORT4N,
+			[ATTR_threedee_vs_skeleton_weights_in].format = SG_VERTEXFORMAT_FLOAT4,
+	};
+	assert(ARRLEN(skeleton_vertex_attrs) < ARRLEN(desc.layout.attrs));
+	memcpy(desc.layout.attrs, skeleton_vertex_attrs, sizeof(skeleton_vertex_attrs));
+	shadows.armature_pip = sg_make_pipeline(&desc);
 	return shadows;
 }
 
@@ -5140,8 +4982,8 @@ void frame(void)
 
 		Vec3 player_pos = V3(gs.player->pos.x, 0.0, gs.player->pos.y);
 		//dbgline(V2(0,0), V2(500, 500));
-		const float vertical_to_horizontal_ratio = 0.8f;
-		const float cam_distance = 20.0f;
+		const float vertical_to_horizontal_ratio = CAM_VERTICAL_TO_HORIZONTAL_RATIO;
+		const float cam_distance = CAM_DISTANCE;
 		Vec3 away_from_player;
 		{
 			float ratio = vertical_to_horizontal_ratio;
@@ -5176,22 +5018,63 @@ void frame(void)
 			movement = NormV2(movement);
 		}
 
+		// progress the animation, then blend the two animations if necessary, and finally
+		// output into anim_blended_poses
+		ARR_ITER(Armature*, armatures)
+		{
+			Armature *cur = *it;
 
-		float spin_factor = 0.5f;
-		float t = (float)elapsed_time * spin_factor;
+			if(cur->go_to_animation.size > 0)
+			{
+				if(MD_S8Match(cur->go_to_animation, cur->target_animation, 0))
+				{
+				}
+				else
+				{
+					memcpy(cur->current_poses, cur->anim_blended_poses, cur->bones_length * sizeof(*cur->current_poses));
+					cur->target_animation = cur->go_to_animation;
+					cur->animation_blend_t = 0.0f;
+					cur->go_to_animation = (MD_String8){0};
+				}
+			}
 
-		float x = cosf(t);
-		float z = sinf(t);
+			if(cur->animation_blend_t < 1.0f)
+			{
+				cur->animation_blend_t += dt / ANIMATION_BLEND_TIME;
+				
+				Animation *to_anim = get_anim_by_name(cur, cur->target_animation);
+				assert(to_anim);
 
-	    Vec3 light_dir = NormV3(V3(x, -0.5, z));
+				for(MD_u64 i = 0; i < cur->bones_length; i++)
+				{
+					Transform *output_transform = &cur->anim_blended_poses[i];
+					Transform from_transform = cur->current_poses[i];
+					Transform to_transform = get_animated_bone_transform(&to_anim->tracks[i], &cur->bones[i], (float)elapsed_time);
 
-		Shadow_Volume_Params svp = calculate_shadow_volume_params(light_dir);
+					*output_transform = lerp_transforms(from_transform, cur->animation_blend_t, to_transform);
+				}
+			}
+			else
+			{
+				Animation *cur_anim = get_anim_by_name(cur, cur->target_animation);
+				for(MD_u64 i = 0; i < cur->bones_length; i++)
+				{
+					cur->anim_blended_poses[i] = get_animated_bone_transform(&cur_anim->tracks[i], &cur->bones[i], (float)elapsed_time);
+				}
+			}
+		}
 
-		Mat4 shadow_view_matrix       = LookAt_RH(V3(0, 0, 0), light_dir, V3(0, 1, 0));
-		Mat4 shadow_projection_matrix = Orthographic_RH_NO(svp.l, svp.r, svp.b, svp.t, svp.n, svp.f);
-		Mat4 light_space_matrix = MulM4(shadow_projection_matrix, shadow_view_matrix);
+		Vec3 light_dir;
+		{
+			float spin_factor = 0.5f;
+			float t = (float)elapsed_time * spin_factor;
 
-		do_shadow_pass(&state.shadows, shadow_view_matrix, shadow_projection_matrix);
+			float x = cosf(t);
+			float z = sinf(t);
+
+			light_dir = NormV3(V3(x, -0.5f, z));
+		}
+
 
 
 		// make movement relative to camera forward
@@ -5200,12 +5083,6 @@ void frame(void)
 		Vec2 forward_2d = NormV2(V2(facing.x, facing.z));
 		Vec2 right_2d = NormV2(V2(right.x, right.z));
 		movement = AddV2(MulV2F(forward_2d, movement.y), MulV2F(right_2d, movement.x));
-
-		sg_begin_default_pass(&state.clear_everything_pass_action, sapp_width(), sapp_height());
-
-		sg_apply_pipeline(state.threedee_pip);
-		state.threedee_bind.fs_images[SLOT_threedee_tex] = image_gigatexture;
-		state.threedee_bind.fs_images[SLOT_threedee_shadow_map] = state.shadows.color_img;
 
 		view = Translate(V3(0.0, 1.0, -5.0f));
 		//view = LookAt_RH(V3(0,1,-5
@@ -5219,95 +5096,263 @@ void frame(void)
 		{
 			view = LookAt_RH(cam_pos, player_pos, V3(0, 1, 0));
 		}
+
 		projection = Perspective_RH_NO(FIELD_OF_VIEW, screen_size().x / screen_size().y, NEAR_PLANE_DISTANCE, FAR_PLANE_DISTANCE);
 
-		// debug draw armature
-		for(MD_u64 i = 0; i < armature.bones_length; i++)
-		{
-			Bone *cur = &armature.bones[i];
-
-			Vec3 offset = V3(1.5, 0, 5);
-
-			Vec3 from = MulM4V3(cur->matrix_local, V3(0,0,0));
-			Vec3 x = MulM4V3(cur->matrix_local, V3(cur->length,0,0));
-			Vec3 y = MulM4V3(cur->matrix_local, V3(0,cur->length,0));
-			Vec3 z = MulM4V3(cur->matrix_local, V3(0,0,cur->length));
-			Vec3 dot = MulM4V3(cur->matrix_local, V3(cur->length,0,cur->length));
-
-			// from, x, y, and z are like vertex points. They are model-space
-			// points *around* the bones they should be influenced by. Now we
-			// need to transform them according to how much the pose bones
-			// have moved and in the way they moved.
-
-			Mat4 final_mat = M4D(1.0f);
-			final_mat = MulM4(cur->inverse_model_space_pos, final_mat);
-			for(Bone *cur_in_hierarchy = cur; cur_in_hierarchy; cur_in_hierarchy = cur_in_hierarchy->parent)
-			{
-				int bone_index = (int)(cur_in_hierarchy - armature.bones);
-				final_mat = MulM4(get_animated_bone_transform(&armature.animations[0].tracks[bone_index], cur_in_hierarchy, (float)elapsed_time), final_mat);
-				//final_mat = MulM4(cur_in_hierarchy->anim_poses[0].parent_space_pose, final_mat);
-			}
-
-			// uncommenting this skips the pose transform, showing the debug skeleton
-			// as if it were in "edit mode" in blender
-			//final_mat = M4D(1.0f);
-
-			from = MulM4V3(final_mat, from);
-			x = MulM4V3(final_mat, x);
-			y = MulM4V3(final_mat, y);
-			z = MulM4V3(final_mat, z);
-			dot = MulM4V3(final_mat, dot);
-
-
-			from = AddV3(from, offset);
-			x = AddV3(x, offset);
-			y = AddV3(y, offset);
-			z = AddV3(z, offset);
-			dot = AddV3(dot, offset);
-
-			dbgcol(LIGHTBLUE)
-				dbgsquare3d(y);
-			dbgcol(RED)
-				dbg3dline(from, x);
-			dbgcol(GREEN)
-				dbg3dline(from, y);
-			dbgcol(BLUE)
-				dbg3dline(from, z);
-			dbgcol(YELLOW)
-				dbg3dline(from, dot);
-			dbgcol(PINK)
-				dbgsquare3d(dot);
-
-		}
-		
 
 		for(PlacedMesh *cur = level_threedee.placed_mesh_list; cur; cur = cur->next)
 		{
-			draw_placed(view, projection, light_space_matrix, cur);
+			draw_thing((DrawnThing){.mesh = cur->draw_with, .t = cur->t});
 		}
-
 
 		ENTITIES_ITER(gs.entities)
 		{
 			if(it->is_npc || it->is_character)
 			{
 				Transform draw_with = entity_transform(it);
-				if(it->npc_kind == NPC_SimpleWorm)
+				if(it->npc_kind == NPC_Player)
 				{
-					draw_armature(view, projection, draw_with, &armature, (float)elapsed_time);
+					draw_thing((DrawnThing){.armature = &player_armature, .t = draw_with});
+				}
+				else if(it->npc_kind == NPC_Farmer)
+				{
+					farmer_armature.go_to_animation = MD_S8Lit("Dance");
+					draw_thing((DrawnThing){.armature = &farmer_armature, .t = draw_with});
 				}
 				else
 				{
-					draw_placed(view, projection, light_space_matrix, &(PlacedMesh){.draw_with = &mesh_player, .t = draw_with, });
+					draw_thing((DrawnThing){.mesh = &mesh_player, .t = draw_with});
 				}
 			}
 		}
 
 
-		sg_end_pass();
+		// Draw all the 3D drawn things. Draw the shadows, then draw the things with the shadows.
+		// Process armatures and upload their skeleton textures
+		{
+			// Animate armatures, and upload their bone textures. Also debug draw their skeleton
+			{
+				SLICE_ITER(DrawnThing, drawn_this_frame)
+				{
+					if(it->armature)
+					{
+						MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+						Armature *armature = it->armature;
+						int bones_tex_size = 4 * armature->bones_texture_width * armature->bones_texture_height;
+						MD_u8 *bones_tex = MD_ArenaPush(scratch.arena, bones_tex_size);
 
+						for(MD_u64 i = 0; i < armature->bones_length; i++)
+						{
+							Bone *cur = &armature->bones[i];
+
+							// for debug drawing
+							Vec3 from = MulM4V3(cur->matrix_local, V3(0,0,0));
+							Vec3 x = MulM4V3(cur->matrix_local, V3(cur->length,0,0));
+							Vec3 y = MulM4V3(cur->matrix_local, V3(0,cur->length,0));
+							Vec3 z = MulM4V3(cur->matrix_local, V3(0,0,cur->length));
+
+							Mat4 final = M4D(1.0f);
+							final = MulM4(cur->inverse_model_space_pos, final);
+							for(Bone *cur_in_hierarchy = cur; cur_in_hierarchy; cur_in_hierarchy = cur_in_hierarchy->parent)
+							{
+								int bone_index = (int)(cur_in_hierarchy - armature->bones);
+								final = MulM4(transform_to_matrix(armature->anim_blended_poses[bone_index]), final);
+							}
+
+							from = MulM4V3(final, from);
+							x = MulM4V3(final, x);
+							y = MulM4V3(final, y);
+							z = MulM4V3(final, z);
+
+							Mat4 transform_matrix = transform_to_matrix(it->t);
+							from = MulM4V3(transform_matrix, from);
+							x = MulM4V3(transform_matrix, x);
+							y = MulM4V3(transform_matrix, y);
+							z = MulM4V3(transform_matrix, z);
+							dbgcol(LIGHTBLUE)
+								dbgsquare3d(y);
+							dbgcol(RED)
+								dbg3dline(from, x);
+							dbgcol(GREEN)
+								dbg3dline(from, y);
+							dbgcol(BLUE)
+								dbg3dline(from, z);
+
+							for(int col = 0; col < 4; col++)
+							{
+								Vec4 to_upload = final.Columns[col];
+
+								int bytes_per_pixel = 4;
+								int bytes_per_column_of_mat = bytes_per_pixel * 4;
+								int bytes_per_row = bytes_per_pixel * armature->bones_texture_width;
+								for(int elem = 0; elem < 4; elem++)
+								{
+									float after_decoding = decode_normalized_float32(encode_normalized_float32(to_upload.Elements[elem]));
+									assert(fabsf(after_decoding - to_upload.Elements[elem]) < 0.01f);
+								}
+								memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*0], encode_normalized_float32(to_upload.Elements[0]).rgba, bytes_per_pixel);
+								memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*1], encode_normalized_float32(to_upload.Elements[1]).rgba, bytes_per_pixel);
+								memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*2], encode_normalized_float32(to_upload.Elements[2]).rgba, bytes_per_pixel);
+								memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*3], encode_normalized_float32(to_upload.Elements[3]).rgba, bytes_per_pixel);
+							}
+						}
+
+						sg_update_image(armature->bones_texture, &(sg_image_data){
+							.subimage[0][0] = (sg_range){bones_tex, bones_tex_size},
+						});
+
+						MD_ReleaseScratch(scratch);
+					}
+				}
+			}
+
+			// do the shadow pass
+			Mat4 light_space_matrix;
+			{
+				Shadow_Volume_Params svp = calculate_shadow_volume_params(light_dir);
+				Mat4 shadow_view       = LookAt_RH(V3(0, 0, 0), light_dir, V3(0, 1, 0));
+				Mat4 shadow_projection = Orthographic_RH_NO(svp.l, svp.r, svp.b, svp.t, svp.n, svp.f);
+				light_space_matrix = MulM4(shadow_projection, shadow_view);
+
+				sg_begin_pass(state.shadows.pass, &state.shadows.pass_action);
+
+				// shadows for meshes
+				sg_apply_pipeline(state.shadows.pip);
+				SLICE_ITER(DrawnThing, drawn_this_frame)
+				{
+					assert(it->mesh || it->armature);
+					if(it->mesh)
+					{
+						sg_bindings bindings = {0};
+						bindings.fs_images[SLOT_threedee_tex] = it->mesh->image;
+						bindings.vertex_buffers[0] = it->mesh->loaded_buffer;
+						sg_apply_bindings(&bindings);
+
+						Mat4 model = transform_to_matrix(it->t);
+						threedee_vs_params_t vs_params = {
+							.model = model,
+							.view = shadow_view,
+							.projection = shadow_projection,
+						};
+						sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_vs_params, &SG_RANGE(vs_params));
+						num_draw_calls += 1;
+						num_vertices += (int)it->mesh->num_vertices;
+						sg_draw(0, (int)it->mesh->num_vertices, 1);
+					}
+				}
+
+				// shadows for armatures
+				sg_apply_pipeline(state.shadows.armature_pip);
+				SLICE_ITER(DrawnThing, drawn_this_frame)
+				{
+					if(it->armature)
+					{
+						sg_bindings bindings = {0};
+						bindings.vs_images[SLOT_threedee_bones_tex] = it->armature->bones_texture;
+						bindings.fs_images[SLOT_threedee_tex] = it->armature->image;
+						bindings.vertex_buffers[0] = it->armature->loaded_buffer;
+						sg_apply_bindings(&bindings);
+
+						Mat4 model = transform_to_matrix(it->t);
+						threedee_skeleton_vs_params_t params = {
+							.model = model,
+							.view = shadow_view,
+							.projection = shadow_projection,
+							.directional_light_space_matrix = light_space_matrix,
+							.bones_tex_size = V2((float)it->armature->bones_texture_width,(float)it->armature->bones_texture_height),
+						};
+						sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_skeleton_vs_params, &SG_RANGE(params));
+
+						num_draw_calls += 1;
+						num_vertices += (int)it->armature->vertices_length;
+						sg_draw(0, (int)it->armature->vertices_length, 1);
+					}
+				}
+				sg_end_pass();
+			}
+
+			// actually draw, IMPORTANT after this drawn_this_frame is zeroed out!
+			{
+				sg_begin_default_pass(&state.clear_everything_pass_action, sapp_width(), sapp_height());
+
+				// draw meshes
+				sg_apply_pipeline(state.threedee_pip);
+				SLICE_ITER(DrawnThing, drawn_this_frame)
+				{
+					if(it->mesh)
+					{
+						sg_bindings bindings = {0};
+						bindings.fs_images[SLOT_threedee_tex] = it->mesh->image;
+						bindings.fs_images[SLOT_threedee_shadow_map] = state.shadows.color_img;
+						bindings.vertex_buffers[0] = it->mesh->loaded_buffer;
+						sg_apply_bindings(&bindings);
+
+						Mat4 model = transform_to_matrix(it->t);
+						threedee_vs_params_t vs_params = {
+							.model = model,
+							.view =	 view,
+							.projection = projection,
+							.directional_light_space_matrix = light_space_matrix,
+						};
+						sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_vs_params, &SG_RANGE(vs_params));
+						num_draw_calls += 1;
+						num_vertices += (int)it->mesh->num_vertices;
+
+						threedee_fs_params_t fs_params = {0};
+						fs_params.shadow_map_dimension = SHADOW_MAP_DIMENSION;
+						sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_threedee_fs_params, &SG_RANGE(fs_params));
+
+						sg_draw(0, (int)it->mesh->num_vertices, 1);
+					}
+				}
+
+				// draw armatures armature rendering 
+				sg_apply_pipeline(state.armature_pip);
+				SLICE_ITER(DrawnThing, drawn_this_frame)
+				{
+					if(it->armature)
+					{
+						sg_bindings bindings = {0};
+						bindings.vs_images[SLOT_threedee_bones_tex] = it->armature->bones_texture;
+						bindings.fs_images[SLOT_threedee_tex] = it->armature->image;
+						bindings.fs_images[SLOT_threedee_shadow_map] = state.shadows.color_img;
+						bindings.vertex_buffers[0] = it->armature->loaded_buffer;
+						sg_apply_bindings(&bindings);
+
+						Mat4 model = transform_to_matrix(it->t);
+						threedee_skeleton_vs_params_t params = {
+							.model = model,
+							.view = view,
+							.projection = projection,
+							.directional_light_space_matrix = light_space_matrix,
+							.bones_tex_size = V2((float)it->armature->bones_texture_width,(float)it->armature->bones_texture_height),
+						};
+						sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_skeleton_vs_params, &SG_RANGE(params));
+
+						threedee_fs_params_t fs_params = {0};
+						fs_params.shadow_map_dimension = SHADOW_MAP_DIMENSION;
+						sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_threedee_fs_params, &SG_RANGE(fs_params));
+
+						num_draw_calls += 1;
+						num_vertices += (int)it->armature->vertices_length;
+						sg_draw(0, (int)it->armature->vertices_length, 1);
+					}
+				}
+
+
+				// zero out everything
+				SLICE_ITER(DrawnThing, drawn_this_frame)
+				{
+					*it = (DrawnThing){0};
+				}
+				sg_end_pass();
+			}
+			drawn_this_frame_length = 0;
+		}
+
+
+		// 2d drawing
 		sg_begin_default_pass(&state.clear_depth_buffer_pass_action, sapp_width(), sapp_height());
-
 		sg_apply_pipeline(state.pip);
 
 		// Draw Tilemap draw tilemap tilemap drawing
@@ -5425,32 +5470,6 @@ void frame(void)
 				float dt = unwarped_dt*speed_factor;
 
 				gs.tick += 1;
-
-				PROFILE_SCOPE("handle swipes") // sword swipes
-				{
-					for(SwordSwipe *cur = swordswipes; cur; cur = cur->next)
-					{
-						if(cur->progress < 1.0f)
-						{
-							cur->progress += dt;
-							ENTITIES_ITER(gs.entities)
-							{
-								if(it->is_npc && LenV2(SubV2(it->pos, cur->from)) < SWORD_SWIPE_RADIUS && gete(cur->to_ignore) != it && !cur->already_propagated_to[frome(it).index])
-								{
-									cur->already_propagated_to[frome(it).index] = true;
-									Memory bravado_memory = {0};
-									bravado_memory.internal_monologue_length = (int)strlen(bravado_thought);
-									memcpy(bravado_memory.internal_monologue, bravado_thought, bravado_memory.internal_monologue_length);
-									bravado_memory.context.i_said_this = true;
-									bravado_memory.context.author_npc_kind = it->npc_kind;
-
-									push_memory(it, bravado_memory);
-									it->perceptions_dirty = true;
-								}
-							}
-						}
-					}
-				}
 
 				PROFILE_SCOPE("propagate actions")
 				{
@@ -5672,7 +5691,7 @@ void frame(void)
 
 							// A* code
 							if(false)
-								if (it->standing == STANDING_FIGHTING || it->standing == STANDING_JOINED)
+								if (it->standing == STANDING_JOINED)
 								{
 									Entity *targeting = gs.player;
 
@@ -5953,44 +5972,6 @@ void frame(void)
 								*/
 							}
 							// @Place(NPC processing)
-							else if(it->npc_kind == NPC_Arrow)
-							{
-								if(it->standing == STANDING_INDIFFERENT)
-								{
-									CollisionInfo info = {0};
-									Vec2 movement = V2(ARROW_SPEED * dt, 0);
-									it->pos = move_and_slide((MoveSlideParams){it, it->pos, movement, .col_info_out = &info});
-									if(info.happened)
-									{
-										Entity *from = it;
-										BUFF_ITER(Entity *, &info.with)
-										{
-											if((*it)->is_character || ((*it)->is_npc && (*it)->standing == STANDING_JOINED))
-											{
-												Action fighting_action = {0};
-												fighting_action.kind = ACT_fights_player;
-												MD_String8 insult = MD_S8Fmt(frame_arena, "Ahaha! %s", arrow_insults[rand() % ARRLEN(arrow_insults)]);
-												memcpy(fighting_action.speech, insult.str, insult.size);
-												fighting_action.speech_length = (int)insult.size;
-												fighting_action.talking_to_somebody = true;
-												fighting_action.talking_to_kind = NPC_Player;
-												perform_action(from, fighting_action);
-												break;
-											}
-										}
-
-										if(from->standing != STANDING_FIGHTING)
-										{
-											// hit something, but didn't hit a fightable thing, or couldn't fight a fightable thing it hit
-											from->destroy = true;
-										}
-									}
-								}
-							}
-							else if(it->npc_kind == NPC_Door)
-							{
-								if(it->opened) it->opened_amount = Lerp(it->opened_amount, dt*5.0f, 1.0f);
-							}
 							else
 							{
 							}
@@ -6028,15 +6009,6 @@ void frame(void)
 						{
 							if(it->machine_kind == MACH_arrow_shooter)
 							{
-								it->arrow_timer += dt;
-								if(it->arrow_timer >= SECONDS_PER_ARROW)
-								{
-									it->arrow_timer = 0.0;
-									Entity *new_arrow = new_entity(&gs);
-									new_arrow->is_npc = true;
-									new_arrow->npc_kind = NPC_Arrow;
-									new_arrow->pos = AddV2(it->pos, V2(entity_aabb_size(new_arrow).x + 0.01f, 0.0));
-								}
 							}
 						}
 						else if (it->is_world)
@@ -6109,41 +6081,7 @@ void frame(void)
 								bool succeeded = true; // couldn't get AI response if false
 								if(mocking_the_ai_response)
 								{
-									if(false)
-									{
-										const char *argument = 0;
-										MD_String8List dialog_elems = {0};
-										ActionKind act = ACT_none;
-
-										it->times_talked_to++;
-										if(it->npc_kind == NPC_TheBlacksmith && it->standing != STANDING_JOINED)
-										{
-											assert(it->times_talked_to == 1);
-											act = ACT_joins_player;
-											PushWithLint(scratch.arena, &dialog_elems, "Joining you...");
-										}
-										else
-										{
-											PushWithLint(scratch.arena, &dialog_elems, "%d times talked", it->times_talked_to);
-										}
-
-
-										MD_StringJoin join = {0};
-										MD_String8 dialog = MD_S8ListJoin(scratch.arena, dialog_elems, &join);
-										if (argument)
-										{
-											ai_response = FmtWithLint(scratch.arena, "ACT_%s(%s) \"%.*s\"", actions[act].name, argument, MD_S8VArg(dialog));
-										}
-										else
-										{
-											ai_response = FmtWithLint(scratch.arena, "ACT_%s \"%.*s\"", actions[act].name, MD_S8VArg(dialog));
-										}
-									}
-									else
-									{
-										//ai_response = MD_S8Lit(" Within the player's party, while the player is talking to Meld, you hear: ACT_none \"Better have a good reason for bothering me. fjdskfjdsakfjsdakf\"");
-										ai_response = MD_S8Fmt(frame_arena, "{who_i_am: \"%s\", talking_to: nobody, action: joins_player, thoughts: \"I'm thinking...\", mood: Happy}", characters[it->npc_kind].name);
-									}
+									ai_response = MD_S8Fmt(frame_arena, "{who_i_am: \"%s\", talking_to: nobody, action: joins_player, thoughts: \"I'm thinking...\", mood: Happy}", characters[it->npc_kind].name);
 								}
 								else
 								{
@@ -6263,10 +6201,7 @@ void frame(void)
 						{
 							// don't add extra stuff to be done when changing state because in several
 							// places it's assumed to end dialog I can just do player->state = CHARACTER_IDLE
-							if(!is_fighting(gs.player))
-							{
-								gs.player->state = CHARACTER_IDLE;
-							}
+							gs.player->state = CHARACTER_IDLE;
 						}
 						else if (closest_interact_with)
 						{
@@ -6284,15 +6219,6 @@ void frame(void)
 												members_in_party += 1;
 											}
 										}
-										if(members_in_party >= 3)
-										{
-											BUFF_APPEND(&gs.player->held_items, ITEM_Idol);
-											closest_interact_with->has_given_idol = true;
-										}
-										else
-										{
-											closest_interact_with->idol_reminder_opacity = 1.0f;
-										}
 									}
 								}
 							}
@@ -6309,20 +6235,22 @@ void frame(void)
 						}
 					}
 
-					if(is_fighting(gs.player))
-					{
-						gs.player->state = CHARACTER_TALKING;
-					}
-
 					float speed = 0.0f;
 					{
 						Vec2 target_vel = { 0 };
 
+						if(gs.player->state == CHARACTER_WALKING)
+						{
+							player_armature.go_to_animation = MD_S8Lit("Running");
+						}
+						else
+						{
+							player_armature.go_to_animation = MD_S8Lit("Idle");
+						}
+
 						if (gs.player->state == CHARACTER_WALKING)
 						{
 							speed = PLAYER_SPEED;
-							if (gs.player->is_rolling) speed = PLAYER_ROLL_SPEED;
-
 							if (LenV2(movement) == 0.0)
 							{
 								gs.player->state = CHARACTER_IDLE;
@@ -6552,39 +6480,11 @@ void frame(void)
 			}
 		}
 
-		PROFILE_SCOPE("draw sword swipes") // draw swipes
-		{
-			for(SwordSwipe *cur = swordswipes; cur; cur = cur->next)
-			{
-				if(cur->progress < 1.0f)
-				{
-					float radius = SWORD_SWIPE_RADIUS;
-					Quad to_draw = quad_rotated_centered(cur->from,V2(radius, radius), powf(cur->progress * 4.0f, 1.5f));
-					draw_quad((DrawParams){ to_draw, IMG(image_swipe), blendalpha(WHITE, 1.0f - cur->progress)});
-				}
-			}
-		}
-
-		PROFILE_SCOPE("secrets")
-		{
-			const float bottom_padding = 100.0f;
-			if(showing_secret_alpha > 0.0f)
-			{
-				showing_secret_alpha -= dt/5.0f;
-			}
-			draw_centered_text((TextParams){ false, MD_S8Fmt(frame_arena, "Scroll Secret: %.*s", MD_S8VArg(showing_secret_str)), V2(screen_size().x/2.0f, bottom_padding), blendalpha(WHITE, showing_secret_alpha), 2.0f});
-		}
-
 		PROFILE_SCOPE("dialog menu") // big dialog panel draw big dialog panel
 		{
 			static float on_screen = 0.0f;
 			Entity *talking_to = gete(gs.player->talking_to);
 			on_screen = Lerp(on_screen, unwarped_dt*9.0f, talking_to ? 1.0f : 0.0f);
-			if(is_fighting(gs.player))
-			{
-				assert(talking_to);
-				draw_centered_text((TextParams){ false, MD_S8Fmt(frame_arena, "%s is fighting you. You can't leave until they stop fighting you", characters[talking_to->npc_kind].name), V2(screen_size().x*0.75f, screen_size().y*0.5f), WHITE, 1.0f});
-			}
 			{
 				float panel_width = screen_size().x * 0.4f * on_screen;
 				AABB panel_aabb = (AABB) { .upper_left = V2(0.0f, screen_size().y), .lower_right = V2(panel_width, 0.0f) };
@@ -6592,7 +6492,7 @@ void frame(void)
 
 				if (aabb_is_valid(panel_aabb))
 				{
-					if (!item_grid_state.open && pressed.mouse_down && !has_point(panel_aabb, mouse_pos) && !is_fighting(gs.player))
+					if (!item_grid_state.open && pressed.mouse_down && !has_point(panel_aabb, mouse_pos))
 					{
 						gs.player->state = CHARACTER_IDLE;
 					}
@@ -6834,7 +6734,7 @@ void frame(void)
 					}
 					else
 					{
-						use_item(gs.player, selected_item);
+						// could put code here to use an item
 					}
 				}
 			}
@@ -6909,6 +6809,9 @@ void frame(void)
 		if (show_devtools)
 			PROFILE_SCOPE("statistics")
 			{
+				// shadow map
+				draw_quad((DrawParams){quad_at(V2(screen_size().x - 512.0f, screen_size().y), V2(512.0f, 512.0f)), IMG(state.shadows.color_img), WHITE, .layer = LAYER_UI_FG});
+
 				Vec2 pos = V2(0.0, screen_size().Y);
 				int num_entities = 0;
 				ENTITIES_ITER(gs.entities) num_entities++;
@@ -7344,6 +7247,7 @@ sapp_desc sokol_main(int argc, char* argv[])
 			.frame_cb = frame,
 			.cleanup_cb = cleanup,
 			.event_cb = event,
+			.sample_count = 4,
 			.width = 800,
 			.height = 600,
 			//.gl_force_gles2 = true, not sure why this was here in example, look into
