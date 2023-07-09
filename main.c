@@ -645,31 +645,8 @@ Vec2 entity_aabb_size(Entity *e)
 	}
 	else if (e->is_npc)
 	{
-		if (npc_is_knight_sprite(e))
-		{
-			return V2(1.0f*0.5f, 1.0f*0.5f);
-		}
-		else if (e->npc_kind == NPC_Pile)
-		{
-			return V2(1.0f, 1.0f);
-		}
-		else if (e->npc_kind == NPC_Door)
-		{
-			return V2(1.0f*2.0f, 1.0f*2.0f);
-		}
-		else if (e->npc_kind == NPC_Arrow)
-		{
-			return V2(1.0f*2.0f, 1.0f*2.0f);
-		}
-		else if (e->npc_kind == NPC_SimpleWorm)
-		{
-			return V2(1.0f, 1.0f);
-		}
-		else
-		{
-			assert(false);
-			return (Vec2) { 0 };
-		}
+		assert(false);
+		return V2(0,0);
 	}
 	else if (e->is_prop)
 	{
@@ -1572,12 +1549,6 @@ Entity *gete(EntityRef ref)
 	}
 }
 
-bool is_fighting(Entity *player)
-{
-	assert(player->is_character);
-	return gete(player->talking_to) && gete(player->talking_to)->standing == STANDING_FIGHTING;
-}
-
 void push_memory(Entity *e, Memory new_memory)
 {
 	new_memory.tick_happened = gs.tick;
@@ -1687,32 +1658,6 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 		}
 	}
 
-	if(error_message.size == 0 && from->npc_kind == NPC_Door)
-	{
-		MD_String8 speech_str = MD_S8(a.speech, a.speech_length);
-		MD_String8 secrets[] = { MD_S8Lit(Scroll1_Secret), MD_S8Lit(Scroll2_Secret), MD_S8Lit(Scroll3_Secret) };
-
-		ARR_ITER(MD_String8, secrets)
-		{
-			if(MD_S8FindSubstring(speech_str, *it, 0, MD_StringMatchFlag_CaseInsensitive) != speech_str.size)
-			{
-				error_message = FmtWithLint(arena, "You can't say the word '%.*s', it would spoil your secret to the player", MD_S8VArg(*it));
-			}
-		}
-	}
-
-	if(error_message.size == 0 && a.kind == ACT_releases_sword_of_nazareth)
-	{
-		if(error_message.size == 0 && from->npc_kind != NPC_Pile)
-		{
-			error_message = FmtWithLint(arena, "Only the pile of rocks can give away the sword of nazareth");
-		}
-		if(error_message.size == 0 && from->gave_away_sword)
-		{
-			error_message = FmtWithLint(arena, "You don't have the sword anymore, so you can't give it away");
-		}
-	}
-
 	if(error_message.size == 0 && a.kind == ACT_gift_item_to_targeting)
 	{
 		assert(a.argument.item_to_give >= 0 && a.argument.item_to_give < ARRLEN(items));
@@ -1795,17 +1740,6 @@ void cause_action_side_effects(Entity *from, Action a)
 		assert(to);
 	}
 
-	if(a.kind == ACT_releases_sword_of_nazareth)
-	{
-		assert(from->npc_kind == NPC_Pile);
-		from->gave_away_sword = true;
-	}
-
-	if(a.kind == ACT_opens_myself)
-	{
-		assert(from->npc_kind == NPC_Door);
-		from->opened = true;
-	}
 
 	if(a.kind == ACT_gift_item_to_targeting)
 	{
@@ -1834,18 +1768,7 @@ void cause_action_side_effects(Entity *from, Action a)
 		}
 	}
 
-	if(a.kind == ACT_fights_player)
-	{
-		from->standing = STANDING_FIGHTING;
-		gs.player->talking_to = frome(from);
-		gs.player->state = CHARACTER_TALKING;
-		assert(is_fighting(gs.player));
-	}
-	if(a.kind == ACT_stops_fighting_player && from->npc_kind == NPC_Arrow)
-	{
-		from->destroy = true;
-	}
-	if(a.kind == ACT_stops_fighting_player || a.kind == ACT_leaves_player)
+	if(a.kind == ACT_leaves_player)
 	{
 		from->standing = STANDING_INDIFFERENT;
 	}
@@ -1906,49 +1829,6 @@ float propagating_radius(PropagatingAction *p)
 {
 	float t = powf(p->progress, 0.65f);
 	return Lerp(0.0f, t, PROPAGATE_ACTIONS_RADIUS );
-}
-
-typedef struct SwordSwipe
-{
-	struct SwordSwipe *next;
-	EntityRef to_ignore;
-	Vec2 from;
-	bool already_propagated_to[MAX_ENTITIES]; // tracks by index of entity
-	float progress;
-} SwordSwipe;
-
-SwordSwipe *swordswipes = 0;
-
-void push_swipe(SwordSwipe s)
-{
-	SwordSwipe *to_set = 0;
-	for(SwordSwipe *cur = swordswipes; cur; cur = cur->next)
-	{
-		if(cur->progress >= 1.0f)
-		{
-			to_set = cur;
-		}
-	}
-	if(!to_set)
-	{
-		to_set = MD_PushArray(persistent_arena, SwordSwipe, 1);
-		MD_StackPush(swordswipes, to_set);
-	}
-
-	*to_set = s;
-}
-
-void use_item(Entity *from, ItemKind kind)
-{
-	if(kind == ITEM_Sword)
-	{
-		push_swipe((SwordSwipe){.to_ignore = frome(from), .from = from->pos});
-	}
-	else if(item_is_scroll(kind))
-	{
-		showing_secret_str = scroll_secret(kind);
-		showing_secret_alpha = 1.0f;
-	}
 }
 
 // only called when the action is instantiated, correctly propagates the information
@@ -2208,28 +2088,6 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 	gs->world_entity = new_entity(gs);
 	gs->world_entity->is_world = true;
 
-#ifdef DEVTOOLS
-	if(false)
-	{
-		for (int i = 0; i < 20; i++)
-			BUFF_APPEND(&gs->player->held_items, ITEM_GoldCoin);
-	}
-
-	ENTITIES_ITER(gs->entities)
-	{
-		if(false)
-		if (it->npc_kind == NPC_TheBlacksmith)
-		{
-			Memory test_memory = {0};
-			test_memory.context.author_npc_kind = NPC_TheBlacksmith;
-			MD_String8 speech = MD_S8Lit("This is some very important testing dialog. Too important to count. Very very very very important. Super caliafradgalisticexpelaladosis");
-			memcpy(test_memory.speech, speech.str, speech.size);
-			test_memory.speech_length = (int)speech.size;
-			push_memory(it, test_memory);
-		}
-	}
-#endif
-
 
 	// parse and enact the drama document
 	if(1)
@@ -2300,10 +2158,7 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 							PushWithLint(scratch.arena, &drama_errors, "Current thought's speech is of size %d, bigger than allowed size %d", (int)thoughts_str.size, (int)ARRLEN(current_action.internal_monologue));
 						}
 
-						if(current_context.author_npc_kind != NPC_Jester)
-						{
-							current_action.mood = parse_enumstr(scratch.arena, mood_str, &drama_errors, moods, "MoodKind", "");
-						}
+						current_action.mood = parse_enumstr(scratch.arena, mood_str, &drama_errors, moods, "MoodKind", "");
 						
 						if(drama_errors.node_count == 0)
 						{
@@ -2979,8 +2834,9 @@ void do_parsing_tests()
 
 	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 
+	/*
 	Entity e = {0};
-	e.npc_kind = NPC_TheBlacksmith;
+	e.npc_kind = NPC_Meld;
 	e.exists = true;
 	Action a = {0};
 	MD_String8 error;
@@ -3027,6 +2883,7 @@ void do_parsing_tests()
 	assert(error.size == 0);
 	error = is_action_valid(scratch.arena, &e, a);
 	assert(error.size > 0);
+	*/
 
 	MD_ReleaseScratch(scratch);
 }
@@ -3131,8 +2988,8 @@ void init(void)
 	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/level.bin"));
 	level_threedee = load_level(persistent_arena, binary_file);
 
-	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/DecimatedPlayer.bin"));
-	mesh_player = load_mesh(persistent_arena, binary_file, MD_S8Lit("DecimatedPlayer.bin"));
+	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/ExportedWithAnims.bin"));
+	mesh_player = load_mesh(persistent_arena, binary_file, MD_S8Lit("ExportedWithAnims.bin"));
 
 	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/ArmatureExportedWithAnims.bin"));
 	armature = load_armature(persistent_arena, binary_file, MD_S8Lit("ArmatureExportedWithAnims.bin"));
@@ -4308,7 +4165,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 	{
 		ENTITIES_ITER(gs.entities)
 		{
-			if (!(it->is_character && it->is_rolling) && it != p.from && !(it->is_npc && it->dead) && !it->is_world && !it->is_item && !(it->is_npc && it->npc_kind == NPC_Door && it->opened))
+			if (!(it->is_character && it->is_rolling) && it != p.from && !(it->is_npc && it->dead) && !it->is_world && !it->is_item)
 			{
 				BUFF_APPEND(&to_check, ((CollisionObj){aabb_centered(it->pos, entity_aabb_size(it)), it}));
 			}
@@ -4846,27 +4703,7 @@ bool imbutton_key(AABB button_aabb, float text_scale, MD_String8 text, int key, 
 
 void draw_item(ItemKind kind, AABB in_aabb, float alpha)
 {
-	Quad drawn = quad_aabb(in_aabb);
-	if (kind == ITEM_Chalice)
-	{
-		draw_quad((DrawParams) { drawn, IMG(image_chalice), blendalpha(WHITE, alpha), .layer = LAYER_UI_FG });
-	}
-	else if (kind == ITEM_GoldCoin)
-	{
-		draw_quad((DrawParams) { drawn, IMG(image_gold_coin), blendalpha(WHITE, alpha), .layer = LAYER_UI_FG });
-	}
-	else if (kind == ITEM_Sword)
-	{
-		draw_quad((DrawParams) { drawn, IMG(image_sword), blendalpha(WHITE, alpha), .layer = LAYER_UI_FG });
-	}
-	else if (item_is_scroll(kind))
-	{
-		draw_quad((DrawParams) { drawn, IMG(image_scroll), blendalpha(WHITE, alpha), .layer = LAYER_UI_FG });
-	}
-	else
-	{
-		assert(false);
-	}
+	assert(false);
 }
 
 Transform entity_transform(Entity *e)
@@ -5616,32 +5453,6 @@ void frame(void)
 
 				gs.tick += 1;
 
-				PROFILE_SCOPE("handle swipes") // sword swipes
-				{
-					for(SwordSwipe *cur = swordswipes; cur; cur = cur->next)
-					{
-						if(cur->progress < 1.0f)
-						{
-							cur->progress += dt;
-							ENTITIES_ITER(gs.entities)
-							{
-								if(it->is_npc && LenV2(SubV2(it->pos, cur->from)) < SWORD_SWIPE_RADIUS && gete(cur->to_ignore) != it && !cur->already_propagated_to[frome(it).index])
-								{
-									cur->already_propagated_to[frome(it).index] = true;
-									Memory bravado_memory = {0};
-									bravado_memory.internal_monologue_length = (int)strlen(bravado_thought);
-									memcpy(bravado_memory.internal_monologue, bravado_thought, bravado_memory.internal_monologue_length);
-									bravado_memory.context.i_said_this = true;
-									bravado_memory.context.author_npc_kind = it->npc_kind;
-
-									push_memory(it, bravado_memory);
-									it->perceptions_dirty = true;
-								}
-							}
-						}
-					}
-				}
-
 				PROFILE_SCOPE("propagate actions")
 				{
 					for(PropagatingAction *cur = propagating; cur; cur = cur->next)
@@ -5862,7 +5673,7 @@ void frame(void)
 
 							// A* code
 							if(false)
-								if (it->standing == STANDING_FIGHTING || it->standing == STANDING_JOINED)
+								if (it->standing == STANDING_JOINED)
 								{
 									Entity *targeting = gs.player;
 
@@ -6143,44 +5954,6 @@ void frame(void)
 								*/
 							}
 							// @Place(NPC processing)
-							else if(it->npc_kind == NPC_Arrow)
-							{
-								if(it->standing == STANDING_INDIFFERENT)
-								{
-									CollisionInfo info = {0};
-									Vec2 movement = V2(ARROW_SPEED * dt, 0);
-									it->pos = move_and_slide((MoveSlideParams){it, it->pos, movement, .col_info_out = &info});
-									if(info.happened)
-									{
-										Entity *from = it;
-										BUFF_ITER(Entity *, &info.with)
-										{
-											if((*it)->is_character || ((*it)->is_npc && (*it)->standing == STANDING_JOINED))
-											{
-												Action fighting_action = {0};
-												fighting_action.kind = ACT_fights_player;
-												MD_String8 insult = MD_S8Fmt(frame_arena, "Ahaha! %s", arrow_insults[rand() % ARRLEN(arrow_insults)]);
-												memcpy(fighting_action.speech, insult.str, insult.size);
-												fighting_action.speech_length = (int)insult.size;
-												fighting_action.talking_to_somebody = true;
-												fighting_action.talking_to_kind = NPC_Player;
-												perform_action(from, fighting_action);
-												break;
-											}
-										}
-
-										if(from->standing != STANDING_FIGHTING)
-										{
-											// hit something, but didn't hit a fightable thing, or couldn't fight a fightable thing it hit
-											from->destroy = true;
-										}
-									}
-								}
-							}
-							else if(it->npc_kind == NPC_Door)
-							{
-								if(it->opened) it->opened_amount = Lerp(it->opened_amount, dt*5.0f, 1.0f);
-							}
 							else
 							{
 							}
@@ -6218,15 +5991,6 @@ void frame(void)
 						{
 							if(it->machine_kind == MACH_arrow_shooter)
 							{
-								it->arrow_timer += dt;
-								if(it->arrow_timer >= SECONDS_PER_ARROW)
-								{
-									it->arrow_timer = 0.0;
-									Entity *new_arrow = new_entity(&gs);
-									new_arrow->is_npc = true;
-									new_arrow->npc_kind = NPC_Arrow;
-									new_arrow->pos = AddV2(it->pos, V2(entity_aabb_size(new_arrow).x + 0.01f, 0.0));
-								}
 							}
 						}
 						else if (it->is_world)
@@ -6299,41 +6063,7 @@ void frame(void)
 								bool succeeded = true; // couldn't get AI response if false
 								if(mocking_the_ai_response)
 								{
-									if(false)
-									{
-										const char *argument = 0;
-										MD_String8List dialog_elems = {0};
-										ActionKind act = ACT_none;
-
-										it->times_talked_to++;
-										if(it->npc_kind == NPC_TheBlacksmith && it->standing != STANDING_JOINED)
-										{
-											assert(it->times_talked_to == 1);
-											act = ACT_joins_player;
-											PushWithLint(scratch.arena, &dialog_elems, "Joining you...");
-										}
-										else
-										{
-											PushWithLint(scratch.arena, &dialog_elems, "%d times talked", it->times_talked_to);
-										}
-
-
-										MD_StringJoin join = {0};
-										MD_String8 dialog = MD_S8ListJoin(scratch.arena, dialog_elems, &join);
-										if (argument)
-										{
-											ai_response = FmtWithLint(scratch.arena, "ACT_%s(%s) \"%.*s\"", actions[act].name, argument, MD_S8VArg(dialog));
-										}
-										else
-										{
-											ai_response = FmtWithLint(scratch.arena, "ACT_%s \"%.*s\"", actions[act].name, MD_S8VArg(dialog));
-										}
-									}
-									else
-									{
-										//ai_response = MD_S8Lit(" Within the player's party, while the player is talking to Meld, you hear: ACT_none \"Better have a good reason for bothering me. fjdskfjdsakfjsdakf\"");
-										ai_response = MD_S8Fmt(frame_arena, "{who_i_am: \"%s\", talking_to: nobody, action: joins_player, thoughts: \"I'm thinking...\", mood: Happy}", characters[it->npc_kind].name);
-									}
+									ai_response = MD_S8Fmt(frame_arena, "{who_i_am: \"%s\", talking_to: nobody, action: joins_player, thoughts: \"I'm thinking...\", mood: Happy}", characters[it->npc_kind].name);
 								}
 								else
 								{
@@ -6453,10 +6183,7 @@ void frame(void)
 						{
 							// don't add extra stuff to be done when changing state because in several
 							// places it's assumed to end dialog I can just do player->state = CHARACTER_IDLE
-							if(!is_fighting(gs.player))
-							{
-								gs.player->state = CHARACTER_IDLE;
-							}
+							gs.player->state = CHARACTER_IDLE;
 						}
 						else if (closest_interact_with)
 						{
@@ -6474,15 +6201,6 @@ void frame(void)
 												members_in_party += 1;
 											}
 										}
-										if(members_in_party >= 3)
-										{
-											BUFF_APPEND(&gs.player->held_items, ITEM_Idol);
-											closest_interact_with->has_given_idol = true;
-										}
-										else
-										{
-											closest_interact_with->idol_reminder_opacity = 1.0f;
-										}
 									}
 								}
 							}
@@ -6497,11 +6215,6 @@ void frame(void)
 								assert(false);
 							}
 						}
-					}
-
-					if(is_fighting(gs.player))
-					{
-						gs.player->state = CHARACTER_TALKING;
 					}
 
 					float speed = 0.0f;
@@ -6751,39 +6464,11 @@ void frame(void)
 			}
 		}
 
-		PROFILE_SCOPE("draw sword swipes") // draw swipes
-		{
-			for(SwordSwipe *cur = swordswipes; cur; cur = cur->next)
-			{
-				if(cur->progress < 1.0f)
-				{
-					float radius = SWORD_SWIPE_RADIUS;
-					Quad to_draw = quad_rotated_centered(cur->from,V2(radius, radius), powf(cur->progress * 4.0f, 1.5f));
-					draw_quad((DrawParams){ to_draw, IMG(image_swipe), blendalpha(WHITE, 1.0f - cur->progress)});
-				}
-			}
-		}
-
-		PROFILE_SCOPE("secrets")
-		{
-			const float bottom_padding = 100.0f;
-			if(showing_secret_alpha > 0.0f)
-			{
-				showing_secret_alpha -= dt/5.0f;
-			}
-			draw_centered_text((TextParams){ false, MD_S8Fmt(frame_arena, "Scroll Secret: %.*s", MD_S8VArg(showing_secret_str)), V2(screen_size().x/2.0f, bottom_padding), blendalpha(WHITE, showing_secret_alpha), 2.0f});
-		}
-
 		PROFILE_SCOPE("dialog menu") // big dialog panel draw big dialog panel
 		{
 			static float on_screen = 0.0f;
 			Entity *talking_to = gete(gs.player->talking_to);
 			on_screen = Lerp(on_screen, unwarped_dt*9.0f, talking_to ? 1.0f : 0.0f);
-			if(is_fighting(gs.player))
-			{
-				assert(talking_to);
-				draw_centered_text((TextParams){ false, MD_S8Fmt(frame_arena, "%s is fighting you. You can't leave until they stop fighting you", characters[talking_to->npc_kind].name), V2(screen_size().x*0.75f, screen_size().y*0.5f), WHITE, 1.0f});
-			}
 			{
 				float panel_width = screen_size().x * 0.4f * on_screen;
 				AABB panel_aabb = (AABB) { .upper_left = V2(0.0f, screen_size().y), .lower_right = V2(panel_width, 0.0f) };
@@ -6791,7 +6476,7 @@ void frame(void)
 
 				if (aabb_is_valid(panel_aabb))
 				{
-					if (!item_grid_state.open && pressed.mouse_down && !has_point(panel_aabb, mouse_pos) && !is_fighting(gs.player))
+					if (!item_grid_state.open && pressed.mouse_down && !has_point(panel_aabb, mouse_pos))
 					{
 						gs.player->state = CHARACTER_IDLE;
 					}
@@ -7033,7 +6718,7 @@ void frame(void)
 					}
 					else
 					{
-						use_item(gs.player, selected_item);
+						// could put code here to use an item
 					}
 				}
 			}

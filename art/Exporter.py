@@ -271,7 +271,7 @@ for o in D.objects:
                 collision_cubes.append((o.location, o.dimensions))
             else:
                 if o.users_collection[0].name == 'Level':
-                    print(f"Object {o.name} has mesh name {o.to_mesh().name} and image file {image_filename}")
+                    print(f"Object {o.name} has mesh name {o.to_mesh().name}")
                     assert(o.rotation_euler.order == 'XYZ')
                     level_object_data.append(object_transform_info)
                 else:
@@ -284,7 +284,7 @@ for o in D.objects:
                 
                 assert(mesh_name != LEVEL_EXPORT_NAME)
                 output_filepath = bpy.path.abspath(f"//{EXPORT_DIRECTORY}/{mesh_name}.bin")
-                print(f"Exporting mesh to {output_filepath}")
+                print(f"Exporting mesh to {output_filepath} with image_filename {image_filename}")
                 with open(output_filepath, "wb") as f:
                     write_b8(f, False) # if it's an armature or not, first byte of the file
                     write_string(f, image_filename) # the image filename!
