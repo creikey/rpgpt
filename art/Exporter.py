@@ -80,6 +80,15 @@ with open(bpy.path.abspath(f"//{EXPORT_DIRECTORY}/shorttest.bin"), "wb") as f:
     for i in range(4):
         write_u16(f, i)
 
+project_directory = bpy.path.abspath("//")
+def is_file_in_project(file_path):
+    file_name = os.path.basename(file_path)
+    for root, dirs, files in os.walk(project_directory):
+        print(f"Looking for {file_name} Dirs: {dirs} files: {files}")
+        if file_name in files:
+            return True
+    return False
+
 saved_images = set()
 def ensure_tex_saved_and_get_name(o) -> str:
     """returns the path to the mesh's texture's png in the exported directory"""
@@ -102,6 +111,7 @@ def ensure_tex_saved_and_get_name(o) -> str:
             img_obj.save(filepath=bpy.path.abspath(save_to))
         else:
             assert img_obj.filepath != "", f"{img_obj.filepath} in mesh {mesh_name} Isn't there but should be, as it has no packed image"
+            assert is_file_in_project(bpy.path.abspath(img_obj.filepath)), f"The image {image_filename} has filepath {img_obj.filepath} which isn't in the project directory {project_directory}"
             shutil.copyfile(bpy.path.abspath(img_obj.filepath),bpy.path.abspath(save_to))
 
     return image_filename
