@@ -13,7 +13,6 @@ rmdir /S /q gen
 mkdir gen
 
 @REM shaders
-thirdparty\sokol-shdc.exe --input quad.glsl --output gen\quad-sapp.glsl.h --slang glsl100:hlsl5:metal_macos:glsl330 || goto :error
 thirdparty\sokol-shdc.exe --input threedee.glsl --output gen\threedee.glsl.h --slang glsl100:hlsl5:metal_macos:glsl330 || goto :error
 
 @REM metadesk codegen
