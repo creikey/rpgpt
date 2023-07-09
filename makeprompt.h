@@ -311,8 +311,6 @@ typedef struct Entity
 	BUFF(Vec2, 8) position_history; // so npcs can follow behind the player
 	CharacterState state;
 	EntityRef talking_to;
-	bool is_rolling; // can only roll in idle or walk states
-	double time_not_rolling; // for cooldown for roll, so you can't just hold it and be invincible
 
 	// so doesn't change animations while time is stopped
 	AnimKind cur_animation;

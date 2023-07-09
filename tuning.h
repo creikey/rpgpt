@@ -3,14 +3,16 @@
 #define LEVEL_TILES 150 // width and height of level tiles array
 #define LAYERS 3
 #define TILE_SIZE 0.5f // in pixels
-#define PLAYER_SPEED 0.5f // in meters per second
-#define PLAYER_ROLL_SPEED 7.0f
+#define PLAYER_SPEED 0.2f // in meters per second
 #define PERCEPTION_HEARING_RAGE (TILE_SIZE*4.0f)
 #define CHARACTERS_PER_SEC 45.0f
 #define PROPAGATE_ACTIONS_RADIUS (TILE_SIZE*4.0f)
 #define SWORD_SWIPE_RADIUS (TILE_SIZE*3.0f)
 #define ARROW_SPEED 200.0f
 #define SECONDS_PER_ARROW 1.3f
+
+#define CAM_DISTANCE 15.0f
+#define CAM_VERTICAL_TO_HORIZONTAL_RATIO 0.8f
 
 #define ARENA_SIZE (1024*1024*10)
 #define BIG_ARENA_SIZE (ARENA_SIZE * 8)

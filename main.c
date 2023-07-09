@@ -645,7 +645,10 @@ Vec2 entity_aabb_size(Entity *e)
 	}
 	else if (e->is_npc)
 	{
-		assert(false);
+		if(e->npc_kind == NPC_Farmer)
+		{
+			return V2(1,1);
+		}
 		return V2(0,0);
 	}
 	else if (e->is_prop)
@@ -2367,8 +2370,6 @@ void ser_entity(SerState *ser, Entity *e)
 	SER_BUFF(ser, Vec2, &e->position_history);
 	ser_CharacterState(ser, &e->state);
 	ser_EntityRef(ser, &e->talking_to);
-	ser_bool(ser, &e->is_rolling);
-	ser_double(ser, &e->time_not_rolling);
 
 	ser_AnimKind(ser, &e->cur_animation);
 	ser_float(ser, &e->anim_change_timer);
@@ -2934,7 +2935,15 @@ void do_float_encoding_tests()
 }
 #endif
 
-Armature armature = {0};
+Armature player_armature = {0};
+Armature farmer_armature = {0};
+
+// armatureanimations are processed once every visual frame from this list
+Armature *armatures[] = {
+	&player_armature,
+	&farmer_armature,
+};
+
 Mesh mesh_player = {0};
 Mesh mesh_simple_worm = {0};
 
@@ -2992,7 +3001,10 @@ void init(void)
 	mesh_player = load_mesh(persistent_arena, binary_file, MD_S8Lit("ExportedWithAnims.bin"));
 
 	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/ArmatureExportedWithAnims.bin"));
-	armature = load_armature(persistent_arena, binary_file, MD_S8Lit("ArmatureExportedWithAnims.bin"));
+	player_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("ArmatureExportedWithAnims.bin"));
+
+	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/Farmer.bin"));
+	farmer_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Farmer.bin"));
 
 
 
@@ -4075,7 +4087,7 @@ Overlapping get_overlapping(AABB aabb)
 	PROFILE_SCOPE("checking the entities")
 		ENTITIES_ITER(gs.entities)
 		{
-			if (!(it->is_character && it->is_rolling) && !it->is_world && overlapping(aabb, entity_aabb(it)))
+			if (!it->is_world && overlapping(aabb, entity_aabb(it)))
 			{
 				BUFF_APPEND(&to_return, it);
 			}
@@ -4161,11 +4173,11 @@ Vec2 move_and_slide(MoveSlideParams p)
 	}
 
 	// add entity boxes
-	if (!p.dont_collide_with_entities && !(p.from->is_character && p.from->is_rolling))
+	if (!p.dont_collide_with_entities)
 	{
 		ENTITIES_ITER(gs.entities)
 		{
-			if (!(it->is_character && it->is_rolling) && it != p.from && !(it->is_npc && it->dead) && !it->is_world && !it->is_item)
+			if (it != p.from && !(it->is_npc && it->dead) && !it->is_world && !it->is_item)
 			{
 				BUFF_APPEND(&to_check, ((CollisionObj){aabb_centered(it->pos, entity_aabb_size(it)), it}));
 			}
@@ -4970,8 +4982,8 @@ void frame(void)
 
 		Vec3 player_pos = V3(gs.player->pos.x, 0.0, gs.player->pos.y);
 		//dbgline(V2(0,0), V2(500, 500));
-		const float vertical_to_horizontal_ratio = 0.8f;
-		const float cam_distance = 35.0f;
+		const float vertical_to_horizontal_ratio = CAM_VERTICAL_TO_HORIZONTAL_RATIO;
+		const float cam_distance = CAM_DISTANCE;
 		Vec3 away_from_player;
 		{
 			float ratio = vertical_to_horizontal_ratio;
@@ -5008,8 +5020,9 @@ void frame(void)
 
 		// progress the animation, then blend the two animations if necessary, and finally
 		// output into anim_blended_poses
+		ARR_ITER(Armature*, armatures)
 		{
-			Armature *cur = &armature;
+			Armature *cur = *it;
 
 			if(cur->go_to_animation.size > 0)
 			{
@@ -5099,7 +5112,12 @@ void frame(void)
 				Transform draw_with = entity_transform(it);
 				if(it->npc_kind == NPC_Player)
 				{
-					draw_thing((DrawnThing){.armature = &armature, .t = draw_with});
+					draw_thing((DrawnThing){.armature = &player_armature, .t = draw_with});
+				}
+				else if(it->npc_kind == NPC_Farmer)
+				{
+					farmer_armature.go_to_animation = MD_S8Lit("Dance");
+					draw_thing((DrawnThing){.armature = &farmer_armature, .t = draw_with});
 				}
 				else
 				{
@@ -6223,18 +6241,16 @@ void frame(void)
 
 						if(gs.player->state == CHARACTER_WALKING)
 						{
-							armature.go_to_animation = MD_S8Lit("Running");
+							player_armature.go_to_animation = MD_S8Lit("Running");
 						}
 						else
 						{
-							armature.go_to_animation = MD_S8Lit("Idle");
+							player_armature.go_to_animation = MD_S8Lit("Idle");
 						}
 
 						if (gs.player->state == CHARACTER_WALKING)
 						{
 							speed = PLAYER_SPEED;
-							if (gs.player->is_rolling) speed = PLAYER_ROLL_SPEED;
-
 							if (LenV2(movement) == 0.0)
 							{
 								gs.player->state = CHARACTER_IDLE;
