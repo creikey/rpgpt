@@ -3138,7 +3138,7 @@ void init(void)
 
 	// load font
 	{
-		FILE* fontFile = fopen("assets/Roboto-Regular.ttf", "rb");
+		FILE* fontFile = fopen("assets/PalanquinDark-Regular.ttf", "rb");
 		fseek(fontFile, 0, SEEK_END);
 		size_t size = ftell(fontFile); /* how long is the file ? */
 		fseek(fontFile, 0, SEEK_SET); /* reset */
@@ -4013,33 +4013,6 @@ void dbgplanerect(AABB aabb)
 	dbgplaneline(q.ll, q.ul);
 }
 
-void draw_armature(Mat4 view, Mat4 projection, Transform t, Armature *armature)
-{
-	sg_apply_pipeline(state.armature_pip);
-
-	Mat4 model = transform_to_matrix(t);
-
-	threedee_skeleton_vs_params_t params = {
-		.model = model,
-		.view = view,
-		.projection = projection,
-		.bones_tex_size = V2((float)armature->bones_texture_width,(float)armature->bones_texture_height),
-	};
-
-	state.threedee_bind.vertex_buffers[0] = armature->loaded_buffer;
-	state.threedee_bind.vs_images[SLOT_threedee_bones_tex] = armature->bones_texture;
-	state.threedee_bind.fs_images[SLOT_threedee_tex] = armature->image;
-	state.threedee_bind.fs_images[SLOT_threedee_shadow_map] = state.shadows.color_img;
-
-	sg_apply_bindings(&state.threedee_bind);
-
-	sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_skeleton_vs_params, &SG_RANGE(params));
-	num_draw_calls += 1;
-	num_vertices += (int)armature->vertices_length;
-	sg_draw(0, (int)armature->vertices_length, 1);
-
-}
-
 typedef struct
 {
 	Mesh *mesh;
@@ -4481,6 +4454,11 @@ typedef struct
 	PlacedWord *last;
 } PlacedWordList;
 
+float get_vertical_dist_between_lines(float text_scale)
+{
+	return font_line_advance*text_scale*1.1f;
+}
+
 PlacedWordList place_wrapped_words(MD_Arena *arena, MD_String8 text, float text_scale, float maximum_width)
 {
 	PlacedWordList to_return = {0};
@@ -4503,7 +4481,7 @@ PlacedWordList place_wrapped_words(MD_Arena *arena, MD_String8 text, float text_
 			float next_x_position = cur.x + aabb_size(word_bounds).x;
 			if(next_x_position - at_position.x > maximum_width)
 			{
-				current_vertical_offset -= font_line_advance*text_scale*1.1f; // the 1.1 is just arbitrary padding because it looks too crowded otherwise
+				current_vertical_offset -= get_vertical_dist_between_lines(text_scale);  // the 1.1 is just arbitrary padding because it looks too crowded otherwise
 				cur = AddV2(at_position, V2(0.0f, current_vertical_offset));
 				next_x_position = cur.x + aabb_size(word_bounds).x;
 			}
@@ -5240,6 +5218,7 @@ void flush_all_drawn_things(Vec3 light_dir, Vec3 cam_pos, Vec3 cam_facing, Vec3 
 	// Draw all the 3D drawn things. Draw the shadows, then draw the things with the shadows.
 	// Process armatures and upload their skeleton textures
 	{
+
 		// Animate armatures, and upload their bone textures. Also debug draw their skeleton
 		{
 			SLICE_ITER(DrawnThing, drawn_this_frame)
@@ -5509,51 +5488,6 @@ void frame(void)
 			movement = NormV2(movement);
 		}
 
-		// progress the animation, then blend the two animations if necessary, and finally
-		// output into anim_blended_poses
-		ARR_ITER(Armature*, armatures)
-		{
-			Armature *cur = *it;
-
-			if(cur->go_to_animation.size > 0)
-			{
-				if(MD_S8Match(cur->go_to_animation, cur->target_animation, 0))
-				{
-				}
-				else
-				{
-					memcpy(cur->current_poses, cur->anim_blended_poses, cur->bones_length * sizeof(*cur->current_poses));
-					cur->target_animation = cur->go_to_animation;
-					cur->animation_blend_t = 0.0f;
-					cur->go_to_animation = (MD_String8){0};
-				}
-			}
-
-			if(cur->animation_blend_t < 1.0f)
-			{
-				cur->animation_blend_t += dt / ANIMATION_BLEND_TIME;
-				
-				Animation *to_anim = get_anim_by_name(cur, cur->target_animation);
-				assert(to_anim);
-
-				for(MD_u64 i = 0; i < cur->bones_length; i++)
-				{
-					Transform *output_transform = &cur->anim_blended_poses[i];
-					Transform from_transform = cur->current_poses[i];
-					Transform to_transform = get_animated_bone_transform(&to_anim->tracks[i], &cur->bones[i], (float)elapsed_time);
-
-					*output_transform = lerp_transforms(from_transform, cur->animation_blend_t, to_transform);
-				}
-			}
-			else
-			{
-				Animation *cur_anim = get_anim_by_name(cur, cur->target_animation);
-				for(MD_u64 i = 0; i < cur->bones_length; i++)
-				{
-					cur->anim_blended_poses[i] = get_animated_bone_transform(&cur_anim->tracks[i], &cur->bones[i], (float)elapsed_time);
-				}
-			}
-		}
 
 		Vec3 light_dir;
 		{
@@ -5591,6 +5525,8 @@ void frame(void)
 		projection = Perspective_RH_NO(FIELD_OF_VIEW, screen_size().x / screen_size().y, NEAR_PLANE_DISTANCE, FAR_PLANE_DISTANCE);
 
 
+		// @Place(draw 3d things)
+
 		for(PlacedMesh *cur = level_threedee.placed_mesh_list; cur; cur = cur->next)
 		{
 			draw_thing((DrawnThing){.mesh = cur->draw_with, .t = cur->t});
@@ -5625,6 +5561,52 @@ void frame(void)
 			}
 		}
 
+		// progress the animation, then blend the two animations if necessary, and finally
+		// output into anim_blended_poses
+		ARR_ITER(Armature*, armatures)
+		{
+			Armature *cur = *it;
+			float seed = (float)((int64_t)cur % 1024); // offset into elapsed time to make all of their animations out of phase
+
+			if(cur->go_to_animation.size > 0)
+			{
+				if(MD_S8Match(cur->go_to_animation, cur->target_animation, 0))
+				{
+				}
+				else
+				{
+					memcpy(cur->current_poses, cur->anim_blended_poses, cur->bones_length * sizeof(*cur->current_poses));
+					cur->target_animation = cur->go_to_animation;
+					cur->animation_blend_t = 0.0f;
+					cur->go_to_animation = (MD_String8){0};
+				}
+			}
+
+			if(cur->animation_blend_t < 1.0f)
+			{
+				cur->animation_blend_t += dt / ANIMATION_BLEND_TIME;
+				
+				Animation *to_anim = get_anim_by_name(cur, cur->target_animation);
+				assert(to_anim);
+
+				for(MD_u64 i = 0; i < cur->bones_length; i++)
+				{
+					Transform *output_transform = &cur->anim_blended_poses[i];
+					Transform from_transform = cur->current_poses[i];
+					Transform to_transform = get_animated_bone_transform(&to_anim->tracks[i], &cur->bones[i], (float)elapsed_time + seed);
+
+					*output_transform = lerp_transforms(from_transform, cur->animation_blend_t, to_transform);
+				}
+			}
+			else
+			{
+				Animation *cur_anim = get_anim_by_name(cur, cur->target_animation);
+				for(MD_u64 i = 0; i < cur->bones_length; i++)
+				{
+					cur->anim_blended_poses[i] = get_animated_bone_transform(&cur_anim->tracks[i], &cur->bones[i], (float)elapsed_time + seed);
+				}
+			}
+		}
 
 		flush_all_drawn_things(light_dir, cam_pos, facing, right);
 
@@ -6365,7 +6347,9 @@ void frame(void)
 								bool succeeded = true; // couldn't get AI response if false
 								if(mocking_the_ai_response)
 								{
-									ai_response = MD_S8Fmt(frame_arena, "{who_i_am: \"%s\", talking_to: nobody, action: joins_player, thoughts: \"I'm thinking...\", mood: Happy}", characters[it->npc_kind].name);
+									const char *action = "none";
+									if(it->standing != STANDING_JOINED) action = "joins_player";
+									ai_response = MD_S8Fmt(frame_arena, "{who_i_am: \"%s\", talking_to: nobody, action: %s, speech: \"Hey what's up?\", thoughts: \"I'm thinking...\", mood: Happy}", characters[it->npc_kind].name, action);
 								}
 								else
 								{
@@ -6690,6 +6674,42 @@ void frame(void)
 
 		// @Place(entity rendering)
 		// render gs.entities render entities
+
+		PROFILE_SCOPE("entity rendering")
+		{
+			ENTITIES_ITER(gs.entities)
+			{
+				if(it->is_npc)
+				{
+					const float text_scale = 1.0f;
+					float dist = LenV2(SubV2(it->pos, gs.player->pos));
+					float bubble_factor = 1.0f - clamp01(dist/6.0f);
+					Vec3 bubble_pos = AddV3(plane_point(it->pos), V3(0,1.7f,0)); // 1.7 meters is about 5'8", average person height
+					Vec2 screen_pos = threedee_to_screenspace(bubble_pos);
+					Vec2 size = V2(400.0f,400.0f);
+					Vec2 bubble_center = AddV2(screen_pos, V2(-10.0f,40.0f));
+					draw_quad((DrawParams){
+							quad_centered(bubble_center, size),
+							IMG(image_dialog_bubble),
+							blendalpha(WHITE, bubble_factor),
+					});
+
+					AABB placing_text_in = aabb_centered(AddV2(bubble_center, V2(0,10.0f)), V2(size.x*0.8f, size.y*0.15f));
+					dbgrect(placing_text_in);
+
+					MD_String8List last = last_said_without_unsaid_words(frame_arena, it);
+					PlacedWordList placed = place_wrapped_words(frame_arena, MD_S8ListJoin(frame_arena, last, &(MD_StringJoin){.mid=MD_S8Lit(" ")}), text_scale, aabb_size(placing_text_in).x);
+					//translate_words_by(placed, V2(placing_text_in.upper_left.x, placing_text_in.lower_right.y));
+					translate_words_by(placed, AddV2(placing_text_in.upper_left, V2(0, -get_vertical_dist_between_lines(text_scale))));
+					for(PlacedWord *cur = placed.first; cur; cur = cur->next)
+					{
+						draw_text((TextParams){false, cur->text, cur->lower_left_corner, colhex(0xEEE6D2), text_scale});
+					}
+				}
+			}
+		}
+
+		// 2d rendering
 		if(0)
 		PROFILE_SCOPE("entity rendering")
 			ENTITIES_ITER(gs.entities)
