@@ -269,7 +269,127 @@ void main() {
 }
 @end
 
+@vs vs_twodee
+in vec3 position;
+in vec2 texcoord0;
+out vec2 uv;
+out vec2 pos;
+
+void main() {
+    gl_Position = vec4(position.xyz, 1.0);
+    uv = texcoord0;
+    pos = position.xy;
+}
+@end
+
+@fs fs_twodee
+uniform sampler2D twodee_tex;
+uniform twodee_fs_params {
+    vec4 tint;
+
+    // both in clip space
+    vec2 clip_ul;
+    vec2 clip_lr;
+
+    float alpha_clip_threshold;
+
+		vec2 tex_size;
+};
+
+in vec2 uv;
+in vec2 pos;
+out vec4 frag_color;
+
+
+void main() {
+    // clip space is from [-1,1] [left, right]of screen on X, and [-1,1] [bottom, top] of screen on Y
+    if(pos.x < clip_ul.x || pos.x > clip_lr.x || pos.y < clip_lr.y || pos.y > clip_ul.y) discard;
+    frag_color = texture(twodee_tex, uv) * tint;
+    if(frag_color.a <= alpha_clip_threshold)
+    {
+     discard;
+    }
+    //frag_color = vec4(pos.x,0.0,0.0,1.0);
+}
+@end
+
+@fs fs_twodee_outline
+uniform sampler2D twodee_tex;
+uniform twodee_fs_params {
+    vec4 tint;
+
+    // both in clip space
+    vec2 clip_ul;
+    vec2 clip_lr;
+
+    float alpha_clip_threshold;
+
+		vec2 tex_size;
+};
+
+in vec2 uv;
+in vec2 pos;
+out vec4 frag_color;
+
+
+void main() {
+    // clip space is from [-1,1] [left, right]of screen on X, and [-1,1] [bottom, top] of screen on Y
+    if(pos.x < clip_ul.x || pos.x > clip_lr.x || pos.y < clip_lr.y || pos.y > clip_ul.y) discard;
+
+		float left = texture(twodee_tex, uv + vec2(-1, 0)/tex_size).a;
+		float right = texture(twodee_tex, uv + vec2(1, 0)/tex_size).a;
+		float up = texture(twodee_tex, uv + vec2(0, 1)/tex_size).a;
+		float down = texture(twodee_tex, uv + vec2(0, -1)/tex_size).a;
+
+		if(
+			false
+			|| left > 0.1 && right < 0.1
+			|| left < 0.1 && right > 0.1
+			|| up < 0.1 && down > 0.1
+			|| up > 0.1 && down < 0.1
+		)
+		{
+			frag_color = vec4(1.0);
+		}
+		else
+		{
+			frag_color = vec4(0.0);
+		}
+}
+@end
+
+@fs fs_outline
+
+uniform sampler2D tex;
+
+in vec3 pos;
+in vec2 uv;
+in vec4 light_space_fragment_position;
+in vec3 light_dir;
+in vec4 world_space_frag_pos;
+
+out vec4 frag_color;
+
+void main() {
+	vec4 col = texture(tex, uv);
+	if(col.a < 0.5)
+	{
+		discard;
+	}
+	frag_color = vec4(vec3(1.0), col.a);
+}
+@end
+
+
 @program mesh vs fs
 @program armature vs_skeleton fs
+
 @program mesh_shadow_mapping vs fs_shadow_mapping
 @program armature_shadow_mapping vs_skeleton fs_shadow_mapping
+
+@program mesh_outline vs fs_outline
+@program armature_outline vs_skeleton fs_outline
+
+@program twodee vs_twodee fs_twodee
+@program twodee_outline vs_twodee fs_twodee_outline
+

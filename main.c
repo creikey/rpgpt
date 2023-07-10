@@ -847,7 +847,7 @@ typedef struct
 {
 	Vec3 position;
 	Vec2 uv;
-	MD_u16   joint_indices[4];
+	MD_u16  joint_indices[4];
 	float joint_weights[4];
 } ArmatureVertex;
 
@@ -1369,7 +1369,6 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 }
 
 #include "assets.gen.c"
-#include "quad-sapp.glsl.h"
 #include "threedee.glsl.h"
 
 AABB level_aabb = { .upper_left = { 0.0f, 0.0f }, .lower_right = { TILE_SIZE * LEVEL_TILES, -(TILE_SIZE * LEVEL_TILES) } };
@@ -2618,15 +2617,120 @@ static struct
 {
 	sg_pass_action clear_everything_pass_action;
 	sg_pass_action clear_depth_buffer_pass_action;
-	sg_pipeline pip;
+	sg_pipeline twodee_pip;
 	sg_bindings bind;
 
 	sg_pipeline threedee_pip;
 	sg_pipeline armature_pip;
 	sg_bindings threedee_bind;
 
+	sg_image outline_pass_image;
+	sg_pass outline_pass;
+	sg_pipeline outline_mesh_pip;
+	sg_pipeline outline_armature_pip;
+
+	sg_pipeline twodee_outline_pip;
+
 	Shadow_State shadows;
 } state;
+
+// is a function, because also called when window resized to recreate the pass and the image.
+// its target image must be the same size as the viewport. Is the reason. Cowabunga!
+void create_outline_gfx_state()
+{
+	if(state.outline_pass.id != 0)
+	{
+		sg_destroy_pass(state.outline_pass);
+	}
+	if(state.outline_pass_image.id != 0)
+	{
+		sg_destroy_image(state.outline_pass_image);
+	}
+
+	const sg_shader_desc *shd_desc = threedee_mesh_outline_shader_desc(sg_query_backend());
+	assert(shd_desc);
+	sg_shader shd = sg_make_shader(shd_desc);
+
+	state.outline_mesh_pip = sg_make_pipeline(&(sg_pipeline_desc)
+			{
+			.shader = shd,
+			.depth = {
+			0
+			},
+			.sample_count = 1,
+			.layout = {
+			.attrs =
+			{
+			[ATTR_threedee_vs_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
+			[ATTR_threedee_vs_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
+			}
+			},
+			.colors[0].blend = (sg_blend_state) { // allow transparency
+			.enabled = true,
+			.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
+			.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+			.op_rgb = SG_BLENDOP_ADD,
+			.src_factor_alpha = SG_BLENDFACTOR_ONE,
+			.dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+			.op_alpha = SG_BLENDOP_ADD,
+			},
+			.label = "outline-mesh-pipeline",
+			});
+
+	shd_desc = threedee_armature_outline_shader_desc(sg_query_backend());
+	assert(shd_desc);
+	shd = sg_make_shader(shd_desc);
+
+	state.outline_armature_pip = sg_make_pipeline(&(sg_pipeline_desc)
+			{
+			.shader = shd,
+			.depth = {
+				.pixel_format = SG_PIXELFORMAT_NONE,
+			},
+			.sample_count = 1,
+			.layout = {
+			.attrs =
+			{
+			[ATTR_threedee_vs_skeleton_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
+			[ATTR_threedee_vs_skeleton_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
+			[ATTR_threedee_vs_skeleton_indices_in].format = SG_VERTEXFORMAT_USHORT4N,
+			[ATTR_threedee_vs_skeleton_weights_in].format = SG_VERTEXFORMAT_FLOAT4,
+			}
+			},
+			.colors[0].blend = (sg_blend_state) { // allow transparency
+			.enabled = true,
+			.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
+			.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+			.op_rgb = SG_BLENDOP_ADD,
+			.src_factor_alpha = SG_BLENDFACTOR_ONE,
+			.dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+			.op_alpha = SG_BLENDOP_ADD,
+			},
+			.label = "outline-armature-pipeline",
+			});
+
+	sg_image_desc desc = {
+		.render_target = true,
+		.width = sapp_width(),
+		.height = sapp_height(),
+		.pixel_format = SG_PIXELFORMAT_RGBA8,
+		.min_filter = SG_FILTER_LINEAR,
+		.mag_filter = SG_FILTER_LINEAR,
+		.wrap_u = SG_WRAP_CLAMP_TO_BORDER,
+		.wrap_v = SG_WRAP_CLAMP_TO_BORDER,
+		.border_color = SG_BORDERCOLOR_OPAQUE_WHITE,
+		.sample_count = 1,
+		.label = "outline-pass-render-target",
+	};
+	state.outline_pass_image = sg_make_image(&desc);
+	state.outline_pass = sg_make_pass(&(sg_pass_desc){
+			.color_attachments[0].image = state.outline_pass_image,
+			.depth_stencil_attachment = {
+				0
+			},
+			.label = "outline-pass",
+	});
+}
 
 int num_draw_calls = 0;
 int num_vertices = 0;
@@ -3094,15 +3198,15 @@ void init(void)
 			.label = "quad-vertices"
 			});
 
-
+	create_outline_gfx_state();
 	state.shadows = init_shadow_state();
 
-	const sg_shader_desc *desc = quad_program_shader_desc(sg_query_backend());
+	const sg_shader_desc *desc = threedee_twodee_shader_desc(sg_query_backend());
 	assert(desc);
 	sg_shader shd = sg_make_shader(desc);
 
 	Color clearcol = colhex(0x98734c);
-	state.pip = sg_make_pipeline(&(sg_pipeline_desc)
+	state.twodee_pip = sg_make_pipeline(&(sg_pipeline_desc)
 			{
 			.shader = shd,
 			.depth = {
@@ -3112,8 +3216,8 @@ void init(void)
 			.layout = {
 			.attrs =
 			{
-			[ATTR_quad_vs_position].format = SG_VERTEXFORMAT_FLOAT3,
-			[ATTR_quad_vs_texcoord0].format = SG_VERTEXFORMAT_FLOAT2,
+			[ATTR_threedee_vs_twodee_position].format = SG_VERTEXFORMAT_FLOAT3,
+			[ATTR_threedee_vs_twodee_texcoord0].format = SG_VERTEXFORMAT_FLOAT2,
 			}
 			},
 			.colors[0].blend = (sg_blend_state) { // allow transparency
@@ -3127,6 +3231,33 @@ void init(void)
 			},
 			.label = "quad-pipeline",
 			});
+
+	state.twodee_outline_pip = sg_make_pipeline(&(sg_pipeline_desc)
+			{
+			.shader = sg_make_shader(threedee_twodee_outline_shader_desc(sg_query_backend())),
+			.depth = {
+			.compare = SG_COMPAREFUNC_LESS_EQUAL,
+			.write_enabled = true
+			},
+			.layout = {
+			.attrs =
+			{
+			[ATTR_threedee_vs_twodee_position].format = SG_VERTEXFORMAT_FLOAT3,
+			[ATTR_threedee_vs_twodee_texcoord0].format = SG_VERTEXFORMAT_FLOAT2,
+			}
+			},
+			.colors[0].blend = (sg_blend_state) { // allow transparency
+			.enabled = true,
+			.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
+			.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+			.op_rgb = SG_BLENDOP_ADD,
+			.src_factor_alpha = SG_BLENDFACTOR_ONE,
+			.dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+			.op_alpha = SG_BLENDOP_ADD,
+			},
+			.label = "quad-pipeline",
+			});
+
 
 	desc = threedee_mesh_shader_desc(sg_query_backend());
 	assert(desc);
@@ -3463,14 +3594,28 @@ float cur_batch_data[1024*10] = { 0 };
 int cur_batch_data_index = 0;
 // @TODO check last tint as well, do this when factor into drawing parameters
 sg_image cur_batch_image = { 0 };
-quad_fs_params_t cur_batch_params = { 0 };
+threedee_twodee_fs_params_t cur_batch_params = { 0 };
+sg_pipeline cur_batch_pipeline = { 0 };
 void flush_quad_batch()
 {
 	if (cur_batch_image.id == 0 || cur_batch_data_index == 0) return; // flush called when image changes, image starts out null!
+
+	if(cur_batch_pipeline.id != 0)
+	{
+		sg_apply_pipeline(cur_batch_pipeline);
+	}
+	else
+	{
+		sg_apply_pipeline(state.twodee_pip);
+	}
+
+
 	state.bind.vertex_buffer_offsets[0] = sg_append_buffer(state.bind.vertex_buffers[0], &(sg_range) { cur_batch_data, cur_batch_data_index*sizeof(*cur_batch_data) });
-	state.bind.fs_images[SLOT_quad_tex] = cur_batch_image;
+	state.bind.fs_images[SLOT_threedee_twodee_tex] = cur_batch_image;
 	sg_apply_bindings(&state.bind);
-	sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_quad_fs_params, &SG_RANGE(cur_batch_params));
+	cur_batch_params.tex_size = img_size(cur_batch_image);
+	sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_threedee_twodee_fs_params, &SG_RANGE(cur_batch_params));
+	cur_batch_params.tex_size = V2(0,0); // unsure if setting the tex_size to something nonzero fucks up the batching so I'm just resetting it back here
 	assert(cur_batch_data_index % FLOATS_PER_VERTEX == 0);
 	sg_draw(0, cur_batch_data_index / FLOATS_PER_VERTEX, 1);
 	num_draw_calls += 1;
@@ -3546,6 +3691,8 @@ typedef struct DrawParams
 
 	bool do_clipping;
 	Layer layer;
+
+	sg_pipeline custom_pipeline;
 
 	// for debugging purposes
 	int line_number; 
@@ -3891,6 +4038,7 @@ typedef struct
 	Mesh *mesh;
 	Armature *armature;
 	Transform t;
+	bool outline;
 } DrawnThing;
 
 int drawn_this_frame_length = 0;
@@ -3910,6 +4058,7 @@ void draw_thing(DrawnThing params)
 	}
 #endif
 }
+
 
 typedef struct TextParams
 {
@@ -4820,7 +4969,6 @@ Shadow_State init_shadow_state() {
 	return shadows;
 }
 
-
 typedef struct {
 	float l; 
 	float r; 
@@ -4939,6 +5087,275 @@ Shadow_Volume_Params calculate_shadow_volume_params(Vec3 light_dir)
 	return result;
 }
 
+void actually_draw_thing(DrawnThing *it, Mat4 light_space_matrix, bool for_outline)
+{
+	if(it->mesh)
+	{
+		if(for_outline)
+			sg_apply_pipeline(state.outline_mesh_pip);
+		else
+			sg_apply_pipeline(state.threedee_pip);
+		sg_bindings bindings = {0};
+		bindings.fs_images[SLOT_threedee_tex] = it->mesh->image;
+		if(!for_outline)
+			bindings.fs_images[SLOT_threedee_shadow_map] = state.shadows.color_img;
+		bindings.vertex_buffers[0] = it->mesh->loaded_buffer;
+		sg_apply_bindings(&bindings);
+
+		Mat4 model = transform_to_matrix(it->t);
+		threedee_vs_params_t vs_params = {
+			.model = model,
+			.view =	 view,
+			.projection = projection,
+			.directional_light_space_matrix = light_space_matrix,
+		};
+		sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_vs_params, &SG_RANGE(vs_params));
+		num_draw_calls += 1;
+		num_vertices += (int)it->mesh->num_vertices;
+
+		if(!for_outline)
+		{
+			threedee_fs_params_t fs_params = {0};
+			fs_params.shadow_map_dimension = SHADOW_MAP_DIMENSION;
+			sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_threedee_fs_params, &SG_RANGE(fs_params));
+		}
+
+		sg_draw(0, (int)it->mesh->num_vertices, 1);
+	}
+
+	if(it->armature)
+	{
+		if(for_outline)
+			sg_apply_pipeline(state.outline_armature_pip);
+		else
+			sg_apply_pipeline(state.armature_pip);
+		sg_bindings bindings = {0};
+		bindings.vs_images[SLOT_threedee_bones_tex] = it->armature->bones_texture;
+		bindings.fs_images[SLOT_threedee_tex] = it->armature->image;
+		if(!for_outline)
+			bindings.fs_images[SLOT_threedee_shadow_map] = state.shadows.color_img;
+		bindings.vertex_buffers[0] = it->armature->loaded_buffer;
+		sg_apply_bindings(&bindings);
+
+		Mat4 model = transform_to_matrix(it->t);
+		threedee_skeleton_vs_params_t params = {
+			.model = model,
+			.view = view,
+			.projection = projection,
+			.directional_light_space_matrix = light_space_matrix,
+			.bones_tex_size = V2((float)it->armature->bones_texture_width,(float)it->armature->bones_texture_height),
+		};
+		sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_skeleton_vs_params, &SG_RANGE(params));
+
+		if(!for_outline)
+		{
+			threedee_fs_params_t fs_params = {0};
+			fs_params.shadow_map_dimension = SHADOW_MAP_DIMENSION;
+			sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_threedee_fs_params, &SG_RANGE(fs_params));
+		}
+
+		num_draw_calls += 1;
+		num_vertices += (int)it->armature->vertices_length;
+		sg_draw(0, (int)it->armature->vertices_length, 1);
+	}
+}
+
+// I moved this out into its own separate function so that you could
+// define helper functions to be used multiple times in it, and those functions
+// would be near the actual 3d drawing in the file
+void flush_all_drawn_things(Vec3 light_dir)
+{
+	// Draw all the 3D drawn things. Draw the shadows, then draw the things with the shadows.
+	// Process armatures and upload their skeleton textures
+	{
+		// Animate armatures, and upload their bone textures. Also debug draw their skeleton
+		{
+			SLICE_ITER(DrawnThing, drawn_this_frame)
+			{
+				if(it->armature)
+				{
+					MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+					Armature *armature = it->armature;
+					int bones_tex_size = 4 * armature->bones_texture_width * armature->bones_texture_height;
+					MD_u8 *bones_tex = MD_ArenaPush(scratch.arena, bones_tex_size);
+
+					for(MD_u64 i = 0; i < armature->bones_length; i++)
+					{
+						Bone *cur = &armature->bones[i];
+
+						// for debug drawing
+						Vec3 from = MulM4V3(cur->matrix_local, V3(0,0,0));
+						Vec3 x = MulM4V3(cur->matrix_local, V3(cur->length,0,0));
+						Vec3 y = MulM4V3(cur->matrix_local, V3(0,cur->length,0));
+						Vec3 z = MulM4V3(cur->matrix_local, V3(0,0,cur->length));
+
+						Mat4 final = M4D(1.0f);
+						final = MulM4(cur->inverse_model_space_pos, final);
+						for(Bone *cur_in_hierarchy = cur; cur_in_hierarchy; cur_in_hierarchy = cur_in_hierarchy->parent)
+						{
+							int bone_index = (int)(cur_in_hierarchy - armature->bones);
+							final = MulM4(transform_to_matrix(armature->anim_blended_poses[bone_index]), final);
+						}
+
+						from = MulM4V3(final, from);
+						x = MulM4V3(final, x);
+						y = MulM4V3(final, y);
+						z = MulM4V3(final, z);
+
+						Mat4 transform_matrix = transform_to_matrix(it->t);
+						from = MulM4V3(transform_matrix, from);
+						x = MulM4V3(transform_matrix, x);
+						y = MulM4V3(transform_matrix, y);
+						z = MulM4V3(transform_matrix, z);
+						dbgcol(LIGHTBLUE)
+							dbgsquare3d(y);
+						dbgcol(RED)
+							dbg3dline(from, x);
+						dbgcol(GREEN)
+							dbg3dline(from, y);
+						dbgcol(BLUE)
+							dbg3dline(from, z);
+
+						for(int col = 0; col < 4; col++)
+						{
+							Vec4 to_upload = final.Columns[col];
+
+							int bytes_per_pixel = 4;
+							int bytes_per_column_of_mat = bytes_per_pixel * 4;
+							int bytes_per_row = bytes_per_pixel * armature->bones_texture_width;
+							for(int elem = 0; elem < 4; elem++)
+							{
+								float after_decoding = decode_normalized_float32(encode_normalized_float32(to_upload.Elements[elem]));
+								assert(fabsf(after_decoding - to_upload.Elements[elem]) < 0.01f);
+							}
+							memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*0], encode_normalized_float32(to_upload.Elements[0]).rgba, bytes_per_pixel);
+							memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*1], encode_normalized_float32(to_upload.Elements[1]).rgba, bytes_per_pixel);
+							memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*2], encode_normalized_float32(to_upload.Elements[2]).rgba, bytes_per_pixel);
+							memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*3], encode_normalized_float32(to_upload.Elements[3]).rgba, bytes_per_pixel);
+						}
+					}
+
+					sg_update_image(armature->bones_texture, &(sg_image_data){
+							.subimage[0][0] = (sg_range){bones_tex, bones_tex_size},
+							});
+
+					MD_ReleaseScratch(scratch);
+				}
+			}
+		}
+
+		// do the shadow pass
+		Mat4 light_space_matrix;
+		{
+			Shadow_Volume_Params svp = calculate_shadow_volume_params(light_dir);
+			Mat4 shadow_view       = LookAt_RH(V3(0, 0, 0), light_dir, V3(0, 1, 0));
+			Mat4 shadow_projection = Orthographic_RH_NO(svp.l, svp.r, svp.b, svp.t, svp.n, svp.f);
+			light_space_matrix = MulM4(shadow_projection, shadow_view);
+
+			sg_begin_pass(state.shadows.pass, &state.shadows.pass_action);
+
+			// shadows for meshes
+			sg_apply_pipeline(state.shadows.pip);
+			SLICE_ITER(DrawnThing, drawn_this_frame)
+			{
+				assert(it->mesh || it->armature);
+				if(it->mesh)
+				{
+					sg_bindings bindings = {0};
+					bindings.fs_images[SLOT_threedee_tex] = it->mesh->image;
+					bindings.vertex_buffers[0] = it->mesh->loaded_buffer;
+					sg_apply_bindings(&bindings);
+
+					Mat4 model = transform_to_matrix(it->t);
+					threedee_vs_params_t vs_params = {
+						.model = model,
+						.view = shadow_view,
+						.projection = shadow_projection,
+					};
+					sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_vs_params, &SG_RANGE(vs_params));
+					num_draw_calls += 1;
+					num_vertices += (int)it->mesh->num_vertices;
+					sg_draw(0, (int)it->mesh->num_vertices, 1);
+				}
+			}
+
+			// shadows for armatures
+			sg_apply_pipeline(state.shadows.armature_pip);
+			SLICE_ITER(DrawnThing, drawn_this_frame)
+			{
+				if(it->armature)
+				{
+					sg_bindings bindings = {0};
+					bindings.vs_images[SLOT_threedee_bones_tex] = it->armature->bones_texture;
+					bindings.fs_images[SLOT_threedee_tex] = it->armature->image;
+					bindings.vertex_buffers[0] = it->armature->loaded_buffer;
+					sg_apply_bindings(&bindings);
+
+					Mat4 model = transform_to_matrix(it->t);
+					threedee_skeleton_vs_params_t params = {
+						.model = model,
+						.view = shadow_view,
+						.projection = shadow_projection,
+						.directional_light_space_matrix = light_space_matrix,
+						.bones_tex_size = V2((float)it->armature->bones_texture_width,(float)it->armature->bones_texture_height),
+					};
+					sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_skeleton_vs_params, &SG_RANGE(params));
+
+					num_draw_calls += 1;
+					num_vertices += (int)it->armature->vertices_length;
+					sg_draw(0, (int)it->armature->vertices_length, 1);
+				}
+			}
+			sg_end_pass();
+		}
+
+		// do the outline pass
+		{
+			sg_begin_pass(state.outline_pass, &(sg_pass_action) {
+				.colors[0] = {
+					.action = SG_ACTION_CLEAR,
+					.value = { 0.0f, 0.0f, 0.0f, 0.0f },
+				}
+			});
+
+			SLICE_ITER(DrawnThing, drawn_this_frame)
+			{
+				if(it->outline)
+				{
+					actually_draw_thing(it, light_space_matrix, true);
+				}
+			}
+
+			sg_end_pass();
+		}
+
+		// actually draw, IMPORTANT after this drawn_this_frame is zeroed out!
+		{
+			sg_begin_default_pass(&state.clear_everything_pass_action, sapp_width(), sapp_height());
+
+			// draw meshes
+			SLICE_ITER(DrawnThing, drawn_this_frame)
+			{
+				actually_draw_thing(it, light_space_matrix, false);
+			}
+
+			// draw armatures armature rendering 
+			SLICE_ITER(DrawnThing, drawn_this_frame)
+			{
+				actually_draw_thing(it, light_space_matrix, false);
+			}
+
+
+			// zero out everything
+			SLICE_ITER(DrawnThing, drawn_this_frame)
+			{
+				*it = (DrawnThing){0};
+			}
+			sg_end_pass();
+		}
+		drawn_this_frame_length = 0;
+	}
+}
 
 void frame(void)
 {
@@ -4960,7 +5377,7 @@ void frame(void)
 	{
 		printf("Frametime: %.1f ms\n", dt*1000.0);
 		sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
-		sg_apply_pipeline(state.pip);
+		sg_apply_pipeline(state.twodee_pipeline);
 
 		//colorquad(false, quad_at(V2(0.0, 100.0), V2(100.0f, 100.0f)), RED);
 		sg_image img = image_white_square;
@@ -5112,7 +5529,7 @@ void frame(void)
 				Transform draw_with = entity_transform(it);
 				if(it->npc_kind == NPC_Player)
 				{
-					draw_thing((DrawnThing){.armature = &player_armature, .t = draw_with});
+					draw_thing((DrawnThing){.armature = &player_armature, .t = draw_with, .outline = true});
 				}
 				else if(it->npc_kind == NPC_Farmer)
 				{
@@ -5127,233 +5544,14 @@ void frame(void)
 		}
 
 
-		// Draw all the 3D drawn things. Draw the shadows, then draw the things with the shadows.
-		// Process armatures and upload their skeleton textures
-		{
-			// Animate armatures, and upload their bone textures. Also debug draw their skeleton
-			{
-				SLICE_ITER(DrawnThing, drawn_this_frame)
-				{
-					if(it->armature)
-					{
-						MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-						Armature *armature = it->armature;
-						int bones_tex_size = 4 * armature->bones_texture_width * armature->bones_texture_height;
-						MD_u8 *bones_tex = MD_ArenaPush(scratch.arena, bones_tex_size);
+		flush_all_drawn_things(light_dir);
 
-						for(MD_u64 i = 0; i < armature->bones_length; i++)
-						{
-							Bone *cur = &armature->bones[i];
+		// draw the freaking outline. Play ball!
+		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.outline_pass_image), WHITE, .layer = LAYER_UI_FG, .custom_pipeline = state.twodee_outline_pip});
 
-							// for debug drawing
-							Vec3 from = MulM4V3(cur->matrix_local, V3(0,0,0));
-							Vec3 x = MulM4V3(cur->matrix_local, V3(cur->length,0,0));
-							Vec3 y = MulM4V3(cur->matrix_local, V3(0,cur->length,0));
-							Vec3 z = MulM4V3(cur->matrix_local, V3(0,0,cur->length));
-
-							Mat4 final = M4D(1.0f);
-							final = MulM4(cur->inverse_model_space_pos, final);
-							for(Bone *cur_in_hierarchy = cur; cur_in_hierarchy; cur_in_hierarchy = cur_in_hierarchy->parent)
-							{
-								int bone_index = (int)(cur_in_hierarchy - armature->bones);
-								final = MulM4(transform_to_matrix(armature->anim_blended_poses[bone_index]), final);
-							}
-
-							from = MulM4V3(final, from);
-							x = MulM4V3(final, x);
-							y = MulM4V3(final, y);
-							z = MulM4V3(final, z);
-
-							Mat4 transform_matrix = transform_to_matrix(it->t);
-							from = MulM4V3(transform_matrix, from);
-							x = MulM4V3(transform_matrix, x);
-							y = MulM4V3(transform_matrix, y);
-							z = MulM4V3(transform_matrix, z);
-							dbgcol(LIGHTBLUE)
-								dbgsquare3d(y);
-							dbgcol(RED)
-								dbg3dline(from, x);
-							dbgcol(GREEN)
-								dbg3dline(from, y);
-							dbgcol(BLUE)
-								dbg3dline(from, z);
-
-							for(int col = 0; col < 4; col++)
-							{
-								Vec4 to_upload = final.Columns[col];
-
-								int bytes_per_pixel = 4;
-								int bytes_per_column_of_mat = bytes_per_pixel * 4;
-								int bytes_per_row = bytes_per_pixel * armature->bones_texture_width;
-								for(int elem = 0; elem < 4; elem++)
-								{
-									float after_decoding = decode_normalized_float32(encode_normalized_float32(to_upload.Elements[elem]));
-									assert(fabsf(after_decoding - to_upload.Elements[elem]) < 0.01f);
-								}
-								memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*0], encode_normalized_float32(to_upload.Elements[0]).rgba, bytes_per_pixel);
-								memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*1], encode_normalized_float32(to_upload.Elements[1]).rgba, bytes_per_pixel);
-								memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*2], encode_normalized_float32(to_upload.Elements[2]).rgba, bytes_per_pixel);
-								memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*3], encode_normalized_float32(to_upload.Elements[3]).rgba, bytes_per_pixel);
-							}
-						}
-
-						sg_update_image(armature->bones_texture, &(sg_image_data){
-							.subimage[0][0] = (sg_range){bones_tex, bones_tex_size},
-						});
-
-						MD_ReleaseScratch(scratch);
-					}
-				}
-			}
-
-			// do the shadow pass
-			Mat4 light_space_matrix;
-			{
-				Shadow_Volume_Params svp = calculate_shadow_volume_params(light_dir);
-				Mat4 shadow_view       = LookAt_RH(V3(0, 0, 0), light_dir, V3(0, 1, 0));
-				Mat4 shadow_projection = Orthographic_RH_NO(svp.l, svp.r, svp.b, svp.t, svp.n, svp.f);
-				light_space_matrix = MulM4(shadow_projection, shadow_view);
-
-				sg_begin_pass(state.shadows.pass, &state.shadows.pass_action);
-
-				// shadows for meshes
-				sg_apply_pipeline(state.shadows.pip);
-				SLICE_ITER(DrawnThing, drawn_this_frame)
-				{
-					assert(it->mesh || it->armature);
-					if(it->mesh)
-					{
-						sg_bindings bindings = {0};
-						bindings.fs_images[SLOT_threedee_tex] = it->mesh->image;
-						bindings.vertex_buffers[0] = it->mesh->loaded_buffer;
-						sg_apply_bindings(&bindings);
-
-						Mat4 model = transform_to_matrix(it->t);
-						threedee_vs_params_t vs_params = {
-							.model = model,
-							.view = shadow_view,
-							.projection = shadow_projection,
-						};
-						sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_vs_params, &SG_RANGE(vs_params));
-						num_draw_calls += 1;
-						num_vertices += (int)it->mesh->num_vertices;
-						sg_draw(0, (int)it->mesh->num_vertices, 1);
-					}
-				}
-
-				// shadows for armatures
-				sg_apply_pipeline(state.shadows.armature_pip);
-				SLICE_ITER(DrawnThing, drawn_this_frame)
-				{
-					if(it->armature)
-					{
-						sg_bindings bindings = {0};
-						bindings.vs_images[SLOT_threedee_bones_tex] = it->armature->bones_texture;
-						bindings.fs_images[SLOT_threedee_tex] = it->armature->image;
-						bindings.vertex_buffers[0] = it->armature->loaded_buffer;
-						sg_apply_bindings(&bindings);
-
-						Mat4 model = transform_to_matrix(it->t);
-						threedee_skeleton_vs_params_t params = {
-							.model = model,
-							.view = shadow_view,
-							.projection = shadow_projection,
-							.directional_light_space_matrix = light_space_matrix,
-							.bones_tex_size = V2((float)it->armature->bones_texture_width,(float)it->armature->bones_texture_height),
-						};
-						sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_skeleton_vs_params, &SG_RANGE(params));
-
-						num_draw_calls += 1;
-						num_vertices += (int)it->armature->vertices_length;
-						sg_draw(0, (int)it->armature->vertices_length, 1);
-					}
-				}
-				sg_end_pass();
-			}
-
-			// actually draw, IMPORTANT after this drawn_this_frame is zeroed out!
-			{
-				sg_begin_default_pass(&state.clear_everything_pass_action, sapp_width(), sapp_height());
-
-				// draw meshes
-				sg_apply_pipeline(state.threedee_pip);
-				SLICE_ITER(DrawnThing, drawn_this_frame)
-				{
-					if(it->mesh)
-					{
-						sg_bindings bindings = {0};
-						bindings.fs_images[SLOT_threedee_tex] = it->mesh->image;
-						bindings.fs_images[SLOT_threedee_shadow_map] = state.shadows.color_img;
-						bindings.vertex_buffers[0] = it->mesh->loaded_buffer;
-						sg_apply_bindings(&bindings);
-
-						Mat4 model = transform_to_matrix(it->t);
-						threedee_vs_params_t vs_params = {
-							.model = model,
-							.view =	 view,
-							.projection = projection,
-							.directional_light_space_matrix = light_space_matrix,
-						};
-						sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_vs_params, &SG_RANGE(vs_params));
-						num_draw_calls += 1;
-						num_vertices += (int)it->mesh->num_vertices;
-
-						threedee_fs_params_t fs_params = {0};
-						fs_params.shadow_map_dimension = SHADOW_MAP_DIMENSION;
-						sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_threedee_fs_params, &SG_RANGE(fs_params));
-
-						sg_draw(0, (int)it->mesh->num_vertices, 1);
-					}
-				}
-
-				// draw armatures armature rendering 
-				sg_apply_pipeline(state.armature_pip);
-				SLICE_ITER(DrawnThing, drawn_this_frame)
-				{
-					if(it->armature)
-					{
-						sg_bindings bindings = {0};
-						bindings.vs_images[SLOT_threedee_bones_tex] = it->armature->bones_texture;
-						bindings.fs_images[SLOT_threedee_tex] = it->armature->image;
-						bindings.fs_images[SLOT_threedee_shadow_map] = state.shadows.color_img;
-						bindings.vertex_buffers[0] = it->armature->loaded_buffer;
-						sg_apply_bindings(&bindings);
-
-						Mat4 model = transform_to_matrix(it->t);
-						threedee_skeleton_vs_params_t params = {
-							.model = model,
-							.view = view,
-							.projection = projection,
-							.directional_light_space_matrix = light_space_matrix,
-							.bones_tex_size = V2((float)it->armature->bones_texture_width,(float)it->armature->bones_texture_height),
-						};
-						sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_skeleton_vs_params, &SG_RANGE(params));
-
-						threedee_fs_params_t fs_params = {0};
-						fs_params.shadow_map_dimension = SHADOW_MAP_DIMENSION;
-						sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_threedee_fs_params, &SG_RANGE(fs_params));
-
-						num_draw_calls += 1;
-						num_vertices += (int)it->armature->vertices_length;
-						sg_draw(0, (int)it->armature->vertices_length, 1);
-					}
-				}
-
-
-				// zero out everything
-				SLICE_ITER(DrawnThing, drawn_this_frame)
-				{
-					*it = (DrawnThing){0};
-				}
-				sg_end_pass();
-			}
-			drawn_this_frame_length = 0;
-		}
-
-
-		// 2d drawing
+		// 2d drawing TODO move this to when the drawing is flushed.
 		sg_begin_default_pass(&state.clear_depth_buffer_pass_action, sapp_width(), sapp_height());
-		sg_apply_pipeline(state.pip);
+		sg_apply_pipeline(state.twodee_pip);
 
 		// Draw Tilemap draw tilemap tilemap drawing
 #if 0
@@ -6809,8 +7007,8 @@ void frame(void)
 		if (show_devtools)
 			PROFILE_SCOPE("statistics")
 			{
-				// shadow map
 				draw_quad((DrawParams){quad_at(V2(screen_size().x - 512.0f, screen_size().y), V2(512.0f, 512.0f)), IMG(state.shadows.color_img), WHITE, .layer = LAYER_UI_FG});
+				draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y/2.0f), MulV2F(screen_size(), 0.1f)), IMG(state.outline_pass_image), WHITE, .layer = LAYER_UI_FG});
 
 				Vec2 pos = V2(0.0, screen_size().Y);
 				int num_entities = 0;
@@ -6829,7 +7027,7 @@ void frame(void)
 #endif // devtools
 
 
-		// @Place(actually render)
+		// @Place(actually render 2d)
 		PROFILE_SCOPE("flush rendering")
 		{
 			ARR_ITER_I(RenderingQueue, rendering_queues, i)
@@ -6844,34 +7042,29 @@ void frame(void)
 					PROFILE_SCOPE("Draw quad")
 					{
 						Vec2 *points = d.quad.points;
-						quad_fs_params_t params = { 0 };
-						params.tint[0] = d.tint.R;
-						params.tint[1] = d.tint.G;
-						params.tint[2] = d.tint.B;
-						params.tint[3] = d.tint.A;
+						threedee_twodee_fs_params_t params = {
+							.tint = d.tint,
+						};
 						params.alpha_clip_threshold = d.alpha_clip_threshold;
 						if (d.do_clipping)
 						{
 							Vec2 aabb_clip_ul = into_clip_space(d.clip_to.upper_left);
 							Vec2 aabb_clip_lr = into_clip_space(d.clip_to.lower_right);
-							params.clip_ul[0] = aabb_clip_ul.x;
-							params.clip_ul[1] = aabb_clip_ul.y;
-							params.clip_lr[0] = aabb_clip_lr.x;
-							params.clip_lr[1] = aabb_clip_lr.y;
+							params.clip_ul = aabb_clip_ul;
+							params.clip_lr = aabb_clip_lr;
 						}
 						else
 						{
-							params.clip_ul[0] = -1.0;
-							params.clip_ul[1] = 1.0;
-							params.clip_lr[0] = 1.0;
-							params.clip_lr[1] = -1.0;
+							params.clip_ul = V2(-1.0, 1.0);
+							params.clip_lr = V2(1.0, -1.0);
 						}
 						// if the rendering call is different, and the batch must be flushed
-						if (d.image.id != cur_batch_image.id || memcmp(&params, &cur_batch_params, sizeof(params)) != 0)
+						if (d.image.id != cur_batch_image.id || memcmp(&params, &cur_batch_params, sizeof(params)) != 0 || d.custom_pipeline.id != cur_batch_pipeline.id)
 						{
 							flush_quad_batch();
 							cur_batch_image = d.image;
 							cur_batch_params = params;
+							cur_batch_pipeline = d.custom_pipeline;
 						}
 
 
@@ -6990,6 +7183,11 @@ void cleanup(void)
 void event(const sapp_event *e)
 {
 	if (e->key_repeat) return;
+
+	if (e->type == SAPP_EVENTTYPE_RESIZED)
+	{
+		create_outline_gfx_state();
+	}
 	if (e->type == SAPP_EVENTTYPE_TOUCHES_BEGAN)
 	{
 		if (!mobile_controls)
