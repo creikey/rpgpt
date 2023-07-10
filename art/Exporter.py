@@ -84,7 +84,6 @@ project_directory = bpy.path.abspath("//")
 def is_file_in_project(file_path):
     file_name = os.path.basename(file_path)
     for root, dirs, files in os.walk(project_directory):
-        print(f"Looking for {file_name} Dirs: {dirs} files: {files}")
         if file_name in files:
             return True
     return False
@@ -111,7 +110,14 @@ def ensure_tex_saved_and_get_name(o) -> str:
             img_obj.save(filepath=bpy.path.abspath(save_to))
         else:
             assert img_obj.filepath != "", f"{img_obj.filepath} in mesh {mesh_name} Isn't there but should be, as it has no packed image"
-            assert is_file_in_project(bpy.path.abspath(img_obj.filepath)), f"The image {image_filename} has filepath {img_obj.filepath} which isn't in the project directory {project_directory}"
+            old_path = bpy.path.abspath(img_obj.filepath)
+            if not is_file_in_project(old_path):
+                print(f"Image {image_filename} has filepath {img_obj.filepath}, outside of the current directory. So we're copying it baby. Hoo-rah!")
+                new_path = bpy.path.abspath(f"//{image_filename}")
+                assert not os.path.exists(new_path), f"Tried to migrate {image_filename} to a new home {new_path}, but its already taken. It's over!"
+                shutil.copyfile(old_path, new_path)
+                img_obj.filepath = new_path
+            assert is_file_in_project(bpy.path.abspath(img_obj.filepath)), f"The image {image_filename} has filepath {img_obj.filepath} which isn't in the project directory {project_directory}, even after copying it! WTF"
             shutil.copyfile(bpy.path.abspath(img_obj.filepath),bpy.path.abspath(save_to))
 
     return image_filename
@@ -119,6 +125,7 @@ def ensure_tex_saved_and_get_name(o) -> str:
 # meshes can either be Meshes, or Armatures. Armatures contain all mesh data to draw it, and any anims it has
 
 for o in D.objects:
+    if o.hide_get(): continue
     if o.type == "MESH":
         if o.parent and o.parent.type == "ARMATURE":
             mesh_object = o
@@ -320,6 +327,7 @@ for o in D.objects:
                                 vertices.append((position, uv))
                     
                     write_u64(f, len(vertices))
+                    print(f"\n\n{output_filepath} vertices:")
                     for v_and_uv in vertices:
                         v, uv = v_and_uv
                         write_f32(f, v.x)
@@ -327,6 +335,8 @@ for o in D.objects:
                         write_f32(f, v.z)
                         write_f32(f, uv.x)
                         write_f32(f, uv.y)
+                        if len(vertices) < 100:
+                            print(v)
                     print(f"Wrote {len(vertices)} vertices")
 
 with open(bpy.path.abspath(f"//{EXPORT_DIRECTORY}/{LEVEL_EXPORT_NAME}.bin"), "wb") as f:

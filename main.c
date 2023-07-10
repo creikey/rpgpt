@@ -1036,6 +1036,7 @@ typedef struct
 
 Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armature_name)
 {
+	assert(binary_file.str);
 	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
 	SerState ser = {
 		.data = binary_file.str,
@@ -1232,7 +1233,9 @@ Transform blender_to_game_transform(BlenderTransform blender_transform)
 
 	to_return.offset = blender_transform.pos;
 
-	to_return.scale = blender_transform.scale;
+	to_return.scale.x = blender_transform.scale.x;
+	to_return.scale.y = blender_transform.scale.z;
+	to_return.scale.z = blender_transform.scale.y;
 
 	Mat4 rotation_matrix = M4D(1.0f);
 	rotation_matrix = MulM4(Rotate_RH(AngleRad(blender_transform.euler_rotation.x), V3(1,0,0)), rotation_matrix);
