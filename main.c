@@ -5601,19 +5601,26 @@ void frame(void)
 			if(it->is_npc || it->is_character)
 			{
 				Transform draw_with = entity_transform(it);
-				bool do_outline = it->is_npc && gete(gs.player->interacting_with) == it;
+
 				if(it->npc_kind == NPC_Player)
 				{
 					draw_thing((DrawnThing){.armature = &player_armature, .t = draw_with});
 				}
-				else if(it->npc_kind == NPC_Farmer)
+				else 
 				{
-					farmer_armature.go_to_animation = MD_S8Lit("Dance");
-					draw_thing((DrawnThing){.armature = &farmer_armature, .t = draw_with, .outline = do_outline});
-				}
-				else
-				{
-					draw_thing((DrawnThing){.mesh = &mesh_player, .t = draw_with, .outline = do_outline});
+					assert(it->is_npc);
+					Armature *to_use = 0;
+					if(it->npc_kind == NPC_Farmer)
+						to_use = &farmer_armature;
+					else
+						assert(false);
+
+					if(LenV2(it->vel) > 0.5f)
+						to_use->go_to_animation = MD_S8Lit("Running");
+					else
+						to_use->go_to_animation = MD_S8Lit("Idle");
+
+					draw_thing((DrawnThing){.armature = to_use, .t = draw_with, .outline = gete(gs.player->interacting_with) == it});
 				}
 			}
 		}
@@ -5957,6 +5964,11 @@ void frame(void)
 								if(LenV2(SubV2(it->pos, last_pos)) > 0.01f)
 								{
 									it->last_moved = NormV2(SubV2(it->pos, last_pos));
+									it->vel = MulV2F(it->last_moved, 1.0f / dt);
+								}
+								else
+								{
+									it->vel = V2(0,0);
 								}
 							}
 

@@ -3,7 +3,7 @@
 #define LEVEL_TILES 150 // width and height of level tiles array
 #define LAYERS 3
 #define TILE_SIZE 0.5f // in pixels
-#define PLAYER_SPEED 0.2f // in meters per second
+#define PLAYER_SPEED 0.15f // in meters per second
 #define PERCEPTION_HEARING_RAGE (TILE_SIZE*4.0f)
 #define CHARACTERS_PER_SEC 45.0f
 #define PROPAGATE_ACTIONS_RADIUS (TILE_SIZE*4.0f)
