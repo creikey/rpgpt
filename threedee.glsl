@@ -147,7 +147,7 @@ float do_shadow_sample(sampler2D shadowMap, vec2 uv, float scene_depth, float n_
 
 	float offset_scale_N = sqrt(1 - n_dot_l*n_dot_l);
 	float offset_scale_L = offset_scale_N / n_dot_l;
-	float bias = 0.0002 * offset_scale_N + 0.0001 * offset_scale_L;
+	float bias = 0.0004 * offset_scale_N + 0.0001 * offset_scale_L;
 
 	map_depth += bias;
 

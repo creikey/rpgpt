@@ -60,5 +60,5 @@
 //Rendering
 #define FIELD_OF_VIEW (PI32/4.0f)
 #define NEAR_PLANE_DISTANCE (0.01f)
-#define FAR_PLANE_DISTANCE (1000.0f)
+#define FAR_PLANE_DISTANCE (45.0f)
 #define SHADOW_MAP_DIMENSION (2048)
