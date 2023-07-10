@@ -98,15 +98,18 @@ uniform vs_params {
 	mat4 view;
 	mat4 projection;
 	mat4 directional_light_space_matrix;	
+	float wobble_factor;
+	float time;
 };
 
 void main() {
-	pos = pos_in;
+	vec3 transformed_pos = vec3(pos_in.x, pos_in.y + sin(pos_in.x * 14.0 + pos_in.y * 20.0 + time*1.9)*0.009, pos_in.z);
+	pos = transformed_pos;
 	uv = uv_in;
 
-	gl_Position = projection * view * model * vec4(pos_in, 1.0);
+	gl_Position = projection * view * model * vec4(transformed_pos, 1.0);
 
-	vec3 model_space_pos = (vec4(pos_in, 1.0f)).xyz;
+	vec3 model_space_pos = (vec4(transformed_pos, 1.0f)).xyz;
 	@include_block vs_compute_light_output
 }
 @end

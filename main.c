@@ -323,6 +323,7 @@ ItemgridState item_grid_state = {0};
 // set to true when should receive text input from the web input box
 // or desktop text input
 bool receiving_text_input = false;
+float text_input_fade = 0.0f;
 
 // called from the web to see if should do the text input modal
 bool is_receiving_text_input()
@@ -2101,6 +2102,11 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 	gs->world_entity->is_world = true;
 
 
+	ENTITIES_ITER(gs->entities)
+	{
+		it->rotation = PI32;
+	}
+
 	// parse and enact the drama document
 	if(1)
 	{
@@ -2602,7 +2608,7 @@ sg_image image_font = { 0 };
 Vec2 image_font_size = { 0 }; // this image's size is queried a lot, and img_size seems to be slow when profiled
 
 float font_line_advance = 0.0f;
-const float font_size = 32.0;
+const float font_size = 56.0;
 float font_scale;
 unsigned char *fontBuffer = 0; // font file data. Can't be freed until program quits, because used to get character width
 stbtt_bakedchar cdata[96]; // ASCII 32..126 is 95 glyphs
@@ -3833,6 +3839,9 @@ bool profiling;
 #else
 const bool show_devtools = false;
 #endif
+
+bool dance_anim = false;
+bool nervous_anim = false;
 
 Color debug_color = {1,0,0,1};
 
@@ -5139,7 +5148,6 @@ void debug_draw_shadow_info(Vec3 frustum_tip, Vec3 cam_forward, Vec3 cam_right, 
 		dbgline(projs[4], projs[1]);
 }
 
-
 void actually_draw_thing(DrawnThing *it, Mat4 light_space_matrix, bool for_outline)
 {
 	if(it->mesh)
@@ -5161,6 +5169,7 @@ void actually_draw_thing(DrawnThing *it, Mat4 light_space_matrix, bool for_outli
 			.view =	 view,
 			.projection = projection,
 			.directional_light_space_matrix = light_space_matrix,
+			.time = (float)elapsed_time,
 		};
 		sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_vs_params, &SG_RANGE(vs_params));
 		num_draw_calls += 1;
@@ -5327,6 +5336,7 @@ void flush_all_drawn_things(Vec3 light_dir, Vec3 cam_pos, Vec3 cam_facing, Vec3 
 						.model = model,
 						.view = shadow_view,
 						.projection = shadow_projection,
+						.time = (float)elapsed_time,
 					};
 					sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_vs_params, &SG_RANGE(vs_params));
 					num_draw_calls += 1;
@@ -5392,13 +5402,13 @@ void flush_all_drawn_things(Vec3 light_dir, Vec3 cam_pos, Vec3 cam_facing, Vec3 
 			// draw meshes
 			SLICE_ITER(DrawnThing, drawn_this_frame)
 			{
-				actually_draw_thing(it, light_space_matrix, false);
+				if(it->mesh) actually_draw_thing(it, light_space_matrix, false);
 			}
 
 			// draw armatures armature rendering 
 			SLICE_ITER(DrawnThing, drawn_this_frame)
 			{
-				actually_draw_thing(it, light_space_matrix, false);
+				if(it->armature) actually_draw_thing(it, light_space_matrix, false);
 			}
 
 
@@ -5453,6 +5463,12 @@ void frame(void)
 	{
 		uint64_t time_start_frame = stm_now();
 
+		text_input_fade = Lerp(text_input_fade, dt * 8.0f, receiving_text_input ? 1.0f : 0.0f);
+
+		// @Place(temporary keycodes for trailer)
+		dance_anim = keydown[SAPP_KEYCODE_U];
+		nervous_anim = keydown[SAPP_KEYCODE_I];
+
 		Vec3 player_pos = V3(gs.player->pos.x, 0.0, gs.player->pos.y);
 		//dbgline(V2(0,0), V2(500, 500));
 		const float vertical_to_horizontal_ratio = CAM_VERTICAL_TO_HORIZONTAL_RATIO;
@@ -5494,7 +5510,7 @@ void frame(void)
 
 		Vec3 light_dir;
 		{
-			float spin_factor = 0.5f;
+			float spin_factor = 0.0f;
 			float t = (float)elapsed_time * spin_factor;
 
 			float x = cosf(t);
@@ -5511,6 +5527,9 @@ void frame(void)
 		Vec2 forward_2d = NormV2(V2(facing.x, facing.z));
 		Vec2 right_2d = NormV2(V2(right.x, right.z));
 		movement = AddV2(MulV2F(forward_2d, movement.y), MulV2F(right_2d, movement.x));
+
+		if(flycam)
+			movement = V2(0,0);
 
 		view = Translate(V3(0.0, 1.0, -5.0f));
 		//view = LookAt_RH(V3(0,1,-5
@@ -5554,10 +5573,17 @@ void frame(void)
 					else
 						assert(false);
 
+
 					if(LenV2(it->vel) > 0.5f)
 						to_use->go_to_animation = MD_S8Lit("Running");
 					else
 						to_use->go_to_animation = MD_S8Lit("Idle");
+
+					if(nervous_anim)
+						to_use->go_to_animation = MD_S8Lit("Nervous");
+					
+					if(dance_anim && it->npc_kind == NPC_Farmer)
+						to_use->go_to_animation = MD_S8Lit("Dance");
 
 					draw_thing((DrawnThing){.armature = to_use, .t = draw_with, .outline = gete(gs.player->interacting_with) == it});
 				}
@@ -5619,6 +5645,16 @@ void frame(void)
 		// 2d drawing TODO move this to when the drawing is flushed.
 		sg_begin_default_pass(&state.clear_depth_buffer_pass_action, sapp_width(), sapp_height());
 		sg_apply_pipeline(state.twodee_pip);
+
+		draw_quad((DrawParams){quad_at(V2(0,screen_size().y), screen_size()), IMG(image_white_square), blendalpha(BLACK, text_input_fade*0.3f), .layer = LAYER_UI_FG});
+		Vec2 edge_of_text = MulV2F(screen_size(), 0.5f);
+		if(text_input_buffer_length > 0)
+		{
+			AABB bounds = draw_centered_text((TextParams){false, MD_S8(text_input_buffer, text_input_buffer_length), MulV2F(screen_size(), 0.5f), blendalpha(WHITE, text_input_fade), 1.0f});
+			edge_of_text = bounds.lower_right;
+		}
+		Vec2 cursor_center = V2(edge_of_text.x,screen_size().y/2.0f);
+		draw_quad((DrawParams){quad_centered(cursor_center, V2(3.0f, 80.0f)), IMG(image_white_square), blendalpha(WHITE, text_input_fade * (sinf((float)elapsed_time*8.0f)/2.0f + 0.5f)), .layer = LAYER_UI_FG});
 
 		// Draw Tilemap draw tilemap tilemap drawing
 #if 0
@@ -6352,7 +6388,7 @@ void frame(void)
 								{
 									const char *action = "none";
 									if(it->standing != STANDING_JOINED) action = "joins_player";
-									ai_response = MD_S8Fmt(frame_arena, "{who_i_am: \"%s\", talking_to: nobody, action: %s, speech: \"Hey what's up?\", thoughts: \"I'm thinking...\", mood: Happy}", characters[it->npc_kind].name, action);
+									ai_response = MD_S8Fmt(frame_arena, "{who_i_am: \"%s\", talking_to: nobody, action: %s, speech: \"Why not?\", thoughts: \"I'm thinking...\", mood: Happy}", characters[it->npc_kind].name, action);
 								}
 								else
 								{
@@ -6500,6 +6536,7 @@ void frame(void)
 								// begin dialog with closest npc
 								gs.player->state = CHARACTER_TALKING;
 								gs.player->talking_to = frome(closest_interact_with);
+								begin_text_input();
 							}
 							else
 							{
@@ -6520,6 +6557,9 @@ void frame(void)
 						{
 							player_armature.go_to_animation = MD_S8Lit("Idle");
 						}
+
+						if(nervous_anim)
+							player_armature.go_to_animation = MD_S8Lit("Nervous");
 
 						if (gs.player->state == CHARACTER_WALKING)
 						{
@@ -6789,6 +6829,7 @@ void frame(void)
 			}
 		}
 
+		if(false)
 		PROFILE_SCOPE("dialog menu") // big dialog panel draw big dialog panel
 		{
 			static float on_screen = 0.0f;
@@ -6938,6 +6979,7 @@ void frame(void)
 		}
 
 		// open inventory button
+		if(false)
 		{
 			float button_size = 128.0f;
 			float button_padding = 64.0f;
@@ -7077,6 +7119,7 @@ void frame(void)
 
 
 		// keyboard tutorial icons
+		if(false)
 		if (!mobile_controls)
 		{
 			float total_height = HELPER_SIZE * 2.0f;
@@ -7333,12 +7376,18 @@ void event(const sapp_event *e)
 	}
 #endif
 
+	if (e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_code == SAPP_KEYCODE_F11)
+	{
+		sapp_toggle_fullscreen();
+	}
+
 #ifdef DEVTOOLS
-	if (e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_code == SAPP_KEYCODE_F)
+	if (!receiving_text_input && e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_code == SAPP_KEYCODE_F)
 	{
 		flycam = !flycam;
 		sapp_lock_mouse(flycam);
 	}
+
 	if(flycam)
 	{
     if (e->type == SAPP_EVENTTYPE_MOUSE_MOVE)
