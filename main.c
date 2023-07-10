@@ -1528,13 +1528,20 @@ double unprocessed_gameplay_time = 0.0;
 
 EntityRef frome(Entity *e)
 {
-	EntityRef to_return = {
-		.index = (int)(e - gs.entities),
-		.generation = e->generation,
-	};
-	assert(to_return.index >= 0);
-	assert(to_return.index < ARRLEN(gs.entities));
-	return to_return;
+	if(e == 0)
+	{
+		return (EntityRef){0};
+	}
+	else
+	{
+		EntityRef to_return = {
+			.index = (int)(e - gs.entities),
+			.generation = e->generation,
+		};
+		assert(to_return.index >= 0);
+		assert(to_return.index < ARRLEN(gs.entities));
+		return to_return;
+	}
 }
 
 Entity *gete(EntityRef ref)
@@ -5527,18 +5534,19 @@ void frame(void)
 			if(it->is_npc || it->is_character)
 			{
 				Transform draw_with = entity_transform(it);
+				bool do_outline = it->is_npc && gete(gs.player->interacting_with) == it;
 				if(it->npc_kind == NPC_Player)
 				{
-					draw_thing((DrawnThing){.armature = &player_armature, .t = draw_with, .outline = true});
+					draw_thing((DrawnThing){.armature = &player_armature, .t = draw_with});
 				}
 				else if(it->npc_kind == NPC_Farmer)
 				{
 					farmer_armature.go_to_animation = MD_S8Lit("Dance");
-					draw_thing((DrawnThing){.armature = &farmer_armature, .t = draw_with});
+					draw_thing((DrawnThing){.armature = &farmer_armature, .t = draw_with, .outline = do_outline});
 				}
 				else
 				{
-					draw_thing((DrawnThing){.mesh = &mesh_player, .t = draw_with});
+					draw_thing((DrawnThing){.mesh = &mesh_player, .t = draw_with, .outline = do_outline});
 				}
 			}
 		}
@@ -5634,7 +5642,6 @@ void frame(void)
 		// these are static so that, on frames where no gameplay processing is necessary and just rendering, the rendering uses values from last frame
 		static Entity *interacting_with = 0; // used by rendering to figure out who to draw dialog box on
 		static bool player_in_combat = false;
-		const float dialog_interact_size = 2.5f * TILE_SIZE;
 
 		float speed_target;
 		// pausing the game
@@ -6341,7 +6348,7 @@ void frame(void)
 					{
 						// find closest to talk to
 						{
-							AABB dialog_rect = aabb_centered(gs.player->pos, V2(dialog_interact_size , dialog_interact_size));
+							AABB dialog_rect = aabb_centered(gs.player->pos, V2(DIALOG_INTERACT_SIZE, DIALOG_INTERACT_SIZE));
 							dbgrect(dialog_rect);
 							Overlapping possible_dialogs = get_overlapping(dialog_rect);
 							float closest_interact_with_dist = INFINITY;
@@ -6391,6 +6398,8 @@ void frame(void)
 							interacting_with = gete(gs.player->talking_to);
 							assert(interacting_with);
 						}
+
+						gs.player->interacting_with = frome(interacting_with);
 					}
 
 					if (interact)
@@ -6615,7 +6624,7 @@ void frame(void)
 				{
 					float dist = LenV2(SubV2(it->pos, gs.player->pos));
 					dist -= 10.0f; // radius around point where dialog is completely opaque
-					float max_dist = dialog_interact_size / 2.0f;
+					float max_dist = DIALOG_INTERACT_SIZE / 2.0f;
 					float alpha = 1.0f - (float)clamp(dist / max_dist, 0.0, 1.0);
 					if (gete(gs.player->talking_to) == it && gs.player->state == CHARACTER_TALKING) alpha = 0.0f;
 					if (it->being_hovered)

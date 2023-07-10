@@ -307,6 +307,7 @@ typedef struct Entity
 	// character
 	bool knighted;
 	bool in_conversation_mode;
+	EntityRef interacting_with; // for drawing outline on maybe interacting with somebody
 	Vec2 to_throw_direction;
 	BUFF(Vec2, 8) position_history; // so npcs can follow behind the player
 	CharacterState state;
