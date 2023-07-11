@@ -1855,6 +1855,9 @@ bool perform_action(Entity *from, Action a)
 	MemoryContext context = {0};
 	context.author_npc_kind = from->npc_kind;
 
+	if(a.speech_length > 0)
+		from->dialog_fade = 1.0f;
+
 	if(from == gs.player && gete(from->talking_to))
 	{
 		context.was_talking_to_somebody = true;
@@ -5518,6 +5521,14 @@ void frame(void)
 		dance_anim = keydown[SAPP_KEYCODE_U];
 		nervous_anim = keydown[SAPP_KEYCODE_I];
 
+		if(keydown[SAPP_KEYCODE_O])
+		{
+			ENTITIES_ITER(gs.entities)
+			{
+				it->standing = STANDING_INDIFFERENT;
+			}
+		}
+
 		Vec3 player_pos = V3(gs.player->pos.x, 0.0, gs.player->pos.y);
 		//dbgline(V2(0,0), V2(500, 500));
 		const float vertical_to_horizontal_ratio = CAM_VERTICAL_TO_HORIZONTAL_RATIO;
@@ -5871,6 +5882,10 @@ void frame(void)
 						{
 
 							// @Place(entity processing)
+							
+							if(it->dialog_fade > 0.0f)
+								it->dialog_fade -= dt/DIALOG_FADE_TIME;
+
 							if (it->gen_request_id != 0)
 							{
 								assert(it->gen_request_id > 0);
@@ -6786,10 +6801,11 @@ void frame(void)
 					Vec2 screen_pos = threedee_to_screenspace(bubble_pos);
 					Vec2 size = V2(400.0f,400.0f);
 					Vec2 bubble_center = AddV2(screen_pos, V2(-10.0f,40.0f));
+					float dialog_alpha = bubble_factor * it->dialog_fade;
 					draw_quad((DrawParams){
 							quad_centered(bubble_center, size),
 							IMG(image_dialog_bubble),
-							blendalpha(WHITE, bubble_factor),
+							blendalpha(WHITE, dialog_alpha),
 							.layer = LAYER_UI_FG,
 					});
 
@@ -6802,7 +6818,7 @@ void frame(void)
 					translate_words_by(placed, AddV2(placing_text_in.upper_left, V2(0, -get_vertical_dist_between_lines(text_scale))));
 					for(PlacedWord *cur = placed.first; cur; cur = cur->next)
 					{
-						draw_text((TextParams){false, cur->text, cur->lower_left_corner, colhex(0xEEE6D2), text_scale});
+						draw_text((TextParams){false, cur->text, cur->lower_left_corner, blendalpha(colhex(0xEEE6D2), dialog_alpha), text_scale});
 					}
 				}
 			}
