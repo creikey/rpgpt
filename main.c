@@ -3,6 +3,9 @@
 
 #define SOKOL_IMPL
 
+// ctags doesn't like the error macro so we do this instead. lame
+#define ISANERROR(why) jfdskljfdsljfklja why
+
 #if defined(WIN32) || defined(_WIN32)
 #define DESKTOP
 #define WINDOWS
@@ -349,7 +352,7 @@ void start_controlling_input()
 	_sapp_emsc_register_eventhandlers();
 }
 #else
-#error "No platform defined for text input!
+ISANERROR("No platform defined for text input!")
 #endif // web
 
 #endif // desktop
@@ -541,7 +544,7 @@ void done_with_request(int id)
 }
 
 #else
-#error "Only know how to do desktop http requests on windows"
+ISANERROR("Only know how to do desktop http requests on windows")
 #endif // WINDOWS
 #endif // DESKTOP
 
@@ -5898,7 +5901,7 @@ void frame(void)
 									return get_generation_request_status($0);
 								}, it->gen_request_id);
 #else
-#error "Don't know how to do this stuff on this platform."
+ISANERROR("Don't know how to do this stuff on this platform.")
 #endif // WEB
 #endif // DESKTOP
 								if (status == 0)
