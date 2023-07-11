@@ -1,3 +1,7 @@
+@image shifted_farmer:
+{
+ filepath: "shifted_farmer.png",
+}
 @image dialog_bubble:
 {
  filepath: "dialog_bubble.png",

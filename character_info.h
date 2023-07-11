@@ -129,6 +129,12 @@ CharacterGen characters[] = {
 		.enum_name = "Farmer",
 		.prompt = "The farmer wakes up, does his chores, and sleeps in the farmhouse all on his lonesome. He's tinkering with something fishy in the barn, but's mighty secretive about it. He used to have a wife, and suddenly she disappeared. The farmer gets MIGHTY angry if you question him about what's in his barn under the tarp, or what happened to his wife and family, but is otherwise a kind hearted soul.",
 	},
+	{
+		.name = "Shiftede Farmer",
+		.enum_name = "ShiftedFarmer",
+		.prompt = "The farmer wakes up, does his chores, and sleeps in the farmhouse all on his lonesome. He's tinkering with something fishy in the barn, but's mighty secretive about it. He used to have a wife, and suddenly she disappeared. The farmer gets MIGHTY angry if you question him about what's in his barn under the tarp, or what happened to his wife and family, but is otherwise a kind hearted soul.",
+	},
+
 };
 
 typedef struct

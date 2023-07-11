@@ -646,7 +646,7 @@ Vec2 entity_aabb_size(Entity *e)
 	}
 	else if (e->is_npc)
 	{
-		if(e->npc_kind == NPC_Farmer)
+		if(e->npc_kind == NPC_Farmer || e->npc_kind == NPC_ShiftedFarmer)
 		{
 			return V2(1,1);
 		}
@@ -3057,11 +3057,13 @@ void do_float_encoding_tests()
 
 Armature player_armature = {0};
 Armature farmer_armature = {0};
+Armature shifted_farmer_armature = {0};
 
 // armatureanimations are processed once every visual frame from this list
 Armature *armatures[] = {
 	&player_armature,
 	&farmer_armature,
+	&shifted_farmer_armature,
 };
 
 Mesh mesh_player = {0};
@@ -3100,6 +3102,7 @@ void init(void)
 	Log("Size of %d gs.entities: %zu kb\n", (int)ARRLEN(gs.entities), sizeof(gs.entities) / 1024);
 	sg_setup(&(sg_desc) {
 			.context = sapp_sgcontext(),
+			.buffer_pool_size = 512,
 			});
 	stm_setup();
 	saudio_setup(&(saudio_desc) {
@@ -3126,7 +3129,8 @@ void init(void)
 	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/Farmer.bin"));
 	farmer_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Farmer.bin"));
 
-
+	shifted_farmer_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Farmer.bin"));
+	shifted_farmer_armature.image = image_shifted_farmer;
 
 	MD_ArenaClear(frame_arena);
 
@@ -5570,6 +5574,8 @@ void frame(void)
 					Armature *to_use = 0;
 					if(it->npc_kind == NPC_Farmer)
 						to_use = &farmer_armature;
+					else if(it->npc_kind == NPC_ShiftedFarmer)
+						to_use = &shifted_farmer_armature;
 					else
 						assert(false);
 

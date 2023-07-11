@@ -103,7 +103,7 @@ uniform vs_params {
 };
 
 void main() {
-	vec3 transformed_pos = vec3(pos_in.x, pos_in.y + sin(pos_in.x * 14.0 + pos_in.y * 20.0 + time*1.9)*0.009, pos_in.z);
+	vec3 transformed_pos = vec3(pos_in.x, pos_in.y + sin(pos_in.x * 14.0 + pos_in.y * 20.0 + time*1.9)*0.000, pos_in.z);
 	pos = transformed_pos;
 	uv = uv_in;
 

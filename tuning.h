@@ -13,7 +13,7 @@
 #define DIALOG_INTERACT_SIZE 5.0f // length of the centered AABB (not halfsize) around the player of who they're interacting with
 
 #define CAM_DISTANCE 15.0f
-#define CAM_VERTICAL_TO_HORIZONTAL_RATIO 0.8f
+#define CAM_VERTICAL_TO_HORIZONTAL_RATIO 0.95f
 
 #define ARENA_SIZE (1024*1024*10)
 #define BIG_ARENA_SIZE (ARENA_SIZE * 8)

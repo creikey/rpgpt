@@ -279,6 +279,7 @@ typedef struct Entity
 	// npcs
 	bool being_hovered;
 	bool perceptions_dirty;
+	float dialog_fade;
 	TextChunk *errorlist_first;
 	TextChunk *errorlist_last;
 #ifdef DESKTOP

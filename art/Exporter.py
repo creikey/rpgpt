@@ -122,6 +122,9 @@ def ensure_tex_saved_and_get_name(o) -> str:
 
     return image_filename
 
+def object_in_level(o):
+    return o.users_collection[0].name == "Level" or (o.users_collection[0] in D.collections["Level"].children_recursive)
+
 # meshes can either be Meshes, or Armatures. Armatures contain all mesh data to draw it, and any anims it has
 
 for o in D.objects:
@@ -131,7 +134,7 @@ for o in D.objects:
             mesh_object = o
             o = o.parent
             object_transform_info = (mesh_name, mapping @ o.location, o.rotation_euler, o.scale)
-            if o.users_collection[0].name == 'Level':
+            if object_in_level(o):
                 assert False, "Cannot put armatures in the level. The level is for static placed meshes. For dynamic entities, you put them outside of the level collection, their entity kind is encoded, and the game code decides how to draw them"
             else:
                 pass
@@ -281,13 +284,12 @@ for o in D.objects:
         else: # if the parent type isn't an armature, i.e just a bog standard mesh
             mesh_name = o.to_mesh().name # use this over o.name so instanced objects which refer to the same mesh, both use the same serialized mesh.
             
-            
             object_transform_info = (mesh_name, mapping @ o.location, o.rotation_euler, o.scale)
             
-            if o.users_collection[0].name == 'Level' and mesh_name == "CollisionCube":
+            if object_in_level(o) and mesh_name == "CollisionCube":
                 collision_cubes.append((o.location, o.dimensions))
             else:
-                if o.users_collection[0].name == 'Level':
+                if object_in_level(o):
                     print(f"Object {o.name} has mesh name {o.to_mesh().name}")
                     assert(o.rotation_euler.order == 'XYZ')
                     level_object_data.append(object_transform_info)
@@ -297,6 +299,7 @@ for o in D.objects:
                 if mesh_name in saved_meshes:
                     continue
                 saved_meshes.add(mesh_name)
+                print(f"Mesh name {mesh_name} in level {object_in_level(o)} collections {o.users_collection}")
                 image_filename = ensure_tex_saved_and_get_name(o)
                 
                 assert(mesh_name != LEVEL_EXPORT_NAME)
