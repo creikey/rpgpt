@@ -116,7 +116,8 @@ def ensure_tex_saved_and_get_name(o) -> str:
                 new_path = bpy.path.abspath(f"//{image_filename}")
                 assert not os.path.exists(new_path), f"Tried to migrate {image_filename} to a new home {new_path}, but its already taken. It's over!"
                 shutil.copyfile(old_path, new_path)
-                img_obj.filepath = new_path
+                img_obj.filepath = bpy.path.relpath(new_path)
+            img_obj.filepath = bpy.path.relpath(img_obj.filepath)
             assert is_file_in_project(bpy.path.abspath(img_obj.filepath)), f"The image {image_filename} has filepath {img_obj.filepath} which isn't in the project directory {project_directory}, even after copying it! WTF"
             shutil.copyfile(bpy.path.abspath(img_obj.filepath),bpy.path.abspath(save_to))
 
