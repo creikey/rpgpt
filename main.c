@@ -790,7 +790,7 @@ sg_image load_image(MD_String8 path)
 			.height = png_height,
 			.pixel_format = SG_PIXELFORMAT_RGBA8,
 			.min_filter = SG_FILTER_LINEAR,
-			.num_mipmaps = 0,
+			.num_mipmaps = 1,
 			.wrap_u = SG_WRAP_CLAMP_TO_EDGE,
 			.wrap_v = SG_WRAP_CLAMP_TO_EDGE,
 			.mag_filter = SG_FILTER_LINEAR,

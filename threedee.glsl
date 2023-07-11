@@ -219,7 +219,7 @@ float calculate_shadow_factor(sampler2D shadowMap, vec4 light_space_fragment_pos
 
 void main() {
 	vec4 col = texture(tex, uv);
-	if(col.a < 0.5)
+	if(col.a < 0.1)
 	{
 		discard;
 	}
