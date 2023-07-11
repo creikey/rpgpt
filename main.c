@@ -2645,6 +2645,10 @@ static struct
 	sg_pipeline outline_mesh_pip;
 	sg_pipeline outline_armature_pip;
 
+	sg_pass threedee_pass; // is a pass so I can do post processing in a shader
+	sg_image threedee_pass_image;
+	sg_image threedee_pass_depth_image;
+
 	sg_pipeline twodee_outline_pip;
 
 	Shadow_State shadows;
@@ -2652,16 +2656,18 @@ static struct
 
 // is a function, because also called when window resized to recreate the pass and the image.
 // its target image must be the same size as the viewport. Is the reason. Cowabunga!
-void create_outline_gfx_state()
+void create_screenspace_gfx_state()
 {
-	if(state.outline_pass.id != 0)
-	{
-		sg_destroy_pass(state.outline_pass);
-	}
-	if(state.outline_pass_image.id != 0)
-	{
-		sg_destroy_image(state.outline_pass_image);
-	}
+	// this prevents common bug of whats passed to destroy func not being the resource
+	// you queried to see if it exists
+#define MAYBE_DESTROY(resource, destroy_func) if(resource.id != 0) destroy_func(resource);
+	MAYBE_DESTROY(state.outline_pass, sg_destroy_pass);
+	MAYBE_DESTROY(state.threedee_pass, sg_destroy_pass);
+
+	MAYBE_DESTROY(state.outline_pass_image, sg_destroy_image);
+	MAYBE_DESTROY(state.threedee_pass_image, sg_destroy_image);
+	MAYBE_DESTROY(state.threedee_pass_depth_image, sg_destroy_image);
+#undef MAYBE_DESTROY
 
 	const sg_shader_desc *shd_desc = threedee_mesh_outline_shader_desc(sg_query_backend());
 	assert(shd_desc);
@@ -2745,6 +2751,24 @@ void create_outline_gfx_state()
 				0
 			},
 			.label = "outline-pass",
+	});
+
+	desc.sample_count = 0;
+	
+	desc.label = "threedee-pass-render-target";
+	state.threedee_pass_image = sg_make_image(&desc);
+
+	desc.label = "threedee-pass-depth-render-target";
+	desc.pixel_format = SG_PIXELFORMAT_DEPTH_STENCIL;
+	state.threedee_pass_depth_image = sg_make_image(&desc);
+
+	state.threedee_pass = sg_make_pass(&(sg_pass_desc){
+			.color_attachments[0].image = state.threedee_pass_image,
+			.depth_stencil_attachment = (sg_pass_attachment_desc){
+				.image = state.threedee_pass_depth_image,
+				.mip_level = 0,
+			},
+			.label = "threedee-pass",
 	});
 }
 
@@ -3218,7 +3242,7 @@ void init(void)
 			.label = "quad-vertices"
 			});
 
-	create_outline_gfx_state();
+	create_screenspace_gfx_state();
 	state.shadows = init_shadow_state();
 
 	const sg_shader_desc *desc = threedee_twodee_shader_desc(sg_query_backend());
@@ -4884,11 +4908,6 @@ Transform entity_transform(Entity *e)
 }
 
 
-void do_shadow_pass(Shadow_State* shadow_state, Mat4 shadow_view_matrix, Mat4 shadow_projection_matrix)
-{
-}
-
-
 Shadow_State init_shadow_state() {
 	//To start off with, most of this initialisation code is taken from the
 	// sokol shadows sample, which can be found here. 
@@ -4924,7 +4943,7 @@ Shadow_State init_shadow_state() {
 		.label = "shadow-map-color-image"
 	};
 	shadows.color_img = sg_make_image(&img_desc);
-	img_desc.pixel_format = SG_PIXELFORMAT_DEPTH;
+	img_desc.pixel_format = SG_PIXELFORMAT_DEPTH; // @TODO @URGENT replace depth with R8, I think depth isn't always safe on Webgl1 according to sg_gfx header. Also replace other instances of this in codebase
 	img_desc.label = "shadow-map-depth-image";
 	shadows.depth_img = sg_make_image(&img_desc);
 	shadows.pass = sg_make_pass(&(sg_pass_desc){
@@ -5401,7 +5420,7 @@ void flush_all_drawn_things(Vec3 light_dir, Vec3 cam_pos, Vec3 cam_facing, Vec3 
 
 		// actually draw, IMPORTANT after this drawn_this_frame is zeroed out!
 		{
-			sg_begin_default_pass(&state.clear_everything_pass_action, sapp_width(), sapp_height());
+			sg_begin_pass(state.threedee_pass, &state.clear_everything_pass_action);
 
 			// draw meshes
 			SLICE_ITER(DrawnThing, drawn_this_frame)
@@ -5645,8 +5664,12 @@ void frame(void)
 
 		flush_all_drawn_things(light_dir, cam_pos, facing, right);
 
+		// draw the 3d render
+		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.threedee_pass_image), WHITE, .layer = LAYER_WORLD });
+
 		// draw the freaking outline. Play ball!
-		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.outline_pass_image), WHITE, .layer = LAYER_UI_FG, .custom_pipeline = state.twodee_outline_pip});
+		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.outline_pass_image), WHITE, .layer = LAYER_UI_FG, .custom_pipeline = state.twodee_outline_pip, .layer = LAYER_UI});
+
 
 		// 2d drawing TODO move this to when the drawing is flushed.
 		sg_begin_default_pass(&state.clear_depth_buffer_pass_action, sapp_width(), sapp_height());
@@ -7346,7 +7369,7 @@ void event(const sapp_event *e)
 
 	if (e->type == SAPP_EVENTTYPE_RESIZED)
 	{
-		create_outline_gfx_state();
+		create_screenspace_gfx_state();
 	}
 	if (e->type == SAPP_EVENTTYPE_TOUCHES_BEGAN)
 	{
