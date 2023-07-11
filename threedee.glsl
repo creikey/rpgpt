@@ -361,6 +361,47 @@ void main() {
 }
 @end
 
+@fs fs_twodee_color_correction
+uniform sampler2D twodee_tex;
+uniform twodee_fs_params {
+    vec4 tint;
+
+    // both in clip space
+    vec2 clip_ul;
+    vec2 clip_lr;
+
+    float alpha_clip_threshold;
+
+		vec2 tex_size;
+};
+
+in vec2 uv;
+in vec2 pos;
+out vec4 frag_color;
+
+// Black Box From https://github.com/armory3d/armory/blob/master/Shaders/std/tonemap.glsl
+vec3 acesFilm(const vec3 x) {
+    const float a = 2.51;
+    const float b = 0.03;
+    const float c = 2.43;
+    const float d = 0.59;
+    const float e = 0.14;
+    return clamp((x * (a * x + b)) / (x * (c * x + d ) + e), 0.0, 1.0);
+}
+
+void main() {
+    // clip space is from [-1,1] [left, right]of screen on X, and [-1,1] [bottom, top] of screen on Y
+    if(pos.x < clip_ul.x || pos.x > clip_lr.x || pos.y < clip_lr.y || pos.y > clip_ul.y) discard;
+
+		vec4 col = texture(twodee_tex, uv);
+
+		col.rgb = acesFilm(col.rgb);
+
+		frag_color = col;
+}
+@end
+
+
 @fs fs_outline
 
 uniform sampler2D tex;
@@ -395,4 +436,4 @@ void main() {
 
 @program twodee vs_twodee fs_twodee
 @program twodee_outline vs_twodee fs_twodee_outline
-
+@program twodee_colorcorrect vs_twodee fs_twodee_color_correction

@@ -2650,6 +2650,7 @@ static struct
 	sg_image threedee_pass_depth_image;
 
 	sg_pipeline twodee_outline_pip;
+	sg_pipeline twodee_colorcorrect_pip;
 
 	Shadow_State shadows;
 } state;
@@ -3299,9 +3300,34 @@ void init(void)
 			.dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
 			.op_alpha = SG_BLENDOP_ADD,
 			},
-			.label = "quad-pipeline",
+			.label = "twodee-outline",
 			});
 
+	state.twodee_colorcorrect_pip = sg_make_pipeline(&(sg_pipeline_desc)
+			{
+			.shader = sg_make_shader(threedee_twodee_colorcorrect_shader_desc(sg_query_backend())),
+			.depth = {
+			.compare = SG_COMPAREFUNC_LESS_EQUAL,
+			.write_enabled = true
+			},
+			.layout = {
+			.attrs =
+			{
+			[ATTR_threedee_vs_twodee_position].format = SG_VERTEXFORMAT_FLOAT3,
+			[ATTR_threedee_vs_twodee_texcoord0].format = SG_VERTEXFORMAT_FLOAT2,
+			}
+			},
+			.colors[0].blend = (sg_blend_state) { // allow transparency
+			.enabled = true,
+			.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
+			.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+			.op_rgb = SG_BLENDOP_ADD,
+			.src_factor_alpha = SG_BLENDFACTOR_ONE,
+			.dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+			.op_alpha = SG_BLENDOP_ADD,
+			},
+			.label = "twodee-color-correct",
+			});
 
 	desc = threedee_mesh_shader_desc(sg_query_backend());
 	assert(desc);
@@ -5665,7 +5691,7 @@ void frame(void)
 		flush_all_drawn_things(light_dir, cam_pos, facing, right);
 
 		// draw the 3d render
-		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.threedee_pass_image), WHITE, .layer = LAYER_WORLD });
+		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.threedee_pass_image), WHITE, .layer = LAYER_WORLD, .custom_pipeline = state.twodee_colorcorrect_pip });
 
 		// draw the freaking outline. Play ball!
 		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.outline_pass_image), WHITE, .layer = LAYER_UI_FG, .custom_pipeline = state.twodee_outline_pip, .layer = LAYER_UI});
@@ -6764,6 +6790,7 @@ void frame(void)
 							quad_centered(bubble_center, size),
 							IMG(image_dialog_bubble),
 							blendalpha(WHITE, bubble_factor),
+							.layer = LAYER_UI_FG,
 					});
 
 					AABB placing_text_in = aabb_centered(AddV2(bubble_center, V2(0,10.0f)), V2(size.x*0.8f, size.y*0.15f));
