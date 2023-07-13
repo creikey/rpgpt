@@ -8,7 +8,7 @@
 		<ShowEmptyFolders>true</ShowEmptyFolders>
 		<IsVirtual>false</IsVirtual>
 		<IsFolder>false</IsFolder>
-		<BuildCommand>run_remedy build_desktop_debug.bat codegen</BuildCommand>
+		<BuildCommand>remedybg.exe stop-debugging &amp;&amp; build_desktop_debug.bat codegen</BuildCommand>
 		<RebuildCommand></RebuildCommand>
 		<BuildFileCommand></BuildFileCommand>
 		<CleanCommand></CleanCommand>
@@ -16,7 +16,7 @@
 		<CancelBuild></CancelBuild>
 		<RunCommand></RunCommand>
 		<RunCommandWorkingDirectory></RunCommandWorkingDirectory>
-		<DebugCommand></DebugCommand>
+		<DebugCommand>remedybg.exe start-debugging</DebugCommand>
 		<ExePathCommand></ExePathCommand>
 		<DebugSln></DebugSln>
 		<UseVisualStudioEnvBat>true</UseVisualStudioEnvBat>

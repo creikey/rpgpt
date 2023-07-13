@@ -54,7 +54,7 @@ typedef struct WebArena
 	char *data;
 	size_t cap;
 	size_t pos;
-	size_t align; // pls 💀
+	size_t align; // pls 
 } WebArena;
 
 static bool next_arena_big = false;
