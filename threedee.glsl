@@ -100,10 +100,18 @@ uniform vs_params {
 	mat4 directional_light_space_matrix;	
 	float wobble_factor;
 	float time;
+	float seed;
+	vec3 wobble_world_source;
 };
 
 void main() {
-	vec3 transformed_pos = vec3(pos_in.x, pos_in.y + sin(pos_in.x * 14.0 + pos_in.y * 20.0 + time*1.9)*0.000, pos_in.z);
+	vec3 transformed_pos = vec3(pos_in.x, pos_in.y + sin(pos_in.x * 5.0 + pos_in.y * 9.0 + time*1.9)*0.045, pos_in.z);
+
+	vec3 untransformed_world_pos = (model * vec4(pos_in, 1.0)).xyz;
+
+	vec3 away = normalize(untransformed_world_pos - wobble_world_source);
+	float t = time + seed;
+	//vec3 transformed_pos = pos_in + away * sin(t*20.0 + pos_in.y*3.0) * pos_in.y*0.25 * wobble_factor * 0.0;
 	pos = transformed_pos;
 	uv = uv_in;
 
@@ -121,6 +129,8 @@ uniform sampler2D shadow_map;
 
 uniform fs_params {
 	int shadow_map_dimension;
+	float how_much_not_to_blend_ground_color;
+	int alpha_blend_int;
 };
 
 in vec3 pos;
@@ -216,10 +226,25 @@ float calculate_shadow_factor(sampler2D shadowMap, vec4 light_space_fragment_pos
 	return shadow;
 }
 
-
 void main() {
 	vec4 col = texture(tex, uv);
-	if(col.a < 0.1)
+
+	bool alpha_blend = bool(alpha_blend_int);
+	
+	// desert lesbians
+	/*
+	if(how_much_not_to_blend_ground_color < 0.5)
+	{
+		float desertness = 1.0 - clamp(world_space_frag_pos.y/2.0, 0.0, 1.0);
+		desertness = pow(desertness, 2.0);
+		desertness *= 0.6;
+		col.rgb = mix(col.rgb, vec3(206, 96, 33)/255.0, desertness);
+	}
+	*/
+
+	//col.rgb = vec3(desertness, 0, 0);
+
+	if(col.a < 0.1 && !alpha_blend)
 	{
 		discard;
 	}
@@ -234,7 +259,14 @@ void main() {
 		float lighting_factor = shadow_factor * n_dot_l;
 		lighting_factor = lighting_factor * 0.5 + 0.5;
 
-		frag_color = vec4(col.rgb*lighting_factor, 1.0);
+		if(alpha_blend)
+		{
+			frag_color = vec4(col.rgb*lighting_factor, col.a);
+		}
+		else
+		{
+			frag_color = vec4(col.rgb*lighting_factor, 1.0);
+		}
 		//frag_color = vec4(col.rgb, 1.0);
 	
 	}

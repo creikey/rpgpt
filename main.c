@@ -315,7 +315,12 @@ void play_audio(AudioSample *sample, float volume)
 }
 // keydown needs to be referenced when begin text input,
 // on web it disables event handling so the button up event isn't received
-bool keydown[SAPP_KEYCODE_MENU] = { 0 };
+// directly accessing these should only be used for debugging purposes, and
+// not in release. TODO make it so that this is enforced
+// by leaving them out when devtools is turned off
+#define SAPP_KEYCODE_MAX SAPP_KEYCODE_MENU
+bool keydown[SAPP_KEYCODE_MAX] = { 0 };
+bool keypressed[SAPP_KEYCODE_MAX] = { 0 };
 
 typedef struct {
 	bool open;
@@ -348,7 +353,7 @@ void stop_controlling_input()
 	EMSCRIPTEN_KEEPALIVE
 void start_controlling_input()
 {
-	memset(keydown, 0, ARRLEN(keydown));
+	memset(keydown, 0, sizeof(keydown));
 	_sapp_emsc_register_eventhandlers();
 }
 #else
@@ -908,6 +913,7 @@ typedef struct PlacedMesh
 	struct PlacedMesh *next;
 	Transform t;
 	Mesh *draw_with;
+	MD_String8 name;
 } PlacedMesh;
 
 typedef struct PlacedEntity
@@ -1272,8 +1278,8 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 		{
 			PlacedMesh *new_placed = MD_PushArray(arena, PlacedMesh, 1);
 			//PlacedMesh *new_placed = calloc(sizeof(PlacedMesh), 1);
-			MD_String8 placed_mesh_name = {0};
-			ser_MD_String8(&ser, &placed_mesh_name, arena);
+
+			ser_MD_String8(&ser, &new_placed->name, arena);
 
 			BlenderTransform blender_transform = {0};
 			ser_BlenderTransform(&ser, &blender_transform);
@@ -1282,14 +1288,14 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 
 			MD_StackPush(out.placed_mesh_list, new_placed);
 
-			Log("Placed mesh '%.*s' pos %f %f %f rotation %f %f %f %f scale %f %f %f\n", MD_S8VArg(placed_mesh_name), v3varg(new_placed->t.offset), qvarg(new_placed->t.rotation), v3varg(new_placed->t.scale));
+			//Log("Placed mesh '%.*s' pos %f %f %f rotation %f %f %f %f scale %f %f %f\n", MD_S8VArg(placed_mesh_name), v3varg(new_placed->t.offset), qvarg(new_placed->t.rotation), v3varg(new_placed->t.scale));
 
 			// load the mesh if we haven't already
 
 			bool mesh_found = false;
 			for(Mesh *cur = out.mesh_list; cur; cur = cur->next)
 			{
-				if(MD_S8Match(cur->name, placed_mesh_name, 0))
+				if(MD_S8Match(cur->name, new_placed->name, 0))
 				{
 					mesh_found = true;
 					new_placed->draw_with = cur;
@@ -1300,7 +1306,7 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 
 			if(!mesh_found)
 			{
-				MD_String8 to_load_filepath = MD_S8Fmt(scratch.arena, "assets/exported_3d/%.*s.bin", MD_S8VArg(placed_mesh_name));
+				MD_String8 to_load_filepath = MD_S8Fmt(scratch.arena, "assets/exported_3d/%.*s.bin", MD_S8VArg(new_placed->name));
 				Log("Loading mesh '%.*s'...\n", MD_S8VArg(to_load_filepath));
 				MD_String8 binary_mesh_file = MD_LoadEntireFile(scratch.arena, to_load_filepath);
 				if(!binary_mesh_file.str)
@@ -1310,7 +1316,7 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 				else
 				{
 					Mesh *new_mesh = MD_PushArray(arena, Mesh, 1);
-					*new_mesh = load_mesh(arena, binary_mesh_file, placed_mesh_name);
+					*new_mesh = load_mesh(arena, binary_mesh_file, new_placed->name);
 					MD_StackPush(out.mesh_list, new_mesh);
 					new_placed->draw_with = new_mesh;
 				}
@@ -1859,7 +1865,7 @@ bool perform_action(Entity *from, Action a)
 	context.author_npc_kind = from->npc_kind;
 
 	if(a.speech_length > 0)
-		from->dialog_fade = 1.0f;
+		from->dialog_fade = 2.5f;
 
 	if(from == gs.player && gete(from->talking_to))
 	{
@@ -2610,17 +2616,6 @@ void end_text_input(char *what_player_said_cstr)
 	 */
 
 
-sg_image image_font = { 0 };
-Vec2 image_font_size = { 0 }; // this image's size is queried a lot, and img_size seems to be slow when profiled
-
-float font_line_advance = 0.0f;
-const float font_size = 56.0;
-float font_scale;
-unsigned char *fontBuffer = 0; // font file data. Can't be freed until program quits, because used to get character width
-stbtt_bakedchar cdata[96]; // ASCII 32..126 is 95 glyphs
-stbtt_fontinfo font;
-
-
 typedef struct {
 	sg_pass_action pass_action;
 	sg_pass pass;
@@ -3086,6 +3081,81 @@ void do_float_encoding_tests()
 }
 #endif
 
+typedef struct {
+	float font_size;
+	float font_line_advance;
+	float font_scale;
+	MD_String8 font_buffer;
+	stbtt_bakedchar cdata[96]; // ascii characters?
+	stbtt_fontinfo font;
+
+	sg_image image;
+	Vec2 size; // this image's size is queried a lot, and img_size seems to be slow when profiled
+} LoadedFont;
+
+LoadedFont default_font;
+LoadedFont font_for_text_input; // is bigger
+
+LoadedFont load_font(MD_Arena *arena, MD_String8 font_filepath, float font_size)
+{
+	LoadedFont to_return = {0};
+
+	to_return.font_buffer = MD_LoadEntireFile(arena, font_filepath);
+	to_return.font_size = font_size;
+
+	unsigned char *font_bitmap = MD_ArenaPush(arena, 512*512);
+
+	const int font_bitmap_width = 512;
+
+	stbtt_BakeFontBitmap(to_return.font_buffer.str, 0, to_return.font_size, font_bitmap, font_bitmap_width, font_bitmap_width, 32, 96, to_return.cdata);
+
+	unsigned char *font_bitmap_rgba = MD_ArenaPush(frame_arena, 4 * font_bitmap_width * font_bitmap_width);
+
+	// also flip the image, because I think opengl or something I'm too tired
+	for(int row = 0; row < 512; row++)
+	{
+		for(int col = 0; col < 512; col++)
+		{
+			int i = row * 512 + col;
+			int flipped_i = (512 - row) * 512 + col;
+			font_bitmap_rgba[i*4 + 0] = 255;
+			font_bitmap_rgba[i*4 + 1] = 255;
+			font_bitmap_rgba[i*4 + 2] = 255;
+			font_bitmap_rgba[i*4 + 3] = font_bitmap[flipped_i];
+		}
+	}
+
+	to_return.image = sg_make_image(&(sg_image_desc) {
+		.width = font_bitmap_width,
+		.height = font_bitmap_width,
+		.pixel_format = SG_PIXELFORMAT_RGBA8,
+		.min_filter = SG_FILTER_LINEAR,
+		.mag_filter = SG_FILTER_LINEAR,
+		.data.subimage[0][0] =
+		{
+			.ptr = font_bitmap_rgba,
+			.size = (size_t)(font_bitmap_width * font_bitmap_width * 4),
+		}
+	});
+
+	to_return.size = img_size(to_return.image);
+
+	// does the font_buffer.str need to be null terminated? As far as I can tell, no. In the header strlen is never called on it
+	stbtt_InitFont(&to_return.font, to_return.font_buffer.str, 0);
+	int ascent = 0;
+	int descent = 0;
+	int lineGap = 0;
+	to_return.font_scale = stbtt_ScaleForPixelHeight(&to_return.font, to_return.font_size);
+	stbtt_GetFontVMetrics(&to_return.font, &ascent, &descent, &lineGap);
+
+	// this is from the header, not exactly sure why it works though
+	to_return.font_line_advance = (float)(ascent - descent + lineGap) * to_return.font_scale * 0.75f;
+
+	return to_return;
+}
+
+
+
 Armature player_armature = {0};
 Armature farmer_armature = {0};
 Armature shifted_farmer_armature = {0};
@@ -3180,62 +3250,9 @@ void init(void)
 			});
 #endif
 
-	// load font
-	{
-		FILE* fontFile = fopen("assets/PalanquinDark-Regular.ttf", "rb");
-		fseek(fontFile, 0, SEEK_END);
-		size_t size = ftell(fontFile); /* how long is the file ? */
-		fseek(fontFile, 0, SEEK_SET); /* reset */
-
-		fontBuffer = calloc(size, 1);
-
-		fread(fontBuffer, size, 1, fontFile);
-		fclose(fontFile);
-
-		unsigned char *font_bitmap = calloc(1, 512*512);
-		stbtt_BakeFontBitmap(fontBuffer, 0, font_size, font_bitmap, 512, 512, 32, 96, cdata);
-
-		unsigned char *font_bitmap_rgba = malloc(4 * 512 * 512); // stack would be too big if allocated on stack (stack overflow)
-		
-		// also flip the image, because I think opengl or something I'm too tired
-		for(int row = 0; row < 512; row++)
-		{
-			for(int col = 0; col < 512; col++)
-			{
-				int i = row * 512 + col;
-				int flipped_i = (512 - row) * 512 + col;
-				font_bitmap_rgba[i*4 + 0] = 255;
-				font_bitmap_rgba[i*4 + 1] = 255;
-				font_bitmap_rgba[i*4 + 2] = 255;
-				font_bitmap_rgba[i*4 + 3] = font_bitmap[flipped_i];
-			}
-		}
-
-		image_font = sg_make_image(&(sg_image_desc) {
-				.width = 512,
-				.height = 512,
-				.pixel_format = SG_PIXELFORMAT_RGBA8,
-				.min_filter = SG_FILTER_LINEAR,
-				.mag_filter = SG_FILTER_LINEAR,
-				.data.subimage[0][0] =
-				{
-				.ptr = font_bitmap_rgba,
-				.size = (size_t)(512 * 512 * 4),
-				}
-				});
-
-		image_font_size = img_size(image_font);
-
-		stbtt_InitFont(&font, fontBuffer, 0);
-		int ascent = 0;
-		int descent = 0;
-		int lineGap = 0;
-		font_scale = stbtt_ScaleForPixelHeight(&font, font_size);
-		stbtt_GetFontVMetrics(&font, &ascent, &descent, &lineGap);
-		font_line_advance = (float)(ascent - descent + lineGap) * font_scale * 0.75f;
-
-		free(font_bitmap_rgba);
-	}
+	default_font = load_font(persistent_arena, MD_S8Lit("assets/PalanquinDark-Regular.ttf"), 35.0f);
+	font_for_text_input = load_font(persistent_arena, MD_S8Lit("assets/PalanquinDark-Regular.ttf"), 64.0f);
+	
 
 	state.bind.vertex_buffers[0] = sg_make_buffer(&(sg_buffer_desc)
 			{
@@ -3900,8 +3917,11 @@ bool profiling;
 const bool show_devtools = false;
 #endif
 
+// @Place(temporary trailer shit to force gameplay things)
 bool dance_anim = false;
 bool nervous_anim = false;
+bool no_outline = false;
+bool terrified_anim = false;
 
 Color debug_color = {1,0,0,1};
 
@@ -4090,7 +4110,14 @@ typedef struct
 	Mesh *mesh;
 	Armature *armature;
 	Transform t;
+
+	float seed; // to make time unique in shaders, shaders can choose to add the seed
+	float wobble_factor;
+	Vec3 wobble_world_source;
 	bool outline;
+	bool no_dust;
+	bool alpha_blend;
+	bool dont_cast_shadows;
 } DrawnThing;
 
 int drawn_this_frame_length = 0;
@@ -4122,12 +4149,15 @@ typedef struct TextParams
 	AABB clip_to; // if in world space, in world space. In space of pos given
 	Color *colors; // color per character, if not null must be array of same length as text
 	bool do_clipping;
+	LoadedFont *use_font; // if null, uses default font
 } TextParams;
 
 // returns bounds. To measure text you can set dry run to true and get the bounds
 AABB draw_text(TextParams t)
 {
 	AABB bounds = { 0 };
+	LoadedFont font = default_font;
+	if(t.use_font) font = *t.use_font;
 	PROFILE_SCOPE("draw text")
 	{
 		size_t text_len = t.text.size;
@@ -4138,7 +4168,7 @@ AABB draw_text(TextParams t)
 			stbtt_aligned_quad q;
 			float old_y = y;
 			PROFILE_SCOPE("get baked quad")
-				stbtt_GetBakedQuad(cdata, 512, 512, t.text.str[i]-32, &x, &y, &q, 1);
+				stbtt_GetBakedQuad(font.cdata, 512, 512, t.text.str[i]-32, &x, &y, &q, 1);
 			float difference = y - old_y;
 			y = old_y + difference;
 
@@ -4146,7 +4176,7 @@ AABB draw_text(TextParams t)
 			if (t.text.str[i] == '\n')
 			{
 #ifdef DEVTOOLS
-				y += font_size*0.75f; // arbitrary, only debug t.text has newlines
+				y += font.font_size*0.75f; // arbitrary, only debug t.text has newlines
 				x = 0.0;
 #else
 				assert(false);
@@ -4182,10 +4212,10 @@ AABB draw_text(TextParams t)
 				font_atlas_region.lower_right.y += 1.0f / 512.0f;
 				PROFILE_SCOPE("Scaling font atlas region to img font size")
 				{
-					font_atlas_region.upper_left.X *= image_font_size.X;
-					font_atlas_region.lower_right.X *= image_font_size.X;
-					font_atlas_region.upper_left.Y *= image_font_size.Y;
-					font_atlas_region.lower_right.Y *= image_font_size.Y;
+					font_atlas_region.upper_left.X *= font.size.X;
+					font_atlas_region.lower_right.X *= font.size.X;
+					font_atlas_region.upper_left.Y *= font.size.Y;
+					font_atlas_region.lower_right.Y *= font.size.Y;
 				}
 
 				PROFILE_SCOPE("bounds computation")
@@ -4213,7 +4243,7 @@ AABB draw_text(TextParams t)
 							col = t.colors[i];
 						}
 
-						draw_quad((DrawParams) { to_draw, image_font, font_atlas_region, col, t.clip_to, .layer = LAYER_UI_FG, .do_clipping = t.do_clipping });
+						draw_quad((DrawParams) { to_draw, font.image, font_atlas_region, col, t.clip_to, .layer = LAYER_UI_FG, .do_clipping = t.do_clipping });
 					}
 				}
 			}
@@ -4497,11 +4527,11 @@ Vec2 move_and_slide(MoveSlideParams p)
 	return result_pos;
 }
 
-float character_width(int ascii_letter, float text_scale)
+float character_width(LoadedFont for_font, int ascii_letter, float text_scale)
 {
 	int advanceWidth;
-	stbtt_GetCodepointHMetrics(&font, ascii_letter, &advanceWidth, 0);
-	return (float)advanceWidth * font_scale * text_scale;
+	stbtt_GetCodepointHMetrics(&for_font.font, ascii_letter, &advanceWidth, 0);
+	return (float)advanceWidth * for_font.font_scale * text_scale;
 }
 
 // they're always joined by spaces anyways, so even if you add more delims
@@ -4526,12 +4556,12 @@ typedef struct
 	PlacedWord *last;
 } PlacedWordList;
 
-float get_vertical_dist_between_lines(float text_scale)
+float get_vertical_dist_between_lines(LoadedFont for_font, float text_scale)
 {
-	return font_line_advance*text_scale*1.1f;
+	return for_font.font_line_advance*text_scale*0.9f;
 }
 
-PlacedWordList place_wrapped_words(MD_Arena *arena, MD_String8 text, float text_scale, float maximum_width)
+PlacedWordList place_wrapped_words(MD_Arena *arena, MD_String8 text, float text_scale, float maximum_width, LoadedFont for_font)
 {
 	PlacedWordList to_return = {0};
 	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
@@ -4539,7 +4569,7 @@ PlacedWordList place_wrapped_words(MD_Arena *arena, MD_String8 text, float text_
 	MD_String8List words = split_by_word(scratch.arena, text);
 	Vec2 at_position = V2(0.0, 0.0);
 	Vec2 cur = at_position;
-	float space_size = character_width((int)' ', text_scale);
+	float space_size = character_width(for_font, (int)' ', text_scale);
 	float current_vertical_offset = 0.0f; // goes negative
 	for(MD_String8Node *next_word = words.first; next_word; next_word = next_word->next)
 	{
@@ -4553,7 +4583,7 @@ PlacedWordList place_wrapped_words(MD_Arena *arena, MD_String8 text, float text_
 			float next_x_position = cur.x + aabb_size(word_bounds).x;
 			if(next_x_position - at_position.x > maximum_width)
 			{
-				current_vertical_offset -= get_vertical_dist_between_lines(text_scale);  // the 1.1 is just arbitrary padding because it looks too crowded otherwise
+				current_vertical_offset -= get_vertical_dist_between_lines(for_font, text_scale);  // the 1.1 is just arbitrary padding because it looks too crowded otherwise
 				cur = AddV2(at_position, V2(0.0f, current_vertical_offset));
 				next_x_position = cur.x + aabb_size(word_bounds).x;
 			}
@@ -4820,11 +4850,11 @@ void draw_dialog_panel(Entity *talking_to, float alpha)
 
 						color = blendalpha(color, alpha);
 						const float text_scale = 0.5f;
-						PlacedWordList wrapped = place_wrapped_words(scratch.arena, MD_S8(it->speech, it->speech_length), text_scale, dialog_panel.lower_right.x - dialog_panel.upper_left.x);
+						PlacedWordList wrapped = place_wrapped_words(scratch.arena, MD_S8(it->speech, it->speech_length), text_scale, dialog_panel.lower_right.x - dialog_panel.upper_left.x, default_font);
 						float line_vertical_offset = -wrapped.last->lower_left_corner.y;
 						translate_words_by(wrapped, V2(0.0, line_vertical_offset));
 						translate_words_by(wrapped, V2(dialog_panel.upper_left.x, new_line_height));
-						new_line_height += line_vertical_offset + font_line_advance * text_scale;
+						new_line_height += line_vertical_offset + default_font.font_line_advance * text_scale;
 
 						AABB no_clip_curly_things = dialog_panel;
 						no_clip_curly_things.lower_right.y -= padding;
@@ -5205,6 +5235,7 @@ void debug_draw_shadow_info(Vec3 frustum_tip, Vec3 cam_forward, Vec3 cam_right, 
 
 void actually_draw_thing(DrawnThing *it, Mat4 light_space_matrix, bool for_outline)
 {
+	int num_vertices_to_draw;
 	if(it->mesh)
 	{
 		if(for_outline)
@@ -5225,22 +5256,15 @@ void actually_draw_thing(DrawnThing *it, Mat4 light_space_matrix, bool for_outli
 			.projection = projection,
 			.directional_light_space_matrix = light_space_matrix,
 			.time = (float)elapsed_time,
+			.seed = it->seed,
+			.wobble_factor = it->wobble_factor,
+			.wobble_world_source = it->wobble_world_source,
 		};
 		sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_vs_params, &SG_RANGE(vs_params));
-		num_draw_calls += 1;
-		num_vertices += (int)it->mesh->num_vertices;
 
-		if(!for_outline)
-		{
-			threedee_fs_params_t fs_params = {0};
-			fs_params.shadow_map_dimension = SHADOW_MAP_DIMENSION;
-			sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_threedee_fs_params, &SG_RANGE(fs_params));
-		}
-
-		sg_draw(0, (int)it->mesh->num_vertices, 1);
+		num_vertices_to_draw = (int)it->mesh->num_vertices;
 	}
-
-	if(it->armature)
+	else if(it->armature)
 	{
 		if(for_outline)
 			sg_apply_pipeline(state.outline_armature_pip);
@@ -5263,23 +5287,33 @@ void actually_draw_thing(DrawnThing *it, Mat4 light_space_matrix, bool for_outli
 			.bones_tex_size = V2((float)it->armature->bones_texture_width,(float)it->armature->bones_texture_height),
 		};
 		sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_skeleton_vs_params, &SG_RANGE(params));
-
-		if(!for_outline)
-		{
-			threedee_fs_params_t fs_params = {0};
-			fs_params.shadow_map_dimension = SHADOW_MAP_DIMENSION;
-			sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_threedee_fs_params, &SG_RANGE(fs_params));
-		}
-
-		num_draw_calls += 1;
-		num_vertices += (int)it->armature->vertices_length;
-		sg_draw(0, (int)it->armature->vertices_length, 1);
+		num_vertices_to_draw = (int)it->armature->vertices_length;
 	}
+	else
+		assert(false);
+
+
+	if(!for_outline)
+	{
+		threedee_fs_params_t fs_params = {0};
+		fs_params.shadow_map_dimension = SHADOW_MAP_DIMENSION;
+		if(it->no_dust)
+		{
+			fs_params.how_much_not_to_blend_ground_color = 0.0;
+		}
+		fs_params.alpha_blend_int = it->alpha_blend;
+		sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_threedee_fs_params, &SG_RANGE(fs_params));
+	}
+
+	num_draw_calls += 1;
+	num_vertices += num_vertices_to_draw;
+	sg_draw(0, num_vertices_to_draw, 1);
 }
 
 // I moved this out into its own separate function so that you could
 // define helper functions to be used multiple times in it, and those functions
 // would be near the actual 3d drawing in the file
+// @Place(the actual 3d rendering)
 void flush_all_drawn_things(Vec3 light_dir, Vec3 cam_pos, Vec3 cam_facing, Vec3 cam_right)
 {
 	// Draw all the 3D drawn things. Draw the shadows, then draw the things with the shadows.
@@ -5379,6 +5413,7 @@ void flush_all_drawn_things(Vec3 light_dir, Vec3 cam_pos, Vec3 cam_facing, Vec3 
 			SLICE_ITER(DrawnThing, drawn_this_frame)
 			{
 				assert(it->mesh || it->armature);
+				if(it->dont_cast_shadows) continue;
 				if(it->mesh)
 				{
 					sg_bindings bindings = {0};
@@ -5457,14 +5492,27 @@ void flush_all_drawn_things(Vec3 light_dir, Vec3 cam_pos, Vec3 cam_facing, Vec3 
 			// draw meshes
 			SLICE_ITER(DrawnThing, drawn_this_frame)
 			{
+				if(it->alpha_blend) continue;
 				if(it->mesh) actually_draw_thing(it, light_space_matrix, false);
 			}
 
 			// draw armatures armature rendering 
 			SLICE_ITER(DrawnThing, drawn_this_frame)
 			{
-				if(it->armature) actually_draw_thing(it, light_space_matrix, false);
+				if(it->armature)
+				{
+					assert(!it->alpha_blend); // too lazy to implement this right now
+					actually_draw_thing(it, light_space_matrix, false);
+				}
 			}
+
+			// draw transparent
+			SLICE_ITER(DrawnThing, drawn_this_frame)
+			{
+				if(it->alpha_blend)
+					actually_draw_thing(it, light_space_matrix, false);
+			}
+
 
 
 			// zero out everything
@@ -5523,7 +5571,8 @@ void frame(void)
 		// @Place(temporary keycodes for trailer)
 		dance_anim = keydown[SAPP_KEYCODE_U];
 		nervous_anim = keydown[SAPP_KEYCODE_I];
-
+		if(!terrified_anim) terrified_anim = keydown[SAPP_KEYCODE_T];
+		no_outline = keydown[SAPP_KEYCODE_P];
 		if(keydown[SAPP_KEYCODE_O])
 		{
 			ENTITIES_ITER(gs.entities)
@@ -5614,7 +5663,36 @@ void frame(void)
 
 		for(PlacedMesh *cur = level_threedee.placed_mesh_list; cur; cur = cur->next)
 		{
-			draw_thing((DrawnThing){.mesh = cur->draw_with, .t = cur->t});
+			float seed = (float)((int64_t)cur % 1024);
+
+			DrawnThing call = (DrawnThing){.mesh = cur->draw_with, .t = cur->t};
+			if(MD_S8Match(cur->name, MD_S8Lit("Ground"), 0))
+				call.no_dust = true;
+
+			call.no_dust = true;
+			float helicopter_offset = (float)sin(elapsed_time*0.5f)*0.5f;
+			if(MD_S8Match(cur->name, MD_S8Lit("HelicopterBlade"), 0))
+			{
+				call.t.offset.y += helicopter_offset;
+				call.t.rotation = QFromAxisAngle_RH(V3(0,1,0), (float)elapsed_time * 15.0f);
+			}
+			if(MD_S8Match(cur->name, MD_S8Lit("BlurryBlade"), 0))
+			{
+				call.t.rotation = QFromAxisAngle_RH(V3(0,1,0), (float)elapsed_time * 15.0f);
+				call.t.offset.y += helicopter_offset;
+				call.alpha_blend = true;
+				call.dont_cast_shadows = true;
+			}
+			if(MD_S8Match(cur->name, MD_S8Lit("HelicopterBody"), 0))
+			{
+				call.t.offset.y += helicopter_offset;
+			}
+			if(MD_S8FindSubstring(cur->name, MD_S8Lit("Bush"), 0, 0) == 0)
+			{
+				call.wobble_factor = 1.0f;
+				call.seed = seed;
+			}
+			draw_thing(call);
 		}
 
 		ENTITIES_ITER(gs.entities)
@@ -5646,9 +5724,10 @@ void frame(void)
 
 					if(nervous_anim)
 						to_use->go_to_animation = MD_S8Lit("Nervous");
+
 					
 					if(dance_anim && it->npc_kind == NPC_Farmer)
-						to_use->go_to_animation = MD_S8Lit("Dance");
+						to_use->go_to_animation = MD_S8Lit("Pray");
 
 					draw_thing((DrawnThing){.armature = to_use, .t = draw_with, .outline = gete(gs.player->interacting_with) == it});
 				}
@@ -5708,18 +5787,20 @@ void frame(void)
 		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.threedee_pass_image), WHITE, .layer = LAYER_WORLD, .custom_pipeline = state.twodee_colorcorrect_pip });
 
 		// draw the freaking outline. Play ball!
-		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.outline_pass_image), WHITE, .layer = LAYER_UI_FG, .custom_pipeline = state.twodee_outline_pip, .layer = LAYER_UI});
+		if(!no_outline)
+			draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.outline_pass_image), WHITE, .layer = LAYER_UI_FG, .custom_pipeline = state.twodee_outline_pip, .layer = LAYER_UI});
 
 
 		// 2d drawing TODO move this to when the drawing is flushed.
 		sg_begin_default_pass(&state.clear_depth_buffer_pass_action, sapp_width(), sapp_height());
 		sg_apply_pipeline(state.twodee_pip);
 
+		// @Place(text input drawing)
 		draw_quad((DrawParams){quad_at(V2(0,screen_size().y), screen_size()), IMG(image_white_square), blendalpha(BLACK, text_input_fade*0.3f), .layer = LAYER_UI_FG});
 		Vec2 edge_of_text = MulV2F(screen_size(), 0.5f);
 		if(text_input_buffer_length > 0)
 		{
-			AABB bounds = draw_centered_text((TextParams){false, MD_S8(text_input_buffer, text_input_buffer_length), MulV2F(screen_size(), 0.5f), blendalpha(WHITE, text_input_fade), 1.0f});
+			AABB bounds = draw_centered_text((TextParams){false, MD_S8(text_input_buffer, text_input_buffer_length), MulV2F(screen_size(), 0.5f), blendalpha(WHITE, text_input_fade), 1.0f, .use_font = &font_for_text_input});
 			edge_of_text = bounds.lower_right;
 		}
 		Vec2 cursor_center = V2(edge_of_text.x,screen_size().y/2.0f);
@@ -5804,6 +5885,7 @@ void frame(void)
 
 		// gameplay processing loop, do multiple if lagging
 		// these are static so that, on frames where no gameplay processing is necessary and just rendering, the rendering uses values from last frame
+		// @Place(gameplay processing loops)
 		static Entity *interacting_with = 0; // used by rendering to figure out who to draw dialog box on
 		static bool player_in_combat = false;
 
@@ -5826,6 +5908,8 @@ void frame(void)
 		// restore the pressed state after gameplay loop so pressed input events can be processed in the
 		// rendering correctly as well
 		PressedState before_gameplay_loops = pressed;
+		bool keypressed_before_gameplay[SAPP_KEYCODE_MAX];
+		memcpy(keypressed_before_gameplay, keypressed, sizeof(keypressed));
 		PROFILE_SCOPE("gameplay processing")
         {
             uint64_t time_start_gameplay_processing = stm_now();
@@ -6460,8 +6544,25 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 								if(mocking_the_ai_response)
 								{
 									const char *action = "none";
-									if(it->standing != STANDING_JOINED) action = "joins_player";
-									ai_response = MD_S8Fmt(frame_arena, "{who_i_am: \"%s\", talking_to: nobody, action: %s, speech: \"Why not?\", thoughts: \"I'm thinking...\", mood: Happy}", characters[it->npc_kind].name, action);
+									//if(it->standing != STANDING_JOINED) action = "joins_player";
+									// @Place(more trailer jank)
+									char *rigged_dialog[] = {
+										/*
+										"Just trying to survive in this crazy world, same as everyone else.",
+										"We'll see who's crazy...",
+										"Join me down here, we'll wait it out",
+										"...",
+										*/
+										"HEY!",
+										"Sing me a rhyme, young man",
+										"The bell tolls for the meak...",
+										"HAHAHAHA",
+									};
+									char *next_dialog = rigged_dialog[it->times_talked_to % ARRLEN(rigged_dialog)];
+									ai_response = MD_S8Fmt(frame_arena, "{who_i_am: \"%s\", talking_to: nobody, action: %s, speech: \"%s\", thoughts: \"I'm thinking...\", mood: Happy}", characters[it->npc_kind].name, action, next_dialog);
+#ifdef DESKTOP
+									it->times_talked_to += 1;
+#endif
 								}
 								else
 								{
@@ -6577,6 +6678,46 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 						gs.player->interacting_with = frome(interacting_with);
 					}
 
+					// @Place(more trailer nonsense)
+					if(keypressed[SAPP_KEYCODE_K] && closest_interact_with)
+					{
+						if(closest_interact_with->standing == STANDING_INDIFFERENT)
+						{
+							closest_interact_with->standing = STANDING_JOINED;
+						}
+						else
+						{
+							closest_interact_with->standing = STANDING_INDIFFERENT;
+						}
+					}
+
+					if(keypressed[SAPP_KEYCODE_L] || keypressed[SAPP_KEYCODE_M])
+					{
+						gs.player->state = CHARACTER_TALKING;
+						Entity *shifted = 0;
+						ENTITIES_ITER(gs.entities)
+						{
+							if(it->npc_kind == NPC_ShiftedFarmer)
+							{
+								shifted = it;
+								break;
+							}
+						}
+						assert(shifted);
+						gs.player->talking_to = frome(shifted);
+
+						if(keypressed[SAPP_KEYCODE_M])
+						{
+							begin_text_input();
+						}
+						else
+						{
+							shifted->perceptions_dirty = true;
+						}
+					}
+
+
+
 					if (interact)
 					{
 						if (gs.player->state == CHARACTER_TALKING)
@@ -6634,6 +6775,9 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 						if(nervous_anim)
 							player_armature.go_to_animation = MD_S8Lit("Nervous");
 
+						if(terrified_anim)
+							player_armature.go_to_animation = MD_S8Lit("Terrified");
+
 						if (gs.player->state == CHARACTER_WALKING)
 						{
 							speed = PLAYER_SPEED;
@@ -6690,12 +6834,15 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 						reset_level();
 					}
 				}
+
 				pressed = (PressedState) { 0 };
+				memset(keypressed, 0, sizeof(keypressed));
 				interact = false;
 			} // while loop
 
             last_frame_gameplay_processing_time = stm_sec(stm_diff(stm_now(), time_start_gameplay_processing));
 		}
+		memcpy(keypressed, keypressed_before_gameplay, sizeof(keypressed));
 		pressed = before_gameplay_loops;
 
 
@@ -6803,8 +6950,8 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 					Vec3 bubble_pos = AddV3(plane_point(it->pos), V3(0,1.7f,0)); // 1.7 meters is about 5'8", average person height
 					Vec2 screen_pos = threedee_to_screenspace(bubble_pos);
 					Vec2 size = V2(400.0f,400.0f);
-					Vec2 bubble_center = AddV2(screen_pos, V2(-10.0f,40.0f));
-					float dialog_alpha = bubble_factor * it->dialog_fade;
+					Vec2 bubble_center = AddV2(screen_pos, V2(-10.0f,55.0f));
+					float dialog_alpha = clamp01(bubble_factor * it->dialog_fade);
 					draw_quad((DrawParams){
 							quad_centered(bubble_center, size),
 							IMG(image_dialog_bubble),
@@ -6816,9 +6963,9 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 					dbgrect(placing_text_in);
 
 					MD_String8List last = last_said_without_unsaid_words(frame_arena, it);
-					PlacedWordList placed = place_wrapped_words(frame_arena, MD_S8ListJoin(frame_arena, last, &(MD_StringJoin){.mid=MD_S8Lit(" ")}), text_scale, aabb_size(placing_text_in).x);
+					PlacedWordList placed = place_wrapped_words(frame_arena, MD_S8ListJoin(frame_arena, last, &(MD_StringJoin){.mid=MD_S8Lit(" ")}), text_scale, aabb_size(placing_text_in).x, default_font);
 					//translate_words_by(placed, V2(placing_text_in.upper_left.x, placing_text_in.lower_right.y));
-					translate_words_by(placed, AddV2(placing_text_in.upper_left, V2(0, -get_vertical_dist_between_lines(text_scale))));
+					translate_words_by(placed, AddV2(placing_text_in.upper_left, V2(0, -get_vertical_dist_between_lines(default_font, text_scale))));
 					for(PlacedWord *cur = placed.first; cur; cur = cur->next)
 					{
 						draw_text((TextParams){false, cur->text, cur->lower_left_corner, blendalpha(colhex(0xEEE6D2), dialog_alpha), text_scale});
@@ -7014,11 +7161,11 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 									color = blendalpha(color, alpha);
 
 									const float text_scale = 1.0f;
-									PlacedWordList wrapped = place_wrapped_words(scratch.arena, MD_S8(it->speech, it->speech_length), text_scale, dialog_panel.lower_right.x - dialog_panel.upper_left.x);
+									PlacedWordList wrapped = place_wrapped_words(scratch.arena, MD_S8(it->speech, it->speech_length), text_scale, dialog_panel.lower_right.x - dialog_panel.upper_left.x, default_font);
 									float line_vertical_offset = -wrapped.last->lower_left_corner.y;
 									translate_words_by(wrapped, V2(0.0, line_vertical_offset));
 									translate_words_by(wrapped, V2(dialog_panel.upper_left.x, new_line_height));
-									new_line_height += line_vertical_offset + font_line_advance * text_scale;
+									new_line_height += line_vertical_offset + default_font.font_line_advance * text_scale;
 
 									for(PlacedWord *cur = wrapped.first; cur; cur = cur->next)
 									{
@@ -7037,7 +7184,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 									{
 										float separator_height = 40.0f; // how much vertical space the whole separation, including padding, takes
 										float line_height = 1.0f;
-										Vec2 line_from = AddV2(wrapped.first->lower_left_corner, V2(0, font_line_advance*text_scale + separator_height/2.0f));
+										Vec2 line_from = AddV2(wrapped.first->lower_left_corner, V2(0, default_font.font_line_advance*text_scale + separator_height/2.0f));
 										Vec2 line_to = AddV2(line_from, V2(aabb_size(dialog_panel).x, 0));
 										draw_quad((DrawParams){ line_quad(line_from, line_to, line_height), IMG(image_white_square), blendalpha(WHITE, 0.6f), .clip_to = dialog_panel, .do_clipping = true});
 
@@ -7388,6 +7535,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 
 		MD_ArenaClear(frame_arena);
 
+		memset(keypressed, 0, sizeof(keypressed));
 		pressed = (PressedState) { 0 };
 	}
 }
@@ -7401,7 +7549,6 @@ void cleanup(void)
 	}
 #endif
 
-	free(fontBuffer);
 	MD_ArenaRelease(frame_arena);
 	MD_ArenaRelease(persistent_arena);
 	sg_shutdown();
@@ -7592,6 +7739,7 @@ void event(const sapp_event *e)
 			mobile_controls = false;
 			assert(e->key_code < sizeof(keydown) / sizeof(*keydown));
 			keydown[e->key_code] = true;
+			keypressed[e->key_code] = true;
 
 			if (e->key_code == SAPP_KEYCODE_E)
 			{
@@ -7633,10 +7781,6 @@ void event(const sapp_event *e)
 			if (e->key_code == SAPP_KEYCODE_9)
 			{
 				gs.won = true;
-			}
-			if (e->key_code == SAPP_KEYCODE_M)
-			{
-				mobile_controls = true;
 			}
 			if (e->key_code == SAPP_KEYCODE_P)
 			{
