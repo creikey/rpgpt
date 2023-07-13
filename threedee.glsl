@@ -105,13 +105,13 @@ uniform vs_params {
 };
 
 void main() {
-	vec3 transformed_pos = vec3(pos_in.x, pos_in.y + sin(pos_in.x * 5.0 + pos_in.y * 9.0 + time*1.9)*0.045, pos_in.z);
+	//vec3 transformed_pos = vec3(pos_in.x, pos_in.y + sin(pos_in.x * 5.0 + pos_in.y * 9.0 + time*1.9)*0.045, pos_in.z);
 
 	vec3 untransformed_world_pos = (model * vec4(pos_in, 1.0)).xyz;
 
 	vec3 away = normalize(untransformed_world_pos - wobble_world_source);
 	float t = time + seed;
-	//vec3 transformed_pos = pos_in + away * sin(t*20.0 + pos_in.y*3.0) * pos_in.y*0.25 * wobble_factor * 0.0;
+	vec3 transformed_pos = pos_in + away * sin(t*20.0 + pos_in.y*3.0) * pos_in.y*0.25 * wobble_factor * 0.0;
 	pos = transformed_pos;
 	uv = uv_in;
 

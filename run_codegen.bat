@@ -1,13 +1,6 @@
-@echo off
+@echo on
 
 echo Running codegen...
-
-rmdir /S /q assets\copyrighted
-
-rmdir /S /q "assets\exported_3d"
-mkdir "assets\exported_3d" || goto :error
-copy "art\exported\*" "assets\exported_3d\" || goto :error
-copy "art\gigatexture.png" "assets\exported_3d\gigatexture.png" || goto :error
 
 rmdir /S /q gen
 mkdir gen
