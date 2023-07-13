@@ -948,7 +948,7 @@ Mesh load_mesh(MD_Arena *arena, MD_String8 binary_file, MD_String8 mesh_name)
 	to_return.image = load_image(MD_S8Fmt(scratch.arena, "assets/exported_3d/%.*s", MD_S8VArg(image_filename)));
 
 	ser_MD_u64(&ser, &to_return.num_vertices);
-	Log("Mesh %.*s has %llu vertices and image filename '%.*s'\n", MD_S8VArg(mesh_name), to_return.num_vertices, MD_S8VArg(image_filename));
+	//Log("Mesh %.*s has %llu vertices and image filename '%.*s'\n", MD_S8VArg(mesh_name), to_return.num_vertices, MD_S8VArg(image_filename));
 
 	to_return.vertices = MD_ArenaPush(arena, sizeof(*to_return.vertices) * to_return.num_vertices);
 	for(MD_u64 i = 0; i < to_return.num_vertices; i++)
@@ -1117,7 +1117,7 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 
 		MD_u64 frames_in_anim;
 		ser_MD_u64(&ser, &frames_in_anim);
-		Log("There are %llu animation frames in animation '%.*s'\n", frames_in_anim, MD_S8VArg(new_anim->name));
+		//Log("There are %llu animation frames in animation '%.*s'\n", frames_in_anim, MD_S8VArg(new_anim->name));
 
 		for(MD_u64 i = 0; i < to_return.bones_length; i++)
 		{
@@ -1307,7 +1307,7 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 			if(!mesh_found)
 			{
 				MD_String8 to_load_filepath = MD_S8Fmt(scratch.arena, "assets/exported_3d/%.*s.bin", MD_S8VArg(new_placed->name));
-				Log("Loading mesh '%.*s'...\n", MD_S8VArg(to_load_filepath));
+				//Log("Loading mesh '%.*s'...\n", MD_S8VArg(to_load_filepath));
 				MD_String8 binary_mesh_file = MD_LoadEntireFile(scratch.arena, to_load_filepath);
 				if(!binary_mesh_file.str)
 				{
