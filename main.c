@@ -1850,7 +1850,7 @@ void push_propagating(PropagatingAction to_push)
 float propagating_radius(PropagatingAction *p)
 {
 	float t = powf(p->progress, 0.65f);
-	return Lerp(0.0f, t, PROPAGATE_ACTIONS_RADIUS );
+	return Lerp(0.0f, t, PROPAGATE_ACTIONS_RADIUS);
 }
 
 // only called when the action is instantiated, correctly propagates the information
@@ -1889,7 +1889,7 @@ bool perform_action(Entity *from, Action a)
 
 	if(a.speech_length == 0 && a.kind == ACT_none)
 	{
-		proceed_propagating = false; // did nothing
+		proceed_propagating = false; // didn't say anything
 	}
 
 	if(proceed_propagating)
@@ -3914,6 +3914,8 @@ bool profiling;
 #else
 const bool show_devtools = false;
 #endif
+
+bool having_errors = false;
 
 // @Place(temporary trailer shit to force gameplay things)
 bool dance_anim = false;
@@ -5982,6 +5984,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 								{
 									if (status == 1)
 									{
+										having_errors = false;
 										// done! we can get the string
 										char sentence_cstr[MAX_SENTENCE_LENGTH] = { 0 };
 #ifdef WEB
@@ -6029,6 +6032,8 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 									else if (status == 2)
 									{
 										Log("Failed to generate dialog! Fuck!\n");
+										having_errors = true;
+
 										// need somethin better here. Maybe each sentence has to know if it's player or NPC, that way I can remove the player's dialog
 										Action to_perform = {0};
 										MD_String8 speech_mdstring = MD_S8Lit("I'm not sure...");
@@ -6529,26 +6534,33 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 								bool succeeded = true; // couldn't get AI response if false
 								if(mocking_the_ai_response)
 								{
-									const char *action = "none";
-									//if(it->standing != STANDING_JOINED) action = "joins_player";
-									// @Place(more trailer jank)
-									char *rigged_dialog[] = {
-										/*
+									if (it->memories_last->context.talking_to_kind == it->npc_kind)
+									{
+										const char *action = "none";
+										//if(it->standing != STANDING_JOINED) action = "joins_player";
+										// @Place(more trailer jank)
+										char *rigged_dialog[] = {
+											/*
 										"Just trying to survive in this crazy world, same as everyone else.",
 										"We'll see who's crazy...",
 										"Join me down here, we'll wait it out",
 										"...",
 										*/
-										"HEY!",
-										"Sing me a rhyme, young man",
-										"The bell tolls for the meak...",
-										"HAHAHAHA",
-									};
-									char *next_dialog = rigged_dialog[it->times_talked_to % ARRLEN(rigged_dialog)];
-									ai_response = MD_S8Fmt(frame_arena, "{who_i_am: \"%s\", talking_to: nobody, action: %s, speech: \"%s\", thoughts: \"I'm thinking...\", mood: Happy}", characters[it->npc_kind].name, action, next_dialog);
+											"HEY!",
+											"Sing me a rhyme, young man",
+											"The bell tolls for the meak...",
+											"HAHAHAHA",
+										};
+										char *next_dialog = rigged_dialog[it->times_talked_to % ARRLEN(rigged_dialog)];
+										ai_response = MD_S8Fmt(frame_arena, "{who_i_am: \"%s\", talking_to: nobody, action: %s, speech: \"%s\", thoughts: \"I'm thinking...\", mood: Happy}", characters[it->npc_kind].name, action, next_dialog);
 #ifdef DESKTOP
-									it->times_talked_to += 1;
+										it->times_talked_to += 1;
 #endif
+									}
+									else
+									{
+										ai_response = MD_S8Fmt(frame_arena, "{who_i_am: \"%s\", talking_to: nobody, action: none, speech: \"I heard that...\", thoughts: \"I'm thinking...\", mood: Happy}", characters[it->npc_kind].name);
+									}
 								}
 								else
 								{
@@ -6907,6 +6919,13 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 					draw_quad((DrawParams){ to_draw, IMG(image_hovering_circle), blendalpha(WHITE, 1.0f - cur->progress)});
 				}
 			}
+		}
+
+		if (having_errors)
+		{
+			Vec2 text_center = V2(screen_size().x / 2.0f, screen_size().y*0.8f);
+			draw_quad((DrawParams){centered_quad(text_center, V2(screen_size().x*0.8f, screen_size().y*0.1f)), IMG(image_white_square), blendalpha(BLACK, 0.5f), .layer = LAYER_UI_FG});
+			draw_centered_text((TextParams){false, MD_S8Lit("The AI server is having technical difficulties..."), text_center, WHITE, 1.0f });
 		}
 
 		if(false)

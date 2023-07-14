@@ -52,7 +52,10 @@
 		<ConfigProperties>
 			<ConfigAndPlatform>
 				<Name>Debug:x64</Name>
-				<Defines></Defines>
+				<Defines>
+					<Define>DESKTOP</Define>
+					<Define>DEVTOOLS</Define>
+				</Defines>
 				<ForceIncludes></ForceIncludes>
 			</ConfigAndPlatform>
 			<Config>
