@@ -2390,8 +2390,6 @@ void ser_entity(SerState *ser, Entity *e)
 
 	// character
 	ser_bool(ser, &e->is_character);
-	ser_bool(ser, &e->knighted);
-	ser_bool(ser, &e->in_conversation_mode);
 	ser_Vec2(ser, &e->to_throw_direction);
 
 	SER_BUFF(ser, Vec2, &e->position_history);
@@ -5889,16 +5887,8 @@ void frame(void)
 		static Entity *interacting_with = 0; // used by rendering to figure out who to draw dialog box on
 		static bool player_in_combat = false;
 
-		float speed_target;
+		float speed_target = 1.0f;
 		// pausing the game
-		if (gs.player->in_conversation_mode || gs.won)
-		{
-			speed_target = 0.0f;
-		}
-		else
-		{
-			speed_target = 1.0f;
-		}
 		speed_factor = Lerp(speed_factor, unwarped_dt*10.0f, speed_target);
 		if (fabsf(speed_factor - speed_target) <= 0.05f)
 		{
@@ -5951,10 +5941,6 @@ void frame(void)
 				player_in_combat = false; // in combat set by various enemies when they fight the player
 				PROFILE_SCOPE("entity processing")
 				{
-					if(gs.player->knighted)
-					{
-						gs.won = true;
-					}
 					ENTITIES_ITER(gs.entities)
 					{
 						assert(!(it->exists && it->generation == 0));
@@ -6656,77 +6642,19 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 						}
 
 						// maybe get rid of talking to
-						if (gs.player->state == CHARACTER_TALKING)
+						if (gs.player->waiting_on_speech_with_somebody)
 						{
-							if (gete(gs.player->talking_to) == 0)
-							{
-								gs.player->state = CHARACTER_IDLE;
-							}
-						}
-						else
-						{
-							gs.player->talking_to = (EntityRef) { 0 };
+							gs.player->state = CHARACTER_IDLE;
 						}
 
 						interacting_with = closest_interact_with;
-						if (gs.player->state == CHARACTER_TALKING)
-						{
-							interacting_with = gete(gs.player->talking_to);
-							assert(interacting_with);
-						}
 
 						gs.player->interacting_with = frome(interacting_with);
 					}
 
-					// @Place(more trailer nonsense)
-					if(keypressed[SAPP_KEYCODE_K] && closest_interact_with)
-					{
-						if(closest_interact_with->standing == STANDING_INDIFFERENT)
-						{
-							closest_interact_with->standing = STANDING_JOINED;
-						}
-						else
-						{
-							closest_interact_with->standing = STANDING_INDIFFERENT;
-						}
-					}
-
-					if(keypressed[SAPP_KEYCODE_L] || keypressed[SAPP_KEYCODE_M])
-					{
-						gs.player->state = CHARACTER_TALKING;
-						Entity *shifted = 0;
-						ENTITIES_ITER(gs.entities)
-						{
-							if(it->npc_kind == NPC_ShiftedFarmer)
-							{
-								shifted = it;
-								break;
-							}
-						}
-						assert(shifted);
-						gs.player->talking_to = frome(shifted);
-
-						if(keypressed[SAPP_KEYCODE_M])
-						{
-							begin_text_input();
-						}
-						else
-						{
-							shifted->perceptions_dirty = true;
-						}
-					}
-
-
-
 					if (interact)
 					{
-						if (gs.player->state == CHARACTER_TALKING)
-						{
-							// don't add extra stuff to be done when changing state because in several
-							// places it's assumed to end dialog I can just do player->state = CHARACTER_IDLE
-							gs.player->state = CHARACTER_IDLE;
-						}
-						else if (closest_interact_with)
+						if (closest_interact_with)
 						{
 							if(closest_interact_with->is_machine)
 							{
@@ -6748,7 +6676,6 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 							else if (closest_interact_with->is_npc)
 							{
 								// begin dialog with closest npc
-								gs.player->state = CHARACTER_TALKING;
 								gs.player->talking_to = frome(closest_interact_with);
 								begin_text_input();
 							}
@@ -6792,9 +6719,6 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 						else if (gs.player->state == CHARACTER_IDLE)
 						{
 							if (LenV2(movement) > 0.01) gs.player->state = CHARACTER_WALKING;
-						}
-						else if (gs.player->state == CHARACTER_TALKING)
-						{
 						}
 						else
 						{
@@ -6907,9 +6831,6 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 			else if (gs.player->state == CHARACTER_IDLE)
 			{
 			}
-			else if (gs.player->state == CHARACTER_TALKING)
-			{
-			}
 			else
 			{
 				assert(false); // unknown character state? not defined how to draw
@@ -6974,70 +6895,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 			}
 		}
 
-		// 2d rendering
-		if(0)
-		PROFILE_SCOPE("entity rendering")
-			ENTITIES_ITER(gs.entities)
-			{
-				if (it->gen_request_id != 0)
-				{
-					draw_quad((DrawParams) { quad_centered(AddV2(it->pos, V2(0.0, 50.0)), V2(100.0, 100.0)), IMG(image_thinking), WHITE });
-				}
-
-				if (it->is_npc)
-				{
-					float dist = LenV2(SubV2(it->pos, gs.player->pos));
-					dist -= 10.0f; // radius around point where dialog is completely opaque
-					float max_dist = DIALOG_INTERACT_SIZE / 2.0f;
-					float alpha = 1.0f - (float)clamp(dist / max_dist, 0.0, 1.0);
-					if (gete(gs.player->talking_to) == it && gs.player->state == CHARACTER_TALKING) alpha = 0.0f;
-					if (it->being_hovered)
-					{
-						draw_quad((DrawParams) { quad_centered(it->pos, V2(TILE_SIZE, TILE_SIZE)), IMG(image_hovering_circle), WHITE });
-						alpha = 1.0f;
-					}
-
-					it->dialog_panel_opacity = Lerp(it->dialog_panel_opacity, unwarped_dt*10.0f, alpha);
-					draw_dialog_panel(it, it->dialog_panel_opacity);
-				}
-				else if (it->is_item)
-				{
-					draw_item(it->item_kind, aabb_centered(it->pos, V2(15.0f, 15.0f)), 1.0f);
-				}
-				else if (it->is_character)
-				{
-				}
-				else if (it->is_prop)
-				{
-				}
-				else if(it->is_machine)
-				{
-
-					if(it->machine_kind == MACH_idol_dispenser)
-					{
-						it->idol_reminder_opacity = Lerp(it->idol_reminder_opacity, dt*0.5f, 0.0);
-						sg_image to_draw = it->has_given_idol ? image_idol_machine_no_idol : image_idol_machine_has_idol;
-						DrawParams d = (DrawParams){ quad_centered(it->pos, V2(TILE_SIZE*3.0, TILE_SIZE*3.0)), to_draw, full_region(to_draw), WHITE, .layer = LAYER_WORLD, .sorting_key = sorting_key_at(it->pos) };
-
-						draw_centered_text((TextParams){ false, MD_S8Lit("Needs 3 party members"), AddV2(it->pos, V2(0.0, 100.0)), blendalpha(WHITE, it->idol_reminder_opacity), 1.0f});
-
-						draw_quad(d);
-					}
-					else if(it->machine_kind == MACH_arrow_shooter)
-					{
-						DrawParams d = (DrawParams){ quad_centered(it->pos, V2(TILE_SIZE, TILE_SIZE)), IMG(image_arrow_shooter), WHITE, .layer = LAYER_WORLD, .sorting_key = sorting_key_at(it->pos) };
-						draw_quad(d);
-					}
-
-				}
-				else
-				{
-					assert(false);
-				}
-			}
-
 		// @Place(UI rendering)
-
 		PROFILE_SCOPE("propagating")
 		{
 			for(PropagatingAction *cur = propagating; cur; cur = cur->next)
@@ -7297,7 +7155,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 					item_grid_state.open = false;
 					ItemKind selected_item = gs.player->held_items.data[pressed_index];
 
-					if(item_grid_state.for_giving && gs.player->state == CHARACTER_TALKING)
+					if(item_grid_state.for_giving)
 					{
 						Entity *to = gete(gs.player->talking_to);
 						assert(to);

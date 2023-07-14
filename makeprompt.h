@@ -159,7 +159,6 @@ typedef enum CharacterState
 {
 	CHARACTER_WALKING,
 	CHARACTER_IDLE,
-	CHARACTER_TALKING,
 } CharacterState;
 
 typedef enum
@@ -306,8 +305,7 @@ typedef struct Entity
 	double swing_timer;
 
 	// character
-	bool knighted;
-	bool in_conversation_mode;
+	bool waiting_on_speech_with_somebody;
 	EntityRef interacting_with; // for drawing outline on maybe interacting with somebody
 	Vec2 to_throw_direction;
 	BUFF(Vec2, 8) position_history; // so npcs can follow behind the player
