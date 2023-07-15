@@ -105,6 +105,11 @@ func clearOld(db *gorm.DB) {
 }
 
 func handleEvent(event stripe.Event) error {
+ if len(stripe.Key) == 0 {
+  log.Printf("Received stripe event %s , but stripe capabilities are disabled", event)
+  return nil
+ }
+
  if event.Type == "checkout.session.completed" {
   var session stripe.CheckoutSession
   err := json.Unmarshal(event.Data.Raw, &session)
@@ -150,6 +155,11 @@ func handleEvent(event stripe.Event) error {
 }
 
 func webhookResponse(w http.ResponseWriter, req *http.Request) {
+ if len(stripe.Key) == 0 {
+  log.Printf("Received webhook response %s , but stripe capabilities are disableda", req)
+  return
+ }
+
  const MaxBodyBytes = int64(65536)
  req.Body = http.MaxBytesReader(w, req.Body, MaxBodyBytes)
 
@@ -210,6 +220,10 @@ func checkout(w http.ResponseWriter, req *http.Request) {
  }
 
  customMessage := fmt.Sprintf("**IMPORTANT** Your Day Pass Code is %s", newCode)
+ redirecting := "https://google.com"
+ if len(checkoutRedirectTo) > 0 {
+	 redirecting = checkoutRedirectTo
+ }
  params := &stripe.CheckoutSessionParams {
   LineItems: []*stripe.CheckoutSessionLineItemParams {
    &stripe.CheckoutSessionLineItemParams{
@@ -218,8 +232,8 @@ func checkout(w http.ResponseWriter, req *http.Request) {
    },
   },
   Mode: stripe.String(string(stripe.CheckoutSessionModePayment)),
-  SuccessURL: stripe.String(checkoutRedirectTo),
-  CancelURL: stripe.String(checkoutRedirectTo),
+  SuccessURL: stripe.String(redirecting),
+  CancelURL: stripe.String(redirecting),
   CustomText: &stripe.CheckoutSessionCustomTextParams{ Submit: &stripe.CheckoutSessionCustomTextSubmitParams { Message: &customMessage } },
  }
 
@@ -271,7 +285,9 @@ func completion(w http.ResponseWriter, req *http.Request) {
   // see if need to pay
   rejected := false
   cleanTimedOut()
-  {
+  if len(stripe.Key) == 0 {
+   log.Printf("Stripe capabilities are disabled, so automatically allowing completion")
+  } else {
    if len(userToken) != 4 {
     // where I do the IP rate limiting
 
@@ -465,19 +481,21 @@ func main() {
  }
  checkoutRedirectTo = os.Getenv("REDIRECT_TO")
  if checkoutRedirectTo == "" {
-  log.Fatal("Must provide a base URL (without slash) for playgpt to redirect to")
+	 log.Printf("No REDIRECT_TO environment variable, will just redirect to https://google.com")
  }
  stripeKey := os.Getenv("STRIPE_KEY")
  if stripeKey == "" {
-  log.Fatal("Must provide stripe key")
+  log.Printf("No stripe key provided, disabling payment behavior")
  }
  daypassPriceId = os.Getenv("PRICE_ID")
- if daypassPriceId == "" {
+ if len(stripeKey) > 0 && daypassPriceId == "" {
   log.Fatal("Must provide daypass price ID")
  }
- stripe.Key = stripeKey
+ if len(stripeKey) > 0 {
+	 stripe.Key = stripeKey
+ }
  webhookSecret = os.Getenv("WEBHOOK_SECRET")
- if webhookSecret == "" {
+ if len(stripeKey) > 0 && webhookSecret == "" {
   log.Fatal("Must provide webhook secret for receiving checkout completed events")
  }
 
