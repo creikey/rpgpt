@@ -286,6 +286,7 @@ typedef struct Entity
 #endif
 	bool opened;
 	float opened_amount;
+	float loading_anim_in;
 	bool gave_away_sword;
 	Memory *memories_first;
 	Memory *memories_last;
@@ -655,11 +656,11 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 	}
 	if(error_message.size == 0 && who_i_am_str.size == 0)
 	{
-		error_message = MD_S8Lit("Expected field named `who_i_am` in message");
+		error_message = MD_S8Lit("You must have a field called `who_i_am` in your response, and it must match the character you're playing as");
 	}
 	if(error_message.size == 0 && action_str.size == 0)
 	{
-		error_message = MD_S8Lit("Expected field named `action` in message");
+		error_message = MD_S8Lit("You must have a field named `action` in your response.");
 	}
 	if(error_message.size == 0 && talking_to_str.size == 0)
 	{

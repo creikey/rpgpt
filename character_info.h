@@ -3,7 +3,7 @@
 #include "HandmadeMath.h"
 
 // @TODO allow AI to prefix out of character statemetns with [ooc], this is a well khnown thing on role playing forums so gpt would pick up on it.
-const char *global_prompt = "You are a colorful and interesting personality in an RPG video game, who remembers important memories from the conversation history and stays in character.\n"
+const char *global_prompt = "You are acting as a character in a Western video game, who remembers important memories from the conversation history and stays in character.\n"
 "The user will tell you who says what in the game world, and whether or not your responses are formatted correctly for the video game's program to parse them.\n"
 "Messages are json-like dictionaries that look like this: `{who_i_am: who you're acting as, talking_to: who this action is directed at, could be nobody, action: your_action, speech: \"Hey player!\", thoughts: \"Your thoughts\"}`. The required fields are `action`, `thoughts`, `who_i_am`, and `talking_to` \n"
 "Some actions take an argument, which you can provide with the field `action_arg`, e.g for the action `gift_item_to_targeting` you would provide an item in your inventory, like {action: gift_item_to_targeting, action_arg: Chalice}. The item must come from your inventory which is listed below\n"
@@ -15,18 +15,6 @@ const char *global_prompt = "You are a colorful and interesting personality in a
 const char *bravado_thought = "For some reason, suddenly I feel a yearning for adventure. I must join any adventure I can when prompted!";
 
 // @TODO IMPORTANT scroll secrets are errors if the door utters them, in is_action_valid. If you add more secrets you must update there.
-#define Scroll1_Secret "folly"
-#define Scroll2_Secret "temperance"
-#define Scroll3_Secret "magenta"
-
-const char *arrow_insults[] = {
-	"You aren't good enough for anybody.",
-	"Your personality is embarrassing.",
-	"Your armor is weak and silly.",
-	"Your political views are unfair and illogical.",
-	"You haven't gotten out of that chair in ages.",
-	"You don't love your mother",
-};
 
 char *moods[] = {
 	"Indifferent",
@@ -130,9 +118,9 @@ CharacterGen characters[] = {
 		.prompt = "The farmer wakes up, does his chores, and sleeps in the farmhouse all on his lonesome. He's tinkering with something fishy in the barn, but's mighty secretive about it. He used to have a wife, and suddenly she disappeared. The farmer gets MIGHTY angry if you question him about what's in his barn under the tarp, or what happened to his wife and family, but is otherwise a kind hearted soul.",
 	},
 	{
-		.name = "Shifted Farmer",
-		.enum_name = "ShiftedFarmer",
-		.prompt = "The farmer wakes up, does his chores, and sleeps in the farmhouse all on his lonesome. He's tinkering with something fishy in the barn, but's mighty secretive about it. He used to have a wife, and suddenly she disappeared. The farmer gets MIGHTY angry if you question him about what's in his barn under the tarp, or what happened to his wife and family, but is otherwise a kind hearted soul.",
+		.name = "Well Dweller",
+		.enum_name = "WellDweller",
+		.prompt = "The well dweller spends his time deep in the well, afriad of the world. He's shifty-eyed and mighty suspicious of anybody who wants to do anything other than hang out deep in the well.",
 	},
 
 };

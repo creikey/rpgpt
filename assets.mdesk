@@ -2,6 +2,10 @@
 {
  filepath: "shifted_farmer.png",
 }
+@image loading:
+{
+ filepath: "loading.png",
+}
 @image dialog_bubble:
 {
  filepath: "dialog_bubble.png",

@@ -654,7 +654,7 @@ Vec2 entity_aabb_size(Entity *e)
 	}
 	else if (e->is_npc)
 	{
-		if(e->npc_kind == NPC_Farmer || e->npc_kind == NPC_ShiftedFarmer)
+		if(e->npc_kind == NPC_Farmer || e->npc_kind == NPC_WellDweller)
 		{
 			return V2(1,1);
 		}
@@ -2169,8 +2169,8 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 					{
 						MD_String8 enum_str = expect_childnode(scratch.arena, cur, MD_S8Lit("enum"), &drama_errors)->first_child->string;
 						MD_String8 dialog = expect_childnode(scratch.arena, cur, MD_S8Lit("dialog"), &drama_errors)->first_child->string;
-						MD_String8 thoughts_str = MD_ChildFromString(cur, MD_S8Lit("thoughts_str"), 0)->first_child->string;
-						MD_String8 action_str = MD_ChildFromString(cur, MD_S8Lit("action_str"), 0)->first_child->string; 
+						MD_String8 thoughts_str = MD_ChildFromString(cur, MD_S8Lit("thoughts"), 0)->first_child->string;
+						MD_String8 action_str = MD_ChildFromString(cur, MD_S8Lit("action"), 0)->first_child->string; 
 						MD_String8 mood_str = MD_ChildFromString(cur, MD_S8Lit("mood"), 0)->first_child->string;
 
 						current_context.author_npc_kind = parse_enumstr(scratch.arena, enum_str, &drama_errors, NpcKind_names, "NpcKind", "NPC_");
@@ -2218,6 +2218,7 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 											this_context.i_said_this = true;
 										}
 										remember_action(it, current_action, this_context);
+										it->words_said = 999; // prevent the animating in sound effects of words said in drama document
 										found = true;
 										break;
 									}
@@ -2228,6 +2229,7 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 									PushWithLint(scratch.arena, &drama_errors, "Couldn't find NPC of kind %s in the current map", characters[want].enum_name);
 								}
 							}
+							Log("Propagated to %.s...\n", characters[want].name);
 						}
 					}
 				}
@@ -5711,7 +5713,7 @@ void frame(void)
 					Armature *to_use = 0;
 					if(it->npc_kind == NPC_Farmer)
 						to_use = &farmer_armature;
-					else if(it->npc_kind == NPC_ShiftedFarmer)
+					else if(it->npc_kind == NPC_WellDweller)
 						to_use = &shifted_farmer_armature;
 					else
 						assert(false);
@@ -6881,7 +6883,8 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 					float dist = LenV2(SubV2(it->pos, gs.player->pos));
 					float bubble_factor = 1.0f - clamp01(dist/6.0f);
 					Vec3 bubble_pos = AddV3(plane_point(it->pos), V3(0,1.7f,0)); // 1.7 meters is about 5'8", average person height
-					Vec2 screen_pos = threedee_to_screenspace(bubble_pos);
+					Vec2 head_pos = threedee_to_screenspace(bubble_pos);
+					Vec2 screen_pos = head_pos;
 					Vec2 size = V2(400.0f,400.0f);
 					Vec2 bubble_center = AddV2(screen_pos, V2(-10.0f,55.0f));
 					float dialog_alpha = clamp01(bubble_factor * it->dialog_fade);
@@ -6891,7 +6894,13 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 							blendalpha(WHITE, dialog_alpha),
 							.layer = LAYER_UI_FG,
 					});
-
+					it->loading_anim_in = Lerp(it->loading_anim_in, dt*5.0f, it->gen_request_id != 0 ? 1.0f : 0.0f);
+					draw_quad((DrawParams){
+							quad_rotated_centered(head_pos, V2(40,40), (float)elapsed_time*2.0f),
+							IMG(image_loading),
+							blendalpha(WHITE, it->loading_anim_in),
+							.layer = LAYER_UI_FG,
+					});
 					AABB placing_text_in = aabb_centered(AddV2(bubble_center, V2(0,10.0f)), V2(size.x*0.8f, size.y*0.15f));
 					dbgrect(placing_text_in);
 
