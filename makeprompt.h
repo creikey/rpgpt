@@ -290,6 +290,7 @@ typedef struct Entity
 	bool gave_away_sword;
 	Memory *memories_first;
 	Memory *memories_last;
+	Memory *memories_added_while_time_stopped;
 	bool direction_of_spiral_pattern;
 	float dialog_panel_opacity;
 	int words_said;
@@ -351,6 +352,9 @@ void fill_available_actions(Entity *it, AvailableActions *a)
 typedef struct GameState {
 	uint64_t tick;
 	bool won;
+	
+	// processing may still occur after time has stopped on the gamestate, 
+	bool stopped_time;
 
 	// these must point entities in its own array.
 	Entity *player;

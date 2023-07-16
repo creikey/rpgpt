@@ -328,6 +328,9 @@ typedef struct {
 } ItemgridState;
 ItemgridState item_grid_state = {0};
 
+
+
+
 // set to true when should receive text input from the web input box
 // or desktop text input
 bool receiving_text_input = false;
@@ -1394,6 +1397,16 @@ float flycam_speed = 1.0f;
 Mat4 view = {0}; 
 Mat4 projection = {0};
 
+typedef struct ListOfEntities {
+	struct ListOfEntities *next;
+	struct ListOfEntities *prev;
+	EntityRef referring_to;
+} ListOfEntities;
+
+ListOfEntities *unread_first = 0;
+ListOfEntities *unread_last = 0;
+ListOfEntities *unread_free_list = 0;
+
 Vec4 IsPoint(Vec3 point)
 {
 	return V4(point.x, point.y, point.z, 1.0f);
@@ -1571,9 +1584,9 @@ Entity *gete(EntityRef ref)
 	}
 }
 
-void push_memory(Entity *e, Memory new_memory)
+void push_memory(GameState *gs, Entity *e, Memory new_memory)
 {
-	new_memory.tick_happened = gs.tick;
+	new_memory.tick_happened = gs->tick;
 
 	Memory *memory_allocated = 0;
 	if(memories_free_list)
@@ -1596,7 +1609,10 @@ void push_memory(Entity *e, Memory new_memory)
 		MD_StackPush(memories_free_list, freed);
 		count -= 1;
 	}
-	MD_DblPushBack(e->memories_first, e->memories_last, memory_allocated);
+	if(gs->stopped_time)
+		MD_StackPush(e->memories_added_while_time_stopped, memory_allocated);
+	else
+		MD_DblPushBack(e->memories_first, e->memories_last, memory_allocated);
 
 	if(!new_memory.context.i_said_this)
 	{
@@ -1630,7 +1646,7 @@ Entity *get_targeted(Entity *from, NpcKind targeted)
 	return 0;
 }
 
-void remember_action(Entity *to_modify, Action a, MemoryContext context)
+void remember_action(GameState *gs, Entity *to_modify, Action a, MemoryContext context)
 {
 	Memory new_memory = {0};
 	memcpy(new_memory.speech, a.speech, a.speech_length);
@@ -1642,7 +1658,7 @@ void remember_action(Entity *to_modify, Action a, MemoryContext context)
 	new_memory.context = context;
 	new_memory.action_argument = a.argument;
 
-	push_memory(to_modify, new_memory);
+	push_memory(gs, to_modify, new_memory);
 
 	if(context.i_said_this)
 	{
@@ -1857,7 +1873,7 @@ float propagating_radius(PropagatingAction *p)
 // of the action physically and through the party
 // If the action is invalid, remembers the error if it's an NPC, and does nothing else
 // Returns if the action was valid or not
-bool perform_action(Entity *from, Action a)
+bool perform_action(GameState *gs, Entity *from, Action a)
 {
 	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 
@@ -1867,7 +1883,7 @@ bool perform_action(Entity *from, Action a)
 	if(a.speech_length > 0)
 		from->dialog_fade = 2.5f;
 
-	if(from == gs.player && gete(from->talking_to))
+	if(from == gs->player && gete(from->talking_to))
 	{
 		context.was_talking_to_somebody = true;
 		context.talking_to_kind = gete(from->talking_to)->npc_kind;
@@ -1906,13 +1922,13 @@ bool perform_action(Entity *from, Action a)
 		{
 			MemoryContext my_context = context;
 			my_context.i_said_this = true;
-			remember_action(from, a, my_context); 
+			remember_action(gs, from, a, my_context); 
 		}
 
 		// memory of target
 		if(targeted)
 		{
-			remember_action(targeted, a, context);
+			remember_action(gs, targeted, a, context);
 		}
 
 		// propagate physically
@@ -2217,7 +2233,7 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 										{
 											this_context.i_said_this = true;
 										}
-										remember_action(it, current_action, this_context);
+										remember_action(gs, it, current_action, this_context);
 										it->words_said = 999; // prevent the animating in sound effects of words said in drama document
 										found = true;
 										break;
@@ -2598,7 +2614,7 @@ void end_text_input(char *what_player_said_cstr)
 		memcpy(to_perform.speech, what_player_said.str, what_player_said.size);
 		to_perform.speech_length = (int)what_player_said.size;
 
-		perform_action(gs.player, to_perform);
+		perform_action(&gs, gs.player, to_perform);
 	}
 	MD_ReleaseScratch(scratch);
 }
@@ -5892,6 +5908,8 @@ void frame(void)
 		static bool player_in_combat = false;
 
 		float speed_target = 1.0f;
+		gs.stopped_time = unread_first != 0;
+		if(gs.stopped_time) speed_target = 0.0f;
 		// pausing the game
 		speed_factor = Lerp(speed_factor, unwarped_dt*10.0f, speed_target);
 		if (fabsf(speed_factor - speed_target) <= 0.05f)
@@ -5933,7 +5951,7 @@ void frame(void)
 									if(!cur->already_propagated_to[frome(it).index])
 									{
 										cur->already_propagated_to[frome(it).index] = true;
-										remember_action(it, cur->a, cur->context);
+										remember_action(&gs, it, cur->a, cur->context);
 									}
 								}
 							}
@@ -6012,7 +6030,21 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 										if (parse_response.size == 0)
 										{
 											Log("Performing action %s!\n", actions[out.kind].name);
-											perform_action(it, out);
+											perform_action(&gs, it, out);
+
+											ListOfEntities *new_unread = 0;
+											if(unread_free_list)
+											{
+												new_unread = unread_free_list;
+												*new_unread = (ListOfEntities){0};
+												MD_StackPop(unread_free_list);
+											}
+											else
+											{
+												new_unread = MD_PushArray(persistent_arena, ListOfEntities, 1);
+											}
+											new_unread->referring_to = frome(it);
+											MD_DblPushBack(unread_first, unread_last, new_unread);
 										}
 										else
 										{
@@ -6041,7 +6073,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 										MD_String8 speech_mdstring = MD_S8Lit("I'm not sure...");
 										memcpy(to_perform.speech, speech_mdstring.str, speech_mdstring.size);
 										to_perform.speech_length = (int)speech_mdstring.size;
-										perform_action(it, to_perform);
+										perform_action(&gs, it, to_perform);
 									}
 									else if (status == -1)
 									{
@@ -6483,6 +6515,16 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 						Entity *it = &gs.entities[i];
 						if (it->destroy)
 						{
+							// add all memories to memory free list
+							for(Memory *cur = it->memories_first; cur;)
+							{
+								Memory *prev = cur;
+								cur = cur->next;
+								MD_StackPush(memories_free_list, prev);
+							}
+							it->memories_first = 0;
+							it->memories_last = 0;
+
 							int gen = it->generation;
 							*it = (Entity) { 0 };
 							it->generation = gen;
@@ -6502,90 +6544,93 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 							}
 							else if(it->is_npc)
 							{
-								it->perceptions_dirty = false; // needs to be in beginning because they might be redirtied by the new perception
-								MD_String8 prompt_str = {0};
+								if (!gs.stopped_time)
+								{
+									it->perceptions_dirty = false; // needs to be in beginning because they might be redirtied by the new perception
+									MD_String8 prompt_str = {0};
 #ifdef DO_CHATGPT_PARSING
-								prompt_str = generate_chatgpt_prompt(frame_arena, it, get_can_talk_to(it));
+									prompt_str = generate_chatgpt_prompt(frame_arena, it, get_can_talk_to(it));
 #else
-								generate_prompt(it, &prompt);
+									generate_prompt(it, &prompt);
 #endif
-								Log("Sending request with prompt `%.*s`\n", MD_S8VArg(prompt_str));
+									Log("Sending request with prompt `%.*s`\n", MD_S8VArg(prompt_str));
 
 #ifdef WEB
-								// fire off generation request, save id
-								MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-								MD_String8 terminated_completion_url = nullterm(scratch.arena, FmtWithLint(scratch.arena, "%s://%s:%d/completion", IS_SERVER_SECURE ? "https" : "http", SERVER_DOMAIN, SERVER_PORT));
-								int req_id = EM_ASM_INT( {
+									// fire off generation request, save id
+									MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+									MD_String8 terminated_completion_url = nullterm(scratch.arena, FmtWithLint(scratch.arena, "%s://%s:%d/completion", IS_SERVER_SECURE ? "https" : "http", SERVER_DOMAIN, SERVER_PORT));
+									int req_id = EM_ASM_INT({
 										return make_generation_request(UTF8ToString($0, $1), UTF8ToString($2, $3));
-										}, prompt_str.str, (int)prompt_str.size, terminated_completion_url.str, (int)terminated_completion_url.size);
-								it->gen_request_id = req_id;
-								MD_ReleaseScratch(scratch);
+									},
+																					prompt_str.str, (int)prompt_str.size, terminated_completion_url.str, (int)terminated_completion_url.size);
+									it->gen_request_id = req_id;
+									MD_ReleaseScratch(scratch);
 #endif
 
 #ifdef DESKTOP
-								// desktop http request, no more mocking
-								MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+									// desktop http request, no more mocking
+									MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 
-								MD_String8 ai_response = {0};
-								bool mocking_the_ai_response = false;
+									MD_String8 ai_response = {0};
+									bool mocking_the_ai_response = false;
 #ifdef DEVTOOLS
 #ifdef MOCK_AI_RESPONSE
-								mocking_the_ai_response = true;
+									mocking_the_ai_response = true;
 #endif
 #endif
-								bool succeeded = true; // couldn't get AI response if false
-								if(mocking_the_ai_response)
-								{
-									if (it->memories_last->context.talking_to_kind == it->npc_kind)
+									bool succeeded = true; // couldn't get AI response if false
+									if (mocking_the_ai_response)
 									{
-										const char *action = "none";
-										//if(it->standing != STANDING_JOINED) action = "joins_player";
-										// @Place(more trailer jank)
-										char *rigged_dialog[] = {
-											/*
-										"Just trying to survive in this crazy world, same as everyone else.",
-										"We'll see who's crazy...",
-										"Join me down here, we'll wait it out",
-										"...",
-										*/
-											"HEY!",
-											"Sing me a rhyme, young man",
-											"The bell tolls for the meak...",
-											"HAHAHAHA",
-										};
-										char *next_dialog = rigged_dialog[it->times_talked_to % ARRLEN(rigged_dialog)];
-										ai_response = MD_S8Fmt(frame_arena, "{who_i_am: \"%s\", talking_to: nobody, action: %s, speech: \"%s\", thoughts: \"I'm thinking...\", mood: Happy}", characters[it->npc_kind].name, action, next_dialog);
+										if (it->memories_last->context.talking_to_kind == it->npc_kind)
+										{
+											const char *action = "none";
+											// if(it->standing != STANDING_JOINED) action = "joins_player";
+											//  @Place(more trailer jank)
+											char *rigged_dialog[] = {
+													/*
+												"Just trying to survive in this crazy world, same as everyone else.",
+												"We'll see who's crazy...",
+												"Join me down here, we'll wait it out",
+												"...",
+												*/
+													"HEY!",
+													"Sing me a rhyme, young man",
+													"The bell tolls for the meak...",
+													"HAHAHAHA",
+											};
+											char *next_dialog = rigged_dialog[it->times_talked_to % ARRLEN(rigged_dialog)];
+											ai_response = MD_S8Fmt(frame_arena, "{who_i_am: \"%s\", talking_to: nobody, action: %s, speech: \"%s\", thoughts: \"I'm thinking...\", mood: Happy}", characters[it->npc_kind].name, action, next_dialog);
 #ifdef DESKTOP
-										it->times_talked_to += 1;
+											it->times_talked_to += 1;
 #endif
+										}
+										else
+										{
+											ai_response = MD_S8Fmt(frame_arena, "{who_i_am: \"%s\", talking_to: nobody, action: none, speech: \"I heard that...\", thoughts: \"I'm thinking...\", mood: Happy}", characters[it->npc_kind].name);
+										}
 									}
 									else
 									{
-										ai_response = MD_S8Fmt(frame_arena, "{who_i_am: \"%s\", talking_to: nobody, action: none, speech: \"I heard that...\", thoughts: \"I'm thinking...\", mood: Happy}", characters[it->npc_kind].name);
-									}
-								}
-								else
-								{
-									MD_String8 post_request_body = FmtWithLint(scratch.arena, "|%.*s", MD_S8VArg(prompt_str));
-									it->gen_request_id = make_generation_request(post_request_body);
-								}
-
-								// something to mock
-								if(ai_response.size > 0)
-								{
-									Log("Mocking...\n");
-									Action a = {0};
-									MD_String8 error_message = MD_S8Lit("Something really bad happened bro. File " STRINGIZE(__FILE__) " Line " STRINGIZE(__LINE__));
-									if(succeeded)
-									{
-										error_message = parse_chatgpt_response(scratch.arena, it, ai_response, &a);
+										MD_String8 post_request_body = FmtWithLint(scratch.arena, "|%.*s", MD_S8VArg(prompt_str));
+										it->gen_request_id = make_generation_request(post_request_body);
 									}
 
-									if(mocking_the_ai_response)
+									// something to mock
+									if (ai_response.size > 0)
 									{
+										Log("Mocking...\n");
+										Action a = {0};
+										MD_String8 error_message = MD_S8Lit("Something really bad happened bro. File " STRINGIZE(__FILE__) " Line " STRINGIZE(__LINE__));
+										if (succeeded)
+										{
+											error_message = parse_chatgpt_response(scratch.arena, it, ai_response, &a);
+										}
+
+										if (mocking_the_ai_response)
+										{
 										assert(succeeded);
 										assert(error_message.size == 0);
-										perform_action(it, a);
+										perform_action(&gs, it, a);
 									}
 									else
 									{
@@ -6593,7 +6638,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 										{
 											if (error_message.size == 0)
 											{
-												perform_action(it, a);
+												perform_action(&gs, it, a);
 											}
 											else
 											{
@@ -6604,9 +6649,11 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 									}
 								}
 
+
 								MD_ReleaseScratch(scratch);
 #undef SAY
-#endif
+#endif		}
+							}
 							}
 							else
 							{
@@ -6888,15 +6935,34 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 					Vec2 size = V2(400.0f,400.0f);
 					Vec2 bubble_center = AddV2(screen_pos, V2(-10.0f,55.0f));
 					float dialog_alpha = clamp01(bubble_factor * it->dialog_fade);
+					bool unread = false;
+					if(unread_first && gete(unread_first->referring_to) == it)
+					{
+						dialog_alpha = 1.0f;
+						unread = true;
+					}
 					draw_quad((DrawParams){
 							quad_centered(bubble_center, size),
 							IMG(image_dialog_bubble),
 							blendalpha(WHITE, dialog_alpha),
 							.layer = LAYER_UI_FG,
 					});
-					it->loading_anim_in = Lerp(it->loading_anim_in, dt*5.0f, it->gen_request_id != 0 ? 1.0f : 0.0f);
+					if(unread)
+					{
+						draw_quad((DrawParams){
+								quad_centered(AddV2(bubble_center, V2(size.x*0.4f, -32.0f + (float)sin(unwarped_elapsed_time*2.0)*10.0f)), V2(32,32)),
+								IMG(image_unread_triangle),
+								blendalpha(WHITE, 0.8f),
+								.layer = LAYER_UI_FG,
+						});
+						if(keypressed[SAPP_KEYCODE_E])
+						{
+							MD_DblRemove(unread_first, unread_last, unread_first);
+						}
+					}
+					it->loading_anim_in = Lerp(it->loading_anim_in, unwarped_dt*5.0f, it->gen_request_id != 0 ? 1.0f : 0.0f);
 					draw_quad((DrawParams){
-							quad_rotated_centered(head_pos, V2(40,40), (float)elapsed_time*2.0f),
+							quad_rotated_centered(head_pos, V2(40,40), (float)unwarped_elapsed_time*2.0f),
 							IMG(image_loading),
 							blendalpha(WHITE, it->loading_anim_in),
 							.layer = LAYER_UI_FG,
@@ -7189,7 +7255,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 						assert(to);
 
 						Action give_action = {.kind = ACT_gift_item_to_targeting, .argument = { .item_to_give = selected_item }, .talking_to_somebody = true, .talking_to_kind = to->npc_kind};
-						perform_action(gs.player, give_action);
+						perform_action(&gs, gs.player, give_action);
 					}
 					else
 					{

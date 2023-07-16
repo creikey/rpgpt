@@ -2,8 +2,11 @@
 
 echo Running codegen...
 
-rmdir /S /q gen
-mkdir gen
+if exist gen\ (
+  echo "Codegen folder already exists, not deleting because that messes with vscode intellisense..."
+) else (
+  mkdir gen
+)
 
 @REM shaders
 thirdparty\sokol-shdc.exe --input threedee.glsl --output gen\threedee.glsl.h --slang glsl100:hlsl5:metal_macos:glsl330 || goto :error

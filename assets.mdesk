@@ -2,6 +2,10 @@
 {
  filepath: "shifted_farmer.png",
 }
+@image unread_triangle:
+{
+ filepath: "unread_triangle.png",
+}
 @image loading:
 {
  filepath: "loading.png",
