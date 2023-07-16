@@ -5899,6 +5899,70 @@ void frame(void)
 		}
 #endif
 
+		// @Place(UI rendering that happens before gameplay processing so can consume events before the gameplay needs them)
+		PROFILE_SCOPE("Entity UI Rendering")
+		{
+			ENTITIES_ITER(gs.entities)
+			{
+				if (it->is_npc)
+				{
+					const float text_scale = 1.0f;
+					float dist = LenV2(SubV2(it->pos, gs.player->pos));
+					float bubble_factor = 1.0f - clamp01(dist / 6.0f);
+					Vec3 bubble_pos = AddV3(plane_point(it->pos), V3(0, 1.7f, 0)); // 1.7 meters is about 5'8", average person height
+					Vec2 head_pos = threedee_to_screenspace(bubble_pos);
+					Vec2 screen_pos = head_pos;
+					Vec2 size = V2(400.0f, 400.0f);
+					Vec2 bubble_center = AddV2(screen_pos, V2(-10.0f, 55.0f));
+					float dialog_alpha = clamp01(bubble_factor * it->dialog_fade);
+					bool unread = false;
+					if (unread_first && gete(unread_first->referring_to) == it)
+					{
+						dialog_alpha = 1.0f;
+						unread = true;
+					}
+					draw_quad((DrawParams){
+							quad_centered(bubble_center, size),
+							IMG(image_dialog_bubble),
+							blendalpha(WHITE, dialog_alpha),
+							.layer = LAYER_UI_FG,
+					});
+					if (unread)
+					{
+						draw_quad((DrawParams){
+								quad_centered(AddV2(bubble_center, V2(size.x * 0.4f, -32.0f + (float)sin(unwarped_elapsed_time * 2.0) * 10.0f)), V2(32, 32)),
+								IMG(image_unread_triangle),
+								blendalpha(WHITE, 0.8f),
+								.layer = LAYER_UI_FG,
+						});
+						if (interact)
+						{
+							MD_DblRemove(unread_first, unread_last, unread_first);
+							interact = false;
+						}
+					}
+					it->loading_anim_in = Lerp(it->loading_anim_in, unwarped_dt * 5.0f, it->gen_request_id != 0 ? 1.0f : 0.0f);
+					draw_quad((DrawParams){
+							quad_rotated_centered(head_pos, V2(40, 40), (float)unwarped_elapsed_time * 2.0f),
+							IMG(image_loading),
+							blendalpha(WHITE, it->loading_anim_in),
+							.layer = LAYER_UI_FG,
+					});
+					AABB placing_text_in = aabb_centered(AddV2(bubble_center, V2(0, 10.0f)), V2(size.x * 0.8f, size.y * 0.15f));
+					dbgrect(placing_text_in);
+
+					MD_String8List last = last_said_without_unsaid_words(frame_arena, it);
+					PlacedWordList placed = place_wrapped_words(frame_arena, MD_S8ListJoin(frame_arena, last, &(MD_StringJoin){.mid = MD_S8Lit(" ")}), text_scale, aabb_size(placing_text_in).x, default_font);
+					// translate_words_by(placed, V2(placing_text_in.upper_left.x, placing_text_in.lower_right.y));
+					translate_words_by(placed, AddV2(placing_text_in.upper_left, V2(0, -get_vertical_dist_between_lines(default_font, text_scale))));
+					for (PlacedWord *cur = placed.first; cur; cur = cur->next)
+					{
+						draw_text((TextParams){false, cur->text, cur->lower_left_corner, blendalpha(colhex(0xEEE6D2), dialog_alpha), text_scale});
+					}
+				}
+			}
+		}
+
 		assert(gs.player != NULL);
 
 		// gameplay processing loop, do multiple if lagging
@@ -6914,71 +6978,6 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 			if (to_draw.anim)
 			{
 				draw_animated_sprite(to_draw);
-			}
-		}
-
-		// @Place(entity rendering)
-		// render gs.entities render entities
-
-		PROFILE_SCOPE("entity rendering")
-		{
-			ENTITIES_ITER(gs.entities)
-			{
-				if(it->is_npc)
-				{
-					const float text_scale = 1.0f;
-					float dist = LenV2(SubV2(it->pos, gs.player->pos));
-					float bubble_factor = 1.0f - clamp01(dist/6.0f);
-					Vec3 bubble_pos = AddV3(plane_point(it->pos), V3(0,1.7f,0)); // 1.7 meters is about 5'8", average person height
-					Vec2 head_pos = threedee_to_screenspace(bubble_pos);
-					Vec2 screen_pos = head_pos;
-					Vec2 size = V2(400.0f,400.0f);
-					Vec2 bubble_center = AddV2(screen_pos, V2(-10.0f,55.0f));
-					float dialog_alpha = clamp01(bubble_factor * it->dialog_fade);
-					bool unread = false;
-					if(unread_first && gete(unread_first->referring_to) == it)
-					{
-						dialog_alpha = 1.0f;
-						unread = true;
-					}
-					draw_quad((DrawParams){
-							quad_centered(bubble_center, size),
-							IMG(image_dialog_bubble),
-							blendalpha(WHITE, dialog_alpha),
-							.layer = LAYER_UI_FG,
-					});
-					if(unread)
-					{
-						draw_quad((DrawParams){
-								quad_centered(AddV2(bubble_center, V2(size.x*0.4f, -32.0f + (float)sin(unwarped_elapsed_time*2.0)*10.0f)), V2(32,32)),
-								IMG(image_unread_triangle),
-								blendalpha(WHITE, 0.8f),
-								.layer = LAYER_UI_FG,
-						});
-						if(keypressed[SAPP_KEYCODE_E])
-						{
-							MD_DblRemove(unread_first, unread_last, unread_first);
-						}
-					}
-					it->loading_anim_in = Lerp(it->loading_anim_in, unwarped_dt*5.0f, it->gen_request_id != 0 ? 1.0f : 0.0f);
-					draw_quad((DrawParams){
-							quad_rotated_centered(head_pos, V2(40,40), (float)unwarped_elapsed_time*2.0f),
-							IMG(image_loading),
-							blendalpha(WHITE, it->loading_anim_in),
-							.layer = LAYER_UI_FG,
-					});
-					AABB placing_text_in = aabb_centered(AddV2(bubble_center, V2(0,10.0f)), V2(size.x*0.8f, size.y*0.15f));
-					dbgrect(placing_text_in);
-
-					MD_String8List last = last_said_without_unsaid_words(frame_arena, it);
-					PlacedWordList placed = place_wrapped_words(frame_arena, MD_S8ListJoin(frame_arena, last, &(MD_StringJoin){.mid=MD_S8Lit(" ")}), text_scale, aabb_size(placing_text_in).x, default_font);
-					//translate_words_by(placed, V2(placing_text_in.upper_left.x, placing_text_in.lower_right.y));
-					translate_words_by(placed, AddV2(placing_text_in.upper_left, V2(0, -get_vertical_dist_between_lines(default_font, text_scale))));
-					for(PlacedWord *cur = placed.first; cur; cur = cur->next)
-					{
-						draw_text((TextParams){false, cur->text, cur->lower_left_corner, blendalpha(colhex(0xEEE6D2), dialog_alpha), text_scale});
-					}
-				}
 			}
 		}
 
