@@ -2,6 +2,10 @@
 {
  filepath: "shifted_farmer.png",
 }
+@image man_in_black:
+{
+ filepath: "maninblack.png",
+}
 @image unread_triangle:
 {
  filepath: "unread_triangle.png",

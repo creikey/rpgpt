@@ -674,10 +674,12 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 sentenc
 	{
 		error_message = MD_S8Lit("You must have a field named `mood` in your message");
 	}
+	/*
 	if(error_message.size == 0 && thoughts_str.size == 0)
 	{
 		error_message = MD_S8Lit("You must have a field named `thoughts` in your message, and it must have nonzero size. Like { ... thoughts: \"<your thoughts>\" ... }");
 	}
+	*/
 	if(error_message.size == 0 && speech_str.size >= MAX_SENTENCE_LENGTH)
 	{
 		error_message = FmtWithLint(arena, "Speech string provided is too big, maximum bytes is %d", MAX_SENTENCE_LENGTH);

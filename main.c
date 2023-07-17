@@ -18,9 +18,19 @@
 #endif
 
 #ifdef WINDOWS
+
+
 #include <Windows.h>
 #include <processthreadsapi.h>
 #include <dbghelp.h>
+#include <stdint.h>
+
+// https://developer.download.nvidia.com/devzone/devcenter/gamegraphics/files/OptimusRenderingPolicies.pdf
+// Tells nvidia to use dedicated graphics card if it can on laptops that also have integrated graphics
+__declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001;
+// Vice versa for AMD but I don't have the docs link on me at the moment
+__declspec(dllexport) uint32_t AmdPowerXpressRequestHighPerformance = 0x00000001;
+
 #endif
 
 #define STRINGIZE(x) STRINGIZE2(x)
@@ -657,10 +667,12 @@ Vec2 entity_aabb_size(Entity *e)
 	}
 	else if (e->is_npc)
 	{
-		if(e->npc_kind == NPC_Farmer || e->npc_kind == NPC_WellDweller)
+		if(e->npc_kind == NPC_Farmer || e->npc_kind == NPC_WellDweller || e->npc_kind == NPC_ManInBlack)
 		{
 			return V2(1,1);
 		}
+		else
+			assert(false);
 		return V2(0,0);
 	}
 	else if (e->is_prop)
@@ -1104,6 +1116,10 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 
 	to_return.current_poses = MD_PushArray(arena, Transform, to_return.bones_length);
 	to_return.anim_blended_poses = MD_PushArray(arena, Transform, to_return.bones_length);
+	for(int i = 0; i < to_return.bones_length; i++)
+	{
+		to_return.anim_blended_poses[i] = (Transform){.scale = V3(1,1,1), .rotation = Make_Q(1,0,0,1)};
+	}
 
 	ser_MD_u64(&ser, &to_return.animations_length);
 	Log("Armature %.*s has  %llu animations\n", MD_S8VArg(armature_name), to_return.animations_length);
@@ -2135,7 +2151,7 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 		it->rotation = PI32;
 	}
 
-	// parse and enact the drama document
+	// @Place(parse and enact the drama document)
 	if(1)
 	{
 		MD_String8List drama_errors = {0};
@@ -2188,6 +2204,23 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 						MD_String8 thoughts_str = MD_ChildFromString(cur, MD_S8Lit("thoughts"), 0)->first_child->string;
 						MD_String8 action_str = MD_ChildFromString(cur, MD_S8Lit("action"), 0)->first_child->string; 
 						MD_String8 mood_str = MD_ChildFromString(cur, MD_S8Lit("mood"), 0)->first_child->string;
+						MD_String8 to_str = MD_ChildFromString(cur, MD_S8Lit("to"), 0)->first_child->string;
+
+						if(to_str.size > 0)
+						{
+							NpcKind talking_to = parse_enumstr(scratch.arena, to_str, &drama_errors, NpcKind_names, "NpcKind", "");
+							if (talking_to == NPC_Invalid)
+							{
+								PushWithLint(scratch.arena, &drama_errors, "The string provided for the 'to' field, intended to be who the NPC is directing their speech and action at, is invalid and is '%.*s'", MD_S8VArg(to_str));
+							}
+							else
+							{
+								current_context.was_talking_to_somebody = true;
+								current_context.talking_to_kind = talking_to;
+								current_action.talking_to_somebody = true;
+								current_action.talking_to_kind = talking_to;
+							}
+						}
 
 						current_context.author_npc_kind = parse_enumstr(scratch.arena, enum_str, &drama_errors, NpcKind_names, "NpcKind", "NPC_");
 						if(action_str.size > 0)
@@ -2234,7 +2267,17 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 											this_context.i_said_this = true;
 										}
 										remember_action(gs, it, current_action, this_context);
+										if(it->npc_kind != current_context.author_npc_kind)
+										{
+											// it's good for NPC health that they have exampmles of not saying anything in response to others speaking,
+											// so that they do the same when it's unlikely for them to talk.
+											Action no_speak = {.kind = ACT_none, .mood = Mood_Indifferent, .talking_to_somebody = false};
+											MemoryContext no_speak_context = {.i_said_this = true, .author_npc_kind = it->npc_kind};
+											remember_action(gs, it, no_speak, no_speak_context);
+										}
+
 										it->words_said = 999; // prevent the animating in sound effects of words said in drama document
+
 										found = true;
 										break;
 									}
@@ -3170,17 +3213,17 @@ LoadedFont load_font(MD_Arena *arena, MD_String8 font_filepath, float font_size)
 	return to_return;
 }
 
-
-
 Armature player_armature = {0};
 Armature farmer_armature = {0};
 Armature shifted_farmer_armature = {0};
+Armature man_in_black_armature = {0};
 
 // armatureanimations are processed once every visual frame from this list
 Armature *armatures[] = {
 	&player_armature,
 	&farmer_armature,
 	&shifted_farmer_armature,
+	&man_in_black_armature,
 };
 
 Mesh mesh_player = {0};
@@ -3243,11 +3286,15 @@ void init(void)
 	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/ArmatureExportedWithAnims.bin"));
 	player_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("ArmatureExportedWithAnims.bin"));
 
+	man_in_black_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Farmer.bin"));
+	man_in_black_armature.image = image_man_in_black;
+
 	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/Farmer.bin"));
 	farmer_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Farmer.bin"));
 
 	shifted_farmer_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Farmer.bin"));
 	shifted_farmer_armature.image = image_shifted_farmer;
+
 
 	MD_ArenaClear(frame_arena);
 
@@ -5731,6 +5778,8 @@ void frame(void)
 						to_use = &farmer_armature;
 					else if(it->npc_kind == NPC_WellDweller)
 						to_use = &shifted_farmer_armature;
+					else if(it->npc_kind == NPC_ManInBlack)
+						to_use = &man_in_black_armature;
 					else
 						assert(false);
 
@@ -6045,7 +6094,7 @@ void frame(void)
 							if(it->dialog_fade > 0.0f)
 								it->dialog_fade -= dt/DIALOG_FADE_TIME;
 
-							if (it->gen_request_id != 0)
+							if (it->gen_request_id != 0 && !gs.stopped_time)
 							{
 								assert(it->gen_request_id > 0);
 
@@ -7501,7 +7550,10 @@ void cleanup(void)
 #endif
 
 	MD_ArenaRelease(frame_arena);
-	MD_ArenaRelease(persistent_arena);
+	
+	// Don't free the persistent arena because threads still access their ChatRequest should_close fieldon shutdown,
+	// and ChatRequest is allocated on the persistent arena. We just shamelessly leak this memory. Cowabunga!
+	//MD_ArenaRelease(persistent_arena);
 	sg_shutdown();
 	hmfree(imui_state);
 	Log("Cleaning up\n");
