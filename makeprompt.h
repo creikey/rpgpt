@@ -237,7 +237,7 @@ typedef struct Entity
 	int generation;
 
 	// the kinds are at the top so you can quickly see what kind an entity is in the debugger
-	bool is_world;
+	bool is_world; // the static world. An entity is always returned when you collide with something so support that here
 	bool is_prop;
 	bool is_machine;
 	bool is_item;
@@ -254,9 +254,7 @@ typedef struct Entity
 	double dead_time;
 	bool dead;
 
-
-
-	// the static world. An entity is always returned when you collide with something so support that here
+	
 
 	// npcs and player
 	BUFF(ItemKind, 32) held_items;

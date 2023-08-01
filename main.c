@@ -229,6 +229,8 @@ float AngleOfV2(Vec2 v)
 
 #define TAU (PI*2.0)
 
+
+
 float lerp_angle(float from, float t, float to)
 {
 	double difference = fmod(to - from, TAU);
@@ -3813,6 +3815,7 @@ StacktraceInfo get_stacktrace()
 		symbol->MaxNameLen = ARRLEN(new_elem.data);
 		symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
 
+	
 		if(!SymFromAddr(process, (DWORD64) stack[i], 0, symbol))
 		{
 			DWORD error_code = GetLastError();
@@ -3861,6 +3864,46 @@ Vec2 into_clip_space(Vec2 screen_space_point)
 	return in_clip_space;
 }
 
+Vec4 inverse_perspective_divide(Vec4 divided_point, float what_was_w)
+{
+	//return V4(v.x / v.w, v.y / v.w, v.z / v.w, v.w / v.w);
+
+	// f(v).x = v.x / v.w;
+	// output_x = input_x / input_w;
+
+
+	return V4(divided_point.x * what_was_w, divided_point.y * what_was_w, divided_point.z * what_was_w, what_was_w);
+}
+Vec3 screenspace_point_to_camera_point(Vec2 screenspace)
+{
+	/*
+	gl_Position = perspective_divide(projection * view * world_space_point);
+	inverse_perspective_divide(gl_Position) = projection * view * world_space_point;
+	proj_inverse * inverse_perspective_divide(gl_Position) = view * world_space_point;
+	view_inverse * proj_inverse * inverse_perspective_divide(gl_Position) = world_space_point;
+	*/
+
+	Vec2 clip_space = into_clip_space(screenspace);
+	Vec4 output_position = V4(clip_space.x, clip_space.y, -1.0, 1.0);
+	float what_was_w = MulM4V4(projection, V4(0,0,-NEAR_PLANE_DISTANCE,1)).w;
+	Vec3 to_return = MulM4V4(MulM4(InvGeneralM4(view), InvGeneralM4(projection)), inverse_perspective_divide(output_position, what_was_w)).xyz;
+
+	return to_return;
+}
+
+Vec3 ray_intersect_plane(Vec3 ray_point, Vec3 ray_vector, Vec3 plane_point, Vec3 plane_normal)
+{
+	float d = DotV3(plane_point, MulV3F(plane_normal, -1.0f));
+
+	float denom = DotV3(plane_normal, ray_vector);
+	assert(fabsf(denom) > 1e-4f); // avoid divide by zero
+
+    float t = -(DotV3(plane_normal, ray_point) + d) / DotV3(plane_normal, ray_vector);
+
+    assert(t > 1e-4);
+
+    return AddV3(ray_point, MulV3F(ray_vector, t));
+}
 
 typedef BUFF(DrawParams, 1024*5) RenderingQueue;
 RenderingQueue rendering_queues[LAYER_LAST] = { 0 };
@@ -4374,7 +4417,7 @@ void draw_animated_sprite(DrawnAnimatedSprite d)
 }
 
 
-// gets aabbs overlapping the input aabb, including gs.entities and tiles
+// gets aabbs overlapping the input aabb, including gs.entities
 Overlapping get_overlapping(AABB aabb)
 {
 	Overlapping to_return = { 0 };
@@ -4588,7 +4631,6 @@ Vec2 move_and_slide(MoveSlideParams p)
 	if (p.col_info_out) *p.col_info_out = info;
 
 	Vec2 result_pos = aabb_center(at_new);
-	dbgplanerect(aabb_centered(result_pos, collision_aabb_size));
 	return result_pos;
 }
 
@@ -4713,7 +4755,12 @@ typedef struct
 MD_String8List last_said_without_unsaid_words(MD_Arena *arena, Entity *it)
 {
 	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
-	MD_String8List by_word = split_by_word(scratch.arena, last_said_sentence(it));
+	MD_String8 sentence = last_said_sentence(it);
+	if(sentence.size == 0)
+	{
+		return (MD_String8List){0};
+	}
+	MD_String8List by_word = split_by_word(scratch.arena, sentence);
 	MD_String8Node *cur = by_word.first;
 	MD_String8List without_unsaid_words = {0};
 	for(int i = 0; i < by_word.node_count; i++)
@@ -5469,7 +5516,7 @@ void flush_all_drawn_things(Vec3 light_dir, Vec3 cam_pos, Vec3 cam_facing, Vec3 
 			Mat4 shadow_view       = LookAt_RH(V3(0, 0, 0), light_dir, V3(0, 1, 0));
 			Mat4 shadow_projection = Orthographic_RH_NO(svp.l, svp.r, svp.b, svp.t, svp.n, svp.f);
 			light_space_matrix = MulM4(shadow_projection, shadow_view);
-			// debug_draw_shadow_info(cam_pos, cam_facing, cam_right, light_space_matrix);
+			//debug_draw_shadow_info(cam_pos, cam_facing, cam_right, light_space_matrix);
 
 			sg_begin_pass(state.shadows.pass, &state.shadows.pass_action);
 
@@ -5951,6 +5998,9 @@ void frame(void)
 		// @Place(UI rendering that happens before gameplay processing so can consume events before the gameplay needs them)
 		PROFILE_SCOPE("Entity UI Rendering")
 		{
+			while(unread_first && !gete(unread_first->referring_to))
+				MD_DblRemove(unread_first, unread_last, unread_first);
+
 			ENTITIES_ITER(gs.entities)
 			{
 				if (it->is_npc)
@@ -6001,12 +6051,15 @@ void frame(void)
 					dbgrect(placing_text_in);
 
 					MD_String8List last = last_said_without_unsaid_words(frame_arena, it);
-					PlacedWordList placed = place_wrapped_words(frame_arena, MD_S8ListJoin(frame_arena, last, &(MD_StringJoin){.mid = MD_S8Lit(" ")}), text_scale, aabb_size(placing_text_in).x, default_font);
-					// translate_words_by(placed, V2(placing_text_in.upper_left.x, placing_text_in.lower_right.y));
-					translate_words_by(placed, AddV2(placing_text_in.upper_left, V2(0, -get_vertical_dist_between_lines(default_font, text_scale))));
-					for (PlacedWord *cur = placed.first; cur; cur = cur->next)
+					if(last.node_count != 0)
 					{
-						draw_text((TextParams){false, cur->text, cur->lower_left_corner, blendalpha(colhex(0xEEE6D2), dialog_alpha), text_scale});
+						PlacedWordList placed = place_wrapped_words(frame_arena, MD_S8ListJoin(frame_arena, last, &(MD_StringJoin){.mid = MD_S8Lit(" ")}), text_scale, aabb_size(placing_text_in).x, default_font);
+						// translate_words_by(placed, V2(placing_text_in.upper_left.x, placing_text_in.lower_right.y));
+						translate_words_by(placed, AddV2(placing_text_in.upper_left, V2(0, -get_vertical_dist_between_lines(default_font, text_scale))));
+						for (PlacedWord *cur = placed.first; cur; cur = cur->next)
+						{
+							draw_text((TextParams){false, cur->text, cur->lower_left_corner, blendalpha(colhex(0xEEE6D2), dialog_alpha), text_scale});
+						}
 					}
 				}
 			}
@@ -6181,12 +6234,13 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 										Log("Failed to generate dialog! Fuck!\n");
 										having_errors = true;
 
-										// need somethin better here. Maybe each sentence has to know if it's player or NPC, that way I can remove the player's dialog
+										/*
 										Action to_perform = {0};
 										MD_String8 speech_mdstring = MD_S8Lit("I'm not sure...");
 										memcpy(to_perform.speech, speech_mdstring.str, speech_mdstring.size);
 										to_perform.speech_length = (int)speech_mdstring.size;
 										perform_action(&gs, it, to_perform);
+										*/
 									}
 									else if (status == -1)
 									{
@@ -7372,19 +7426,30 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 
 #ifdef DEVTOOLS
 
-		dbgsquare(mouse_pos);
-
-		// debug draw font image
-		{
-			//draw_quad((DrawParams) { quad_centered(V2(0.0, 0.0), V2(250.0, 250.0)), image_font, full_region(image_font), WHITE });
-		}
-
-		// statistics @Place(debug statistics)
+		// statistics @Place(devtools drawing developer menu drawing)
 		if (show_devtools)
-			PROFILE_SCOPE("statistics")
+			PROFILE_SCOPE("devtools drawing")
 			{
-				draw_quad((DrawParams){quad_at(V2(screen_size().x - 512.0f, screen_size().y), V2(512.0f, 512.0f)), IMG(state.shadows.color_img), WHITE, .layer = LAYER_UI_FG});
+				Vec2 depth_size = V2(200.0f, 200.0f);
+				draw_quad((DrawParams){quad_at(V2(screen_size().x - depth_size.x, screen_size().y), depth_size), IMG(state.shadows.color_img), WHITE, .layer = LAYER_UI_FG});
 				draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y/2.0f), MulV2F(screen_size(), 0.1f)), IMG(state.outline_pass_image), WHITE, .layer = LAYER_UI_FG});
+
+				//dbgsquare(mouse_pos);
+				Vec3 view_cam_pos = MulM4V4(InvGeneralM4(view), V4(0,0,0,1)).xyz;
+				Vec3 world_mouse = screenspace_point_to_camera_point(mouse_pos);
+				Vec3 mouse_ray = NormV3(SubV3(world_mouse, view_cam_pos));
+				Vec3 marker = ray_intersect_plane(view_cam_pos, mouse_ray, V3(0,0,0), V3(0,1,0));
+				Vec2 mouse_on_floor = point_plane(marker);
+				Overlapping mouse_over = get_overlapping(aabb_centered(mouse_on_floor, V2(1,1)));
+				BUFF_ITER(Entity*, &mouse_over)
+				{
+					dbgcol(PINK)
+					{
+						dbgplanerect(entity_aabb(*it));
+					}
+					break;
+				}
+				//dbgsquare3d(plane_point(gs.player->pos));
 
 				Vec2 pos = V2(0.0, screen_size().Y);
 				int num_entities = 0;
