@@ -7458,7 +7458,8 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 						for(Memory *cur = to_view->memories_first; cur; cur = cur->next)
 						if(cur->speech_length > 0)
 						{
-							MD_String8 text = MD_S8Fmt(frame_arena, "%s%s: %.*s", to_view->npc_kind == cur->context.author_npc_kind ? "(Me) " : "", characters[cur->context.author_npc_kind].name, cur->speech_length, cur->speech);
+							MD_String8 to_text =  cur->context.was_talking_to_somebody ? MD_S8Fmt(frame_arena, " to %s ", characters[cur->context.talking_to_kind].name) : MD_S8Lit("");
+							MD_String8 text = MD_S8Fmt(frame_arena, "%s%s%.*s: %.*s", to_view->npc_kind == cur->context.author_npc_kind ? "(Me) " : "", characters[cur->context.author_npc_kind].name, MD_S8VArg(to_text), cur->speech_length, cur->speech);
 							AABB bounds = draw_text((TextParams){false, text, cur_pos, WHITE, 1.0});
 							cur_pos.y -= aabb_size(bounds).y;
 						}
