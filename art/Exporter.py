@@ -10,7 +10,7 @@ C = bpy.context
 D = bpy.data
 
 LEVEL_EXPORT_NAME = "level"
-EXPORT_DIRECTORY = "../assets/exported_3d/exported"
+EXPORT_DIRECTORY = "../assets/exported_3d"
 
 print("\n\nLet's get it started")
 
