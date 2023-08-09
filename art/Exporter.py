@@ -189,6 +189,7 @@ for o in D.objects:
                 for animation in anims:
                     write_string(f, animation.name)
                     
+                    old_action = armature.animation_data.action
                     armature.animation_data.action = animation
                     startFrame = int(animation.frame_range.x)
                     endFrame = int(animation.frame_range.y)
@@ -228,7 +229,8 @@ for o in D.objects:
                             write_v3(f, translation)
                             write_quat(f, rotation)
                             write_v3(f, scale)
-
+                    
+                    armature.animation_data.action = old_action
                 # write the mesh data for the armature
                 bm = bmesh.new()
                 mesh = mesh_object.to_mesh()
