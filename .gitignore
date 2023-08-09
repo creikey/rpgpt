@@ -11,6 +11,11 @@ art/exported/
 # Exported web builds are zipped into zip files in the root of the repo
 *.zip
 
+# We checkin the zipped art blend to keep stuff small, the file compresses really well apparently...
+!art/art.zip
+art/art.blend
+
+
 # ctags
 tags
 
