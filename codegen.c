@@ -149,10 +149,7 @@ int main(int argc, char **argv)
 #define GEN_TABLE(arr_elem_type, table_name, arr, str_access) { fprintf(char_header, "char *%s[] = {\n", table_name); ARR_ITER(arr_elem_type, arr) fprintf(char_header, "\"%s\",\n", str_access); fprintf(char_header, "}; // %s\n", table_name); }
 #define GEN_ENUM(arr_elem_type, arr, enum_type_name, enum_name_access, fmt_str) { fprintf(char_header, "typedef enum\n{\n"); ARR_ITER(arr_elem_type, arr) fprintf(char_header, fmt_str, enum_name_access); fprintf(char_header, "} %s;\n", enum_type_name); GEN_TABLE(arr_elem_type, enum_type_name "_names", arr, enum_name_access); }
 	GEN_ENUM(ActionInfo, actions, "ActionKind", it->name, "ACT_%s,\n");
-	GEN_ENUM(ItemInfo, items, "ItemKind", it->enum_name, "ITEM_%s,\n");
-	GEN_ENUM(AnimatedSprite, sprites, "AnimKind", it->enum_name, "ANIM_%s,\n");
 	GEN_ENUM(CharacterGen, characters, "NpcKind", it->enum_name, "NPC_%s,\n");
-	GEN_ENUM(const char*, moods, "MoodKind", *it, "Mood_%s,\n");
 
 	fclose(char_header);
 
@@ -202,13 +199,6 @@ int main(int argc, char **argv)
 	MD_String8 declarations = MD_S8ListJoin(cg_arena, declarations_list, &join);
 	MD_String8 loads = MD_S8ListJoin(cg_arena, load_list, &join);
 	fprintf(output, "%.*s\nvoid load_assets() {\n%.*s\n}\n", MD_S8VArg(declarations), MD_S8VArg(loads));
-
-	fprintf(output, "sg_image * anim_img_table[] = {\n");
-	ARR_ITER(AnimatedSprite, sprites)
-	{
-		fprintf(output, "&%s,\n", it->img_var_name);
-	}
-	fprintf(output, "}; // anim_img_table \n");
 
 	fclose(output);
 

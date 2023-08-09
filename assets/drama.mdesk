@@ -1,7 +1,11 @@
 [
+
+
+/*
 {can_hear: [NPC_WellDweller, NPC_Farmer, NPC_ManInBlack]},
 {enum: NPC_WellDweller, dialog: "What a fearful farm you live in, come down to the well, the grass is damper down here.", to: Farmer, mood: Scared, thoughts: "Nobody can take me from my well"},
 {enum: NPC_Farmer, dialog: "Sure as shit I won't!", to: WellDweller, mood: Scared, thoughts: "What a greasy looking feller"},
 {enum: NPC_WellDweller, dialog: "Have it your way! Doomsday is upon us", to: Farmer, mood: Scared, thoughts: "He has no idea what he's in for"},
 {enum: NPC_ManInBlack, dialog: "Doomsday's all I know anyways", mood: Indifferent, thoughts: "What's coming... is only a nightmare"},
+*/
 ]

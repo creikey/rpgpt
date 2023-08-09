@@ -418,8 +418,7 @@ typedef struct ChatRequest
 	bool should_close;
 	int id;
 	int status;
-	char generated[MAX_SENTENCE_LENGTH];
-	int generated_length;
+	TextChunk generated;
 	uintptr_t thread_handle;
 	MD_Arena *arena;
 	MD_String8 post_req_body; // allocated on thread_arena
@@ -497,14 +496,13 @@ void generation_thread(void* my_request_voidptr)
 		MD_String8 received_data = MD_S8ListJoin(my_request->arena, received_data_list, &(MD_StringJoin){0});
 
 		MD_String8 ai_response = MD_S8Substring(received_data, 1, received_data.size);
-		if(ai_response.size > ARRLEN(my_request->generated))
+		if(ai_response.size > ARRLEN(my_request->generated.text))
 		{
-			Log("%lld too big for %lld\n", ai_response.size, ARRLEN(my_request->generated));
+			Log("%lld too big for %lld\n", ai_response.size, ARRLEN(my_request->generated.text));
 			my_request->status = 2;
 			return;
 		}
-		memcpy(my_request->generated, ai_response.str, ai_response.size);
-		my_request->generated_length = (int)ai_response.size;
+		chunk_from_s8(&my_request->generated, ai_response);
 		my_request->status = 1;
 	}
 }
@@ -570,7 +568,7 @@ ISANERROR("Only know how to do desktop http requests on windows")
 
 Memory *memories_free_list = 0;
 
-TextChunk *text_chunk_free_list = 0;
+TextChunkList *text_chunk_free_list = 0;
 
 // s.size must be less than MAX_SENTENCE_LENGTH, or assert fails
 void into_chunk(TextChunk *t, MD_String8 s)
@@ -579,9 +577,9 @@ void into_chunk(TextChunk *t, MD_String8 s)
 	memcpy(t->text, s.str, s.size);
 	t->text_length = (int)s.size;
 }
-TextChunk *allocate_text_chunk(MD_Arena *arena)
+TextChunkList *allocate_text_chunk(MD_Arena *arena)
 {
-	TextChunk *to_return = 0;
+	TextChunkList *to_return = 0;
 	if(text_chunk_free_list)
 	{
 		to_return = text_chunk_free_list;
@@ -589,20 +587,20 @@ TextChunk *allocate_text_chunk(MD_Arena *arena)
 	}
 	else
 	{
-		to_return = MD_PushArray(arena, TextChunk, 1);
+		to_return = MD_PushArray(arena, TextChunkList, 1);
 	}
-	*to_return = (TextChunk){0};
+	*to_return = (TextChunkList){0};
 	return to_return;
 }
-void remove_text_chunk_from(TextChunk **first, TextChunk **last, TextChunk *chunk)
+void remove_text_chunk_from(TextChunkList **first, TextChunkList **last, TextChunkList *chunk)
 {
 	MD_DblRemove(*first, *last, chunk);
 	MD_StackPush(text_chunk_free_list, chunk);
 }
-int text_chunk_list_count(TextChunk *first)
+int text_chunk_list_count(TextChunkList *first)
 {
 	int ret = 0;
-	for(TextChunk *cur = first; cur != 0; cur = cur->next)
+	for(TextChunkList *cur = first; cur != 0; cur = cur->next)
 	{
 		ret++;
 	}
@@ -610,8 +608,8 @@ int text_chunk_list_count(TextChunk *first)
 }
 void append_to_errors(Entity *from, MD_String8 s)
 {
-	TextChunk *error_chunk = allocate_text_chunk(persistent_arena);
-	into_chunk(error_chunk, s);
+	TextChunkList *error_chunk = allocate_text_chunk(persistent_arena);
+	into_chunk(&error_chunk->text, s);
 	while(text_chunk_list_count(from->errorlist_first) > REMEMBERED_ERRORS)
 	{
 		remove_text_chunk_from(&from->errorlist_first, &from->errorlist_last, from->errorlist_first);
@@ -637,24 +635,6 @@ bool V2ApproxEq(Vec2 a, Vec2 b)
 	return LenV2(SubV2(a, b)) <= 0.01f;
 }
 
-AABB entity_sword_aabb(Entity *e, float width, float height)
-{
-	if (e->facing_left)
-	{
-		return (AABB) {
-			.upper_left = AddV2(e->pos, V2(-width, height)),
-				.lower_right = AddV2(e->pos, V2(0.0, -height)),
-		};
-	}
-	else
-	{
-		return (AABB) {
-			.upper_left = AddV2(e->pos, V2(0.0, height)),
-				.lower_right = AddV2(e->pos, V2(width, -height)),
-		};
-	}
-}
-
 float max_coord(Vec2 v)
 {
 	return v.x > v.y ? v.x : v.y;
@@ -669,49 +649,13 @@ Vec2 entity_aabb_size(Entity *e)
 	}
 	else if (e->is_npc)
 	{
-		if(e->npc_kind == NPC_Farmer || e->npc_kind == NPC_WellDweller || e->npc_kind == NPC_ManInBlack)
-		{
-			return V2(1,1);
-		}
-		else
-			assert(false);
-		return V2(0,0);
-	}
-	else if (e->is_prop)
-	{
-		return V2(1.0f*0.5f, 1.0f*0.5f);
-	}
-	else if (e->is_item)
-	{
-		return V2(1.0f*0.5f, 1.0f*0.5f);
-	}
-	else if(e->is_machine)
-	{
-		if(e->machine_kind == MACH_idol_dispenser)
-		{
-			return V2(1.0f*0.5f, 1.0f*0.5f);
-		}
-		else if(e->machine_kind == MACH_arrow_shooter)
-		{
-			return V2(1.0f*1.0f, 1.0f*1.0f);
-		}
-		else
-		{
-			assert(false);
-			return (Vec2) { 0 };
-		}
+		return V2(1,1);
 	}
 	else
 	{
 		assert(false);
 		return (Vec2) { 0 };
 	}
-}
-
-
-bool is_overlap_collision(Entity *e)
-{
-	return !e->is_item;
 }
 
 Vec2 rotate_counter_clockwise(Vec2 v)
@@ -834,14 +778,12 @@ SER_MAKE_FOR_TYPE(uint64_t);
 SER_MAKE_FOR_TYPE(bool);
 SER_MAKE_FOR_TYPE(double);
 SER_MAKE_FOR_TYPE(float);
-SER_MAKE_FOR_TYPE(ItemKind);
 SER_MAKE_FOR_TYPE(PropKind);
 SER_MAKE_FOR_TYPE(NpcKind);
 SER_MAKE_FOR_TYPE(CharacterState);
 SER_MAKE_FOR_TYPE(Memory);
 SER_MAKE_FOR_TYPE(Vec2);
 SER_MAKE_FOR_TYPE(Vec3);
-SER_MAKE_FOR_TYPE(AnimKind);
 SER_MAKE_FOR_TYPE(EntityRef);
 SER_MAKE_FOR_TYPE(NPCPlayerStanding);
 SER_MAKE_FOR_TYPE(MD_u16);
@@ -1588,24 +1530,15 @@ EntityRef frome(Entity *e)
 	}
 }
 
+
+
 Entity *gete(EntityRef ref)
 {
-	if (ref.generation == 0) return 0;
-	Entity *to_return = &gs.entities[ref.index];
-	if (!to_return->exists || to_return->generation != ref.generation)
-	{
-		return 0;
-	}
-	else
-	{
-		return to_return;
-	}
+	return gete_specified(&gs, ref);
 }
 
 void push_memory(GameState *gs, Entity *e, Memory new_memory)
 {
-	new_memory.tick_happened = gs->tick;
-
 	Memory *memory_allocated = 0;
 	if(memories_free_list)
 	{
@@ -1667,11 +1600,7 @@ Entity *get_targeted(Entity *from, NpcKind targeted)
 void remember_action(GameState *gs, Entity *to_modify, Action a, MemoryContext context)
 {
 	Memory new_memory = {0};
-	memcpy(new_memory.speech, a.speech, a.speech_length);
-	new_memory.speech_length = a.speech_length;
-	memcpy(new_memory.internal_monologue, a.internal_monologue, a.internal_monologue_length);
-	new_memory.internal_monologue_length = a.internal_monologue_length;
-	new_memory.mood = a.mood;
+	new_memory.speech = a.speech;
 	new_memory.action_taken = a.kind;
 	new_memory.context = context;
 	new_memory.action_argument = a.argument;
@@ -1690,14 +1619,14 @@ void remember_action(GameState *gs, Entity *to_modify, Action a, MemoryContext c
 // to might be null here, from can't be null
 MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 {
-	assert(a.speech_length <= MAX_SENTENCE_LENGTH && a.speech_length >= 0);
+	assert(a.speech.text_length <= MAX_SENTENCE_LENGTH && a.speech.text_length >= 0);
 	assert(a.kind >= 0 && a.kind < ARRLEN(actions));
 	assert(from);
 
 	MD_String8 error_message = (MD_String8){0};
 
 	CanTalkTo talk = get_can_talk_to(from);
-	if(error_message.size == 0 && a.talking_to_somebody)
+	if(error_message.size == 0 && a.talking_to_kind)
 	{
 		bool found = false;
 		BUFF_ITER(NpcKind, &talk)
@@ -1714,46 +1643,19 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 		}
 	}
 
-	if(error_message.size == 0 && a.kind == ACT_gift_item_to_targeting)
+	if(error_message.size == 0 && a.kind == ACT_leave && gete(from->joined) == 0)
 	{
-		assert(a.argument.item_to_give >= 0 && a.argument.item_to_give < ARRLEN(items));
-		bool has_it = false;
-		BUFF_ITER(ItemKind, &from->held_items)
-		{
-			if(*it == a.argument.item_to_give)
-			{
-				has_it = true;
-				break;
-			}
-		}
-
-		if(has_it)
-		{
-			if(!a.talking_to_somebody)
-			{
-				error_message = MD_S8Lit("You can't give an item to nobody, must target somebody to give an item");
-			}
-		}
-		else
-		{
-			MD_StringJoin join = {.mid = MD_S8Lit(", ")};
-			error_message = FmtWithLint(arena, "Can't give item `ITEM_%s`, you only have [%.*s] in your inventory", items[a.argument.item_to_give].enum_name, MD_S8VArg(MD_S8ListJoin(arena, held_item_strings(arena, from), &join)));
-		}
+		error_message = MD_S8Lit("You can't leave somebody unless you joined them.");
 	}
-
-	if(error_message.size == 0 && a.kind == ACT_leaves_player && from->standing != STANDING_JOINED)
+	if(error_message.size == 0 && a.kind == ACT_join && gete(from->joined) != 0)
 	{
-		error_message = MD_S8Lit("You can't leave the player unless you joined them.");
-	}
-	if(error_message.size == 0 && a.kind == ACT_joins_player && from->standing == STANDING_JOINED)
-	{
-		error_message = MD_S8Lit("`joins_player` is invalid right now because you are already in the player's party");
+		error_message = FmtWithLint(arena, "You can't join somebody, you're already in %s's party", characters[gete(from->joined)->npc_kind].name);
 	}
 
 	if(error_message.size == 0)
 	{
 		AvailableActions available = {0};
-		fill_available_actions(from, &available);
+		fill_available_actions(&gs, from, &available);
 		bool found = false;
 		MD_String8List action_strings_list = {0};
 		BUFF_ITER(ActionKind, &available)
@@ -1790,47 +1692,22 @@ void cause_action_side_effects(Entity *from, Action a)
 	}
 
 	Entity *to = 0;
-	if(a.talking_to_somebody)
+	if(a.talking_to_kind != NPC_nobody)
 	{
 		to = get_targeted(from, a.talking_to_kind);
 		assert(to);
 	}
 
 
-	if(a.kind == ACT_gift_item_to_targeting)
+	if(a.kind == ACT_join)
 	{
-		assert(a.argument.item_to_give != ITEM_invalid);
-		assert(to);
-
-		int item_to_remove = -1;
-		Entity *e = from;
-		BUFF_ITER_I(ItemKind, &e->held_items, i)
-		{
-			if (*it == a.argument.item_to_give)
-			{
-				item_to_remove = i;
-				break;
-			}
-		}
-		if (item_to_remove < 0)
-		{
-			Log("Can't find item %s to give from NPC %s to the player\n", items[a.argument.item_to_give].name, characters[e->npc_kind].name);
-			assert(false);
-		}
-		else
-		{
-			BUFF_REMOVE_AT_INDEX(&e->held_items, item_to_remove);
-			BUFF_APPEND(&to->held_items, a.argument.item_to_give);
-		}
+		Entity *target = get_targeted(from, a.argument.targeting);
+		assert(target); // error checked in is_action_valid
+		from->joined = frome(target);
 	}
-
-	if(a.kind == ACT_leaves_player)
+	if(a.kind == ACT_leave)
 	{
-		from->standing = STANDING_INDIFFERENT;
-	}
-	if(a.kind == ACT_joins_player)
-	{
-		from->standing = STANDING_JOINED;
+		from->joined = (EntityRef){0};
 	}
 
 	MD_ReleaseScratch(scratch);
@@ -1898,19 +1775,10 @@ bool perform_action(GameState *gs, Entity *from, Action a)
 	MemoryContext context = {0};
 	context.author_npc_kind = from->npc_kind;
 
-	if(a.speech_length > 0)
+	if(a.speech.text_length > 0)
 		from->dialog_fade = 2.5f;
 
-	if(from == gs->player && gete(from->talking_to))
-	{
-		context.was_talking_to_somebody = true;
-		context.talking_to_kind = gete(from->talking_to)->npc_kind;
-	}
-	else
-	{
-		context.was_talking_to_somebody = a.talking_to_somebody;
-		context.talking_to_kind = a.talking_to_kind;
-	}
+	context.talking_to_kind = a.talking_to_kind;
 
 	MD_String8 is_valid = is_action_valid(scratch.arena, from, a);
 	bool proceed_propagating = true;
@@ -1921,7 +1789,7 @@ bool perform_action(GameState *gs, Entity *from, Action a)
 		proceed_propagating = false;
 	}
 
-	if(a.speech_length == 0 && a.kind == ACT_none)
+	if(a.speech.text_length == 0 && a.kind == ACT_none)
 	{
 		proceed_propagating = false; // didn't say anything
 	}
@@ -2203,23 +2071,19 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 					{
 						MD_String8 enum_str = expect_childnode(scratch.arena, cur, MD_S8Lit("enum"), &drama_errors)->first_child->string;
 						MD_String8 dialog = expect_childnode(scratch.arena, cur, MD_S8Lit("dialog"), &drama_errors)->first_child->string;
-						MD_String8 thoughts_str = MD_ChildFromString(cur, MD_S8Lit("thoughts"), 0)->first_child->string;
 						MD_String8 action_str = MD_ChildFromString(cur, MD_S8Lit("action"), 0)->first_child->string; 
-						MD_String8 mood_str = MD_ChildFromString(cur, MD_S8Lit("mood"), 0)->first_child->string;
 						MD_String8 to_str = MD_ChildFromString(cur, MD_S8Lit("to"), 0)->first_child->string;
 
 						if(to_str.size > 0)
 						{
 							NpcKind talking_to = parse_enumstr(scratch.arena, to_str, &drama_errors, NpcKind_names, "NpcKind", "");
-							if (talking_to == NPC_Invalid)
+							if (talking_to == NPC_nobody)
 							{
 								PushWithLint(scratch.arena, &drama_errors, "The string provided for the 'to' field, intended to be who the NPC is directing their speech and action at, is invalid and is '%.*s'", MD_S8VArg(to_str));
 							}
 							else
 							{
-								current_context.was_talking_to_somebody = true;
 								current_context.talking_to_kind = talking_to;
-								current_action.talking_to_somebody = true;
 								current_action.talking_to_kind = talking_to;
 							}
 						}
@@ -2230,24 +2094,15 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 							current_action.kind = parse_enumstr(scratch.arena, action_str, &drama_errors,ActionKind_names, "ActionKind", "ACT_");
 						}
 
-						if(dialog.size >= ARRLEN(current_action.speech))
+						if(dialog.size >= ARRLEN(current_action.speech.text))
 						{
-							PushWithLint(scratch.arena, &drama_errors, "Current action_str's speech is of size %d, bigger than allowed size %d", (int)dialog.size, (int)ARRLEN(current_action.speech));
-						}
-						if(thoughts_str.size >= ARRLEN(current_action.internal_monologue))
-						{
-							PushWithLint(scratch.arena, &drama_errors, "Current thought's speech is of size %d, bigger than allowed size %d", (int)thoughts_str.size, (int)ARRLEN(current_action.internal_monologue));
+							PushWithLint(scratch.arena, &drama_errors, "Current action_str's speech is of size %d, bigger than allowed size %d", (int)dialog.size, (int)ARRLEN(current_action.speech.text));
 						}
 
-						current_action.mood = parse_enumstr(scratch.arena, mood_str, &drama_errors, moods, "MoodKind", "");
-						
 						if(drama_errors.node_count == 0)
 						{
-							memcpy(current_action.speech, dialog.str, dialog.size);
-							current_action.speech_length = (int)dialog.size;
-
-							memcpy(current_action.internal_monologue, thoughts_str.str, thoughts_str.size);
-							current_action.internal_monologue_length = (int)thoughts_str.size;
+							memcpy(current_action.speech.text, dialog.str, dialog.size);
+							current_action.speech.text_length = (int)dialog.size;
 						}
 					}
 
@@ -2271,9 +2126,9 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 										remember_action(gs, it, current_action, this_context);
 										if(it->npc_kind != current_context.author_npc_kind)
 										{
-											// it's good for NPC health that they have exampmles of not saying anything in response to others speaking,
+											// it's good for NPC health that they have examples of not saying anything in response to others speaking,
 											// so that they do the same when it's unlikely for them to talk.
-											Action no_speak = {.kind = ACT_none, .mood = Mood_Indifferent, .talking_to_somebody = false};
+											Action no_speak = {0};
 											MemoryContext no_speak_context = {.i_said_this = true, .author_npc_kind = it->npc_kind};
 											remember_action(gs, it, no_speak, no_speak_context);
 										}
@@ -2360,16 +2215,8 @@ void ser_entity(SerState *ser, Entity *e)
 	ser_Vec2(ser, &e->vel);
 	ser_float(ser, &e->damage);
 
-	SER_BUFF(ser, ItemKind, &e->held_items);
 
 	ser_bool(ser, &e->is_world);
-
-	ser_bool(ser, &e->is_prop);
-	ser_PropKind(ser, &e->prop_kind);
-
-	ser_bool(ser, &e->is_item);
-	ser_bool(ser, &e->held_by_player);
-	ser_ItemKind(ser, &e->item_kind);
 
 	ser_bool(ser, &e->is_npc);
 	ser_bool(ser, &e->being_hovered);
@@ -2377,12 +2224,12 @@ void ser_entity(SerState *ser, Entity *e)
 
 	if(ser->serializing)
 	{
-		TextChunk *cur = e->errorlist_first;
+		TextChunkList *cur = e->errorlist_first;
 		bool more_errors = cur != 0;
 		ser_bool(ser, &more_errors);
 		while(more_errors)
 		{
-			ser_TextChunk(ser, cur);
+			ser_TextChunk(ser, &cur->text);
 			cur = cur->next;
 			more_errors = cur != 0;
 			ser_bool(ser, &more_errors);
@@ -2394,16 +2241,12 @@ void ser_entity(SerState *ser, Entity *e)
 		ser_bool(ser, &more_errors);
 		while(more_errors)
 		{
-			TextChunk *new_chunk = MD_PushArray(ser->arena, TextChunk, 1);
-			ser_TextChunk(ser, new_chunk);
+			TextChunkList *new_chunk = MD_PushArray(ser->arena, TextChunkList, 1);
+			ser_TextChunk(ser, &new_chunk->text);
 			MD_DblPushBack(e->errorlist_first, e->errorlist_last, new_chunk);
 			ser_bool(ser, &more_errors);
 		}
 	}
-
-	ser_bool(ser, &e->opened);
-	ser_float(ser, &e->opened_amount);
-	ser_bool(ser, &e->gave_away_sword);
 
 	if(ser->serializing)
 	{
@@ -2431,25 +2274,12 @@ void ser_entity(SerState *ser, Entity *e)
 		}
 	}
 
-	ser_bool(ser, &e->direction_of_spiral_pattern);
 	ser_float(ser, &e->dialog_panel_opacity);
 	ser_int(ser, &e->words_said);
 	ser_float(ser, &e->word_anim_in);
-	ser_NPCPlayerStanding(ser, &e->standing);
 	ser_NpcKind(ser, &e->npc_kind);
 	ser_int(ser, &e->gen_request_id);
-	ser_bool(ser, &e->walking);
-	ser_double(ser, &e->shotgun_timer);
-	ser_bool(ser, &e->moved);
 	ser_Vec2(ser, &e->target_goto);
-	// only for skeleton npc
-	ser_double(ser, &e->swing_timer);
-
-	// machines
-	ser_bool(ser, &e->is_machine);
-	ser_int(ser, (int*) (&e->machine_kind));
-	ser_bool(ser, &e->has_given_idol);
-	ser_float(ser, &e->idol_reminder_opacity);
 
 	// character
 	ser_bool(ser, &e->is_character);
@@ -2458,9 +2288,6 @@ void ser_entity(SerState *ser, Entity *e)
 	SER_BUFF(ser, Vec2, &e->position_history);
 	ser_CharacterState(ser, &e->state);
 	ser_EntityRef(ser, &e->talking_to);
-
-	ser_AnimKind(ser, &e->cur_animation);
-	ser_float(ser, &e->anim_change_timer);
 }
 
 void ser_GameState(SerState *ser, GameState *gs)
@@ -2654,10 +2481,15 @@ void end_text_input(char *what_player_said_cstr)
 		what_player_said = MD_S8ListJoin(scratch.arena, MD_S8Split(scratch.arena, what_player_said, 1, &MD_S8Lit("\n")), &(MD_StringJoin){0});
 
 		Action to_perform = {0};
-		what_player_said = MD_S8Substring(what_player_said, 0, ARRLEN(to_perform.speech));
+		what_player_said = MD_S8Substring(what_player_said, 0, ARRLEN(to_perform.speech.text));
 
-		memcpy(to_perform.speech, what_player_said.str, what_player_said.size);
-		to_perform.speech_length = (int)what_player_said.size;
+		chunk_from_s8(&to_perform.speech, what_player_said);
+
+		if(gete(gs.player->talking_to))
+		{
+			assert(gete(gs.player->talking_to)->is_npc);
+			to_perform.talking_to_kind = gete(gs.player->talking_to)->npc_kind;
+		}
 
 		perform_action(&gs, gs.player, to_perform);
 	}
@@ -3952,12 +3784,6 @@ void swap(Vec2 *p1, Vec2 *p2)
 	*p2 = tmp;
 }
 
-double anim_sprite_duration(AnimKind anim)
-{
-	AnimatedSprite *s = GET_TABLE_PTR(sprites, anim);
-	return s->num_frames * s->time_per_frame;
-}
-
 Vec2 tile_id_to_coord(sg_image tileset_image, Vec2 tile_size, uint16_t tile_id)
 {
 	int tiles_per_row = (int)(img_size(tileset_image).X / tile_size.X);
@@ -4024,12 +3850,6 @@ const bool show_devtools = false;
 #endif
 
 bool having_errors = false;
-
-// @Place(temporary trailer shit to force gameplay things)
-bool dance_anim = false;
-bool nervous_anim = false;
-bool no_outline = false;
-bool terrified_anim = false;
 
 Color debug_color = {1,0,0,1};
 
@@ -4380,43 +4200,6 @@ int sorting_key_at(Vec2 pos)
 	return -(int)pos.y;
 }
 
-//void draw_animated_sprite(AnimatedSprite *s, double elapsed_time, bool flipped, Vec2 pos, Color tint)
-void draw_animated_sprite(DrawnAnimatedSprite d)
-{
-	AnimatedSprite *s = GET_TABLE_PTR(sprites, d.anim);
-	sg_image spritesheet_img = *GET_TABLE(anim_img_table, d.anim);
-
-	d.pos = AddV2(d.pos, s->offset);
-	int index = (int)floor(d.elapsed_time / s->time_per_frame) % s->num_frames;
-	if (s->no_wrap)
-	{
-		index = (int)floor(d.elapsed_time / s->time_per_frame);
-		if (index >= s->num_frames) index = s->num_frames - 1;
-	}
-
-	Quad q = quad_centered(d.pos, s->region_size);
-
-	if (d.flipped)
-	{
-		swap(&q.points[0], &q.points[1]);
-		swap(&q.points[3], &q.points[2]);
-	}
-
-	AABB region;
-	region.upper_left = AddV2(s->start, V2(index * s->horizontal_diff_btwn_frames, 0.0f));
-	float width = img_size(spritesheet_img).X;
-	while (region.upper_left.X >= width)
-	{
-		region.upper_left.X -= width;
-		region.upper_left.Y += s->region_size.Y;
-	}
-	region.lower_right = AddV2(region.upper_left, s->region_size);
-
-	DrawParams drawn = (DrawParams) { q, spritesheet_img, region, d.tint, .sorting_key = sorting_key_at(d.pos), .layer = LAYER_WORLD, };
-	draw_quad(drawn);
-}
-
-
 // gets aabbs overlapping the input aabb, including gs.entities
 Overlapping get_overlapping(AABB aabb)
 {
@@ -4516,7 +4299,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 	{
 		ENTITIES_ITER(gs.entities)
 		{
-			if (it != p.from && !(it->is_npc && it->dead) && !it->is_world && !it->is_item)
+			if (it != p.from && !(it->is_npc && it->dead) && !it->is_world)
 			{
 				BUFF_APPEND(&to_check, ((CollisionObj){aabb_centered(it->pos, entity_aabb_size(it)), it}));
 			}
@@ -4728,7 +4511,7 @@ MD_String8 last_said_sentence(Entity *npc)
 	{
 		if(cur->context.author_npc_kind == npc->npc_kind)
 		{
-			to_return = MD_S8(cur->speech, cur->speech_length);
+			to_return = TextChunkString8(cur->speech);
 			break;
 		}
 	}
@@ -4794,19 +4577,19 @@ Dialog get_dialog_elems(Entity *talking_to, bool character_names)
 	{
 		if(!it->context.dont_show_to_player)
 		{
-			if(it->speech_length > 0)
+			if(it->speech.text_length > 0)
 			{
 				DialogElement new_element = { .who_said_it = it->context.author_npc_kind };
 
-				MD_String8 my_speech = MD_S8(it->speech, it->speech_length);
-				if(last_said_sentence(talking_to).str == it->speech)
+				MD_String8 my_speech = TextChunkString8(it->speech);
+				if(last_said_sentence(talking_to).str == it->speech.text)
 				{
 					new_element.was_last_said = true;
 					my_speech = MD_S8ListJoin(scratch.arena, last_said_without_unsaid_words(scratch.arena, talking_to), &(MD_StringJoin){.mid = MD_S8Lit(" ")});
 				}
 
 				MD_String8 name_string = {0};
-				if(it->context.was_talking_to_somebody)
+				if(it->context.talking_to_kind != NPC_nobody)
 				{
 					name_string = FmtWithLint(scratch.arena, "%s to %s", characters[it->context.author_npc_kind].name, characters[it->context.talking_to_kind].name);
 				}
@@ -5060,11 +4843,6 @@ bool imbutton_key(AABB button_aabb, float text_scale, MD_String8 text, int key, 
 }
 
 #define imbutton(...) imbutton_key(__VA_ARGS__, __LINE__, unwarped_dt, false)
-
-void draw_item(ItemKind kind, AABB in_aabb, float alpha)
-{
-	assert(false);
-}
 
 Transform entity_transform(Entity *e)
 {
@@ -5680,19 +5458,6 @@ void frame(void)
 
 		text_input_fade = Lerp(text_input_fade, dt * 8.0f, receiving_text_input ? 1.0f : 0.0f);
 
-		// @Place(temporary keycodes for trailer)
-		dance_anim = keydown[SAPP_KEYCODE_U];
-		nervous_anim = keydown[SAPP_KEYCODE_I];
-		if(!terrified_anim) terrified_anim = keydown[SAPP_KEYCODE_T];
-		no_outline = keydown[SAPP_KEYCODE_P];
-		if(keydown[SAPP_KEYCODE_O])
-		{
-			ENTITIES_ITER(gs.entities)
-			{
-				it->standing = STANDING_INDIFFERENT;
-			}
-		}
-
 		Vec3 player_pos = V3(gs.player->pos.x, 0.0, gs.player->pos.y);
 		//dbgline(V2(0,0), V2(500, 500));
 		const float vertical_to_horizontal_ratio = CAM_VERTICAL_TO_HORIZONTAL_RATIO;
@@ -5821,27 +5586,18 @@ void frame(void)
 				{
 					assert(it->is_npc);
 					Armature *to_use = 0;
-					if(it->npc_kind == NPC_Farmer)
+
+					if(it->npc_kind == NPC_Daniel)
 						to_use = &farmer_armature;
-					else if(it->npc_kind == NPC_WellDweller)
-						to_use = &shifted_farmer_armature;
-					else if(it->npc_kind == NPC_ManInBlack)
+					else if(it->npc_kind == NPC_Raphael)
 						to_use = &man_in_black_armature;
 					else
 						assert(false);
-
 
 					if(LenV2(it->vel) > 0.5f)
 						to_use->go_to_animation = MD_S8Lit("Running");
 					else
 						to_use->go_to_animation = MD_S8Lit("Idle");
-
-					if(nervous_anim)
-						to_use->go_to_animation = MD_S8Lit("Nervous");
-
-					
-					if(dance_anim && it->npc_kind == NPC_Farmer)
-						to_use->go_to_animation = MD_S8Lit("Pray");
 
 					draw_thing((DrawnThing){.armature = to_use, .t = draw_with, .outline = gete(gs.player->interacting_with) == it});
 				}
@@ -5899,11 +5655,6 @@ void frame(void)
 
 		// draw the 3d render
 		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.threedee_pass_image), WHITE, .layer = LAYER_WORLD, .custom_pipeline = state.twodee_colorcorrect_pip });
-
-		// draw the freaking outline. Play ball!
-		if(!no_outline)
-			draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.outline_pass_image), WHITE, .layer = LAYER_UI_FG, .custom_pipeline = state.twodee_outline_pip, .layer = LAYER_UI});
-
 
 		// 2d drawing TODO move this to when the drawing is flushed.
 		sg_begin_default_pass(&state.clear_depth_buffer_pass_action, sapp_width(), sapp_height());
@@ -6181,7 +5932,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 #endif
 
 #ifdef DESKTOP
-										memcpy(sentence_cstr, get_by_id(it->gen_request_id)->generated, get_by_id(it->gen_request_id)->generated_length);
+										memcpy(sentence_cstr, get_by_id(it->gen_request_id)->generated.text, get_by_id(it->gen_request_id)->generated.text_length);
 #endif
 
 										MD_String8 sentence_str = MD_S8CString(sentence_cstr);
@@ -6210,7 +5961,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 												new_unread = MD_PushArray(persistent_arena, ListOfEntities, 1);
 											}
 											new_unread->referring_to = frome(it);
-											if(out.speech_length > 0)
+											if(out.speech.text_length > 0)
 												MD_DblPushBack(unread_first, unread_last, new_unread);
 										}
 										else
@@ -6254,15 +6005,6 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 									it->gen_request_id = 0;
 								}
 							}
-						}
-
-
-						if (fabsf(it->vel.x) > 0.01f)
-							it->facing_left = it->vel.x < 0.0f;
-
-						if (it->dead)
-						{
-							it->dead_time += dt;
 						}
 
 						it->being_hovered = false;
@@ -6315,13 +6057,13 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 							}
 
 
-							if(it->standing == STANDING_JOINED)
+							if(gete(it->joined))
 							{
 								int place_in_line = 1;
 								Entity *e = it;
 								ENTITIES_ITER(gs.entities)
 								{
-									if(it->is_npc && it->standing == STANDING_JOINED)
+									if(it->is_npc && gete(it->joined) == gete(e->joined))
 									{
 										if(it == e) break;
 										place_in_line += 1;
@@ -6346,9 +6088,8 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 
 							// A* code
 							if(false)
-								if (it->standing == STANDING_JOINED)
-								{
-									Entity *targeting = gs.player;
+							{
+								Entity *targeting = gs.player;
 
 									/*
 										 G cost: distance from the current node to the start node
@@ -6358,24 +6099,24 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 										 SUM
 										 F cost: G + H
 										 */
-									Vec2 to = targeting->pos;
+								Vec2 to = targeting->pos;
 
-									PathCache *cached = get_path_cache(elapsed_time, it->cached_path);
-									AStarPath path = { 0 };
-									bool succeeded = false;
-									if (cached)
-									{
-										path = cached->path;
-										succeeded = true;
-									}
-									else
-									{
-										Vec2 from = it->pos;
-										typedef struct AStarNode {
-											bool exists;
-											struct AStarNode * parent;
-											bool in_closed_set;
-											bool in_open_set;
+								PathCache *cached = get_path_cache(elapsed_time, it->cached_path);
+								AStarPath path = { 0 };
+								bool succeeded = false;
+								if (cached)
+								{
+									path = cached->path;
+									succeeded = true;
+								}
+								else
+								{
+									Vec2 from = it->pos;
+									typedef struct AStarNode {
+										bool exists;
+										struct AStarNode * parent;
+										bool in_closed_set;
+										bool in_open_set;
 											float f_score; // total of g score and h score
 											float g_score; // distance from the node to the start node
 											Vec2 pos;
@@ -6393,146 +6134,146 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 										bool should_quit = false;
 										AStarNode *last_node = 0;
 										PROFILE_SCOPE("A* Pathfinding") // astar pathfinding a star
-											while (!should_quit)
+										while (!should_quit)
+										{
+											int openset_size = 0;
+											BUFF_ITER(AStarNode, &nodes) if (it->in_open_set) openset_size += 1;
+											if (openset_size == 0)
 											{
-												int openset_size = 0;
-												BUFF_ITER(AStarNode, &nodes) if (it->in_open_set) openset_size += 1;
-												if (openset_size == 0)
+												should_quit = true;
+											}
+											else
+											{
+												AStarNode *current = 0;
+												PROFILE_SCOPE("Get lowest fscore astar node in open set")
 												{
+													float min_fscore = INFINITY;
+													int min_fscore_index = -1;
+													BUFF_ITER_I(AStarNode, &nodes, i)
+													if (it->in_open_set)
+													{
+														if (it->f_score < min_fscore)
+														{
+															min_fscore = it->f_score;
+															min_fscore_index = i;
+														}
+													}
+													assert(min_fscore_index >= 0);
+													current = &nodes.data[min_fscore_index];
+													assert(current);
+												}
+
+												float length_to_goal = 0.0f;
+												PROFILE_SCOPE("get length to goal") length_to_goal = LenV2(SubV2(to, current->pos));
+
+												if (length_to_goal <= got_there_tolerance)
+												{
+													succeeded = true;
 													should_quit = true;
+													last_node = current;
 												}
 												else
 												{
-													AStarNode *current = 0;
-													PROFILE_SCOPE("Get lowest fscore astar node in open set")
+													current->in_open_set = false;
+													Vec2 neighbor_positions[] = {
+														V2(-jump_size, 0.0f),
+														V2(jump_size, 0.0f),
+														V2(0.0f, jump_size),
+														V2(0.0f, -jump_size),
+
+														V2(-jump_size, jump_size),
+														V2(jump_size, jump_size),
+														V2(jump_size, -jump_size),
+														V2(-jump_size, -jump_size),
+													};
+													ARR_ITER(Vec2, neighbor_positions) *it = AddV2(*it, current->pos);
+
+													Entity *e = it;
+
+													PROFILE_SCOPE("Checking neighbor positions")
+													ARR_ITER(Vec2, neighbor_positions)
 													{
-														float min_fscore = INFINITY;
-														int min_fscore_index = -1;
-														BUFF_ITER_I(AStarNode, &nodes, i)
-															if (it->in_open_set)
+														Vec2 cur_pos = *it;
+
+														dbgsquare(cur_pos);
+
+														bool would_block_me = false;
+
+														PROFILE_SCOPE("Checking for overlap")
+														{
+															Overlapping overlapping_at_want = get_overlapping(entity_aabb_at(e, cur_pos));
+															BUFF_ITER(Entity*, &overlapping_at_want) if (*it != e) would_block_me = true;
+														}
+
+														if (would_block_me)
+														{
+														}
+														else
+														{
+															AStarNode *existing = 0;
+															Vec2 hash = V2_HASH(cur_pos);
+															existing = hmget(node_cache, hash);
+
+															if (false)
+																PROFILE_SCOPE("look for existing A* node")
+															BUFF_ITER(AStarNode, &nodes)
 															{
-																if (it->f_score < min_fscore)
+																if (V2ApproxEq(it->pos, cur_pos))
 																{
-																	min_fscore = it->f_score;
-																	min_fscore_index = i;
+																	existing = it;
+																	break;
 																}
 															}
-														assert(min_fscore_index >= 0);
-														current = &nodes.data[min_fscore_index];
-														assert(current);
-													}
 
-													float length_to_goal = 0.0f;
-													PROFILE_SCOPE("get length to goal") length_to_goal = LenV2(SubV2(to, current->pos));
-
-													if (length_to_goal <= got_there_tolerance)
-													{
-														succeeded = true;
-														should_quit = true;
-														last_node = current;
-													}
-													else
-													{
-														current->in_open_set = false;
-														Vec2 neighbor_positions[] = {
-															V2(-jump_size, 0.0f),
-															V2(jump_size, 0.0f),
-															V2(0.0f, jump_size),
-															V2(0.0f, -jump_size),
-
-															V2(-jump_size, jump_size),
-															V2(jump_size, jump_size),
-															V2(jump_size, -jump_size),
-															V2(-jump_size, -jump_size),
-														};
-														ARR_ITER(Vec2, neighbor_positions) *it = AddV2(*it, current->pos);
-
-														Entity *e = it;
-
-														PROFILE_SCOPE("Checking neighbor positions")
-															ARR_ITER(Vec2, neighbor_positions)
+															float tentative_gscore = current->g_score + jump_size;
+															if (tentative_gscore < (existing ? existing->g_score : INFINITY))
 															{
-																Vec2 cur_pos = *it;
-
-																dbgsquare(cur_pos);
-
-																bool would_block_me = false;
-
-																PROFILE_SCOPE("Checking for overlap")
+																if (!existing)
 																{
-																	Overlapping overlapping_at_want = get_overlapping(entity_aabb_at(e, cur_pos));
-																	BUFF_ITER(Entity*, &overlapping_at_want) if (is_overlap_collision(*it) && *it != e) would_block_me = true;
-																}
-
-																if (would_block_me)
-																{
-																}
-																else
-																{
-																	AStarNode *existing = 0;
-																	Vec2 hash = V2_HASH(cur_pos);
-																	existing = hmget(node_cache, hash);
-
-																	if (false)
-																		PROFILE_SCOPE("look for existing A* node")
-																			BUFF_ITER(AStarNode, &nodes)
-																			{
-																				if (V2ApproxEq(it->pos, cur_pos))
-																				{
-																					existing = it;
-																					break;
-																				}
-																			}
-
-																	float tentative_gscore = current->g_score + jump_size;
-																	if (tentative_gscore < (existing ? existing->g_score : INFINITY))
+																	if (!BUFF_HAS_SPACE(&nodes))
 																	{
-																		if (!existing)
-																		{
-																			if (!BUFF_HAS_SPACE(&nodes))
-																			{
-																				should_quit = true;
-																				succeeded = false;
-																			}
-																			else
-																			{
-																				BUFF_APPEND(&nodes, (AStarNode) { 0 });
-																				existing = &nodes.data[nodes.cur_index-1];
-																				existing->pos = cur_pos;
-																				Vec2 pos_hash = V2_HASH(cur_pos);
-																				hmput(node_cache, pos_hash, existing);
-																			}
-																		}
-
-																		if (existing)
-																			PROFILE_SCOPE("estimate heuristic")
-																			{
-																				existing->parent = current;
-																				existing->g_score = tentative_gscore;
-																				float h_score = 0.0f;
-																				{
-																					// diagonal movement heuristic from some article
-																					Vec2 curr_cell = *it;
-																					Vec2 goal = to;
-																					float D = jump_size;
-																					float D2 = LenV2(V2(jump_size, jump_size));
-																					float dx = fabsf(curr_cell.x - goal.x);
-																					float dy = fabsf(curr_cell.y - goal.y);
-																					float h = D * (dx + dy) + (D2 - 2 * D) * fminf(dx, dy);
-
-																					h_score += h;
-																					// approx distance with manhattan distance
-																					//h_score += fabsf(existing->pos.x - to.x) + fabsf(existing->pos.y - to.y);
-																				}
-																				existing->f_score = tentative_gscore + h_score;
-																				existing->in_open_set = true;
-																			}
+																		should_quit = true;
+																		succeeded = false;
+																	}
+																	else
+																	{
+																		BUFF_APPEND(&nodes, (AStarNode) { 0 });
+																		existing = &nodes.data[nodes.cur_index-1];
+																		existing->pos = cur_pos;
+																		Vec2 pos_hash = V2_HASH(cur_pos);
+																		hmput(node_cache, pos_hash, existing);
 																	}
 																}
+
+																if (existing)
+																	PROFILE_SCOPE("estimate heuristic")
+																{
+																	existing->parent = current;
+																	existing->g_score = tentative_gscore;
+																	float h_score = 0.0f;
+																	{
+																					// diagonal movement heuristic from some article
+																		Vec2 curr_cell = *it;
+																		Vec2 goal = to;
+																		float D = jump_size;
+																		float D2 = LenV2(V2(jump_size, jump_size));
+																		float dx = fabsf(curr_cell.x - goal.x);
+																		float dy = fabsf(curr_cell.y - goal.y);
+																		float h = D * (dx + dy) + (D2 - 2 * D) * fminf(dx, dy);
+
+																		h_score += h;
+																					// approx distance with manhattan distance
+																					//h_score += fabsf(existing->pos.x - to.x) + fabsf(existing->pos.y - to.y);
+																	}
+																	existing->f_score = tentative_gscore + h_score;
+																	existing->in_open_set = true;
+																}
 															}
+														}
 													}
 												}
 											}
+										}
 
 										hmfree(node_cache);
 										node_cache = 0;
@@ -6636,35 +6377,8 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 								it->destroy = true;
 							}
 						}
-						// @Place(non-entity processing)
-						else if (it->is_item)
-						{
-							if (it->held_by_player)
-							{
-								Vec2 held_spot = V2(15.0f * (gs.player->facing_left ? -1.0f : 1.0f), 7.0f);
-								it->pos = AddV2(gs.player->pos, held_spot);
-							}
-							else
-							{
-								it->vel = LerpV2(it->vel, dt*7.0f, V2(0.0f, 0.0f));
-								CollisionInfo info = { 0 };
-								it->pos = move_and_slide((MoveSlideParams) { it, it->pos, MulV2F(it->vel, pixels_per_meter * dt), .dont_collide_with_entities = true, .col_info_out = &info });
-								if (info.happened) it->vel = ReflectV2(it->vel, info.normal);
-							}
-
-							//draw_quad((DrawParams){true, it->pos, IMG(image_white_square)
-						}
 						else if (it->is_character)
 						{
-						}
-						else if (it->is_prop)
-						{
-						}
-						else if (it->is_machine)
-						{
-							if(it->machine_kind == MACH_arrow_shooter)
-							{
-							}
 						}
 						else if (it->is_world)
 						{
@@ -6717,7 +6431,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 									it->perceptions_dirty = false; // needs to be in beginning because they might be redirtied by the new perception
 									MD_String8 prompt_str = {0};
 #ifdef DO_CHATGPT_PARSING
-									prompt_str = generate_chatgpt_prompt(frame_arena, it, get_can_talk_to(it));
+									prompt_str = generate_chatgpt_prompt(frame_arena, &gs, it, get_can_talk_to(it));
 #else
 									generate_prompt(it, &prompt);
 #endif
@@ -6853,10 +6567,6 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 #endif
 
 								bool entity_interactible = entity_talkable;
-								if((*it) && (*it)->is_machine)
-								{
-									entity_interactible = entity_interactible || ((*it)->machine_kind == MACH_idol_dispenser && !(*it)->has_given_idol);
-								}
 
 								if (entity_interactible)
 								{
@@ -6885,24 +6595,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 					{
 						if (closest_interact_with)
 						{
-							if(closest_interact_with->is_machine)
-							{
-								if(closest_interact_with->machine_kind == MACH_idol_dispenser)
-								{
-									if(!closest_interact_with->has_given_idol)
-									{
-										int members_in_party = 0;
-										ENTITIES_ITER(gs.entities)
-										{
-											if(it->is_npc && it->standing == STANDING_JOINED)
-											{
-												members_in_party += 1;
-											}
-										}
-									}
-								}
-							}
-							else if (closest_interact_with->is_npc)
+							if (closest_interact_with->is_npc)
 							{
 								// begin dialog with closest npc
 								gs.player->talking_to = frome(closest_interact_with);
@@ -6927,12 +6620,6 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 						{
 							player_armature.go_to_animation = MD_S8Lit("Idle");
 						}
-
-						if(nervous_anim)
-							player_armature.go_to_animation = MD_S8Lit("Nervous");
-
-						if(terrified_anim)
-							player_armature.go_to_animation = MD_S8Lit("Terrified");
 
 						if (gs.player->state == CHARACTER_WALKING)
 						{
@@ -7015,8 +6702,6 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 		if(0)
 		PROFILE_SCOPE("render player") // draw character draw player render character
 		{
-			DrawnAnimatedSprite to_draw = { 0 };
-
 			if(gs.player->position_history.cur_index > 0)
 			{
 				float trail_len = get_total_trail_len(BUFF_MAKEREF(&gs.player->position_history));
@@ -7069,19 +6754,6 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 			if (gs.player->damage > 0.0)
 			{
 				draw_quad((DrawParams) { (Quad) { .ul = V2(0.0f, screen_size().Y), .ur = screen_size(), .lr = V2(screen_size().X, 0.0f) }, image_hurt_vignette, full_region(image_hurt_vignette), (Color) { 1.0f, 1.0f, 1.0f, gs.player->damage }, .layer = LAYER_SCREENSPACE_EFFECTS, });
-			}
-
-			gs.player->anim_change_timer += dt;
-			if (gs.player->anim_change_timer >= 0.05f)
-			{
-				gs.player->anim_change_timer = 0.0f;
-				gs.player->cur_animation = to_draw.anim;
-			}
-			to_draw.anim = gs.player->cur_animation;
-
-			if (to_draw.anim)
-			{
-				draw_animated_sprite(to_draw);
 			}
 		}
 
@@ -7255,119 +6927,6 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 			}
 		}
 
-		// open inventory button
-		if(false)
-		{
-			float button_size = 128.0f;
-			float button_padding = 64.0f;
-			static float scaling = 1.0f;
-			Vec2 center = AddV2(screen_size(), V2(-(button_padding + button_size/2.0f), -(button_padding + button_size/2.0f)));
-			AABB button_aabb = aabb_centered(center, MulV2F(V2(button_size, button_size), scaling));
-			bool hovering = has_point(button_aabb, mouse_pos);
-			float target = hovering ? 1.5f : 1.0f;
-			scaling = Lerp(scaling, unwarped_dt*15.0f, target);
-			draw_quad((DrawParams) { quad_aabb(button_aabb), IMG(image_backpack), WHITE, .layer = LAYER_UI });
-
-			if(hovering && pressed.mouse_down)
-			{
-				item_grid_state = (ItemgridState){.open = true, .for_giving = false};
-				pressed.mouse_down = false;
-			}
-		}
-
-		// item grid modal draw item grid choose item pick item give item
-		{
-			static float visible = 0.0f;
-			static float hovered_state[ARRLEN(gs.player->held_items.data)] = { 0 };
-			float target = 0.0f;
-			if (item_grid_state.open) target = 1.0f;
-			visible = Lerp(visible, unwarped_dt*9.0f, target);
-
-			draw_quad((DrawParams) { quad_at(V2(0.0, screen_size().y), screen_size()), IMG(image_white_square), blendalpha(oflightness(0.2f), visible*0.4f), .layer = LAYER_UI });
-
-			Vec2 grid_panel_size = LerpV2(V2(0.0f, 0.0f), visible, V2(screen_size().x*0.75f, screen_size().y * 0.75f));
-			AABB grid_aabb = aabb_centered(MulV2F(screen_size(), 0.5f), grid_panel_size);
-			if (item_grid_state.open && pressed.mouse_down && !has_point(grid_aabb, mouse_pos))
-			{
-				item_grid_state.open = false;
-			}
-			if (aabb_is_valid(grid_aabb))
-			{
-				draw_quad((DrawParams) { quad_aabb(grid_aabb), IMG(image_white_square), blendalpha(BLACK, visible * 0.7f), .layer = LAYER_UI });
-
-				if (imbutton(aabb_centered(AddV2(grid_aabb.upper_left, V2(aabb_size(grid_aabb).x / 2.0f, -aabb_size(grid_aabb).y)), V2(100.f*visible, 50.0f*visible)), 1.0f, MD_S8Lit("Cancel")))
-				{
-					item_grid_state.open = false;
-				}
-
-				const float padding = 30.0f; // between border of panel and the items
-				const float padding_btwn_items = 10.0f;
-
-				const int horizontal_item_count = 10;
-				const int vertical_item_count = 6;
-				assert(ARRLEN(gs.player->held_items.data) < horizontal_item_count * vertical_item_count);
-
-				Vec2 space_for_items = SubV2(aabb_size(grid_aabb), V2(padding*2.0f, padding*2.0f));
-				float item_icon_width = (space_for_items.x - (horizontal_item_count - 1)*padding_btwn_items) / horizontal_item_count;
-				Vec2 item_icon_size = V2(item_icon_width, item_icon_width);
-
-				Vec2 cursor = AddV2(grid_aabb.upper_left, V2(padding, -padding));
-				int pressed_index = -1;
-				BUFF_ITER_I(ItemKind, &gs.player->held_items, i)
-				{
-					Vec2 real_size = LerpV2(item_icon_size, hovered_state[i], MulV2F(item_icon_size, 1.25f));
-					Vec2 item_center = AddV2(cursor, MulV2F(V2(item_icon_size.x, -item_icon_size.y), 0.5f));
-					AABB item_icon = aabb_centered(item_center, real_size);
-
-
-					float target = 0.0f;
-					if (aabb_is_valid(item_icon))
-					{
-						draw_quad((DrawParams) { quad_aabb(item_icon), IMG(image_white_square), blendalpha(WHITE, Lerp(0.0f, hovered_state[i], 0.4f)), .layer = LAYER_UI_FG });
-						bool hovered = has_point(item_icon, mouse_pos);
-						if (hovered)
-						{
-							target = 1.0f;
-							if (pressed.mouse_down)
-							{
-								pressed_index = i;
-							}
-						}
-
-						dbgrect(item_icon);
-						draw_item(*it, item_icon, clamp01(visible*visible));
-					}
-
-					hovered_state[i] = Lerp(hovered_state[i], dt*12.0f, target);
-
-					cursor.x += item_icon_size.x + padding_btwn_items;
-					if ((i + 1) % horizontal_item_count == 0 && i != 0)
-					{
-						cursor.y -= item_icon_size.y + padding_btwn_items;
-						cursor.x = grid_aabb.upper_left.x + padding;
-					}
-				}
-				if (pressed_index > -1)
-				{
-					item_grid_state.open = false;
-					ItemKind selected_item = gs.player->held_items.data[pressed_index];
-
-					if(item_grid_state.for_giving)
-					{
-						Entity *to = gete(gs.player->talking_to);
-						assert(to);
-
-						Action give_action = {.kind = ACT_gift_item_to_targeting, .argument = { .item_to_give = selected_item }, .talking_to_somebody = true, .talking_to_kind = to->npc_kind};
-						perform_action(&gs, gs.player, give_action);
-					}
-					else
-					{
-						// could put code here to use an item
-					}
-				}
-			}
-		}
-
 		// win screen
 		{
 			static float visible = 0.0f;
@@ -7456,10 +7015,10 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 						cur_pos.y -= aabb_size(bounds).y;
 
 						for(Memory *cur = to_view->memories_first; cur; cur = cur->next)
-						if(cur->speech_length > 0)
+						if(cur->speech.text_length > 0)
 						{
-							MD_String8 to_text =  cur->context.was_talking_to_somebody ? MD_S8Fmt(frame_arena, " to %s ", characters[cur->context.talking_to_kind].name) : MD_S8Lit("");
-							MD_String8 text = MD_S8Fmt(frame_arena, "%s%s%.*s: %.*s", to_view->npc_kind == cur->context.author_npc_kind ? "(Me) " : "", characters[cur->context.author_npc_kind].name, MD_S8VArg(to_text), cur->speech_length, cur->speech);
+							MD_String8 to_text = cur->context.talking_to_kind != NPC_nobody ? MD_S8Fmt(frame_arena, " to %s ", characters[cur->context.talking_to_kind].name) : MD_S8Lit("");
+							MD_String8 text = MD_S8Fmt(frame_arena, "%s%s%.*s: %.*s", to_view->npc_kind == cur->context.author_npc_kind ? "(Me) " : "", characters[cur->context.author_npc_kind].name, MD_S8VArg(to_text), cur->speech.text_length, cur->speech);
 							AABB bounds = draw_text((TextParams){false, text, cur_pos, WHITE, 1.0});
 							cur_pos.y -= aabb_size(bounds).y;
 						}
