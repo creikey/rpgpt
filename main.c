@@ -6995,36 +6995,39 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 				draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y/2.0f), MulV2F(screen_size(), 0.1f)), IMG(state.outline_pass_image), WHITE, .layer = LAYER_UI_FG});
 
 				Vec3 view_cam_pos = MulM4V4(InvGeneralM4(view), V4(0,0,0,1)).xyz;
-				Vec3 world_mouse = screenspace_point_to_camera_point(mouse_pos);
-				Vec3 mouse_ray = NormV3(SubV3(world_mouse, view_cam_pos));
-				Vec3 marker = ray_intersect_plane(view_cam_pos, mouse_ray, V3(0,0,0), V3(0,1,0));
-				Vec2 mouse_on_floor = point_plane(marker);
-				Overlapping mouse_over = get_overlapping(aabb_centered(mouse_on_floor, V2(1,1)));
-				BUFF_ITER(Entity*, &mouse_over)
+				if(view_cam_pos.y >= 0.050f) // causes nan if not true... not good...
 				{
-					dbgcol(PINK)
+					Vec3 world_mouse = screenspace_point_to_camera_point(mouse_pos);
+					Vec3 mouse_ray = NormV3(SubV3(world_mouse, view_cam_pos));
+					Vec3 marker = ray_intersect_plane(view_cam_pos, mouse_ray, V3(0,0,0), V3(0,1,0));
+					Vec2 mouse_on_floor = point_plane(marker);
+					Overlapping mouse_over = get_overlapping(aabb_centered(mouse_on_floor, V2(1,1)));
+					BUFF_ITER(Entity*, &mouse_over)
 					{
-						dbgplanerect(entity_aabb(*it));
+						dbgcol(PINK)
+						{
+							dbgplanerect(entity_aabb(*it));
 
 						// debug draw memories of hovered
-						Entity *to_view = *it;
-						Vec2 start_at = V2(0,300);
-						Vec2 cur_pos = start_at;
+							Entity *to_view = *it;
+							Vec2 start_at = V2(0,300);
+							Vec2 cur_pos = start_at;
 
-						AABB bounds = draw_text((TextParams){false, MD_S8Fmt(frame_arena, "--Memories for %s--", characters[to_view->npc_kind].name), cur_pos, WHITE, 1.0});
-						cur_pos.y -= aabb_size(bounds).y;
-
-						for(Memory *cur = to_view->memories_first; cur; cur = cur->next)
-						if(cur->speech.text_length > 0)
-						{
-							MD_String8 to_text = cur->context.talking_to_kind != NPC_nobody ? MD_S8Fmt(frame_arena, " to %s ", characters[cur->context.talking_to_kind].name) : MD_S8Lit("");
-							MD_String8 text = MD_S8Fmt(frame_arena, "%s%s%.*s: %.*s", to_view->npc_kind == cur->context.author_npc_kind ? "(Me) " : "", characters[cur->context.author_npc_kind].name, MD_S8VArg(to_text), cur->speech.text_length, cur->speech);
-							AABB bounds = draw_text((TextParams){false, text, cur_pos, WHITE, 1.0});
+							AABB bounds = draw_text((TextParams){false, MD_S8Fmt(frame_arena, "--Memories for %s--", characters[to_view->npc_kind].name), cur_pos, WHITE, 1.0});
 							cur_pos.y -= aabb_size(bounds).y;
+
+							for(Memory *cur = to_view->memories_first; cur; cur = cur->next)
+								if(cur->speech.text_length > 0)
+								{
+									MD_String8 to_text = cur->context.talking_to_kind != NPC_nobody ? MD_S8Fmt(frame_arena, " to %s ", characters[cur->context.talking_to_kind].name) : MD_S8Lit("");
+									MD_String8 text = MD_S8Fmt(frame_arena, "%s%s%.*s: %.*s", to_view->npc_kind == cur->context.author_npc_kind ? "(Me) " : "", characters[cur->context.author_npc_kind].name, MD_S8VArg(to_text), cur->speech.text_length, cur->speech);
+									AABB bounds = draw_text((TextParams){false, text, cur_pos, WHITE, 1.0});
+									cur_pos.y -= aabb_size(bounds).y;
+								}
+							}
+							break;
 						}
 					}
-					break;
-				}
 
 				Vec2 pos = V2(0.0, screen_size().Y);
 				int num_entities = 0;
