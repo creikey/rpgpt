@@ -1,5 +1,26 @@
 [
 
+{can_hear: [NPC_Daniel, NPC_Raphael]}
+{enum: NPC_Devil, dialog: "What's up cracker jack", to: Daniel}
+{enum: NPC_Daniel, dialog: "What the hell are you talking about?", to: Devil}
+{enum: NPC_Devil, dialog: "Bootylicious", to: Daniel}
+{enum: NPC_Daniel, dialog: "I don't know what the hell is going on here, but whatever it is it isn't good. Get off my property or leave promptly.", to: Devil}
+{enum: NPC_Raphael, dialog: "Yeah man, what's up with you?", to: Devil}
+{enum: NPC_Devil, dialog: "Nunya!", to: Raphael}
+{enum: NPC_Raphael, dialog: "What does 'Nunya' mean? A wild critter you are...", to: Devil}
+{enum: NPC_Daniel, dialog: "Can we do something about this vermin?", to: Raphael}
+{enum: NPC_Raphael, dialog: "I dunno man, he's got some gunpowder", to: Daniel}
+{enum: NPC_Daniel, dialog: "Gunpower? Well, that changes things. Keep an eye on him, but don't take any unnecessary risks. We don't need any more trouble around here.", to: Raphael}
+{enum: NPC_Devil, dialog: "Lick my nuts!", to: Daniel}
+{enum: NPC_Daniel, dialog: "You've got a mouth on you, don't you? I suggest you watch your tongue before you find yourself in a world of hurt.", to: Devil}
+{enum: NPC_Raphael, dialog: "Man I could really use a vacation", to: Daniel}
+{enum: NPC_Daniel, dialog: "A vacation, huh? I can understand that. Life can be tough out here. But remember, there's work to be done and responsibilities to uphold. We don't have the luxury of vacations around here.", to: Raphael}
+{enum: NPC_Devil, dialog: "Bro why you talk like that", to: Daniel}
+{enum: NPC_Daniel, dialog: "I talk like this because life has taught me to be cautious and weary. I've seen things that would make your blood run cold. So pardon me if I don't sound all cheery and optimistic like some folks. Now, if you're done with your questions, I suggest you mosey on out of here.", to: Devil}
+{enum: NPC_Devil, dialog: "Never! I'll kill you and destroy your farm", to: Daniel}
+{enum: NPC_Daniel, dialog: "You're treading on dangerous ground, stranger. Threatening me and my farm won't end well for you. I suggest you turn around and walk away before things escalate.", to: Devil}
+{enum: NPC_Devil, dialog: "I'll take my leave them. Until next time!", to: Daniel}
+{enum: NPC_Raphael, dialog: "What a psycho...", to: Daniel}
 
 /*
 {can_hear: [NPC_WellDweller, NPC_Farmer, NPC_ManInBlack]},
