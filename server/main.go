@@ -261,6 +261,13 @@ func checkout(w http.ResponseWriter, req *http.Request) {
 }
 
 func completion(w http.ResponseWriter, req *http.Request) {
+ logStr := "" // print all the logs at once, to make it so the printed output as multiple completions are happening at once, is coherent
+ defer func() {
+  if len(logStr) > 0 {
+   log.Println(logStr)
+  }
+ }()
+
  req.Body = http.MaxBytesReader(w, req.Body, 1024 * 1024) // no sending huge files to crash the server
  if doCors {
   w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -268,7 +275,7 @@ func completion(w http.ResponseWriter, req *http.Request) {
  bodyBytes, err := io.ReadAll(req.Body)
  if err != nil {
   w.WriteHeader(http.StatusBadRequest)
-  log.Println("Bad error: ", err)
+  logStr += fmt.Sprintf("Bad error: ", err) + "\n"
   return
  } else {
   bodyString := string(bodyBytes)
@@ -276,7 +283,7 @@ func completion(w http.ResponseWriter, req *http.Request) {
 
   if len(splitBody) != 2 {
    w.WriteHeader(http.StatusBadRequest)
-   log.Printf("Weird body length %d not 2\n", len(splitBody))
+   logStr += fmt.Sprintf("Weird body length %d not 2\n", len(splitBody))
    return
   }
   var promptString string = splitBody[1]
@@ -286,7 +293,7 @@ func completion(w http.ResponseWriter, req *http.Request) {
   rejected := false
   cleanTimedOut()
   if len(stripe.Key) == 0 {
-   log.Printf("Stripe capabilities are disabled, so automatically allowing completion")
+   logStr += fmt.Sprintf("Stripe capabilities are disabled, so automatically allowing completion")
   } else {
    if len(userToken) != 4 {
     // where I do the IP rate limiting
@@ -310,32 +317,32 @@ func completion(w http.ResponseWriter, req *http.Request) {
     var thisUser User
     thisUserCode, err := codes.ParseUserCode(userToken)
     if err != nil {
-     log.Printf("Error: Failed to parse user token %s\n", userToken)
+     logStr += fmt.Sprintf("Error: Failed to parse user token %s\n", userToken)
      rejected = true
     } else {
      err := db.First(&thisUser, thisUserCode).Error 
      if err != nil {
-      log.Printf("User code %d string %s couldn't be found in the database: %s\n", thisUserCode, userToken, err)
+      logStr += fmt.Sprintf("User code %d string %s couldn't be found in the database: %s\n", thisUserCode, userToken, err)
       rejected = true
      } else {
       if isUserOld(thisUser) {
-       log.Println("User code " + userToken + " is old, not valid")
+       logStr += fmt.Sprintf("User code " + userToken + " is old, not valid") + "\n"
        db.Delete(&thisUser)
        rejected = true
       } else {
        // now have valid user, in the database, to be rate limit checked
        // rate limiting based on user token
        if !thisUser.IsFulfilled {
-        log.Println("Unfulfilled user trying to play, might've been unresponded to event. Retrieving backlog of unfulfilled events...\n")
+        logStr += fmt.Sprintf("Unfulfilled user trying to play, might've been unresponded to event. Retrieving backlog of unfulfilled events...\n") + "\n"
         params := &stripe.EventListParams{}
         params.Filters.AddFilter("delivery_success", "", "false")
         i := event.List(params)
         for i.Next() {
          e := i.Event()
-         log.Println("Unfulfilled event! Of type %s. Handling...\n", e.Type)
+         logStr += fmt.Sprintf("Unfulfilled event! Of type %s. Handling...\n", e.Type) + "\n"
          err := handleEvent(*e)
          if err != nil {
-          log.Println("Failed to fulfill unfulfilled event: %s\n", err)
+          logStr += fmt.Sprintf("Failed to fulfill unfulfilled event: %s\n", err) + "\n"
          }
         }
        }
@@ -348,7 +355,7 @@ func completion(w http.ResponseWriter, req *http.Request) {
          daypassTimedOut[thisUserCode] = currentTime()
         }
        } else {
-        log.Println("User with code and existing entry in database was not fulfilled, and wanted to play... Very bad. Usercode: %s\n", thisUserCode)
+        logStr += fmt.Sprintf("User with code and existing entry in database was not fulfilled, and wanted to play... Very bad. Usercode: %s\n", thisUserCode) + "\n"
        }
       }
      }
@@ -361,7 +368,7 @@ func completion(w http.ResponseWriter, req *http.Request) {
   }
 
   if logResponses {
-   log.Println("Println line prompt string: ", promptString)
+   logStr += fmt.Sprintf("Println line prompt string: ", promptString) + "\n"
   }
 
   ctx := context.Background()
@@ -380,7 +387,7 @@ func completion(w http.ResponseWriter, req *http.Request) {
    }
    resp, err := c.CreateCompletion(ctx, req)
    if err != nil {
-    log.Println("Error Failed to generate, failed to create completion: ", err)
+    logStr += fmt.Sprintf("Error Failed to generate, failed to create completion: ", err) + "\n"
     w.WriteHeader(http.StatusInternalServerError)
     return
    }
@@ -388,24 +395,24 @@ func completion(w http.ResponseWriter, req *http.Request) {
   } else {
    // parse the json walter
    var parsed []ChatGPTElem
-   log.Printf("----------------------------------------------------------")
-   defer log.Printf("----------------------------------------------------------")
-   log.Printf("Parsing prompt string `%s`\n\n\n", promptString)
+   logStr += fmt.Sprintf("----------------------------------------------------------")
+   logStr += fmt.Sprintf("Parsing prompt string `%s`\n\n\n", promptString)
    err = json.Unmarshal([]byte(promptString), &parsed)
    if err != nil {
-    log.Println("Error bad json given for prompt: ", err)
+    logStr += fmt.Sprintf("Error bad json given for prompt: ", err) + "\n"
     w.WriteHeader(http.StatusBadRequest)
     return
    }
 
    messages := make([]openai.ChatCompletionMessage, 0)
    for _, elem := range parsed {
-    log.Printf("Making message with role %s and Content `%s`...\n", elem.ElemType, elem.Content)
+    logStr += fmt.Sprintf("Making message with role %s and Content `%s`...\n", elem.ElemType, elem.Content)
     messages = append(messages, openai.ChatCompletionMessage {
      Role: elem.ElemType,
      Content: elem.Content,
     })
    }
+   logStr += fmt.Sprintf("----------------------------------------------------------")
 
 	 if false { // temporary testing AI
 		 response = "ACT_holo \"Garbage\""
@@ -420,19 +427,19 @@ func completion(w http.ResponseWriter, req *http.Request) {
 			 },
 		 )
 		 if err != nil {
-			 log.Println("Error Failed to generate: ", err)
+			 logStr += fmt.Sprintf("Error Failed to generate: ", err) + "\n"
 			 w.WriteHeader(http.StatusInternalServerError)
 			 return
 		 }
 
-		 log.Printf("Full response: \n````\n%s\n````\n", resp)
+		 logStr += fmt.Sprintf("Full response: \n````\n%s\n````\n", resp)
 		 response = resp.Choices[0].Message.Content
 	 }
 
    /*
    with_action := strings.SplitAfter(response, "ACT_")
    if len(with_action) != 2 {
-    log.Printf("Could not find action in response string `%s`\n", response)
+    logStr += fmt.Sprintf("Could not find action in response string `%s`\n", response)
     w.WriteHeader(http.StatusInternalServerError) // game should send a new retry request after this
     return
    }
@@ -444,7 +451,7 @@ func completion(w http.ResponseWriter, req *http.Request) {
    between_quotes := strings.Split(response, "\"")
    // [action] " [stuff] " [anything extra]
    if len(between_quotes) < 2 {
-     log.Printf("Could not find enough quotes in response string `%s`\n", response)
+     logStr += fmt.Sprintf("Could not find enough quotes in response string `%s`\n", response)
 	 w.WriteHeader(http.StatusInternalServerError)
 	 return
    }
@@ -452,8 +459,8 @@ func completion(w http.ResponseWriter, req *http.Request) {
    */
   }
   if logResponses {
-   log.Println("Println response: `", response + "`")
-   log.Println()
+   logStr += fmt.Sprintf("Println response: `", response + "`") + "\n"
+   logStr += "\n"
   }
   fmt.Fprintf(w, "1%s", response + "\n")
  }
