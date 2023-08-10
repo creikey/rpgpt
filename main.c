@@ -2114,8 +2114,7 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 
 						if(drama_errors.node_count == 0)
 						{
-							memcpy(current_action.speech.text, dialog.str, dialog.size);
-							current_action.speech.text_length = (int)dialog.size;
+							chunk_from_s8(&current_action.speech, dialog);
 						}
 					}
 
@@ -2137,7 +2136,7 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 											this_context.i_said_this = true;
 										}
 										remember_action(gs, it, current_action, this_context);
-										if(it->npc_kind != current_context.author_npc_kind)
+										if(it->npc_kind != current_context.author_npc_kind && it->npc_kind != current_context.talking_to_kind)
 										{
 											// it's good for NPC health that they have examples of not saying anything in response to others speaking,
 											// so that they do the same when it's unlikely for them to talk.
@@ -2158,7 +2157,7 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 									PushWithLint(scratch.arena, &drama_errors, "Couldn't find NPC of kind %s in the current map", characters[want].enum_name);
 								}
 							}
-							Log("Propagated to %.s...\n", characters[want].name);
+							Log("Propagated to %d name '%s'...\n", want, characters[want].name);
 						}
 					}
 				}
@@ -5669,7 +5668,7 @@ void frame(void)
 		// draw the 3d render
 		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.threedee_pass_image), WHITE, .layer = LAYER_WORLD, .custom_pipeline = state.twodee_colorcorrect_pip });
 		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.outline_pass_image), WHITE, .layer = LAYER_UI_FG, .custom_pipeline = state.twodee_outline_pip, .layer = LAYER_UI});
-		
+
 		// 2d drawing TODO move this to when the drawing is flushed.
 		sg_begin_default_pass(&state.clear_depth_buffer_pass_action, sapp_width(), sapp_height());
 		sg_apply_pipeline(state.twodee_pip);
@@ -7038,10 +7037,24 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 									AABB bounds = draw_text((TextParams){false, text, cur_pos, WHITE, 1.0});
 									cur_pos.y -= aabb_size(bounds).y;
 								}
+
+							if(keypressed[SAPP_KEYCODE_Q] && !receiving_text_input)
+							{
+								Log("-- Printing debug memories for %s --\n", characters[to_view->npc_kind].name);
+								int mem_idx = 0;
+								for(Memory *cur = to_view->memories_first; cur; cur = cur->next)
+								{
+									MD_String8 to_text = cur->context.talking_to_kind != NPC_nobody ? MD_S8Fmt(frame_arena, " to %s ", characters[cur->context.talking_to_kind].name) : MD_S8Lit("");
+									MD_String8 text = MD_S8Fmt(frame_arena, "%s%s%.*s: %.*s", to_view->npc_kind == cur->context.author_npc_kind ? "(Me) " : "", characters[cur->context.author_npc_kind].name, MD_S8VArg(to_text), cur->speech.text_length, cur->speech);
+									printf("Memory %d: %.*s\n", mem_idx, MD_S8VArg(text));
+									mem_idx++;
+								}
 							}
+
 							break;
 						}
 					}
+				}
 
 				Vec2 pos = V2(0.0, screen_size().Y);
 				int num_entities = 0;
