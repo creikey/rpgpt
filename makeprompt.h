@@ -367,9 +367,9 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 		AddFmt("\n");
 
 		// @TODO unhardcode this, this will be a description of where the character is right now
-		AddFmt("You're currently standing in Daniel's farm's barn, a run-down structure that barely serves its purpose. Daniel's mighty protective of it though.");
+		AddFmt("You're currently standing in Daniel's farm's barn, a run-down structure that barely serves its purpose. Daniel's mighty protective of it though.\n");
 
-		AddFmt("The actions you can perform, what they do, and the arguments they expect:");
+		AddFmt("The actions you can perform, what they do, and the arguments they expect:\n");
 		AvailableActions can_perform;
 		fill_available_actions(gs, e, &can_perform);
 		BUFF_ITER(ActionKind, &can_perform)
@@ -383,32 +383,12 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 	MD_String8List current_list = {0};
 	for(Memory *it = e->memories_first; it; it = it->next)
 	{
-		// dump the current list, as the human understandable description of what's happened in the game so far, as a user node
-		if(it->context.i_said_this || it == e->memories_last)
-		{
-			if(it == e->memories_last && e->errorlist_first)
-			{
-				AddFmt("Errors you made: \n");
-				for(TextChunkList *cur = e->errorlist_first; cur; cur = cur->next)
-				{
-					AddFmt("%.*s\n", TextChunkVArg(cur->text));
-				}
-			}
-			if(current_list.node_count > 0)
-				AddNewNode(MSG_USER);
-		}
+		// going through memories, I'm going to accumulate human understandable sentences for what happened in current_list.
+		// when I see an 'i_said_this' memory, that means I flush. and add a new assistant node.
 
-		if(it->context.i_said_this)
-		{
-			AddFmt("{");
-			AddFmt("\"speech\":\"%.*s\",", TextChunkVArg(it->speech));
-			AddFmt("\"action\":\"%s\",", actions[it->action_taken].name);
-			AddFmt("\"action_argument\":\"%.*s\",", MD_S8VArg(action_argument_string(it->action_argument)));
-			AddFmt("\"target\":\"%s\"}", characters[it->context.talking_to_kind].name);
-			AddNewNode(MSG_ASSISTANT);
-		}
-		else
-		{
+
+		// write a new human understandable sentence or two to current_list
+		if (!it->context.i_said_this) {
 			// dump a human understandable sentence description of what happened in this memory
 			if(it->action_taken != ACT_none)
 			{
@@ -432,8 +412,41 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 					else
 						target_string = MD_S8CString(characters[it->context.talking_to_kind].name);
 				}
-				AddFmt("%s said %.*s to %.*s\n", characters[it->context.author_npc_kind].name, TextChunkVArg(it->speech), MD_S8VArg(target_string));
+
+				MD_String8 speaking_to_you_helper = MD_S8Lit("(Speaking directly you) ");
+				if(it->context.talking_to_kind != e->npc_kind)
+				{
+					speaking_to_you_helper = MD_S8Lit("(Overheard conversation, they aren't speaking directly to you) ");
+				}
+
+				AddFmt("%.*s%s said \"%.*s\" to %.*s\n", MD_S8VArg(speaking_to_you_helper), characters[it->context.author_npc_kind].name, TextChunkVArg(it->speech), MD_S8VArg(target_string));
 			}
+		}
+
+		// if I said this, or it's the last memory, flush the current list as a user node
+		if(it->context.i_said_this || it == e->memories_last)
+		{
+			if(it == e->memories_last && e->errorlist_first)
+			{
+				AddFmt("Errors you made: \n");
+				for(TextChunkList *cur = e->errorlist_first; cur; cur = cur->next)
+				{
+					AddFmt("%.*s\n", TextChunkVArg(cur->text));
+				}
+			}
+			if(current_list.node_count > 0)
+				AddNewNode(MSG_USER);
+		}
+
+		if(it->context.i_said_this)
+		{
+			MD_String8List current_list = {0}; // shadow the list of human understandable sentences to quickly flush 
+			AddFmt("{");
+			AddFmt("\"speech\":\"%.*s\",", TextChunkVArg(it->speech));
+			AddFmt("\"action\":\"%s\",", actions[it->action_taken].name);
+			AddFmt("\"action_argument\":\"%.*s\",", MD_S8VArg(action_argument_string(it->action_argument)));
+			AddFmt("\"target\":\"%s\"}", characters[it->context.talking_to_kind].name);
+			AddNewNode(MSG_ASSISTANT);
 		}
 	}
 	MD_String8 with_trailing_comma = MD_S8ListJoin(scratch.arena, list, &(MD_StringJoin){MD_S8Lit(""),MD_S8Lit(""),MD_S8Lit(""),});
