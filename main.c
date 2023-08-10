@@ -1652,6 +1652,19 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 		error_message = FmtWithLint(arena, "You can't join somebody, you're already in %s's party", characters[gete(from->joined)->npc_kind].name);
 	}
 
+	if(error_message.size == 0 && a.kind == ACT_join)
+	{
+		bool talk_to_valid = false;
+		BUFF_ITER(NpcKind, &talk)
+		{
+			if(*it == a.argument.targeting) talk_to_valid = true;
+		}
+		if(talk_to_valid == false)
+		{
+			error_message = FmtWithLint(arena, "Your action_argument for who to join, %s, is either invalid (you can't join nobody) or it's not an NPC that's near you right now.", characters[a.argument.targeting].name);
+		}
+	}
+
 	if(error_message.size == 0)
 	{
 		AvailableActions available = {0};
