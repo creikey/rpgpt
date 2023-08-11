@@ -1789,6 +1789,23 @@ bool perform_action(GameState *gs, Entity *from, Action a)
 {
 	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 
+	if(!from->is_character && a.speech.text_length > 0)
+	{
+		ListOfEntities *new_unread = 0;
+		if(unread_free_list)
+		{
+			new_unread = unread_free_list;
+			MD_StackPop(unread_free_list);
+			*new_unread = (ListOfEntities){0};
+		}
+		else
+		{
+			new_unread = MD_PushArray(persistent_arena, ListOfEntities, 1);
+		}
+		new_unread->referring_to = frome(from);
+		MD_DblPushBack(unread_first, unread_last, new_unread);
+	}
+
 	MemoryContext context = {0};
 	context.author_npc_kind = from->npc_kind;
 
@@ -5477,7 +5494,7 @@ void frame(void)
 	{
 		uint64_t time_start_frame = stm_now();
 
-		text_input_fade = Lerp(text_input_fade, dt * 8.0f, receiving_text_input ? 1.0f : 0.0f);
+		text_input_fade = Lerp(text_input_fade, unwarped_dt * 8.0f, receiving_text_input ? 1.0f : 0.0f);
 
 		Vec3 player_pos = V3(gs.player->pos.x, 0.0, gs.player->pos.y);
 		//dbgline(V2(0,0), V2(500, 500));
@@ -5997,20 +6014,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 												Log("Performing action %s!\n", actions[out.kind].name);
 												perform_action(&gs, it, out);
 
-												ListOfEntities *new_unread = 0;
-												if(unread_free_list)
-												{
-													new_unread = unread_free_list;
-													*new_unread = (ListOfEntities){0};
-													MD_StackPop(unread_free_list);
-												}
-												else
-												{
-													new_unread = MD_PushArray(persistent_arena, ListOfEntities, 1);
-												}
-												new_unread->referring_to = frome(it);
-												if(out.speech.text_length > 0)
-													MD_DblPushBack(unread_first, unread_last, new_unread);
+
 											}
 											else
 											{
@@ -6518,29 +6522,18 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 										if (it->memories_last->context.talking_to_kind == it->npc_kind)
 										{
 											const char *action = "none";
-											// if(it->standing != STANDING_JOINED) action = "joins_player";
-											//  @Place(more trailer jank)
 											char *rigged_dialog[] = {
-													/*
-												"Just trying to survive in this crazy world, same as everyone else.",
-												"We'll see who's crazy...",
-												"Join me down here, we'll wait it out",
-												"...",
-												*/
-													"HEY!",
-													"Sing me a rhyme, young man",
-													"The bell tolls for the meak...",
-													"HAHAHAHA",
+													"Repeated amounts of testing dialog overwhelmingly in support of the mulaney brothers",
 											};
 											char *next_dialog = rigged_dialog[it->times_talked_to % ARRLEN(rigged_dialog)];
-											ai_response = MD_S8Fmt(frame_arena, "{who_i_am: \"%s\", talking_to: nobody, action: %s, speech: \"%s\", thoughts: \"I'm thinking...\", mood: Happy}", characters[it->npc_kind].name, action, next_dialog);
+											ai_response = MD_S8Fmt(frame_arena, "{\"target\": \"%s\", \"action\": \"%s\", \"speech\": \"%s\"}", characters[it->memories_last->context.author_npc_kind].name, action, next_dialog);
 #ifdef DESKTOP
 											it->times_talked_to += 1;
 #endif
 										}
 										else
 										{
-											ai_response = MD_S8Fmt(frame_arena, "{who_i_am: \"%s\", talking_to: nobody, action: none, speech: \"I heard that...\", thoughts: \"I'm thinking...\", mood: Happy}", characters[it->npc_kind].name);
+											ai_response = MD_S8Lit("{\"target\": \"nobody\", \"action\": \"none\", \"speech\": \"\"}");
 										}
 									}
 									else

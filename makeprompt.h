@@ -529,7 +529,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 action_
 			}
 			if(!found)
 			{
-				error_message = FmtWithLint(arena, "Unrecognized character provided in talking_to: `%.*s`", MD_S8VArg(target_str));
+				error_message = FmtWithLint(arena, "Unrecognized character provided in field 'target': `%.*s`", MD_S8VArg(target_str));
 			}
 		}
 	}
