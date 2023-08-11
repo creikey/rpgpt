@@ -229,6 +229,7 @@ typedef struct Entity
 	// npcs
 	NpcKind npc_kind;
 	EntityRef joined;
+	float target_rotation; // turns towards this angle in conversation
 	bool being_hovered;
 	bool perceptions_dirty;
 	float dialog_fade;

@@ -1711,6 +1711,10 @@ void cause_action_side_effects(Entity *from, Action a)
 		assert(to);
 	}
 
+	if(to)
+	{
+		from->target_rotation = AngleOfV2(SubV2(to->pos, from->pos));
+	}
 
 	if(a.kind == ACT_join)
 	{
@@ -5910,6 +5914,8 @@ void frame(void)
 							
 							if(it->dialog_fade > 0.0f)
 								it->dialog_fade -= dt/DIALOG_FADE_TIME;
+
+							it->rotation = lerp_angle(it->rotation, unwarped_dt*8.0f, it->target_rotation);
 
 							if (it->gen_request_id != 0 && !gs.stopped_time)
 							{
