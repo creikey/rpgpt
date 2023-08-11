@@ -2036,6 +2036,7 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 	ENTITIES_ITER(gs->entities)
 	{
 		it->rotation = PI32;
+		it->target_rotation = it->rotation;
 	}
 
 	// @Place(parse and enact the drama document)
