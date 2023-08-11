@@ -420,7 +420,7 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 					speaking_to_you_helper = MD_S8Lit("(Overheard conversation, they aren't speaking directly to you) ");
 				}
 
-				AddFmt("%.*s%s said \"%.*s\" to %.*s\n", MD_S8VArg(speaking_to_you_helper), characters[it->context.author_npc_kind].name, TextChunkVArg(it->speech), MD_S8VArg(target_string));
+				AddFmt("%.*s%s said \"%.*s\" to %.*s (you are %s)\n", MD_S8VArg(speaking_to_you_helper), characters[it->context.author_npc_kind].name, TextChunkVArg(it->speech), MD_S8VArg(target_string), characters[e->npc_kind].name);
 			}
 		}
 

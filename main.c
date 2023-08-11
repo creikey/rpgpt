@@ -4454,6 +4454,7 @@ typedef struct PlacedWord
 	struct PlacedWord *prev;
 	MD_String8 text;
 	Vec2 lower_left_corner;
+	int line_index;
 } PlacedWord;
 
 typedef struct
@@ -4477,6 +4478,7 @@ PlacedWordList place_wrapped_words(MD_Arena *arena, MD_String8 text, float text_
 	Vec2 cur = at_position;
 	float space_size = character_width(for_font, (int)' ', text_scale);
 	float current_vertical_offset = 0.0f; // goes negative
+	int current_line_index = 0;
 	for(MD_String8Node *next_word = words.first; next_word; next_word = next_word->next)
 	{
 		if(next_word->string.size == 0)
@@ -4491,12 +4493,14 @@ PlacedWordList place_wrapped_words(MD_Arena *arena, MD_String8 text, float text_
 			{
 				current_vertical_offset -= get_vertical_dist_between_lines(for_font, text_scale);  // the 1.1 is just arbitrary padding because it looks too crowded otherwise
 				cur = AddV2(at_position, V2(0.0f, current_vertical_offset));
+				current_line_index += 1;
 				next_x_position = cur.x + aabb_size(word_bounds).x;
 			}
 
 			PlacedWord *new_placed = MD_PushArray(arena, PlacedWord, 1);
 			new_placed->text = next_word->string;
 			new_placed->lower_left_corner = cur;
+			new_placed->line_index = current_line_index;
 
 			MD_DblPushBack(to_return.first, to_return.last, new_placed);
 
@@ -4761,11 +4765,11 @@ void draw_dialog_panel(Entity *talking_to, float alpha)
 
 						color = blendalpha(color, alpha);
 						const float text_scale = 0.5f;
-						PlacedWordList wrapped = place_wrapped_words(scratch.arena, MD_S8(it->speech, it->speech_length), text_scale, dialog_panel.lower_right.x - dialog_panel.upper_left.x, default_font);
+						PlacedWordList wrapped = place_wrapped_words(scratch.arena, MD_S8(it->speech, it->speech_length), text_scale, dialog_panel.lower_right.x - dialog_panel.upper_left.x, BUBBLE_FONT);
 						float line_vertical_offset = -wrapped.last->lower_left_corner.y;
 						translate_words_by(wrapped, V2(0.0, line_vertical_offset));
 						translate_words_by(wrapped, V2(dialog_panel.upper_left.x, new_line_height));
-						new_line_height += line_vertical_offset + default_font.font_line_advance * text_scale;
+						new_line_height += line_vertical_offset + BUBBLE_FONT.font_line_advance * text_scale;
 
 						AABB no_clip_curly_things = dialog_panel;
 						no_clip_curly_things.lower_right.y -= padding;
@@ -5773,13 +5777,13 @@ void frame(void)
 			{
 				if (it->is_npc)
 				{
-					const float text_scale = 1.0f;
+					const float text_scale = BUBBLE_TEXT_SCALE;
 					float dist = LenV2(SubV2(it->pos, gs.player->pos));
 					float bubble_factor = 1.0f - clamp01(dist / 6.0f);
 					Vec3 bubble_pos = AddV3(plane_point(it->pos), V3(0, 1.7f, 0)); // 1.7 meters is about 5'8", average person height
 					Vec2 head_pos = threedee_to_screenspace(bubble_pos);
 					Vec2 screen_pos = head_pos;
-					Vec2 size = V2(400.0f, 400.0f);
+					Vec2 size = V2(BUBBLE_WIDTH_PIXELS, BUBBLE_WIDTH_PIXELS);
 					Vec2 bubble_center = AddV2(screen_pos, V2(-10.0f, 55.0f));
 					float dialog_alpha = clamp01(bubble_factor * it->dialog_fade);
 					bool unread = false;
@@ -5815,12 +5819,13 @@ void frame(void)
 							blendalpha(WHITE, it->loading_anim_in),
 							.layer = LAYER_UI_FG,
 					});
-					AABB placing_text_in = aabb_centered(AddV2(bubble_center, V2(0, 10.0f)), V2(size.x * 0.8f, size.y * 0.15f));
+					AABB placing_text_in = aabb_centered(AddV2(bubble_center, V2(0, 10.0f)), V2(BUBBLE_TEXT_WIDTH_PIXELS, size.y * 0.15f));
 					dbgrect(placing_text_in);
 
 					MD_String8List last = last_said_without_unsaid_words(frame_arena, it);
 					if(last.node_count != 0)
 					{
+						// also called on npc response to see if it fits in the right amount of bubbles, if not tells AI how many words it has to trim its response by
 						PlacedWordList placed = place_wrapped_words(frame_arena, MD_S8ListJoin(frame_arena, last, &(MD_StringJoin){.mid = MD_S8Lit(" ")}), text_scale, aabb_size(placing_text_in).x, default_font);
 						// translate_words_by(placed, V2(placing_text_in.upper_left.x, placing_text_in.lower_right.y));
 						translate_words_by(placed, AddV2(placing_text_in.upper_left, V2(0, -get_vertical_dist_between_lines(default_font, text_scale))));
@@ -5963,31 +5968,58 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 										Log("Parsing `%.*s`...\n", MD_S8VArg(sentence_str));
 										MD_String8 parse_response = parse_chatgpt_response(scratch.arena, it, sentence_str, &out);
 
-										if (parse_response.size == 0)
+										// check that it wraps in below two lines
+										PlacedWordList placed = place_wrapped_words(frame_arena, TextChunkString8(out.speech), BUBBLE_TEXT_SCALE, BUBBLE_TEXT_WIDTH_PIXELS, BUBBLE_FONT);
+										int words_over_limit = 0;
+										for(PlacedWord *cur = placed.first; cur; cur = cur->next)
 										{
-											Log("Performing action %s!\n", actions[out.kind].name);
-											perform_action(&gs, it, out);
+											if(cur->line_index > 1) // the max number of lines of text on a bubble
+											{
+												words_over_limit += 1;
+											}
+										}
 
-											ListOfEntities *new_unread = 0;
-											if(unread_free_list)
-											{
-												new_unread = unread_free_list;
-												*new_unread = (ListOfEntities){0};
-												MD_StackPop(unread_free_list);
-											}
-											else
-											{
-												new_unread = MD_PushArray(persistent_arena, ListOfEntities, 1);
-											}
-											new_unread->referring_to = frome(it);
-											if(out.speech.text_length > 0)
-												MD_DblPushBack(unread_first, unread_last, new_unread);
+										if(words_over_limit > 0)
+										{
+											// trim what the npc said so that the error message is never more than the text chunk, which without this would be super possible
+											// if the speech the npc already made was too big
+											int max_words_of_original_speech = MAX_SENTENCE_LENGTH / 2;
+											MD_String8 original_speech = TextChunkString8(out.speech);
+											MD_String8 trimmed_original_speech = original_speech.size < max_words_of_original_speech ? original_speech : FmtWithLint(frame_arena, "...%.*s", MD_S8VArg(MD_S8Substring(original_speech, original_speech.size - max_words_of_original_speech, original_speech.size)));
+											MD_String8 new_err = FmtWithLint(frame_arena, "You said '%.*s' which is %d words over the maximum limit, you must be more succinct and remove at least that many words", MD_S8VArg(trimmed_original_speech), words_over_limit);
+											append_to_errors(it, new_err);
 										}
 										else
 										{
-											Log("There was a parse error: `%.*s`\n", MD_S8VArg(parse_response));
-											append_to_errors(it, parse_response);
+											if (parse_response.size == 0)
+											{
+												Log("Performing action %s!\n", actions[out.kind].name);
+												perform_action(&gs, it, out);
+
+												ListOfEntities *new_unread = 0;
+												if(unread_free_list)
+												{
+													new_unread = unread_free_list;
+													*new_unread = (ListOfEntities){0};
+													MD_StackPop(unread_free_list);
+												}
+												else
+												{
+													new_unread = MD_PushArray(persistent_arena, ListOfEntities, 1);
+												}
+												new_unread->referring_to = frome(it);
+												if(out.speech.text_length > 0)
+													MD_DblPushBack(unread_first, unread_last, new_unread);
+											}
+											else
+											{
+												Log("There was a parse error: `%.*s`\n", MD_S8VArg(parse_response));
+												append_to_errors(it, parse_response);
+											}
 										}
+
+
+
 
 										MD_ReleaseScratch(scratch);
 
