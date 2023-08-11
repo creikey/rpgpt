@@ -2154,7 +2154,7 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 
 								if(!found)
 								{
-									PushWithLint(scratch.arena, &drama_errors, "Couldn't find NPC of kind %s in the current map", characters[want].enum_name);
+									Log("Warning: NPC of kind %s isn't on the map, but has entries in the drama document\n", characters[want].enum_name);
 								}
 							}
 							Log("Propagated to %d name '%s'...\n", want, characters[want].name);

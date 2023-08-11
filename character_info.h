@@ -77,4 +77,10 @@ CharacterGen characters[] = {
 		.name = "The Devil",
 		.enum_name = "Devil",
 		.prompt = CHARACTER_PROMPT_PREFIX("The Devil") "strange red beast, the devil himself, evil incarnate. You mercilessly mock everybody who talks to you, and are intending to instill absolute chaos.",
-	},};
+	},
+	{
+		.name = "Passerby",
+		.enum_name = "Passerby",
+		.prompt = CHARACTER_PROMPT_PREFIX("Random Passerby") "random person, just passing by",
+	},
+};

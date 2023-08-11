@@ -1,5 +1,4 @@
 [
-
 {can_hear: [NPC_Daniel, NPC_Raphael]}
 {enum: NPC_Devil, dialog: "What's up cracker jack", to: Daniel}
 {enum: NPC_Daniel, dialog: "What the hell are you talking about?", to: Devil}
@@ -21,6 +20,19 @@
 {enum: NPC_Daniel, dialog: "You're treading on dangerous ground, stranger. Threatening me and my farm won't end well for you. I suggest you turn around and walk away before things escalate.", to: Devil}
 {enum: NPC_Devil, dialog: "I'll take my leave them. Until next time!", to: Daniel}
 {enum: NPC_Raphael, dialog: "What a psycho...", to: Daniel}
+
+{can_hear: [NPC_Daniel, NPC_Raphael, NPC_Passerby]}
+{enum: NPC_Passerby, dialog: "Yo", to: Raphael}
+{enum: NPC_Raphael, dialog: "What's up", to: Passerby}
+{enum: NPC_Passerby, dialog: "What do you think of farmers", to: Raphael}
+{enum: NPC_Raphael, dialog: "What?", to: Passerby}
+{enum: NPC_Daniel, dialog: "Let me 'say somthin here. Farmers are the backbone of this town, so you'd best give them some respect", to: Passerby}
+{enum: NPC_Raphael, dialog: "I mean, scientists really are what's most important", to: Daniel}
+{enum: NPC_Daniel, dialog: "First of all, what the hell is a scientist? Second of all, whoever they are, if they can't eat they're worthless!", to: Raphael}
+{enum: NPC_Raphael, dialog: "FIne fine whatever, no need to get heated...", to: Daniel}
+{enum: NPC_Daniel, dialog: "Anyways, sorry about that. What's your name?", to: Passerby}
+{enum: NPC_Passerby, dialog: "Nevermind I'll just take my leave, later.", to: Daniel}
+
 
 /*
 {can_hear: [NPC_WellDweller, NPC_Farmer, NPC_ManInBlack]},
