@@ -1597,7 +1597,7 @@ void remember_action(GameState *gs, Entity *to_modify, Action a, MemoryContext c
 
 	push_memory(gs, to_modify, new_memory);
 
-	if(context.i_said_this)
+	if(context.i_said_this && (a.speech.text_length > 0 || a.kind != ACT_none))
 	{
 		to_modify->undismissed_action = true;
 		to_modify->undismissed_action_tick = gs->tick;
@@ -1799,20 +1799,19 @@ bool perform_action(GameState *gs, Entity *from, Action a)
 		proceed_propagating = false;
 	}
 
-	if(a.speech.text_length == 0 && a.kind == ACT_none)
-	{
-		proceed_propagating = false; // didn't say anything
-	}
 
+
+	Entity *targeted = 0; 
 	if(proceed_propagating)
 	{
+		targeted = get_targeted(from, a.talking_to_kind);
 		if(from->errorlist_first)
 			MD_StackPush(text_chunk_free_list, from->errorlist_first);
 		from->errorlist_first = 0;
 		from->errorlist_last = 0;
-		Entity *targeted = get_targeted(from, a.talking_to_kind);
 
 		cause_action_side_effects(from, a);
+
 		// self memory
 		if(!from->is_character)
 		{
@@ -1821,6 +1820,14 @@ bool perform_action(GameState *gs, Entity *from, Action a)
 			remember_action(gs, from, a, my_context); 
 		}
 
+		if(a.speech.text_length == 0 && a.kind == ACT_none)
+		{
+			proceed_propagating = false; // didn't say anything
+		}
+	}
+
+	if(proceed_propagating)
+	{
 		// memory of target
 		if(targeted)
 		{
@@ -3747,6 +3754,12 @@ Vec3 ray_intersect_plane(Vec3 ray_point, Vec3 ray_vector, Vec3 plane_point, Vec3
 
     float t = -(DotV3(plane_normal, ray_point) + d) / DotV3(plane_normal, ray_vector);
 
+    if(t <= 1e-4)
+    {
+    	// means doesn't intersect the plane, I think...
+    	return plane_point;
+    }
+    
     assert(t > 1e-4);
 
     return AddV3(ray_point, MulV3F(ray_vector, t));
@@ -6754,7 +6767,8 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 				draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y/2.0f), MulV2F(screen_size(), 0.1f)), IMG(state.outline_pass_image), WHITE, .layer = LAYER_UI_FG});
 
 				Vec3 view_cam_pos = MulM4V4(InvGeneralM4(view), V4(0,0,0,1)).xyz;
-				if(view_cam_pos.y >= 0.050f) // causes nan if not true... not good...
+				//if(view_cam_pos.y >= 4.900f) // causes nan if not true... not good...
+				if(true)
 				{
 					Vec3 world_mouse = screenspace_point_to_camera_point(mouse_pos);
 					Vec3 mouse_ray = NormV3(SubV3(world_mouse, view_cam_pos));
