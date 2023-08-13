@@ -243,8 +243,14 @@ typedef struct Entity
 	Memory *memories_last;
 	Memory *memories_added_while_time_stopped;
 	float dialog_panel_opacity;
-	int words_said;
-	float word_anim_in; // in characters, the fraction a word is animated in is this over its length.
+
+	// last_said_sentence(entity) contains the dialog the player has yet to see
+	bool undismissed_action;
+	uint64_t undismissed_action_tick;
+	float characters_of_word_animated;
+	int words_said_on_page;
+	int cur_page_index;
+
 	PathCacheHandle cached_path;
 	int gen_request_id;
 	Vec2 target_goto;

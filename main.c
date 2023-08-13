@@ -1357,16 +1357,6 @@ float flycam_speed = 1.0f;
 Mat4 view = {0}; 
 Mat4 projection = {0};
 
-typedef struct ListOfEntities {
-	struct ListOfEntities *next;
-	struct ListOfEntities *prev;
-	EntityRef referring_to;
-} ListOfEntities;
-
-ListOfEntities *unread_first = 0;
-ListOfEntities *unread_last = 0;
-ListOfEntities *unread_free_list = 0;
-
 Vec4 IsPoint(Vec3 point)
 {
 	return V4(point.x, point.y, point.z, 1.0f);
@@ -1609,8 +1599,11 @@ void remember_action(GameState *gs, Entity *to_modify, Action a, MemoryContext c
 
 	if(context.i_said_this)
 	{
-		to_modify->words_said = 0;
-		to_modify->word_anim_in = 0;
+		to_modify->undismissed_action = true;
+		to_modify->undismissed_action_tick = gs->tick;
+		to_modify->characters_of_word_animated = 0.0f;
+		to_modify->words_said_on_page = 0;
+		to_modify->cur_page_index = 0;
 	}
 }
 
@@ -1788,23 +1781,6 @@ float propagating_radius(PropagatingAction *p)
 bool perform_action(GameState *gs, Entity *from, Action a)
 {
 	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-
-	if(!from->is_character && a.speech.text_length > 0)
-	{
-		ListOfEntities *new_unread = 0;
-		if(unread_free_list)
-		{
-			new_unread = unread_free_list;
-			MD_StackPop(unread_free_list);
-			*new_unread = (ListOfEntities){0};
-		}
-		else
-		{
-			new_unread = MD_PushArray(persistent_arena, ListOfEntities, 1);
-		}
-		new_unread->referring_to = frome(from);
-		MD_DblPushBack(unread_first, unread_last, new_unread);
-	}
 
 	MemoryContext context = {0};
 	context.author_npc_kind = from->npc_kind;
@@ -2167,7 +2143,7 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 											remember_action(gs, it, no_speak, no_speak_context);
 										}
 
-										it->words_said = 999; // prevent the animating in sound effects of words said in drama document
+										it->undismissed_action = false; // prevent the animating in sound effects of words said in drama document
 
 										found = true;
 										break;
@@ -2309,8 +2285,13 @@ void ser_entity(SerState *ser, Entity *e)
 	}
 
 	ser_float(ser, &e->dialog_panel_opacity);
-	ser_int(ser, &e->words_said);
-	ser_float(ser, &e->word_anim_in);
+
+	ser_bool(ser, &e->undismissed_action);
+	ser_uint64_t(ser, &e->undismissed_action_tick);
+	ser_float(ser, &e->characters_of_word_animated);
+	ser_int(ser, &e->words_said_on_page);
+	ser_int(ser, &e->cur_page_index);
+
 	ser_NpcKind(ser, &e->npc_kind);
 	ser_int(ser, &e->gen_request_id);
 	ser_Vec2(ser, &e->target_goto);
@@ -4486,12 +4467,11 @@ float get_vertical_dist_between_lines(LoadedFont for_font, float text_scale)
 	return for_font.font_line_advance*text_scale*0.9f;
 }
 
-PlacedWordList place_wrapped_words(MD_Arena *arena, MD_String8 text, float text_scale, float maximum_width, LoadedFont for_font)
+PlacedWordList place_wrapped_words(MD_Arena *arena, MD_String8List words, float text_scale, float maximum_width, LoadedFont for_font)
 {
 	PlacedWordList to_return = {0};
 	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
 
-	MD_String8List words = split_by_word(scratch.arena, text);
 	Vec2 at_position = V2(0.0, 0.0);
 	Vec2 cur = at_position;
 	float space_size = character_width(for_font, (int)' ', text_scale);
@@ -4573,91 +4553,6 @@ typedef struct
 	bool was_last_said;
 } DialogElement;
 
-MD_String8List last_said_without_unsaid_words(MD_Arena *arena, Entity *it)
-{
-	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
-	MD_String8 sentence = last_said_sentence(it);
-	if(sentence.size == 0)
-	{
-		return (MD_String8List){0};
-	}
-	MD_String8List by_word = split_by_word(scratch.arena, sentence);
-	MD_String8Node *cur = by_word.first;
-	MD_String8List without_unsaid_words = {0};
-	for(int i = 0; i < by_word.node_count; i++)
-	{
-		if(i >= it->words_said)
-		{
-			break;
-		}
-		else
-		{
-			assert(cur);
-			MD_S8ListPush(arena, &without_unsaid_words, cur->string);
-			cur = cur->next;
-		}
-	}
-	MD_ReleaseScratch(scratch);
-	return without_unsaid_words;
-}
-
-// Some perceptions can have multiple dialog elements.
-// Like item give perceptions that have an action with both dialog
-// and an argument. So worst case every perception has 2 dialog
-// elements right now is why it's *2
-typedef BUFF(DialogElement, REMEMBERED_MEMORIES*2) Dialog;
-Dialog get_dialog_elems(Entity *talking_to, bool character_names)
-{
-	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-	assert(talking_to->is_npc);
-	Dialog to_return = { 0 };
-	for(Memory *it = talking_to->memories_first; it; it = it->next)
-	{
-		if(!it->context.dont_show_to_player)
-		{
-			if(it->speech.text_length > 0)
-			{
-				DialogElement new_element = { .who_said_it = it->context.author_npc_kind };
-
-				MD_String8 my_speech = TextChunkString8(it->speech);
-				if(last_said_sentence(talking_to).str == it->speech.text)
-				{
-					new_element.was_last_said = true;
-					my_speech = MD_S8ListJoin(scratch.arena, last_said_without_unsaid_words(scratch.arena, talking_to), &(MD_StringJoin){.mid = MD_S8Lit(" ")});
-				}
-
-				MD_String8 name_string = {0};
-				if(it->context.talking_to_kind != NPC_nobody)
-				{
-					name_string = FmtWithLint(scratch.arena, "%s to %s", characters[it->context.author_npc_kind].name, characters[it->context.talking_to_kind].name);
-				}
-				else
-				{
-					name_string = FmtWithLint(scratch.arena, "%s", characters[it->context.author_npc_kind].name);
-				}
-
-				MD_String8 dialog_speech = FmtWithLint(scratch.arena, "%.*s: %.*s", MD_S8VArg(name_string), MD_S8VArg(my_speech));
-
-				memcpy(new_element.speech, dialog_speech.str, dialog_speech.size);
-				new_element.speech_length = (int)dialog_speech.size;
-
-				if(it->context.author_npc_kind == NPC_Player)
-				{
-					new_element.kind = DELEM_PLAYER;
-				}
-				else
-				{
-					new_element.kind = DELEM_NPC;
-				}
-
-				BUFF_APPEND(&to_return, new_element);
-			}
-		}
-	}
-	MD_ReleaseScratch(scratch);
-	return to_return;
-}
-
 // trail is buffer of vec2s
 Vec2 get_point_along_trail(BuffRef trail, float along)
 {
@@ -4706,106 +4601,6 @@ float get_total_trail_len(BuffRef trail)
 }
 
 Vec2 mouse_pos = { 0 }; // in screen space
-
-void draw_dialog_panel(Entity *talking_to, float alpha)
-{
-	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-
-	float panel_width = 250.0f;
-	float panel_height = 150.0f;
-	float panel_vert_offset = 30.0f;
-
-
-	AABB dialog_panel = (AABB) {
-		.upper_left = AddV2(talking_to->pos, V2(-panel_width / 2.0f, panel_vert_offset + panel_height)),
-			.lower_right = AddV2(talking_to->pos, V2(panel_width / 2.0f, panel_vert_offset)),
-	};
-	AABB constrict_to = (AABB){0};
-	dialog_panel.upper_left.x = fmaxf(constrict_to.upper_left.x, dialog_panel.upper_left.x);
-	dialog_panel.lower_right.y = fmaxf(constrict_to.lower_right.y, dialog_panel.lower_right.y);
-	dialog_panel.upper_left.y = fminf(constrict_to.upper_left.y, dialog_panel.upper_left.y);
-	dialog_panel.lower_right.x = fminf(constrict_to.lower_right.x, dialog_panel.lower_right.x);
-
-	if (aabb_is_valid(dialog_panel))
-	{
-		Quad dialog_quad = quad_aabb(dialog_panel);
-		float line_width = 2.0f;
-		Quad panel_quad = dialog_quad;
-		{
-			float inset = line_width;
-			panel_quad.ul = AddV2(panel_quad.ul, V2(inset,  -inset));
-			panel_quad.ll = AddV2(panel_quad.ll, V2(inset,   inset));
-			panel_quad.lr = AddV2(panel_quad.lr, V2(-inset,  inset));
-			panel_quad.ur = AddV2(panel_quad.ur, V2(-inset, -inset));
-		}
-		colorquad(panel_quad, (Color) { 1.0f, 1.0f, 1.0f, 0.7f*alpha });
-		Color line_color = (Color) { 0, 0, 0, alpha };
-		line(AddV2(dialog_quad.ul, V2(-line_width, 0.0)), AddV2(dialog_quad.ur, V2(line_width, 0.0)), line_width, line_color);
-		line(dialog_quad.ur, dialog_quad.lr, line_width, line_color);
-		line(AddV2(dialog_quad.lr, V2(line_width, 0.0)), AddV2(dialog_quad.ll, V2(-line_width, 0.0)), line_width, line_color);
-		line(dialog_quad.ll, dialog_quad.ul, line_width, line_color);
-
-		float padding = 7.5f;
-		dialog_panel.upper_left = AddV2(dialog_panel.upper_left, V2(padding, -padding));
-		dialog_panel.lower_right = AddV2(dialog_panel.lower_right, V2(-padding, padding));
-
-		if (aabb_is_valid(dialog_panel))
-		{
-			float new_line_height = dialog_panel.lower_right.Y;
-
-			Dialog dialog = get_dialog_elems(talking_to, false);
-			if (dialog.cur_index > 0)
-			{
-				for (int i = dialog.cur_index - 1; i >= 0; i--)
-				{
-					DialogElement *it = &dialog.data[i];
-					{
-						Color color;
-						// decide color
-						{
-							if (it->kind == DELEM_PLAYER)
-							{
-								color = BLACK;
-							}
-							else if (it->kind == DELEM_NPC)
-							{
-								color = colhex(0x345e22);
-							}
-							else if (it->kind == DELEM_ACTION_DESCRIPTION)
-							{
-								color = colhex(0xb5910e);
-							}
-							else
-							{
-								assert(false);
-							}
-						}
-
-						color = blendalpha(color, alpha);
-						const float text_scale = 0.5f;
-						PlacedWordList wrapped = place_wrapped_words(scratch.arena, MD_S8(it->speech, it->speech_length), text_scale, dialog_panel.lower_right.x - dialog_panel.upper_left.x, BUBBLE_FONT);
-						float line_vertical_offset = -wrapped.last->lower_left_corner.y;
-						translate_words_by(wrapped, V2(0.0, line_vertical_offset));
-						translate_words_by(wrapped, V2(dialog_panel.upper_left.x, new_line_height));
-						new_line_height += line_vertical_offset + BUBBLE_FONT.font_line_advance * text_scale;
-
-						AABB no_clip_curly_things = dialog_panel;
-						no_clip_curly_things.lower_right.y -= padding;
-						for(PlacedWord *cur = wrapped.first; cur; cur = cur->next)
-						{
-							draw_text((TextParams){false, cur->text, cur->lower_left_corner, color, text_scale, .clip_to = no_clip_curly_things, .do_clipping = true,});
-						}
-					}
-				}
-			}
-
-			dbgrect(dialog_panel);
-		}
-	}
-
-	MD_ReleaseScratch(scratch);
-}
-
 
 #define ROLL_KEY SAPP_KEYCODE_LEFT_SHIFT
 double elapsed_time = 0.0;
@@ -5454,6 +5249,39 @@ void flush_all_drawn_things(Vec3 light_dir, Vec3 cam_pos, Vec3 cam_facing, Vec3 
 	}
 }
 
+// Unsaid words are still there, so you gotta handle the animation homie
+MD_String8List words_on_current_page(Entity *it)
+{
+	MD_String8 last = last_said_sentence(it);
+	PlacedWordList placed = place_wrapped_words(frame_arena, split_by_word(frame_arena, last), BUBBLE_TEXT_SCALE, BUBBLE_TEXT_WIDTH_PIXELS, BUBBLE_FONT);
+
+	MD_String8List on_current_page = {0};
+	for(PlacedWord *cur = placed.first; cur; cur = cur->next)
+	{
+		if(cur->line_index / BUBBLE_LINES_PER_PAGE == it->cur_page_index)
+			MD_S8ListPush(frame_arena, &on_current_page, cur->text);	
+	}
+
+	return on_current_page;
+
+	//return place_wrapped_words(frame_arena, on_current_page, text_scale, aabb_size(placing_text_in).x, default_font);
+}
+
+MD_String8List words_on_current_page_without_unsaid(Entity *it)
+{
+	MD_String8List all_words = words_on_current_page(it);
+	int index = 0;
+	MD_String8List to_return = {0};
+	for(MD_String8Node *cur = all_words.first; cur; cur = cur->next)
+	{
+		if(index > it->words_said_on_page)
+			break;
+		MD_S8ListPush(frame_arena, &to_return, cur->string);
+		index += 1;
+	}
+	return to_return;
+}
+
 void frame(void)
 {
 	static float speed_factor = 1.0f;
@@ -5785,16 +5613,32 @@ void frame(void)
 		}
 #endif
 
+		Entity *cur_unread_entity = 0;
+		uint64_t earliest_unread_time = gs.tick;
+		ENTITIES_ITER(gs.entities)
+		{
+			if(it->is_npc && it->undismissed_action && it->undismissed_action_tick < earliest_unread_time)
+			{
+				earliest_unread_time = it->undismissed_action_tick;
+				cur_unread_entity = it;
+			}
+		}
+
+
 		// @Place(UI rendering that happens before gameplay processing so can consume events before the gameplay needs them)
 		PROFILE_SCOPE("Entity UI Rendering")
 		{
-			while(unread_first && !gete(unread_first->referring_to))
-				MD_DblRemove(unread_first, unread_last, unread_first);
+
 
 			ENTITIES_ITER(gs.entities)
 			{
 				if (it->is_npc)
 				{
+					if(it->undismissed_action)
+					{
+						assert(it->undismissed_action_tick <= gs.tick); // no future undismissed actions
+					}
+
 					const float text_scale = BUBBLE_TEXT_SCALE;
 					float dist = LenV2(SubV2(it->pos, gs.player->pos));
 					float bubble_factor = 1.0f - clamp01(dist / 6.0f);
@@ -5805,7 +5649,8 @@ void frame(void)
 					Vec2 bubble_center = AddV2(screen_pos, V2(-10.0f, 55.0f));
 					float dialog_alpha = clamp01(bubble_factor * it->dialog_fade);
 					bool unread = false;
-					if (unread_first && gete(unread_first->referring_to) == it)
+
+					if (cur_unread_entity == it)
 					{
 						dialog_alpha = 1.0f;
 						unread = true;
@@ -5816,6 +5661,7 @@ void frame(void)
 							blendalpha(WHITE, dialog_alpha),
 							.layer = LAYER_UI_FG,
 					});
+					MD_String8List words_to_say = words_on_current_page(it);
 					if (unread)
 					{
 						draw_quad((DrawParams){
@@ -5824,9 +5670,30 @@ void frame(void)
 								blendalpha(WHITE, 0.8f),
 								.layer = LAYER_UI_FG,
 						});
+
 						if (interact)
 						{
-							MD_DblRemove(unread_first, unread_last, unread_first);
+							if(it->words_said_on_page < words_to_say.node_count)
+							{
+								// still saying stuff
+								it->words_said_on_page = (int)words_to_say.node_count;
+							}
+							else
+							{
+								it->cur_page_index += 1;
+								if(words_on_current_page(it).node_count == 0)
+								{
+									// don't reset words_said_on_page because, even when the action is dismissed, the text for the last
+									// page of dialog should still linger
+									it->undismissed_action = false;
+									it->cur_page_index -= 1;
+								} 
+								else
+								{
+									it->characters_of_word_animated = 0.0f;	
+									it->words_said_on_page = 0;
+								}								
+							}
 							interact = false;
 						}
 					}
@@ -5840,11 +5707,12 @@ void frame(void)
 					AABB placing_text_in = aabb_centered(AddV2(bubble_center, V2(0, 10.0f)), V2(BUBBLE_TEXT_WIDTH_PIXELS, size.y * 0.15f));
 					dbgrect(placing_text_in);
 
-					MD_String8List last = last_said_without_unsaid_words(frame_arena, it);
-					if(last.node_count != 0)
+					MD_String8List to_draw = words_on_current_page_without_unsaid(it);
+					if(to_draw.node_count != 0)
 					{
+						PlacedWordList placed = place_wrapped_words(frame_arena, to_draw, text_scale, aabb_size(placing_text_in).x, default_font);  
+						
 						// also called on npc response to see if it fits in the right amount of bubbles, if not tells AI how many words it has to trim its response by
-						PlacedWordList placed = place_wrapped_words(frame_arena, MD_S8ListJoin(frame_arena, last, &(MD_StringJoin){.mid = MD_S8Lit(" ")}), text_scale, aabb_size(placing_text_in).x, default_font);
 						// translate_words_by(placed, V2(placing_text_in.upper_left.x, placing_text_in.lower_right.y));
 						translate_words_by(placed, AddV2(placing_text_in.upper_left, V2(0, -get_vertical_dist_between_lines(default_font, text_scale))));
 						for (PlacedWord *cur = placed.first; cur; cur = cur->next)
@@ -5864,8 +5732,11 @@ void frame(void)
 		static Entity *interacting_with = 0; // used by rendering to figure out who to draw dialog box on
 		static bool player_in_combat = false;
 
+
+
+
 		float speed_target = 1.0f;
-		gs.stopped_time = unread_first != 0;
+		gs.stopped_time = cur_unread_entity != 0;
 		if(gs.stopped_time) speed_target = 0.0f;
 		// pausing the game
 		speed_factor = Lerp(speed_factor, unwarped_dt*10.0f, speed_target);
@@ -5987,11 +5858,11 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 										MD_String8 parse_response = parse_chatgpt_response(scratch.arena, it, sentence_str, &out);
 
 										// check that it wraps in below two lines
-										PlacedWordList placed = place_wrapped_words(frame_arena, TextChunkString8(out.speech), BUBBLE_TEXT_SCALE, BUBBLE_TEXT_WIDTH_PIXELS, BUBBLE_FONT);
+										PlacedWordList placed = place_wrapped_words(frame_arena, split_by_word(frame_arena, TextChunkString8(out.speech)), BUBBLE_TEXT_SCALE, BUBBLE_TEXT_WIDTH_PIXELS, BUBBLE_FONT);
 										int words_over_limit = 0;
 										for(PlacedWord *cur = placed.first; cur; cur = cur->next)
 										{
-											if(cur->line_index > 1) // the max number of lines of text on a bubble
+											if(cur->line_index >= BUBBLE_LINES_PER_PAGE*AI_MAX_BUBBLE_PAGES_IN_OUTPUT) // the max number of lines of text on a bubble
 											{
 												words_over_limit += 1;
 											}
@@ -6072,40 +5943,29 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 							{
 								MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 
-								MD_String8List split = split_by_word(scratch.arena, last_said_sentence(it));
-								if(it->words_said <= split.node_count)
+								MD_String8List to_say = words_on_current_page(it);
+								MD_String8List to_say_without_unsaid = words_on_current_page_without_unsaid(it);
+								if(to_say.node_count > 0 && it->words_said_on_page < to_say.node_count)
 								{
-									it->word_anim_in += CHARACTERS_PER_SEC * unwarped_dt;
-									int characters_in_animating_word = 0;
-									MD_String8Node *cur = split.first;
-									for(int i = 0; i < it->words_said + 1; i++)
+									if(cur_unread_entity == it)
 									{
-										if(cur)
+										it->characters_of_word_animated += CHARACTERS_PER_SEC * unwarped_dt;
+										int characters_in_animating_word = (int)to_say_without_unsaid.last->string.size; 
+										if((int)it->characters_of_word_animated + 1 > characters_in_animating_word)
 										{
-											if(i >= it->words_said - 1)
-											{
-												characters_in_animating_word = (int)cur->string.size;
-												break;
-											}
-											cur = cur->next;
+											it->words_said_on_page += 1;
+											it->characters_of_word_animated = 0.0f;
+
+											float dist = LenV2(SubV2(it->pos, gs.player->pos));
+											float volume = Lerp(-0.6f, clamp01(dist / 70.0f), -1.0f);
+											AudioSample * possible_grunts[] = {
+												&sound_grunt_0,
+												&sound_grunt_1,
+												&sound_grunt_2,
+												&sound_grunt_3,
+											};
+											play_audio(possible_grunts[rand() % ARRLEN(possible_grunts)], volume);
 										}
-									}
-									if((int)it->word_anim_in + 1 > characters_in_animating_word)
-									{
-										it->words_said += 1;
-										if(it->words_said < split.node_count)
-										{
-											it->word_anim_in = 0;
-										}
-										float dist = LenV2(SubV2(it->pos, gs.player->pos));
-										float volume = Lerp(-0.6f, clamp01(dist / 70.0f), -1.0f);
-										AudioSample * possible_grunts[] = {
-											&sound_grunt_0,
-											&sound_grunt_1,
-											&sound_grunt_2,
-											&sound_grunt_3,
-										};
-										play_audio(possible_grunts[rand() % ARRLEN(possible_grunts)], volume);
 									}
 								}
 
@@ -6520,13 +6380,16 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 									if (mocking_the_ai_response)
 									{
 										if (it->memories_last->context.talking_to_kind == it->npc_kind)
+										//if (it->memories_last->context.author_npc_kind != it->npc_kind)
 										{
 											const char *action = "none";
 											char *rigged_dialog[] = {
 													"Repeated amounts of testing dialog overwhelmingly in support of the mulaney brothers",
 											};
 											char *next_dialog = rigged_dialog[it->times_talked_to % ARRLEN(rigged_dialog)];
-											ai_response = MD_S8Fmt(frame_arena, "{\"target\": \"%s\", \"action\": \"%s\", \"speech\": \"%s\"}", characters[it->memories_last->context.author_npc_kind].name, action, next_dialog);
+											char *target = characters[it->memories_last->context.author_npc_kind].name;
+											target = characters[NPC_Player].name;
+											ai_response = FmtWithLint(frame_arena, "{\"target\": \"%s\", \"action\": \"%s\", \"speech\": \"%s\"}", target, action, next_dialog);
 #ifdef DESKTOP
 											it->times_talked_to += 1;
 #endif
@@ -6821,155 +6684,6 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 			Vec2 text_center = V2(screen_size().x / 2.0f, screen_size().y*0.8f);
 			draw_quad((DrawParams){centered_quad(text_center, V2(screen_size().x*0.8f, screen_size().y*0.1f)), IMG(image_white_square), blendalpha(BLACK, 0.5f), .layer = LAYER_UI_FG});
 			draw_centered_text((TextParams){false, MD_S8Lit("The AI server is having technical difficulties..."), text_center, WHITE, 1.0f });
-		}
-
-		if(false)
-		PROFILE_SCOPE("dialog menu") // big dialog panel draw big dialog panel
-		{
-			static float on_screen = 0.0f;
-			Entity *talking_to = gete(gs.player->talking_to);
-			on_screen = Lerp(on_screen, unwarped_dt*9.0f, talking_to ? 1.0f : 0.0f);
-			{
-				float panel_width = screen_size().x * 0.4f * on_screen;
-				AABB panel_aabb = (AABB) { .upper_left = V2(0.0f, screen_size().y), .lower_right = V2(panel_width, 0.0f) };
-				float alpha = 1.0f;
-
-				if (aabb_is_valid(panel_aabb))
-				{
-					if (!item_grid_state.open && pressed.mouse_down && !has_point(panel_aabb, mouse_pos))
-					{
-						gs.player->state = CHARACTER_IDLE;
-					}
-					draw_quad((DrawParams) { quad_aabb(panel_aabb), IMG(image_white_square), blendalpha(BLACK, 0.7f) });
-
-					// apply padding
-					float padding = 0.1f * screen_size().y;
-					panel_width -= padding * 2.0f;
-					panel_aabb.upper_left = AddV2(panel_aabb.upper_left, V2(padding, -padding));
-					panel_aabb.lower_right = AddV2(panel_aabb.lower_right, V2(-padding, padding));
-
-					// draw button
-					float space_btwn_buttons = 20.0f;
-					float text_scale = 1.0f;
-					const float num_buttons = 2.0f;
-					Vec2 button_size = V2(
-							(panel_width - (num_buttons - 1.0f)*space_btwn_buttons) / num_buttons,
-							(panel_aabb.upper_left.y - panel_aabb.lower_right.y)*0.2f
-							);
-					float button_grid_width = button_size.x*num_buttons + space_btwn_buttons * (num_buttons - 1.0f);
-					Vec2 cur_upper_left = V2((panel_aabb.upper_left.x + panel_aabb.lower_right.x) / 2.0f - button_grid_width / 2.0f, panel_aabb.lower_right.y + button_size.y);
-					if(receiving_text_input && pressed.speak_shortcut)
-					{
-						end_text_input("");
-						pressed.speak_shortcut = false;
-					}
-					if (imbutton_key(aabb_at(cur_upper_left, button_size), text_scale, MD_S8Lit("Speak"), __LINE__, unwarped_dt, receiving_text_input) || (talking_to && pressed.speak_shortcut))
-					{
-						begin_text_input();
-					}
-
-
-					// draw keyboard hint
-					{
-						Vec2 keyboard_helper_at = V2(cur_upper_left.x + button_size.x*0.5f, cur_upper_left.y - button_size.y*0.75f);
-						draw_quad((DrawParams){ centered_quad(keyboard_helper_at, V2(40.0f, 40.0f)), IMG(image_white_square), blendalpha(GREY, 0.4f)});
-						draw_centered_text((TextParams){false, MD_S8Lit("S"), keyboard_helper_at, BLACK, 1.5f});
-					}
-
-					cur_upper_left.x += button_size.x + space_btwn_buttons;
-
-					if(item_grid_state.open && pressed.give_shortcut)
-					{
-						pressed.give_shortcut = false;
-						item_grid_state.open = false;
-					}
-
-					if (imbutton_key(aabb_at(cur_upper_left, button_size), text_scale, MD_S8Lit("Give Item"), __LINE__, unwarped_dt, item_grid_state.open) || (talking_to && pressed.give_shortcut))
-					{
-						item_grid_state = (ItemgridState){.open = true, .for_giving = true};
-					}
-
-
-					// draw keyboard hint
-					{
-						Vec2 keyboard_helper_at = V2(cur_upper_left.x + button_size.x*0.5f, cur_upper_left.y - button_size.y*0.75f);
-						draw_quad((DrawParams){ centered_quad(keyboard_helper_at, V2(40.0f, 40.0f)), IMG(image_white_square), blendalpha(GREY, 0.4f)});
-						draw_centered_text((TextParams){ false, MD_S8Lit("G"), keyboard_helper_at, BLACK, 1.5f});
-					}
-
-					const float dialog_text_scale = 1.0f;
-					float button_grid_height = button_size.y;
-					AABB dialog_panel = panel_aabb;
-					dialog_panel.lower_right.y += button_grid_height + 20.0f; // a little bit of padding because the buttons go up
-					float new_line_height = dialog_panel.lower_right.y;
-
-					// talking to dialog text
-					if (talking_to && aabb_is_valid(dialog_panel))
-					{
-						MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-						Dialog dialog = get_dialog_elems(talking_to, true);
-						{
-							for (int i = dialog.cur_index - 1; i >= 0; i--)
-							{
-								DialogElement *it = &dialog.data[i];
-								{
-									Color color;
-									if (it->kind == DELEM_PLAYER)
-									{
-										color = WHITE;
-									}
-									else if (it->kind == DELEM_NPC)
-									{
-										color = colhex(0x34e05c);
-									}
-									else if (it->kind == DELEM_ACTION_DESCRIPTION)
-									{
-										color = colhex(0xebc334);
-									}
-									else
-									{
-										assert(false);
-									}
-									color = blendalpha(color, alpha);
-
-									const float text_scale = 1.0f;
-									PlacedWordList wrapped = place_wrapped_words(scratch.arena, MD_S8(it->speech, it->speech_length), text_scale, dialog_panel.lower_right.x - dialog_panel.upper_left.x, default_font);
-									float line_vertical_offset = -wrapped.last->lower_left_corner.y;
-									translate_words_by(wrapped, V2(0.0, line_vertical_offset));
-									translate_words_by(wrapped, V2(dialog_panel.upper_left.x, new_line_height));
-									new_line_height += line_vertical_offset + default_font.font_line_advance * text_scale;
-
-									for(PlacedWord *cur = wrapped.first; cur; cur = cur->next)
-									{
-										float this_text_scale = text_scale;
-										if(it->was_last_said && cur->next == 0)
-										{
-											this_text_scale *= clamp01(talking_to->word_anim_in / (float)cur->text.size);
-										}
-										AABB clipping_aabb = dialog_panel;
-										clipping_aabb.lower_right.y -= 50.0f;
-										dbgrect(clipping_aabb);
-										draw_text((TextParams){ false, cur->text, cur->lower_left_corner, color, this_text_scale, .clip_to = clipping_aabb, .do_clipping = true,});
-									}
-
-									if(i != 0)
-									{
-										float separator_height = 40.0f; // how much vertical space the whole separation, including padding, takes
-										float line_height = 1.0f;
-										Vec2 line_from = AddV2(wrapped.first->lower_left_corner, V2(0, default_font.font_line_advance*text_scale + separator_height/2.0f));
-										Vec2 line_to = AddV2(line_from, V2(aabb_size(dialog_panel).x, 0));
-										draw_quad((DrawParams){ line_quad(line_from, line_to, line_height), IMG(image_white_square), blendalpha(WHITE, 0.6f), .clip_to = dialog_panel, .do_clipping = true});
-
-										new_line_height += separator_height;
-									}
-
-								}
-							}
-						}
-						MD_ReleaseScratch(scratch);
-					}
-				}
-			}
 		}
 
 		// win screen
