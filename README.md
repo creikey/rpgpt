@@ -6,6 +6,8 @@ RPG GPT. Short experience
 # Important Building Steps and Contribution Notes
 Every time you checkin/clone the project, you have to unzip art.blend... If this is annoying to you, make a git hook
 
+When editing Exporter.py in either the blender editor, or in a text editor in the repo, you  have to continually make sure blender's internal version of the script doesn't go out of date with the actual script on disk, by either saving consistently from blender to disk if you're editing from blender, or by reloading from disk in the blend file before each commit.
+
 Be very cautious about committing a change to any large asset files, i.e the art.blend and png files. Every time you do so, even if you change one little thing like moving the player somewhere, you copy the entire file in git lfs, ballooning the storage usage of the git project on the remote. So just try to minimize edits to those big files.
 
 You must clone with git lfs is, and download git lfs files in this repository. If you don't know what that is, google it

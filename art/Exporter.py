@@ -109,7 +109,7 @@ def ensure_tex_saved_and_get_name(o) -> str:
         if img_obj.packed_file:
             img_obj.save(filepath=bpy.path.abspath(save_to))
         else:
-            assert img_obj.filepath != "", f"{img_obj.filepath} in mesh {mesh_name} Isn't there but should be, as it has no packed image"
+            assert img_obj.filepath != "", f"filepath '{img_obj.filepath}' in mesh {mesh_name} Isn't there but should be, as it has no packed image"
             old_path = bpy.path.abspath(img_obj.filepath)
             if not is_file_in_project(old_path):
                 print(f"Image {image_filename} has filepath {img_obj.filepath}, outside of the current directory. So we're copying it baby. Hoo-rah!")
@@ -123,11 +123,12 @@ def ensure_tex_saved_and_get_name(o) -> str:
 
     return image_filename
 
-def object_in_level(o):
-    return o.users_collection[0].name == "Level" or (o.users_collection[0] in D.collections["Level"].children_recursive)
+
+def object_in_collection(o, collection):
+    """Probably only works for root level collections"""
+    return o.users_collection[0].name == collection or (o.users_collection[0] in D.collections[collection].children_recursive)
 
 # meshes can either be Meshes, or Armatures. Armatures contain all mesh data to draw it, and any anims it has
-
 for o in D.objects:
     if o.hide_get(): continue
     if o.type == "MESH":
@@ -135,7 +136,7 @@ for o in D.objects:
             mesh_object = o
             o = o.parent
             object_transform_info = (mesh_name, mapping @ o.location, o.rotation_euler, o.scale)
-            if object_in_level(o):
+            if object_in_collection(o, "Level") or object_in_collection(o, "PlacedEntities"):
                 assert False, "Cannot put armatures in the level. The level is for static placed meshes. For dynamic entities, you put them outside of the level collection, their entity kind is encoded, and the game code decides how to draw them"
             else:
                 pass
@@ -289,20 +290,20 @@ for o in D.objects:
             
             object_transform_info = (mesh_name, mapping @ o.location, o.rotation_euler, o.scale)
             
-            if object_in_level(o) and mesh_name == "CollisionCube":
+            if object_in_collection(o, "Level") and mesh_name == "CollisionCube":
                 collision_cubes.append((o.location, o.dimensions))
             else:
-                if object_in_level(o):
+                if object_in_collection(o, "Level"):
                     print(f"Object {o.name} has mesh name {o.to_mesh().name}")
                     assert(o.rotation_euler.order == 'XYZ')
                     level_object_data.append(object_transform_info)
-                else:
+                elif object_in_collection(o, "PlacedEntities"):
                     placed_entities.append((o.name,) + object_transform_info)
                 
                 if mesh_name in saved_meshes:
                     continue
                 saved_meshes.add(mesh_name)
-                print(f"Mesh name {mesh_name} in level {object_in_level(o)} collections {o.users_collection}")
+                print(f"""Mesh name {mesh_name} in level {object_in_collection(o, "Level")} collections {o.users_collection}""")
                 image_filename = ensure_tex_saved_and_get_name(o)
                 
                 assert(mesh_name != LEVEL_EXPORT_NAME)
