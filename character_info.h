@@ -21,6 +21,7 @@ typedef struct
 } ActionInfo;
 ActionInfo actions[] = {
 	#define NO_ARGUMENT .argument_description = "Takes no argument", .takes_argument = false
+	#define ARGUMENT(desc) .argument_description = desc, .takes_argument = true
 	{
 		.name = "none", 
 		.description = "Do nothing",
@@ -29,11 +30,21 @@ ActionInfo actions[] = {
 	{
 		.name = "join",
 		.description = "Joins somebody else's party, so you follow them everywhere",
-		.argument_description = "Expects the argument to be who you're joining",
+		ARGUMENT("Expects the argument to be who you're joining"),
 	},
 	{
 		.name = "leave",
 		.description = "Leave the party you're in right now",
+		NO_ARGUMENT,
+	},
+	{
+		.name = "aim_shotgun",
+		.description = "Aims your shotgun at the specified target, preparing you to fire at them and threatening their life.",
+		ARGUMENT("Expects the argument to be the name of the person you're aiming at, they must be nearby"),
+	},
+	{
+		.name = "fire_shotgun",
+		.description = "Fires your shotgun at the current target, killing the target.",
 		NO_ARGUMENT,
 	},
 };

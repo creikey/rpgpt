@@ -1644,17 +1644,23 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 	{
 		error_message = FmtWithLint(arena, "You can't join somebody, you're already in %s's party", characters[gete(from->joined)->npc_kind].name);
 	}
-
-	if(error_message.size == 0 && a.kind == ACT_join)
+	if(error_message.size == 0 && a.kind == ACT_fire_shotgun && gete(from->aiming_shotgun_at) == 0)
 	{
-		bool talk_to_valid = false;
+		error_message = MD_S8Lit("You can't fire your shotgun without aiming it first");
+	}
+
+	bool target_is_character = a.kind == ACT_join || a.kind == ACT_fire_shotgun;
+
+	if(error_message.size == 0 && target_is_character)
+	{
+		bool arg_valid = false;
 		BUFF_ITER(NpcKind, &talk)
 		{
-			if(*it == a.argument.targeting) talk_to_valid = true;
+			if(*it == a.argument.targeting) arg_valid  = true;
 		}
-		if(talk_to_valid == false)
+		if(arg_valid == false)
 		{
-			error_message = FmtWithLint(arena, "Your action_argument for who to join, %s, is either invalid (you can't join nobody) or it's not an NPC that's near you right now.", characters[a.argument.targeting].name);
+			error_message = FmtWithLint(arena, "Your action_argument for who this action should be directed at, %s, is either invalid (you can't operate on nobody) or it's not an NPC that's near you right now.", characters[a.argument.targeting].name);
 		}
 	}
 
@@ -1718,6 +1724,12 @@ void cause_action_side_effects(Entity *from, Action a)
 	if(a.kind == ACT_leave)
 	{
 		from->joined = (EntityRef){0};
+	}
+	if(a.kind == ACT_aim_shotgun)
+	{
+		Entity *target = get_targeted(from, a.argument.targeting);
+		assert(target); // error checked in is_action_valid
+		from->aiming_shotgun_at = frome(target);
 	}
 
 	MD_ReleaseScratch(scratch);
@@ -3084,6 +3096,7 @@ Armature *armatures[] = {
 
 Mesh mesh_player = {0};
 Mesh mesh_simple_worm = {0};
+Mesh mesh_shotgun = {0};
 
 void stbi_flip_into_correct_direction(bool do_it)
 {
@@ -3138,6 +3151,9 @@ void init(void)
 
 	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/ExportedWithAnims.bin"));
 	mesh_player = load_mesh(persistent_arena, binary_file, MD_S8Lit("ExportedWithAnims.bin"));
+
+	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/ShotgunMesh.bin"));
+	mesh_shotgun = load_mesh(persistent_arena, binary_file, MD_S8Lit("ShotgunMesh.bin"));
 
 	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/ArmatureExportedWithAnims.bin"));
 	player_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("ArmatureExportedWithAnims.bin"));
@@ -3750,6 +3766,11 @@ Vec3 ray_intersect_plane(Vec3 ray_point, Vec3 ray_vector, Vec3 plane_point, Vec3
 	float d = DotV3(plane_point, MulV3F(plane_normal, -1.0f));
 
 	float denom = DotV3(plane_normal, ray_vector);
+	if(fabsf(denom) <= 1e-4f)
+	{
+		// also could mean doesn't intersect plane
+		return plane_point;
+	}
 	assert(fabsf(denom) > 1e-4f); // avoid divide by zero
 
     float t = -(DotV3(plane_normal, ray_point) + d) / DotV3(plane_normal, ray_vector);
@@ -4690,13 +4711,18 @@ bool imbutton_key(AABB button_aabb, float text_scale, MD_String8 text, int key, 
 
 #define imbutton(...) imbutton_key(__VA_ARGS__, __LINE__, unwarped_dt, false)
 
+Quat rot_on_plane_to_quat(float rot)
+{
+	return QFromAxisAngle_RH(V3(0,1,0), AngleRad(-rot));
+}
+
 Transform entity_transform(Entity *e)
 {
 	// Models must face +X in blender. This is because, in the 2d game coordinate system,
 	// a zero degree 2d rotation means you're facing +x, and this is how it is in the game logic.
 	// The rotation is negative for some reason that I'm not quite sure about though, something about
 	// the handedness of the 3d coordinate system not matching the handedness of the 2d coordinate system
-	Quat entity_rot = QFromAxisAngle_RH(V3(0,1,0), AngleRad(-e->rotation));
+	Quat entity_rot = rot_on_plane_to_quat(e->rotation);
 
 	return (Transform){.offset = AddV3(plane_point(e->pos), V3(0,0,0)), .rotation = entity_rot, .scale = V3(1, 1, 1)};
 	/*
@@ -5479,6 +5505,15 @@ void frame(void)
 						to_use->go_to_animation = MD_S8Lit("Idle");
 
 					draw_thing((DrawnThing){.armature = to_use, .t = draw_with, .outline = gete(gs.player->interacting_with) == it});
+
+					if(gete(it->aiming_shotgun_at))
+					{
+						Transform shotgun_t = draw_with;
+						shotgun_t.offset.y += 2.0f;
+						shotgun_t.scale = V3(3,3,3);
+						shotgun_t.rotation = rot_on_plane_to_quat(AngleOfV2(SubV2(gete(it->aiming_shotgun_at)->pos, it->pos)));
+						draw_thing((DrawnThing){.mesh = &mesh_shotgun, .t = shotgun_t});
+					}
 				}
 			}
 		}
@@ -6395,14 +6430,14 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 										if (it->memories_last->context.talking_to_kind == it->npc_kind)
 										//if (it->memories_last->context.author_npc_kind != it->npc_kind)
 										{
-											const char *action = "none";
+											const char *action = "aim_shotgun";
 											char *rigged_dialog[] = {
 													"Repeated amounts of testing dialog overwhelmingly in support of the mulaney brothers",
 											};
 											char *next_dialog = rigged_dialog[it->times_talked_to % ARRLEN(rigged_dialog)];
 											char *target = characters[it->memories_last->context.author_npc_kind].name;
 											target = characters[NPC_Player].name;
-											ai_response = FmtWithLint(frame_arena, "{\"target\": \"%s\", \"action\": \"%s\", \"speech\": \"%s\"}", target, action, next_dialog);
+											ai_response = FmtWithLint(frame_arena, "{\"target\": \"%s\", \"action\": \"%s\", \"action_arg\": \"Raphael\", \"speech\": \"%s\"}", target, action, next_dialog);
 #ifdef DESKTOP
 											it->times_talked_to += 1;
 #endif
@@ -6433,6 +6468,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 										{
 										assert(succeeded);
 										assert(error_message.size == 0);
+										assert(is_action_valid(frame_arena, it, a));
 										perform_action(&gs, it, a);
 									}
 									else

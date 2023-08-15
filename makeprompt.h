@@ -229,6 +229,7 @@ typedef struct Entity
 	// npcs
 	NpcKind npc_kind;
 	EntityRef joined;
+	EntityRef aiming_shotgun_at;
 	float target_rotation; // turns towards this angle in conversation
 	bool being_hovered;
 	bool perceptions_dirty;
@@ -254,6 +255,9 @@ typedef struct Entity
 	PathCacheHandle cached_path;
 	int gen_request_id;
 	Vec2 target_goto;
+
+
+
 
 	// character
 	bool waiting_on_speech_with_somebody;
@@ -315,6 +319,19 @@ void fill_available_actions(GameState *gs, Entity *it, AvailableActions *a)
 	else
 	{
 		BUFF_APPEND(a, ACT_join)
+	}
+
+	bool has_shotgun = it->npc_kind == NPC_Daniel;
+	if(has_shotgun)
+	{
+		if(gete_specified(gs, it->aiming_shotgun_at))
+		{
+			BUFF_APPEND(a, ACT_fire_shotgun);
+		}
+		else
+		{
+			BUFF_APPEND(a, ACT_aim_shotgun);
+		}
 	}
 }
 
@@ -407,6 +424,14 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 				{
 					// Needs better handling of when you leave, because the person you were following died. Maybe entities don't die anymore?
 					AddFmt("%s left their party\n", characters[it->context.author_npc_kind].name);
+				}
+				else if(it->action_taken == ACT_aim_shotgun)
+				{
+					AddFmt("%s aimed their shotgun at %s\n", characters[it->context.author_npc_kind].name, characters[it->action_argument.targeting].name);
+				}
+				else
+				{
+					assert(false);
 				}
 			}
 			if(it->speech.text_length > 0)
@@ -567,7 +592,10 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 action_
 		{
 			if(actions[out->kind].takes_argument)
 			{
-				if(out->kind == ACT_join)
+				// @TODO refactor into, action argument kinds and they parse into different action argument types
+				bool arg_is_character = out->kind == ACT_join || out->kind == ACT_aim_shotgun;
+
+				if(arg_is_character)
 				{
 					bool found_npc = false;
 					for(int i = 0; i < ARRLEN(characters); i++)
