@@ -5509,7 +5509,7 @@ void frame(void)
 					if(gete(it->aiming_shotgun_at))
 					{
 						Transform shotgun_t = draw_with;
-						shotgun_t.offset.y += 2.0f;
+						shotgun_t.offset.y += 0.0f;
 						shotgun_t.scale = V3(3,3,3);
 						shotgun_t.rotation = rot_on_plane_to_quat(AngleOfV2(SubV2(gete(it->aiming_shotgun_at)->pos, it->pos)));
 						draw_thing((DrawnThing){.mesh = &mesh_shotgun, .t = shotgun_t});
@@ -6468,7 +6468,9 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 										{
 										assert(succeeded);
 										assert(error_message.size == 0);
-										assert(is_action_valid(frame_arena, it, a));
+
+										MD_String8 valid_str = is_action_valid(frame_arena, it, a);
+										assert(valid_str.size == 0);
 										perform_action(&gs, it, a);
 									}
 									else
