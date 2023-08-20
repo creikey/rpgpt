@@ -1,4 +1,5 @@
 
+
 #include "tuning.h"
 
 #define SOKOL_IMPL
@@ -258,6 +259,10 @@ typedef struct Quad
 		Vec2 points[4];
 	};
 } Quad;
+
+// for intellisense in vscode I think?
+#include "character_info.h"
+#include "characters.gen.h"
 
 #include "makeprompt.h"
 typedef BUFF(Entity*, 16) Overlapping;
@@ -986,10 +991,13 @@ typedef struct
 
 	// when set, blends to that animation next time this armature is processed for that
 	MD_String8 go_to_animation;
+	bool next_animation_isnt_looping;
 
 	Transform *current_poses; // allocated on loading of the armature
-	MD_String8 target_animation; // CANNOT be null.
+	MD_String8 currently_playing_animation; // CANNOT be null.
+	bool currently_playing_isnt_looping;
 	float animation_blend_t; // [0,1] how much between current_animation and target_animation. Once >= 1, current = target and target = null.
+	double cur_animation_time; // used for non looping animations to play once
 
 	Transform *anim_blended_poses; // recalculated once per frame depending on above parameters, which at the same code location are calculated. Is `bones_length` long
 
@@ -1003,6 +1011,7 @@ typedef struct
 	int bones_texture_height;
 } Armature;
 
+// armature_name is used for debugging purposes, it has to effect on things
 Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armature_name)
 {
 	assert(binary_file.str);
@@ -1649,7 +1658,7 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 		error_message = MD_S8Lit("You can't fire your shotgun without aiming it first");
 	}
 
-	bool target_is_character = a.kind == ACT_join || a.kind == ACT_fire_shotgun;
+	bool target_is_character = a.kind == ACT_join || a.kind == ACT_aim_shotgun;
 
 	if(error_message.size == 0 && target_is_character)
 	{
@@ -1660,7 +1669,7 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 		}
 		if(arg_valid == false)
 		{
-			error_message = FmtWithLint(arena, "Your action_argument for who this action should be directed at, %s, is either invalid (you can't operate on nobody) or it's not an NPC that's near you right now.", characters[a.argument.targeting].name);
+			error_message = FmtWithLint(arena, "Your action_argument for who the action `%s` be directed at, %s, is either invalid (you can't operate on nobody) or it's not an NPC that's near you right now.", actions[a.kind].name, characters[a.argument.targeting].name);
 		}
 	}
 
@@ -1687,8 +1696,6 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 	return error_message;
 }
 
-
-
 // from must not be null
 // the action must have been validated to be valid if you're calling this
 void cause_action_side_effects(Entity *from, Action a)
@@ -1712,7 +1719,7 @@ void cause_action_side_effects(Entity *from, Action a)
 
 	if(to)
 	{
-		from->target_rotation = AngleOfV2(SubV2(to->pos, from->pos));
+		from->looking_at = frome(to);
 	}
 
 	if(a.kind == ACT_join)
@@ -1730,6 +1737,11 @@ void cause_action_side_effects(Entity *from, Action a)
 		Entity *target = get_targeted(from, a.argument.targeting);
 		assert(target); // error checked in is_action_valid
 		from->aiming_shotgun_at = frome(target);
+	}
+	if(a.kind == ACT_fire_shotgun)
+	{
+		assert(gete(from->aiming_shotgun_at));
+		gete(from->aiming_shotgun_at)->killed = true;
 	}
 
 	MD_ReleaseScratch(scratch);
@@ -2708,8 +2720,10 @@ int num_vertices = 0;
 // if it's an invalid anim name, it just returns the idle animation
 Animation *get_anim_by_name(Armature *armature, MD_String8 anim_name)
 {
+	MD_String8List anims = {0};
 	for(MD_u64 i = 0; i < armature->animations_length; i++)
 	{
+		MD_S8ListPush(frame_arena, &anims, armature->animations[i].name);
 		if(MD_S8Match(armature->animations[i].name, anim_name, 0))
 		{
 			return &armature->animations[i];
@@ -2718,7 +2732,8 @@ Animation *get_anim_by_name(Armature *armature, MD_String8 anim_name)
 
 	if(anim_name.size > 0)
 	{
-		Log("No animation found '%.*s'\n", MD_S8VArg(anim_name));
+		MD_String8 anims_str = MD_S8ListJoin(frame_arena, anims, &(MD_StringJoin){.mid = MD_S8Lit(", ")});
+		Log("No animation found '%.*s', the animations: [%.*s]\n", MD_S8VArg(anim_name), MD_S8VArg(anims_str));
 	}
 
 	for(MD_u64 i = 0; i < armature->animations_length; i++)
@@ -2734,12 +2749,19 @@ Animation *get_anim_by_name(Armature *armature, MD_String8 anim_name)
 }
 
 // you can pass a time greater than the animation length, it's fmodded to wrap no matter what.
-Transform get_animated_bone_transform(AnimationTrack *track, Bone *bone, float time)
+Transform get_animated_bone_transform(AnimationTrack *track, Bone *bone, float time, bool dont_loop)
 {
 	assert(track);
 	float total_anim_time = track->poses[track->poses_length - 1].time;
 	assert(total_anim_time > 0.0f);
-	time = fmodf(time, total_anim_time);
+	if(dont_loop)
+	{
+		time = fminf(time, total_anim_time);
+	}
+	else
+	{
+		time = fmodf(time, total_anim_time);
+	}
 	for(MD_u64 i = 0; i < track->poses_length - 1; i++)
 	{
 		if(track->poses[i].time <= time && time <= track->poses[i + 1].time)
@@ -2904,61 +2926,9 @@ void do_metadesk_tests()
 }
 void do_parsing_tests()
 {
-	Log("Testing chatgpt parsing...\n");
+	Log("(UNIMPLEMENTED) Testing chatgpt parsing...\n");
 
 	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-
-	/*
-	Entity e = {0};
-	e.npc_kind = NPC_Meld;
-	e.exists = true;
-	Action a = {0};
-	MD_String8 error;
-	MD_String8 speech;
-
-	speech = MD_S8Lit("Better have a good reason for bothering me.");
-	MD_String8 thoughts = MD_S8Lit("Man I'm tired today Whatever.");
-	MD_String8 to_parse = FmtWithLint(scratch.arena, "{action: none, speech: \"%.*s\", thoughts: \"%.*s\", who_i_am: \"Meld\", talking_to: nobody, mood: Indifferent}", MD_S8VArg(speech), MD_S8VArg(thoughts));
-	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
-	assert(error.size == 0);
-	assert(a.kind == ACT_none);
-	assert(MD_S8Match(speech, MD_S8(a.speech, a.speech_length), 0));
-	assert(MD_S8Match(thoughts, MD_S8(a.internal_monologue, a.internal_monologue_length), 0));
-
-	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_gift_item_to_targeting(ITEM_Chalice) \"Here you go\""), &a);
-	assert(error.size > 0);
-	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_gift_item_to_targeting(ITEM_Chalice) \""), &a);
-	assert(error.size > 0);
-	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_gift_item_to_targeting(ITEM_Cha \""), &a);
-	assert(error.size > 0);
-
-	BUFF_APPEND(&e.held_items, ITEM_Chalice);
-
-	error = parse_chatgpt_response(scratch.arena, &e, MD_S8Lit("ACT_gift_item_to_targeting(Chalice \""), &a);
-	assert(error.size > 0);
-	to_parse = MD_S8Lit("{action: gift_item_to_targeting, action_arg: \"The Chalice of Gold\", speech: \"Here you go\", thoughts: \"Man I'm gonna miss that chalice\", who_i_am: \"Meld\", talking_to: nobody, mood: Sad}");
-	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
-	assert(error.size == 0);
-	assert(a.kind == ACT_gift_item_to_targeting);
-	assert(a.argument.item_to_give == ITEM_Chalice);
-	assert(a.mood == Mood_Sad);
-	
-	e.npc_kind = NPC_Door;
-	speech = MD_S8Lit("SAY THE WORDS");
-	to_parse = FmtWithLint(scratch.arena, "{action: none, speech: \"%.*s\", thoughts: \"%.*s\", who_i_am: \"Ancient Door\", talking_to: nobody, mood: Indifferent}", MD_S8VArg(speech), MD_S8VArg(thoughts));
-	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
-	assert(error.size == 0);
-	error = is_action_valid(scratch.arena, &e, a);
-	assert(error.size == 0);
-
-	speech = MD_S8Lit("UNKNOWN. DATA PRIVATE. THE WORDS ARE: FOLLY, TEMPERANCE, MAGENTA. SAY THE WORDS OR BE DENIED");
-	to_parse = FmtWithLint(scratch.arena, "{action: none, speech: \"%.*s\", thoughts: \"%.*s\", who_i_am: \"Ancient Door\", talking_to: nobody, mood: Indifferent}", MD_S8VArg(speech), MD_S8VArg(thoughts));
-	error = parse_chatgpt_response(scratch.arena, &e, to_parse, &a);
-	assert(error.size == 0);
-	error = is_action_valid(scratch.arena, &e, a);
-	assert(error.size > 0);
-	*/
-
 	MD_ReleaseScratch(scratch);
 }
 
@@ -3158,7 +3128,7 @@ void init(void)
 	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/ArmatureExportedWithAnims.bin"));
 	player_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("ArmatureExportedWithAnims.bin"));
 
-	man_in_black_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Farmer.bin"));
+	man_in_black_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Man In Black"));
 	man_in_black_armature.image = image_man_in_black;
 
 	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/Farmer.bin"));
@@ -5509,8 +5479,8 @@ void frame(void)
 					if(gete(it->aiming_shotgun_at))
 					{
 						Transform shotgun_t = draw_with;
-						shotgun_t.offset.y += 0.0f;
-						shotgun_t.scale = V3(3,3,3);
+						shotgun_t.offset.y += 0.7f;
+						shotgun_t.scale = V3(4,4,4);
 						shotgun_t.rotation = rot_on_plane_to_quat(AngleOfV2(SubV2(gete(it->aiming_shotgun_at)->pos, it->pos)));
 						draw_thing((DrawnThing){.mesh = &mesh_shotgun, .t = shotgun_t});
 					}
@@ -5524,43 +5494,63 @@ void frame(void)
 		{
 			Armature *cur = *it;
 			float seed = (float)((int64_t)cur % 1024); // offset into elapsed time to make all of their animations out of phase
+			float along_current_animation = 0.0;
+			if(cur->currently_playing_isnt_looping)
+			{
+				along_current_animation = (float)cur->cur_animation_time;
+				cur->cur_animation_time += dt;
+			}
+			else
+			{
+				along_current_animation = (float)elapsed_time + seed;
+			}
 
 			if(cur->go_to_animation.size > 0)
 			{
-				if(MD_S8Match(cur->go_to_animation, cur->target_animation, 0))
+				if(MD_S8Match(cur->go_to_animation, cur->currently_playing_animation, 0))
 				{
 				}
 				else
 				{
 					memcpy(cur->current_poses, cur->anim_blended_poses, cur->bones_length * sizeof(*cur->current_poses));
-					cur->target_animation = cur->go_to_animation;
+					cur->currently_playing_animation = cur->go_to_animation;
 					cur->animation_blend_t = 0.0f;
 					cur->go_to_animation = (MD_String8){0};
+					if(cur->next_animation_isnt_looping)
+					{
+						cur->cur_animation_time = 0.0;
+						cur->currently_playing_isnt_looping = true;
+					}
+					else
+					{
+						cur->currently_playing_isnt_looping = false;
+					}
 				}
+				cur->next_animation_isnt_looping = false;
 			}
 
 			if(cur->animation_blend_t < 1.0f)
 			{
 				cur->animation_blend_t += dt / ANIMATION_BLEND_TIME;
 				
-				Animation *to_anim = get_anim_by_name(cur, cur->target_animation);
+				Animation *to_anim = get_anim_by_name(cur, cur->currently_playing_animation);
 				assert(to_anim);
 
 				for(MD_u64 i = 0; i < cur->bones_length; i++)
 				{
 					Transform *output_transform = &cur->anim_blended_poses[i];
 					Transform from_transform = cur->current_poses[i];
-					Transform to_transform = get_animated_bone_transform(&to_anim->tracks[i], &cur->bones[i], (float)elapsed_time + seed);
+					Transform to_transform = get_animated_bone_transform(&to_anim->tracks[i], &cur->bones[i], along_current_animation, cur->currently_playing_isnt_looping);
 
 					*output_transform = lerp_transforms(from_transform, cur->animation_blend_t, to_transform);
 				}
 			}
 			else
 			{
-				Animation *cur_anim = get_anim_by_name(cur, cur->target_animation);
+				Animation *cur_anim = get_anim_by_name(cur, cur->currently_playing_animation);
 				for(MD_u64 i = 0; i < cur->bones_length; i++)
 				{
-					cur->anim_blended_poses[i] = get_animated_bone_transform(&cur_anim->tracks[i], &cur->bones[i], (float)elapsed_time + seed);
+					cur->anim_blended_poses[i] = get_animated_bone_transform(&cur_anim->tracks[i], &cur->bones[i], along_current_animation, cur->currently_playing_isnt_looping);
 				}
 			}
 		}
@@ -5845,7 +5835,7 @@ void frame(void)
 						
 						if (it->is_npc || it->is_character)
 						{
-							if(LenV2(it->last_moved) > 0.0f)
+							if(LenV2(it->last_moved) > 0.0f && !it->killed)
 								it->rotation = lerp_angle(it->rotation, dt * 8.0f, AngleOfV2(it->last_moved));
 						}
 
@@ -5856,6 +5846,18 @@ void frame(void)
 							
 							if(it->dialog_fade > 0.0f)
 								it->dialog_fade -= dt/DIALOG_FADE_TIME;
+							
+							Entity *toface = 0;
+							if(gete(it->aiming_shotgun_at))
+							{
+								toface = gete(it->aiming_shotgun_at);
+							}
+							else if(gete(it->looking_at))
+							{
+								toface = gete(it->looking_at);
+							}
+							if(toface)
+								it->target_rotation = AngleOfV2(SubV2(toface->pos, it->pos));
 
 							it->rotation = lerp_angle(it->rotation, unwarped_dt*8.0f, it->target_rotation);
 
@@ -6430,14 +6432,20 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 										if (it->memories_last->context.talking_to_kind == it->npc_kind)
 										//if (it->memories_last->context.author_npc_kind != it->npc_kind)
 										{
-											const char *action = "aim_shotgun";
+											const char *action = 0;
+											if(gete(it->aiming_shotgun_at))
+											{
+												action = "fire_shotgun";
+											} else {
+												action = "aim_shotgun";
+											}
 											char *rigged_dialog[] = {
 													"Repeated amounts of testing dialog overwhelmingly in support of the mulaney brothers",
 											};
 											char *next_dialog = rigged_dialog[it->times_talked_to % ARRLEN(rigged_dialog)];
 											char *target = characters[it->memories_last->context.author_npc_kind].name;
 											target = characters[NPC_Player].name;
-											ai_response = FmtWithLint(frame_arena, "{\"target\": \"%s\", \"action\": \"%s\", \"action_arg\": \"Raphael\", \"speech\": \"%s\"}", target, action, next_dialog);
+											ai_response = FmtWithLint(frame_arena, "{\"target\": \"%s\", \"action\": \"%s\", \"action_argument\": \"The Player\", \"speech\": \"%s\"}", target, action, next_dialog);
 #ifdef DESKTOP
 											it->times_talked_to += 1;
 #endif
@@ -6570,15 +6578,22 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 					float speed = 0.0f;
 					{
 						Vec2 target_vel = { 0 };
-
+						
+						if(gs.player->killed) gs.player->state = CHARACTER_KILLED;
 						if(gs.player->state == CHARACTER_WALKING)
 						{
 							player_armature.go_to_animation = MD_S8Lit("Running");
 						}
-						else
+						else if(gs.player->state == CHARACTER_IDLE)
 						{
 							player_armature.go_to_animation = MD_S8Lit("Idle");
 						}
+						else if(gs.player->state == CHARACTER_KILLED)
+						{
+							player_armature.go_to_animation = MD_S8Lit("Die Backwards");
+							player_armature.next_animation_isnt_looping = true;
+						}
+						else assert(false);
 
 						if (gs.player->state == CHARACTER_WALKING)
 						{
@@ -6594,6 +6609,9 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 						else if (gs.player->state == CHARACTER_IDLE)
 						{
 							if (LenV2(movement) > 0.01) gs.player->state = CHARACTER_WALKING;
+						}
+						else if (gs.player->state == CHARACTER_KILLED)
+						{
 						}
 						else
 						{
@@ -6759,6 +6777,27 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 			}
 		}
 
+		// killed screen
+		{
+			static float visible = 0.0f;
+			float target = 0.0f;
+			if(gs.player->killed && !cur_unread_entity)
+			{
+				target = 1.0f;
+			}
+			visible = Lerp(visible, unwarped_dt*4.0f, target);
+
+			draw_quad((DrawParams) {quad_at(V2(0,screen_size().y), screen_size()), IMG(image_white_square), blendalpha(BLACK, visible*0.7f), .layer = LAYER_UI});
+			float shake_speed = 9.0f;
+			Vec2 win_offset = V2(sinf((float)unwarped_elapsed_time * shake_speed * 1.5f + 0.1f), sinf((float)unwarped_elapsed_time * shake_speed + 0.3f));
+			win_offset = MulV2F(win_offset, 10.0f);
+			draw_centered_text((TextParams){false, MD_S8Lit("YOU WERE KILLED"), AddV2(MulV2F(screen_size(), 0.5f), win_offset), WHITE, 3.0f*visible});
+
+			if(imbutton(aabb_centered(V2(screen_size().x/2.0f, screen_size().y*0.25f), MulV2F(V2(170.0f, 60.0f), visible)), 1.5f*visible, MD_S8Lit("Restart")))
+			{
+				reset_level();
+			}
+		}
 
 #define HELPER_SIZE 250.0f
 

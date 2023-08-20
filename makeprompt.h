@@ -158,6 +158,7 @@ typedef enum CharacterState
 {
 	CHARACTER_WALKING,
 	CHARACTER_IDLE,
+	CHARACTER_KILLED,
 } CharacterState;
 
 typedef enum
@@ -230,6 +231,8 @@ typedef struct Entity
 	NpcKind npc_kind;
 	EntityRef joined;
 	EntityRef aiming_shotgun_at;
+	EntityRef looking_at; // aiming shotgun at takes facing priority over this
+	bool killed;
 	float target_rotation; // turns towards this angle in conversation
 	bool being_hovered;
 	bool perceptions_dirty;
@@ -429,6 +432,10 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 				{
 					AddFmt("%s aimed their shotgun at %s\n", characters[it->context.author_npc_kind].name, characters[it->action_argument.targeting].name);
 				}
+				else if(it->action_taken == ACT_fire_shotgun)
+				{
+					AddFmt("%s fired their shotgun at %s, brutally murdering them.\n", characters[it->context.author_npc_kind].name, characters[it->action_argument.targeting].name);
+				}
 				else
 				{
 					assert(false);
@@ -525,7 +532,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 action_
 	{
 		speech_str = get_field(message_obj, MD_S8Lit("speech"));
 		action_str = get_field(message_obj, MD_S8Lit("action"));
-		action_arg_str = get_field(message_obj, MD_S8Lit("action_arg"));
+		action_arg_str = get_field(message_obj, MD_S8Lit("action_argument"));
 		target_str = get_field(message_obj, MD_S8Lit("target"));
 	}
 	if(error_message.size == 0 && action_str.size == 0)

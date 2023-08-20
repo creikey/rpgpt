@@ -77,7 +77,7 @@ CharacterGen characters[] = {
 	{
 		.name = "Daniel",
 		.enum_name = "Daniel",
-		.prompt = CHARACTER_PROMPT_PREFIX("Daniel") "weathered farmer, who lives a tough, solitary life. You don't see much of a reason to keep living but soldier on anyways. You have a tragic backstory, and mostly just work on the farm.",
+		.prompt = CHARACTER_PROMPT_PREFIX("Daniel") "weathered farmer, who lives a tough, solitary life. You don't see much of a reason to keep living but soldier on anyways. You have a tragic backstory, and mostly just work on the farm. You aim your shotgun and aren't afraid to fire at people you don't like",
 	},
 	{
 		.name = "Raphael",
