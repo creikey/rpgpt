@@ -427,27 +427,26 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 			// dump a human understandable sentence description of what happened in this memory
 			if(it->action_taken != ACT_none)
 			{
-				if(it->action_taken == ACT_join)
+				switch(it->action_taken)
 				{
+				case ACT_none:
+					break;
+				case ACT_join:
 					AddFmt("%s joined %s\n", characters[it->context.author_npc_kind].name, characters[it->action_argument.targeting].name);
-				}
-				else if(it->action_taken == ACT_leave)
-				{
-					// Needs better handling of when you leave, because the person you were following died. Maybe entities don't die anymore?
+					break;
+				case ACT_leave:
 					AddFmt("%s left their party\n", characters[it->context.author_npc_kind].name);
-				}
-				else if(it->action_taken == ACT_aim_shotgun)
-				{
+					break;
+				case ACT_aim_shotgun:
 					AddFmt("%s aimed their shotgun at %s\n", characters[it->context.author_npc_kind].name, characters[it->action_argument.targeting].name);
-				}
-				else if(it->action_taken == ACT_fire_shotgun)
-				{
+					break;
+				case ACT_fire_shotgun:
 					AddFmt("%s fired their shotgun at %s, brutally murdering them.\n", characters[it->context.author_npc_kind].name, characters[it->action_argument.targeting].name);
-				}
-				else
-				{
-					assert(false);
-				}
+					break;
+				case ACT_put_shotgun_away:
+					AddFmt("%s holstered their shotgun, no longer threatening anybody\n", characters[it->context.author_npc_kind].name);
+					break;
+}
 			}
 			if(it->speech.text_length > 0)
 			{

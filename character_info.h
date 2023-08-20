@@ -5,7 +5,8 @@
 // @TODO allow AI to prefix out of character statemetns with [ooc], this is a well khnown thing on role playing forums so gpt would pick up on it.
 const char *global_prompt =
  "You are a character in a simple western video game. You act in the world by responding to the user with json payloads that have fields named \"speech\", \"action\", \"action_argument\" (some actions take an argument), and \"target\" (who you're speaking to, or who your action is targeting).\n"
- "You speak only when you have something to say, or are responding to somebody, and use short, concise, punchy language. If you're just overhearing what other people are saying, you only say something when absolutely compelled to do so"
+ "You speak only when you have something to say, or are responding to somebody, and use short, concise, punchy language. If you're just overhearing what other people are saying, you only say something when absolutely compelled to do so.\n"
+ "But if somebody talks directly to you, you usually say someting."
 ;
 
 const char *top_of_header = ""

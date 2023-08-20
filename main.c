@@ -6606,44 +6606,40 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 
 					float speed = 0.0f;
 					{
-						
 						if(gs.player->killed) gs.player->state = CHARACTER_KILLED;
-						if(gs.player->state == CHARACTER_WALKING)
+						
+						switch(gs.player->state)
 						{
+						case CHARACTER_WALKING:
 							player_armature.go_to_animation = MD_S8Lit("Running");
-						}
-						else if(gs.player->state == CHARACTER_IDLE)
-						{
+							break;
+						case CHARACTER_IDLE:
 							player_armature.go_to_animation = MD_S8Lit("Idle");
-						}
-						else if(gs.player->state == CHARACTER_KILLED)
-						{
+							break;
+						case CHARACTER_KILLED:
 							player_armature.go_to_animation = MD_S8Lit("Die Backwards");
 							player_armature.next_animation_isnt_looping = true;
+							break;
 						}
-						else assert(false);
 
-						if (gs.player->state == CHARACTER_WALKING)
+						switch (gs.player->state)
 						{
-							speed = PLAYER_SPEED;
-							if (LenV2(movement) == 0.0)
-							{
+						case CHARACTER_WALKING:
+								speed = PLAYER_SPEED;
+								if (LenV2(movement) == 0.0)
+								{
 								gs.player->state = CHARACTER_IDLE;
-							}
-							else
-							{
-							}
-						}
-						else if (gs.player->state == CHARACTER_IDLE)
-						{
-							if (LenV2(movement) > 0.01) gs.player->state = CHARACTER_WALKING;
-						}
-						else if (gs.player->state == CHARACTER_KILLED)
-						{
-						}
-						else
-						{
-							assert(false); // unknown character state? not defined how to process
+								}
+								else
+								{
+								}
+								break;
+						case CHARACTER_IDLE:
+								if (LenV2(movement) > 0.01)
+								gs.player->state = CHARACTER_WALKING;
+								break;
+						case CHARACTER_KILLED:
+								break;
 						}
 					} // not time stopped
 
