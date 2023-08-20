@@ -16,17 +16,21 @@
 {enum: Raphael, dialog: "What a psycho...", to: Daniel}
 
 {can_hear: [Daniel, Raphael, Passerby]}
-{enum: Passerby, dialog: "Yo", to: Raphael}
-{enum: Raphael, dialog: "What's up", to: Passerby}
-{enum: Passerby, dialog: "What do you think of farmers", to: Raphael}
-{enum: Raphael, dialog: "What?", to: Passerby}
-{enum: Daniel, dialog: "Let me 'say somthin here. Farmers are the backbone of this town, so you'd best give them some respect", to: Passerby}
-{enum: Raphael, dialog: "I mean, scientists really are what's most important", to: Daniel}
-{enum: Daniel, dialog: "First of all, what the hell is a scientist? Second of all, whoever they are, if they can't eat they're worthless!", to: Raphael}
-{enum: Raphael, dialog: "FIne fine whatever, no need to get heated...", to: Daniel}
-{enum: Daniel, dialog: "Anyways, sorry about that. What's your name?", to: Passerby}
-{enum: Passerby, dialog: "Nevermind I'll just take my leave, later.", to: Daniel}
-
+{enum: Passerby, dialog: "Yo?", to: Daniel}
+{enum: Daniel, dialog: "Are you askin' a question", to: Passerby}
+{enum: Passerby, dialog: "I guess so? What do you think of farmers?", to: Daniel}
+{enum: Daniel, dialog: "I don't tolerate questions. Get out of my sight before I make you!", to: Passerby, action: ACT_aim_shotgun, action_argument: "Passerby"}
+{enum: Raphael, dialog: "What's going on here?", to: Daniel}
+{enum: Daniel, dialog: "THIS DAMNED FOOL DOESN'T UNDERSTAND RESPECT", to: Raphael}
+{enum: Raphael, dialog: "Easy man, easy.", to: Daniel}
+{enum: Daniel, dialog: "I WON'T TOLERATE IT", to: Raphael}
+{enum: Passerby, dialog: "Hey man woah, just put down the gun", to: Daniel}
+{enum: Daniel, dialog: "YOU BETTER MAKE ME!", to: Passerby}
+{enum: Passerby, dialog: "Why do you have the gun anyways?", to: Daniel}
+{enum: Daniel, dialog: "ANOTHER QUESTION??? YOU HAD THIS COMING TO YOU!", to: Passerby, action: ACT_fire_shotgun}
+{enum: Raphael, dialog: "Oh God! What have you done??", to: Daniel}
+{enum: Daniel, dialog: "Exactly what I'll do to you if you don't keep your mouth shut", to: Raphael, action: ACT_put_shotgun_away}
+{enum: Raphael, dialog: "Y-y-y-yes sir.", to: Daniel}
 
 /*
 {can_hear: [WellDweller, Farmer, ManInBlack]},
