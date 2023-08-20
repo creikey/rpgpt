@@ -1,44 +1,38 @@
 [
-{can_hear: [NPC_Daniel, NPC_Raphael]}
-{enum: NPC_Devil, dialog: "What's up cracker jack", to: Daniel}
-{enum: NPC_Daniel, dialog: "What the hell are you talking about?", to: Devil}
-{enum: NPC_Devil, dialog: "Bootylicious", to: Daniel}
-{enum: NPC_Daniel, dialog: "I don't know what the hell is going on here, but whatever it is it isn't good. Get off my property or leave promptly.", to: Devil}
-{enum: NPC_Raphael, dialog: "Yeah man, what's up with you?", to: Devil}
-{enum: NPC_Devil, dialog: "Nunya!", to: Raphael}
-{enum: NPC_Raphael, dialog: "What does 'Nunya' mean? A wild critter you are...", to: Devil}
-{enum: NPC_Daniel, dialog: "Can we do something about this vermin?", to: Raphael}
-{enum: NPC_Raphael, dialog: "I dunno man, he's got some gunpowder", to: Daniel}
-{enum: NPC_Daniel, dialog: "Gunpower? Well, that changes things. Keep an eye on him, but don't take any unnecessary risks. We don't need any more trouble around here.", to: Raphael}
-{enum: NPC_Devil, dialog: "Lick my nuts!", to: Daniel}
-{enum: NPC_Daniel, dialog: "You've got a mouth on you, don't you? I suggest you watch your tongue before you find yourself in a world of hurt.", to: Devil}
-{enum: NPC_Raphael, dialog: "Man I could really use a vacation", to: Daniel}
-{enum: NPC_Daniel, dialog: "A vacation, huh? I can understand that. Life can be tough out here. But remember, there's work to be done and responsibilities to uphold. We don't have the luxury of vacations around here.", to: Raphael}
-{enum: NPC_Devil, dialog: "Bro why you talk like that", to: Daniel}
-{enum: NPC_Daniel, dialog: "I talk like this because life has taught me to be cautious and weary. I've seen things that would make your blood run cold. So pardon me if I don't sound all cheery and optimistic like some folks. Now, if you're done with your questions, I suggest you mosey on out of here.", to: Devil}
-{enum: NPC_Devil, dialog: "Never! I'll kill you and destroy your farm", to: Daniel}
-{enum: NPC_Daniel, dialog: "You're treading on dangerous ground, stranger. Threatening me and my farm won't end well for you. I suggest you turn around and walk away before things escalate.", to: Devil}
-{enum: NPC_Devil, dialog: "I'll take my leave them. Until next time!", to: Daniel}
-{enum: NPC_Raphael, dialog: "What a psycho...", to: Daniel}
+{can_hear: [Daniel, Raphael]}
+{enum: Devil, dialog: "What's up cracker jack?", to: Daniel}
+{enum: Daniel, dialog: "What the hell are you talking about?", to: Devil}
+{enum: Devil, dialog: "Bootylicious?", to: Daniel}
+{enum: Daniel, dialog: "You're 'asking too many darned questions! I'll have your body in my barn by sundown!", action: ACT_aim_shotgun, action_argument: "The Devil", to: Devil}
+{enum: Raphael, dialog: "Yeah man, what's up with you?", to: Devil}
+{enum: Devil, dialog: "Nunya!", to: Raphael}
+{enum: Raphael, dialog: "What does 'Nunya' mean? A wild critter you are...", to: Devil}
+{enum: Daniel, dialog: "YOU ASKED FOR IT! TAKE THIS!", action: ACT_fire_shotgun, to: Devil}
+{enum: Devil, dialog: "Cute! You think your little toys can harm me!", to: Daniel}
+{enum: Daniel, dialog: "What the hell??", to: Devil}
+{enum: Raphael, dialog: "I don't think we can harm him like that", to: Daniel}
+{enum: Daniel, dialog: "You're right, I guess we just gotta 'tolerate this feller's presence.", to: Raphael}
+{enum: Devil, dialog: "I'll take my leave. Until next time!", to: Daniel}
+{enum: Raphael, dialog: "What a psycho...", to: Daniel}
 
-{can_hear: [NPC_Daniel, NPC_Raphael, NPC_Passerby]}
-{enum: NPC_Passerby, dialog: "Yo", to: Raphael}
-{enum: NPC_Raphael, dialog: "What's up", to: Passerby}
-{enum: NPC_Passerby, dialog: "What do you think of farmers", to: Raphael}
-{enum: NPC_Raphael, dialog: "What?", to: Passerby}
-{enum: NPC_Daniel, dialog: "Let me 'say somthin here. Farmers are the backbone of this town, so you'd best give them some respect", to: Passerby}
-{enum: NPC_Raphael, dialog: "I mean, scientists really are what's most important", to: Daniel}
-{enum: NPC_Daniel, dialog: "First of all, what the hell is a scientist? Second of all, whoever they are, if they can't eat they're worthless!", to: Raphael}
-{enum: NPC_Raphael, dialog: "FIne fine whatever, no need to get heated...", to: Daniel}
-{enum: NPC_Daniel, dialog: "Anyways, sorry about that. What's your name?", to: Passerby}
-{enum: NPC_Passerby, dialog: "Nevermind I'll just take my leave, later.", to: Daniel}
+{can_hear: [Daniel, Raphael, Passerby]}
+{enum: Passerby, dialog: "Yo", to: Raphael}
+{enum: Raphael, dialog: "What's up", to: Passerby}
+{enum: Passerby, dialog: "What do you think of farmers", to: Raphael}
+{enum: Raphael, dialog: "What?", to: Passerby}
+{enum: Daniel, dialog: "Let me 'say somthin here. Farmers are the backbone of this town, so you'd best give them some respect", to: Passerby}
+{enum: Raphael, dialog: "I mean, scientists really are what's most important", to: Daniel}
+{enum: Daniel, dialog: "First of all, what the hell is a scientist? Second of all, whoever they are, if they can't eat they're worthless!", to: Raphael}
+{enum: Raphael, dialog: "FIne fine whatever, no need to get heated...", to: Daniel}
+{enum: Daniel, dialog: "Anyways, sorry about that. What's your name?", to: Passerby}
+{enum: Passerby, dialog: "Nevermind I'll just take my leave, later.", to: Daniel}
 
 
 /*
-{can_hear: [NPC_WellDweller, NPC_Farmer, NPC_ManInBlack]},
-{enum: NPC_WellDweller, dialog: "What a fearful farm you live in, come down to the well, the grass is damper down here.", to: Farmer, mood: Scared, thoughts: "Nobody can take me from my well"},
-{enum: NPC_Farmer, dialog: "Sure as shit I won't!", to: WellDweller, mood: Scared, thoughts: "What a greasy looking feller"},
-{enum: NPC_WellDweller, dialog: "Have it your way! Doomsday is upon us", to: Farmer, mood: Scared, thoughts: "He has no idea what he's in for"},
-{enum: NPC_ManInBlack, dialog: "Doomsday's all I know anyways", mood: Indifferent, thoughts: "What's coming... is only a nightmare"},
+{can_hear: [WellDweller, Farmer, ManInBlack]},
+{enum: WellDweller, dialog: "What a fearful farm you live in, come down to the well, the grass is damper down here.", to: Farmer, mood: Scared, thoughts: "Nobody can take me from my well"},
+{enum: Farmer, dialog: "Sure as shit I won't!", to: WellDweller, mood: Scared, thoughts: "What a greasy looking feller"},
+{enum: WellDweller, dialog: "Have it your way! Doomsday is upon us", to: Farmer, mood: Scared, thoughts: "He has no idea what he's in for"},
+{enum: ManInBlack, dialog: "Doomsday's all I know anyways", mood: Indifferent, thoughts: "What's coming... is only a nightmare"},
 */
 ]

@@ -12,7 +12,8 @@
                     "file": 1,
                     "line": 2,
                     "column": 3,
-                }
+                },
+                "fileLocation": "absolute"
             }
         }
     ]

@@ -1,4 +1,14 @@
-
+#pragma warning(disable : 4820) // don't care about padding
+#pragma warning(disable : 4388) // signed/unsigned mismatch probably doesn't matter
+//#pragma warning(disable : 4100) // unused local doesn't matter, because sometimes I want to kee
+#pragma warning(disable : 4053) // void operands are used for tricks like applying printf linting to non printf function calls
+#pragma warning(disable : 4255) // strange no function prototype given thing?
+#pragma warning(disable : 4456) // I shadow local declarations often and it's fine
+#pragma warning(disable : 4061) // I don't need to *explicitly* handle everything, having a default: case should mean no more warnings
+#pragma warning(disable : 4201) // nameless struct/union occurs
+#pragma warning(disable : 4366) // I think unaligned memory addresses are fine to ignore
+#pragma warning(disable : 4459) // Local function decl hiding global declaration I think is fine
+#pragma warning(disable : 5045) // spectre mitigation??
 
 #include "tuning.h"
 
@@ -21,6 +31,7 @@
 #ifdef WINDOWS
 
 
+#pragma warning(push, 3)
 #include <Windows.h>
 #include <processthreadsapi.h>
 #include <dbghelp.h>
@@ -39,13 +50,19 @@ __declspec(dllexport) uint32_t AmdPowerXpressRequestHighPerformance = 0x00000001
 
 #include "buff.h"
 #include "sokol_app.h"
+#pragma warning(push)
+#pragma warning(disable : 4191) // unsafe function calling
 #include "sokol_gfx.h"
+#pragma warning(pop)
 #include "sokol_time.h"
 #include "sokol_audio.h"
 #include "sokol_log.h"
 #include "sokol_glue.h"
 #define STB_IMAGE_IMPLEMENTATION
+#pragma warning(push)
+#pragma warning(disable : 4242) // unsafe conversion 
 #include "stb_image.h"
+#pragma warning(pop)
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
 #define STB_DS_IMPLEMENTATION
@@ -53,6 +70,8 @@ __declspec(dllexport) uint32_t AmdPowerXpressRequestHighPerformance = 0x00000001
 #include "HandmadeMath.h"
 #define DR_WAV_IMPLEMENTATION
 #include "dr_wav.h"
+
+#pragma warning(pop)
 
 // web compatible metadesk
 #ifdef WEB
@@ -143,6 +162,11 @@ void web_arena_set_auto_align(WebArena *arena, size_t align)
 #pragma warning(push)
 #pragma warning(disable : 4244) // loss of data warning
 #pragma warning(disable : 4101) // unreferenced local variable
+#pragma warning(disable : 4100) // unreferenced local variable again?
+#pragma warning(disable : 4189) // initialized and not referenced
+#pragma warning(disable : 4242) // conversion
+#pragma warning(disable : 4457) // hiding function variable happens
+#pragma warning(disable : 4668) // __GNU_C__ macro undefined, fixing
 #define STBSP_ADD_TO_FUNCTIONS no_ubsan
 #define MD_FUNCTION no_ubsan
 #include "md.h"
@@ -360,7 +384,7 @@ bool is_receiving_text_input()
 }
 
 #ifdef DESKTOP
-char text_input_buffer[MAX_SENTENCE_LENGTH] = {0};
+MD_u8 text_input_buffer[MAX_SENTENCE_LENGTH] = {0};
 int text_input_buffer_length = 0;
 #else
 #ifdef WEB
@@ -413,8 +437,10 @@ LPCWSTR windows_string(MD_String8 s)
 
 #ifdef DESKTOP
 #ifdef WINDOWS
+#pragma warning(push, 3)
 #include <WinHttp.h>
 #include <process.h>
+#pragma warning(pop)
 
 typedef struct ChatRequest
 {
@@ -465,7 +491,7 @@ void generation_thread(void* my_request_voidptr)
 	if(my_request->should_close) return;
 	if(!succeeded)
 	{
-		Log("Couldn't do the web: %u\n", GetLastError());
+		Log("Couldn't do the web: %lu\n", GetLastError());
 		my_request->status = 2;
 	}
 	if(succeeded)
@@ -475,7 +501,7 @@ void generation_thread(void* my_request_voidptr)
 		DWORD status_code;
 		DWORD status_code_size = sizeof(status_code);
 		WinAssertWithErrorCode(WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &status_code, &status_code_size, WINHTTP_NO_HEADER_INDEX));
-		Log("Status code: %u\n", status_code);
+		Log("Status code: %lu\n", status_code);
 
 		DWORD dwSize = 0;
 		MD_String8List received_data_list = {0};
@@ -494,7 +520,7 @@ void generation_thread(void* my_request_voidptr)
 				DWORD dwDownloaded = 0;
 				WinAssertWithErrorCode(WinHttpReadData(hRequest, (LPVOID)out_buffer, dwSize, &dwDownloaded));
 				out_buffer[dwDownloaded - 1] = '\0';
-				Log("Got this from http, size %d: %s\n", dwDownloaded, out_buffer);
+				Log("Got this from http, size %lu: %s\n", dwDownloaded, out_buffer);
 				MD_S8ListPush(my_request->arena, &received_data_list, MD_S8(out_buffer, dwDownloaded)); 
 			}
 		} while (dwSize > 0);
@@ -1578,7 +1604,7 @@ CanTalkTo get_can_talk_to(Entity *e)
 	{
 		if(it != e && (it->is_npc || it->is_character) && LenV2(SubV2(it->pos, e->pos)) < PROPAGATE_ACTIONS_RADIUS)
 		{
-			BUFF_APPEND(&to_return, it->npc_kind);
+			BUFF_APPEND(&to_return, it);
 		}
 	}
 	return to_return;
@@ -1631,9 +1657,9 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 	if(error_message.size == 0 && a.talking_to_kind)
 	{
 		bool found = false;
-		BUFF_ITER(NpcKind, &talk)
+		BUFF_ITER(Entity*, &talk)
 		{
-			if(*it == a.talking_to_kind)
+			if((*it)->npc_kind == a.talking_to_kind)
 			{
 				found = true;
 				break;
@@ -1657,15 +1683,19 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 	{
 		error_message = MD_S8Lit("You can't fire your shotgun without aiming it first");
 	}
+	if(error_message.size == 0 && a.kind == ACT_put_shotgun_away && gete(from->aiming_shotgun_at) == 0)
+	{
+		error_message = MD_S8Lit("You can't put your shotgun away without aiming it first");
+	}
 
 	bool target_is_character = a.kind == ACT_join || a.kind == ACT_aim_shotgun;
 
 	if(error_message.size == 0 && target_is_character)
 	{
 		bool arg_valid = false;
-		BUFF_ITER(NpcKind, &talk)
+		BUFF_ITER(Entity*, &talk)
 		{
-			if(*it == a.argument.targeting) arg_valid  = true;
+			if((*it)->npc_kind == a.argument.targeting) arg_valid  = true;
 		}
 		if(arg_valid == false)
 		{
@@ -1939,7 +1969,6 @@ void dump_nodes(MD_Node *node)
 
 		printf(" `%.*s`\n", MD_S8VArg(cur_tovisit->ptr->string));
 
-		ToVisit new = {.depth = cur_tovisit->depth + 1};
 		for(MD_Node *cur = cur_tovisit->ptr->first_child; !MD_NodeIsNil(cur); cur = cur->next)
 		{
 			if(!in_arr(visited, cur))
@@ -2114,11 +2143,12 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 						MD_String8 enum_str = expect_childnode(scratch.arena, cur, MD_S8Lit("enum"), &drama_errors)->first_child->string;
 						MD_String8 dialog = expect_childnode(scratch.arena, cur, MD_S8Lit("dialog"), &drama_errors)->first_child->string;
 						MD_String8 action_str = MD_ChildFromString(cur, MD_S8Lit("action"), 0)->first_child->string; 
+						MD_String8 action_argument_str = MD_ChildFromString(cur, MD_S8Lit("action_argument"), 0)->first_child->string; 
 						MD_String8 to_str = MD_ChildFromString(cur, MD_S8Lit("to"), 0)->first_child->string;
 
 						if(to_str.size > 0)
 						{
-							NpcKind talking_to = parse_enumstr(scratch.arena, to_str, &drama_errors, NpcKind_names, "NpcKind", "");
+							NpcKind talking_to = parse_enumstr(scratch.arena, to_str, &drama_errors, NpcKind_enum_names, "NpcKind", "");
 							if (talking_to == NPC_nobody)
 							{
 								PushWithLint(scratch.arena, &drama_errors, "The string provided for the 'to' field, intended to be who the NPC is directing their speech and action at, is invalid and is '%.*s'", MD_S8VArg(to_str));
@@ -2130,10 +2160,14 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 							}
 						}
 
-						current_context.author_npc_kind = parse_enumstr(scratch.arena, enum_str, &drama_errors, NpcKind_names, "NpcKind", "NPC_");
+						current_context.author_npc_kind = parse_enumstr(scratch.arena, enum_str, &drama_errors, NpcKind_enum_names, "NpcKind", "");
 						if(action_str.size > 0)
 						{
-							current_action.kind = parse_enumstr(scratch.arena, action_str, &drama_errors,ActionKind_names, "ActionKind", "ACT_");
+							current_action.kind = parse_enumstr(scratch.arena, action_str, &drama_errors, ActionKind_names, "ActionKind", "ACT_");
+						}
+						if(action_argument_str.size > 0)
+						{
+							current_action.argument.targeting = parse_enumstr(scratch.arena, action_argument_str, &drama_errors, NpcKind_names, "NpcKind", "");
 						}
 
 						if(dialog.size >= ARRLEN(current_action.speech.text))
@@ -2151,7 +2185,7 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 					{
 						for(MD_Node *cur_kind_node = can_hear; !MD_NodeIsNil(cur_kind_node); cur_kind_node = cur_kind_node->next)
 						{
-							NpcKind want = parse_enumstr(scratch.arena, cur_kind_node->string, &drama_errors, NpcKind_names, "NpcKind", "NPC_");
+							NpcKind want = parse_enumstr(scratch.arena, cur_kind_node->string, &drama_errors, NpcKind_enum_names, "NpcKind", "");
 							if(drama_errors.node_count == 0)
 							{
 								bool found = false;
@@ -2392,11 +2426,11 @@ void ser_GameState(SerState *ser, GameState *gs)
 // error_out is allocated onto arena if it fails
 MD_String8 save_to_string(MD_Arena *output_bytes_arena, MD_Arena *error_arena, MD_String8 *error_out, GameState *gs)
 {
-	SerState ser = {.version = VMax - 1, .serializing = true};
 	MD_u8 *serialized_data = 0;
 	MD_u64 serialized_length = 0;
 	{
 		SerState ser = {
+			.version = VMax - 1,
 			.serializing = true,
 			.error_arena = error_arena,
 		};
@@ -2749,7 +2783,7 @@ Animation *get_anim_by_name(Armature *armature, MD_String8 anim_name)
 }
 
 // you can pass a time greater than the animation length, it's fmodded to wrap no matter what.
-Transform get_animated_bone_transform(AnimationTrack *track, Bone *bone, float time, bool dont_loop)
+Transform get_animated_bone_transform(AnimationTrack *track, float time, bool dont_loop)
 {
 	assert(track);
 	float total_anim_time = track->poses[track->poses_length - 1].time;
@@ -2837,7 +2871,6 @@ void audio_stream_callback(float *buffer, int num_frames, int num_channels)
 {
 	assert(num_channels == 1);
 	const int num_samples = num_frames * num_channels;
-	double time_to_play = (double)num_frames / (double)SAMPLE_RATE;
 	double time_per_sample = 1.0 / (double)SAMPLE_RATE;
 	for (int i = 0; i < num_samples; i++)
 	{
@@ -3108,9 +3141,6 @@ void init(void)
 			.stream_cb = audio_stream_callback,
 			.logger.func = slog_func,
 			});
-
-	typedef BUFF(char, 1024) DialogNode;
-	DialogNode cur_node = { 0 };
 
 	load_assets();
 
@@ -3659,7 +3689,7 @@ StacktraceInfo get_stacktrace()
 		if(!SymFromAddr(process, (DWORD64) stack[i], 0, symbol))
 		{
 			DWORD error_code = GetLastError();
-			Log("Could not read stack trace: %d\n", error_code);
+			Log("Could not read stack trace: %lu\n", error_code);
 			assert(false);
 		}
 
@@ -4528,7 +4558,6 @@ MD_String8 last_said_sentence(Entity *npc)
 
 	MD_String8 to_return = (MD_String8){0};
 
-	Memory *cur = npc->memories_last;
 	for(Memory *cur = npc->memories_last; cur; cur = cur->prev)
 	{
 		if(cur->context.author_npc_kind == npc->npc_kind)
@@ -4815,7 +4844,6 @@ FrustumVertices get_frustum_vertices(Vec3 cam_pos, Vec3 cam_forward, Vec3 cam_ri
 
 	float aspect_ratio = (float)sapp_width() / (float)sapp_height();
 
-	const int num_frustum_vertices = sizeof(result.vertices)/sizeof(result.vertices[0]);
 
 	const float cascade_distance = FAR_PLANE_DISTANCE;
 
@@ -4920,12 +4948,12 @@ Shadow_Volume_Params calculate_shadow_volume_params(Vec3 light_dir, Vec3 cam_pos
 
 
 void debug_draw_img(sg_image img, int index) {
-    draw_quad((DrawParams){quad_at(V2(512.0f*index, 512.0), V2(512.0, 512.0)), IMG(state.shadows.color_img), WHITE, .layer=LAYER_UI});
+    draw_quad((DrawParams){quad_at(V2(512.0f*index, 512.0), V2(512.0, 512.0)), IMG(img), WHITE, .layer=LAYER_UI});
 }
 
 void debug_draw_img_with_border(sg_image img, int index) {
     float bs = 50.0;
-    draw_quad((DrawParams){quad_at(V2(512.0f*index, 512.0), V2(512.0, 512.0)), state.shadows.color_img, (AABB){V2(-bs, -bs), AddV2(img_size(img), V2(bs, bs))}, WHITE, .layer=LAYER_UI});
+    draw_quad((DrawParams){quad_at(V2(512.0f*index, 512.0), V2(512.0, 512.0)), img, (AABB){V2(-bs, -bs), AddV2(img_size(img), V2(bs, bs))}, WHITE, .layer=LAYER_UI});
 }
 
 void debug_draw_shadow_info(Vec3 frustum_tip, Vec3 cam_forward, Vec3 cam_right, Mat4 light_space_matrix) {
@@ -4967,7 +4995,7 @@ void debug_draw_shadow_info(Vec3 frustum_tip, Vec3 cam_forward, Vec3 cam_right, 
 
 void actually_draw_thing(DrawnThing *it, Mat4 light_space_matrix, bool for_outline)
 {
-	int num_vertices_to_draw;
+	int num_vertices_to_draw = 0;
 	if(it->mesh)
 	{
 		if(for_outline)
@@ -5038,6 +5066,7 @@ void actually_draw_thing(DrawnThing *it, Mat4 light_space_matrix, bool for_outli
 	}
 
 	num_draw_calls += 1;
+	assert(num_vertices_to_draw > 0);
 	num_vertices += num_vertices_to_draw;
 	sg_draw(0, num_vertices_to_draw, 1);
 }
@@ -5540,7 +5569,7 @@ void frame(void)
 				{
 					Transform *output_transform = &cur->anim_blended_poses[i];
 					Transform from_transform = cur->current_poses[i];
-					Transform to_transform = get_animated_bone_transform(&to_anim->tracks[i], &cur->bones[i], along_current_animation, cur->currently_playing_isnt_looping);
+					Transform to_transform = get_animated_bone_transform(&to_anim->tracks[i], along_current_animation, cur->currently_playing_isnt_looping);
 
 					*output_transform = lerp_transforms(from_transform, cur->animation_blend_t, to_transform);
 				}
@@ -5550,7 +5579,7 @@ void frame(void)
 				Animation *cur_anim = get_anim_by_name(cur, cur->currently_playing_animation);
 				for(MD_u64 i = 0; i < cur->bones_length; i++)
 				{
-					cur->anim_blended_poses[i] = get_animated_bone_transform(&cur_anim->tracks[i], &cur->bones[i], along_current_animation, cur->currently_playing_isnt_looping);
+					cur->anim_blended_poses[i] = get_animated_bone_transform(&cur_anim->tracks[i], along_current_animation, cur->currently_playing_isnt_looping);
 				}
 			}
 		}
@@ -6577,7 +6606,6 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 
 					float speed = 0.0f;
 					{
-						Vec2 target_vel = { 0 };
 						
 						if(gs.player->killed) gs.player->state = CHARACTER_KILLED;
 						if(gs.player->state == CHARACTER_WALKING)
@@ -6887,8 +6915,6 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 									mem_idx++;
 								}
 							}
-
-							break;
 						}
 					}
 				}
@@ -6915,7 +6941,6 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 		{
 			ARR_ITER_I(RenderingQueue, rendering_queues, i)
 			{
-				Layer layer = (Layer)i;
 				RenderingQueue *rendering_queue = it;
 				qsort(&rendering_queue->data[0], rendering_queue->cur_index, sizeof(rendering_queue->data[0]), rendering_compare);
 
@@ -7103,7 +7128,7 @@ void event(const sapp_event *e)
 				text_input_buffer_length = ARRLEN(text_input_buffer) - 1;
 			}
 			text_input_buffer[text_input_buffer_length] = '\0';
-			end_text_input(text_input_buffer);
+			end_text_input((char*)text_input_buffer);
 		}
 	}
 #endif

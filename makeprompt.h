@@ -271,10 +271,11 @@ typedef struct Entity
 	EntityRef talking_to;
 } Entity;
 
-typedef BUFF(NpcKind, 32) CanTalkTo;
+typedef BUFF(Entity*, 32) CanTalkTo;
 
 float entity_max_damage(Entity *e)
 {
+	(void)e;
 	return 1.0f;
 }
 
@@ -329,6 +330,7 @@ void fill_available_actions(GameState *gs, Entity *it, AvailableActions *a)
 	{
 		if(gete_specified(gs, it->aiming_shotgun_at))
 		{
+			BUFF_APPEND(a, ACT_put_shotgun_away);
 			BUFF_APPEND(a, ACT_fire_shotgun);
 		}
 		else
@@ -387,9 +389,15 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 		AddFmt("%s\n\n", global_prompt);
 		AddFmt("%s\n\n", characters[e->npc_kind].prompt);
 		AddFmt("The characters who are near you, that you can target:\n");
-		BUFF_ITER(NpcKind, &can_talk_to)
+		BUFF_ITER(Entity*, &can_talk_to)
 		{
-			AddFmt("%s\n", characters[*it].name);
+			assert((*it)->is_npc || (*it)->is_character);
+			MD_String8 info = MD_S8Lit("");
+			if((*it)->killed)
+			{
+				info = MD_S8Lit(" - they're currently dead, they were murdered");
+			}
+			AddFmt("%s%.*s\n", characters[(*it)->npc_kind].name, MD_S8VArg(info));
 		}
 		AddFmt("\n");
 
@@ -526,13 +534,13 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 action_
 
 	MD_String8 speech_str = {0};
 	MD_String8 action_str = {0};
-	MD_String8 action_arg_str = {0};
+	MD_String8 action_argument_str = {0};
 	MD_String8 target_str = {0};
 	if(error_message.size == 0)
 	{
 		speech_str = get_field(message_obj, MD_S8Lit("speech"));
 		action_str = get_field(message_obj, MD_S8Lit("action"));
-		action_arg_str = get_field(message_obj, MD_S8Lit("action_argument"));
+		action_argument_str = get_field(message_obj, MD_S8Lit("action_argument"));
 		target_str = get_field(message_obj, MD_S8Lit("target"));
 	}
 	if(error_message.size == 0 && action_str.size == 0)
@@ -607,7 +615,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 action_
 					bool found_npc = false;
 					for(int i = 0; i < ARRLEN(characters); i++)
 					{
-						if(MD_S8Match(MD_S8CString(characters[i].name), action_arg_str, 0))
+						if(MD_S8Match(MD_S8CString(characters[i].name), action_argument_str, 0))
 						{
 							found_npc = true;
 							out->argument.targeting = i;
@@ -615,7 +623,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 action_
 					}
 					if(!found_npc)
 					{
-						error_message = FmtWithLint(arena, "Argument for action `%.*s` you gave is `%.*s`, which doesn't exist in the game so is invalid", MD_S8VArg(action_str), MD_S8VArg(action_arg_str));
+						error_message = FmtWithLint(arena, "Argument for action `%.*s` you gave is `%.*s`, which doesn't exist in the game so is invalid", MD_S8VArg(action_str), MD_S8VArg(action_argument_str));
 					}
 				}
 				else

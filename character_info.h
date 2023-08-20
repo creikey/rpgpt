@@ -47,6 +47,11 @@ ActionInfo actions[] = {
 		.description = "Fires your shotgun at the current target, killing the target.",
 		NO_ARGUMENT,
 	},
+	{
+		.name = "put_shotgun_away",
+		.description = "Holsters your shotgun, no longer threatening who you're aiming at.",
+		NO_ARGUMENT,
+	},
 };
 
 typedef enum
@@ -77,7 +82,7 @@ CharacterGen characters[] = {
 	{
 		.name = "Daniel",
 		.enum_name = "Daniel",
-		.prompt = CHARACTER_PROMPT_PREFIX("Daniel") "weathered farmer, who lives a tough, solitary life. You don't see much of a reason to keep living but soldier on anyways. You have a tragic backstory, and mostly just work on the farm. You aim your shotgun and aren't afraid to fire at people you don't like",
+		.prompt = CHARACTER_PROMPT_PREFIX("Daniel") "weathered farmer, who lives a tough, solitary life. You don't see much of a reason to keep living but soldier on anyways. You have a tragic backstory, and mostly just work on the farm. You aim your shotgun and aren't afraid to fire at people you don't like. You HATE people who are confused, or who ask questions, immediately aiming your shotgun at them.",
 	},
 	{
 		.name = "Raphael",
