@@ -367,6 +367,8 @@ function load_all() {
    console.log("Reading full game");
    let decoded = decode(read_data);
    Module.ccall('read_from_save_data', 'void', ['array', 'number'], [new Uint8Array(decoded), decoded.byteLength]);
+  } else {
+    console.log("Couldn't find full game");
   }
  }
 }
