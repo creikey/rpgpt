@@ -2,7 +2,7 @@
 
 #include "buff.h"
 #include "HandmadeMath.h" // vector types in entity struct definition
-#include "better_assert.h"
+#include "utility.h"
 #include <stdbool.h>
 #include <string.h>
 #include <stdlib.h> // atoi
@@ -12,9 +12,6 @@
 #include "tuning.h"
 
 #define DO_CHATGPT_PARSING
-
-#define Log(...) { printf("%s Log %d | ", __FILE__, __LINE__); printf(__VA_ARGS__); }
-
 
 // Never expected such a stupid stuff from such a great director. If there is 0 stari can give that or -200 to this movie. Its worst to see and unnecessary loss of money
 

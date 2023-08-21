@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #define DESKTOP
-#include "better_assert.h"
+#include "utility.h"
 
 #include "buff.h"
 
@@ -22,8 +22,6 @@
 #include "md.c"
 #pragma warning(pop)
 
-
-#define Log(...) { printf("Codegen: "); printf(__VA_ARGS__); }
 
 void dump(MD_Node* from) {
 	printf("/ %.*s\n", MD_S8VArg(from->string));

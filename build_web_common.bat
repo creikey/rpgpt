@@ -1,7 +1,7 @@
 call run_codegen.bat || goto :error
 
 copy marketing_page\favicon.ico %OUTPUT_FOLDER%\favicon.ico
-copy main.c %OUTPUT_FOLDER%\main.c || goto :error
+@REM copy main.c %OUTPUT_FOLDER%\main.c || goto :error
 
 @echo on
 emcc ^

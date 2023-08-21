@@ -28,6 +28,8 @@
 #define SOKOL_GLES2
 #endif
 
+#include "utility.h"
+
 #ifdef WINDOWS
 
 
@@ -132,7 +134,14 @@ void *web_arena_push(WebArena *arena, size_t amount)
 	}
 	void *to_return = arena->data + arena->pos;
 	arena->pos += amount;
-	assert(arena->pos < arena->cap);
+
+	bool arena_ok = arena->pos < arena->cap;
+	if(!arena_ok)
+	{
+		Log("Arena size: %lu\n", arena->cap);
+		Log("Arena pos: %lu\n", arena->pos);
+	}
+	assert(arena_ok);
 	return to_return;
 }
 
@@ -5588,13 +5597,14 @@ void frame(void)
 
 		// draw the 3d render
 		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.threedee_pass_image), WHITE, .layer = LAYER_WORLD, .custom_pipeline = state.twodee_colorcorrect_pip });
-		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.outline_pass_image), WHITE, .layer = LAYER_UI_FG, .custom_pipeline = state.twodee_outline_pip, .layer = LAYER_UI});
+		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.outline_pass_image), WHITE, .custom_pipeline = state.twodee_outline_pip, .layer = LAYER_UI});
 
 		// 2d drawing TODO move this to when the drawing is flushed.
 		sg_begin_default_pass(&state.clear_depth_buffer_pass_action, sapp_width(), sapp_height());
 		sg_apply_pipeline(state.twodee_pip);
 
 		// @Place(text input drawing)
+#ifdef DESKTOP
 		draw_quad((DrawParams){quad_at(V2(0,screen_size().y), screen_size()), IMG(image_white_square), blendalpha(BLACK, text_input_fade*0.3f), .layer = LAYER_UI_FG});
 		Vec2 edge_of_text = MulV2F(screen_size(), 0.5f);
 		if(text_input_buffer_length > 0)
@@ -5604,6 +5614,7 @@ void frame(void)
 		}
 		Vec2 cursor_center = V2(edge_of_text.x,screen_size().y/2.0f);
 		draw_quad((DrawParams){quad_centered(cursor_center, V2(3.0f, 80.0f)), IMG(image_white_square), blendalpha(WHITE, text_input_fade * (sinf((float)elapsed_time*8.0f)/2.0f + 0.5f)), .layer = LAYER_UI_FG});
+#endif
 
 		// Draw Tilemap draw tilemap tilemap drawing
 #if 0
@@ -6407,6 +6418,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 							it->generation = gen;
 						}
 					}
+
 					ENTITIES_ITER(gs.entities)
 					{
 						if (it->perceptions_dirty && !npc_does_dialog(it))
@@ -6445,7 +6457,6 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 #endif
 
 #ifdef DESKTOP
-									// desktop http request, no more mocking
 									MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 
 									MD_String8 ai_response = {0};
@@ -6475,13 +6486,30 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 											char *target = characters[it->memories_last->context.author_npc_kind].name;
 											target = characters[NPC_Player].name;
 											ai_response = FmtWithLint(frame_arena, "{\"target\": \"%s\", \"action\": \"%s\", \"action_argument\": \"The Player\", \"speech\": \"%s\"}", target, action, next_dialog);
-#ifdef DESKTOP
 											it->times_talked_to += 1;
-#endif
 										}
 										else
 										{
 											ai_response = MD_S8Lit("{\"target\": \"nobody\", \"action\": \"none\", \"speech\": \"\"}");
+										}
+
+										// something to mock
+										if (ai_response.size > 0)
+										{
+											Log("Mocking...\n");
+											Action a = {0};
+											MD_String8 error_message = MD_S8Lit("Something really bad happened bro. File " STRINGIZE(__FILE__) " Line " STRINGIZE(__LINE__));
+											if (succeeded)
+											{
+												error_message = parse_chatgpt_response(scratch.arena, it, ai_response, &a);
+											}
+
+											assert(succeeded);
+											assert(error_message.size == 0);
+
+											MD_String8 valid_str = is_action_valid(frame_arena, it, a);
+											assert(valid_str.size == 0);
+											perform_action(&gs, it, a);
 										}
 									}
 									else
@@ -6490,48 +6518,11 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 										it->gen_request_id = make_generation_request(post_request_body);
 									}
 
-									// something to mock
-									if (ai_response.size > 0)
-									{
-										Log("Mocking...\n");
-										Action a = {0};
-										MD_String8 error_message = MD_S8Lit("Something really bad happened bro. File " STRINGIZE(__FILE__) " Line " STRINGIZE(__LINE__));
-										if (succeeded)
-										{
-											error_message = parse_chatgpt_response(scratch.arena, it, ai_response, &a);
-										}
-
-										if (mocking_the_ai_response)
-										{
-										assert(succeeded);
-										assert(error_message.size == 0);
-
-										MD_String8 valid_str = is_action_valid(frame_arena, it, a);
-										assert(valid_str.size == 0);
-										perform_action(&gs, it, a);
-									}
-									else
-									{
-										if(succeeded)
-										{
-											if (error_message.size == 0)
-											{
-												perform_action(&gs, it, a);
-											}
-											else
-											{
-												Log("There was an error with the AI: %.*s", MD_S8VArg(error_message));
-												append_to_errors(it, error_message);
-											}
-										}
-									}
-								}
-
 
 								MD_ReleaseScratch(scratch);
 #undef SAY
-#endif		}
-							}
+#endif	// desktop endif
+								}
 							}
 							else
 							{

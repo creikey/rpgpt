@@ -1,16 +1,21 @@
+#pragma once
+
 #include <stdio.h>
+#include <stdbool.h>
 
 #ifdef WEB
-#include <assert.h>
+//#include <assert.h>
+#include <signal.h>
 #endif
 
-static inline void assert_impl(bool cond, const char *expression)
+static void assert_impl(bool cond, const char *expression)
 {
 	if(!cond)
 	{
 		fprintf(stderr, "Assertion failed: %s\n", expression);
 #ifdef WEB
-		assert(false);
+		raise(SIGTRAP);
+		//assert(false);
 #elif defined(DESKTOP)
 		__debugbreak();
 #else
@@ -23,3 +28,5 @@ static inline void assert_impl(bool cond, const char *expression)
 #endif
 
 #define assert(cond) assert_impl(cond, #cond)
+
+#define Log(...) { printf("%s Log %d | ", __FILE__, __LINE__); printf(__VA_ARGS__); }
