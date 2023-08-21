@@ -1,45 +1,9 @@
-Very Important:
- - Make sure no memory leaks in loading save data. I reuse the persistent arena, and just set the gamestate again, so all that memory allocated from loading the gamestate is leaked in the persistent arena. You need to fix this before ship.
+Urgent:
+- Tag memories from drama as permanent so they're never forgotten and always seed character behavior
+- gman character that gives you randomized goals such as (kill so and so) or (befriend blank) or (get john to go to other room), and decides itself with gpt when you're done with the game, when you've 'learned your lesson'.
+- room system where characters can go to rooms. camera constrained to room bounds, and know which rooms are near them to go to
 
-
-
-Below is old.
-
-DONE - rewrite to have metadesk format for speech and actions
-DONE - action and item explanations in system message, along with available actions and items
-DONE - remove party eavesdropping, but make clear to AI when things are heard physically or told directly. Allow AI to choose people in vicinity to target with conversation and action. I.e a `talking_to` field. Also add a required character: field in chatgpt response, and make sure it matches the character it's supposed to act as.
- - Improve error messages on joins_party when already in party, factor parsing string -> enum into one shared function in parse chatgpt
- - The using of items and backpack inventory view.
- - delete peace tokens, replace with key items and scroll item that says word.
- - display actions, like giving an item, in memory history
- - door npc that refuses to open unless player says the word
- - The Mighty Sword that's conservative, when convinced to be pulled player gets it as an item
- - Change give_item to give_item_for_free, and add propose_trade that does trade workflow so NPCs can't easily be screwed over
- - Long generations from chatgpt are error messages to it, not assertion fails.
-
-
-
-DONE - Refactor string parsing and chat dumping to use MD_String8
-DONE - Delete old perception types and sources, like from an enemy or player item changed
- - Refactor perceptions to come from multiple places and format correctly
- - ACT_none and no speech, doesn't produce a perception
- - Perceptions happen in physical space, propagate in physical space.
- - Add two more characters, and 4 more items. Make the drama in the town better
-		- Add gigachad to the game
-		- Add relationship drama (e.g people are divorced, having affairs, etc. Insane people)
-		- Add "magic powder" item
-		- Add edna-mode esque lady who is working on a bunch of new magic items that when used do insane things. Has guarded home, "Edna Mode. And Guest"
-		- Insane items:
-		- Timed "magic bomb" that obliterates things and people in a 1 meter radius a few seconds from where it's used. NPCs are VERY surprised by this, and freak out
-		- A "friend potion" that makes previously angry NPCs very aminable to whatever you need them to do
-		- Banana peel for NPCs to slip on (npcs have walk cycles in a town? constantly moving/going somewhere?)
-		- A "hype chip" that makes everybody in your party down for whatever cause you campaign them todo
-		- A "mirror cube" that lets you completely fabricate and manipulate ANY npc into believing that the world around them is whatever you want it to be. Torment an NPC in a world of 1,000 razors, or make them believe they've won, it's completely up to the player in however they want to use the item.
-		- "tank" just spawns a tank that you and 2 other party members can climb inside of. NPCs don't know how to deal with a tank and are terrified of when it shoots bullets. Can be used to forcefully tear down barricades
-		- "fools gold" NPCs see it as real gold and accept it in trades, but as soon as it's in their inventory they know that it's fake gold and get angry. Much cheaper than real gold
-		- A "mirror bomb" AOE mirror cube
-		- A "magic zipline" connect two points in the world with the magic zipline, and quickly traverse between them. Causes the player and their party to rapidly fly between the points as if they were on a zipline
- - Make eavesdropping happen much more "correctly"; draw correctly in party viewing
- - Talk to party button
- - Move tuning from makeprompt.h into tuning.h
-
+Long distance:
+- Design character creator
+- System where I can upload any AI interaction into gpt playground and inspect the conversation
+- Incrementally higher resolution system for all textures, configured in a #define. Also flips the images at build time
