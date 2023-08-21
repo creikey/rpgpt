@@ -2737,13 +2737,13 @@ void create_screenspace_gfx_state()
 			.label = "outline-pass",
 	});
 
-	desc.sample_count = 0;
+	desc.sample_count = 1;
 	
 	desc.label = "threedee-pass-render-target";
 	state.threedee_pass_image = sg_make_image(&desc);
 
 	desc.label = "threedee-pass-depth-render-target";
-	desc.pixel_format = SG_PIXELFORMAT_DEPTH_STENCIL;
+	desc.pixel_format = SG_PIXELFORMAT_DEPTH;
 	state.threedee_pass_depth_image = sg_make_image(&desc);
 
 	state.threedee_pass = sg_make_pass(&(sg_pass_desc){
@@ -3300,21 +3300,19 @@ void init(void)
 	assert(desc);
 	shd = sg_make_shader(desc);
 
-	state.threedee_pip = sg_make_pipeline(&(sg_pipeline_desc)
-			{
-			.shader = shd,
-			.depth = {
+	state.threedee_pip = sg_make_pipeline(&(sg_pipeline_desc){
+		.shader = shd,
+		.layout = {.attrs = {
+					   [ATTR_threedee_vs_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
+					   [ATTR_threedee_vs_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
+				   }},
+		.depth = {
+			.pixel_format = SG_PIXELFORMAT_DEPTH,
 			.compare = SG_COMPAREFUNC_LESS_EQUAL,
-			.write_enabled = true
-			},
-			.layout = {
-			.attrs =
-			{
-			[ATTR_threedee_vs_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
-			[ATTR_threedee_vs_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
-			}
-			},
-			.colors[0].blend = (sg_blend_state) { // allow transparency
+			.write_enabled = true,
+		},
+		.colors[0].blend = (sg_blend_state){
+			// allow transparency
 			.enabled = true,
 			.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
 			.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
@@ -3322,9 +3320,9 @@ void init(void)
 			.src_factor_alpha = SG_BLENDFACTOR_ONE,
 			.dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
 			.op_alpha = SG_BLENDOP_ADD,
-			},
-			.label = "threedee",
-			});
+		},
+		.label = "threedee",
+	});
 
 	desc = threedee_armature_shader_desc(sg_query_backend());
 	assert(desc);
@@ -3334,8 +3332,9 @@ void init(void)
 			{
 			.shader = shd,
 			.depth = {
-			.compare = SG_COMPAREFUNC_LESS_EQUAL,
-			.write_enabled = true
+				.pixel_format = SG_PIXELFORMAT_DEPTH,
+				.compare = SG_COMPAREFUNC_LESS_EQUAL,
+				.write_enabled = true
 			},
 			.layout = {
 			.attrs =
@@ -7346,7 +7345,7 @@ sapp_desc sokol_main(int argc, char* argv[])
 			.frame_cb = frame,
 			.cleanup_cb = cleanup,
 			.event_cb = event,
-			.sample_count = 4,
+			.sample_count = 1, // bumping this back to 4 is troublesome for web, because there's a mismatch in sample counts. Perhaps we must upgrade to gles3, in doing so, we should upgrade to the newest sokol gfx.
 			.width = 800,
 			.height = 600,
 			//.gl_force_gles2 = true, not sure why this was here in example, look into

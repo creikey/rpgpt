@@ -23,8 +23,8 @@
 #define BUBBLE_LINES_PER_PAGE 2
 #define AI_MAX_BUBBLE_PAGES_IN_OUTPUT 2
 
-#define ARENA_SIZE (1024*1024*10)
-#define BIG_ARENA_SIZE (ARENA_SIZE * 8)
+#define ARENA_SIZE (1024*1024*20)
+#define BIG_ARENA_SIZE (ARENA_SIZE * 4)
 
 #ifdef DEVTOOLS
 // server url cannot have trailing slash

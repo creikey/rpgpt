@@ -508,6 +508,7 @@ func main() {
 
  logResponses = os.Getenv("LOG_RESPONSES") != ""
  doCors = os.Getenv("CORS") != ""
+ if doCors { log.Println("Doing cors"); }
  c = openai.NewClient(api_key)
 
  http.HandleFunc("/completion", completion)
