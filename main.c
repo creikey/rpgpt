@@ -514,6 +514,8 @@ void generation_thread(void* my_request_voidptr)
 		WinAssertWithErrorCode(WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &status_code, &status_code_size, WINHTTP_NO_HEADER_INDEX));
 		Log("Status code: %lu\n", status_code);
 
+		WinAssertWithErrorCode(status_code != 500);
+
 		DWORD dwSize = 0;
 		MD_String8List received_data_list = {0};
 		do
