@@ -312,6 +312,7 @@ typedef struct AudioSample
 {
 	float *pcm_data; // allocated by loader, must be freed
 	uint64_t pcm_data_length;
+	unsigned int num_channels;
 } AudioSample;
 
 typedef struct AudioPlayer
@@ -328,18 +329,19 @@ AudioPlayer playing_audio[128] = { 0 };
 
 AudioSample load_wav_audio(const char *path)
 {
-	unsigned int channels;
 	unsigned int sampleRate;
 	AudioSample to_return = { 0 };
-	to_return.pcm_data = drwav_open_file_and_read_pcm_frames_f32(path, &channels, &sampleRate, &to_return.pcm_data_length, 0);
-	assert(channels == 1);
+	to_return.pcm_data = drwav_open_file_and_read_pcm_frames_f32(path, &to_return.num_channels, &sampleRate, &to_return.pcm_data_length, 0);
+	assert(to_return.num_channels == 1 || to_return.num_channels == 2);
 	assert(sampleRate == SAMPLE_RATE);
 	return to_return;
 }
 
-uint64_t cursor_pcm(AudioPlayer *p)
+void cursor_pcm(AudioPlayer *p, uint64_t *integer, float *fractional)
 {
-	return (uint64_t)(p->cursor_time * SAMPLE_RATE);
+	double sample_time = p->cursor_time * SAMPLE_RATE;
+	*integer = (uint64_t)sample_time;
+	*fractional = (float)(sample_time - *integer);
 }
 float float_rand(float min, float max)
 {
@@ -2878,29 +2880,51 @@ float decode_normalized_float32(PixelData encoded)
 
 void audio_stream_callback(float *buffer, int num_frames, int num_channels)
 {
-	assert(num_channels == 1);
+	assert(num_channels == 2);
 	const int num_samples = num_frames * num_channels;
 	double time_per_sample = 1.0 / (double)SAMPLE_RATE;
-	for (int i = 0; i < num_samples; i++)
+	for (int i = 0; i < num_samples; i += num_channels)
 	{
-		float output_frame = 0.0f;
+		float output_frames[2] = {0};
 		for (int audio_i = 0; audio_i < ARRLEN(playing_audio); audio_i++)
 		{
 			AudioPlayer *it = &playing_audio[audio_i];
 			if (it->sample != 0)
 			{
-				if (cursor_pcm(it) >= it->sample->pcm_data_length)
+				uint64_t pcm_position_int;
+				float pcm_position_frac;
+				cursor_pcm(it, &pcm_position_int, &pcm_position_frac);
+				if (pcm_position_int + 1 >= it->sample->pcm_data_length)
 				{
 					it->sample = 0;
 				}
 				else
 				{
-					output_frame += it->sample->pcm_data[cursor_pcm(it)]*(float)(it->volume + 1.0);
+					const int source_num_channels = it->sample->num_channels;
+					float volume = (float)(it->volume + 1.0);
+					if (source_num_channels == 1) {
+						float src = Lerp(it->sample->pcm_data[pcm_position_int], pcm_position_frac, it->sample->pcm_data[pcm_position_int + 1]) * volume;
+						output_frames[0] += src;
+						output_frames[1] += src;
+					} else if (source_num_channels == 2) {
+						float src[2];
+						src[0] = Lerp(it->sample->pcm_data[pcm_position_int * 2 + 0], pcm_position_frac, it->sample->pcm_data[(pcm_position_int + 1) * 2 + 0]) * volume;
+						src[1] = Lerp(it->sample->pcm_data[pcm_position_int * 2 + 1], pcm_position_frac, it->sample->pcm_data[(pcm_position_int + 1) * 2 + 1]) * volume;
+						output_frames[0] += src[0];
+						output_frames[1] += src[1];
+					} else {
+						assert(false);
+					}
 					it->cursor_time += time_per_sample*(it->pitch + 1.0);
 				}
 			}
 		}
-		buffer[i] = output_frame;
+		if (num_channels == 1) {
+			buffer[i] = (output_frames[0] + output_frames[1]) * 0.5f;
+		} else if (num_channels == 2) {
+			buffer[i + 0] = output_frames[0];
+			buffer[i + 1] = output_frames[1];
+		}
 	}
 }
 
@@ -3149,6 +3173,7 @@ void init(void)
 	saudio_setup(&(saudio_desc) {
 			.stream_cb = audio_stream_callback,
 			.logger.func = slog_func,
+			.num_channels = 2,
 			});
 
 	load_assets();
