@@ -289,6 +289,12 @@ typedef struct AABB
 	Vec2 lower_right;
 } AABB;
 
+typedef struct Circle
+{
+	Vec2 center;
+	float radius;
+} Circle;
+
 typedef struct Quad
 {
 	union
@@ -710,6 +716,23 @@ Vec2 entity_aabb_size(Entity *e)
 	{
 		assert(false);
 		return (Vec2) { 0 };
+	}
+}
+
+float entity_radius(Entity *e)
+{
+	if (e->is_character)
+	{
+		return 0.35f;
+	}
+	else if (e->is_npc)
+	{
+		return 0.5f;
+	}
+	else
+	{
+		assert(false);
+		return 0;
 	}
 }
 
@@ -1237,17 +1260,17 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 	return to_return;
 }
 
-typedef struct CollisionCube
+typedef struct CollisionCylinder
 {
-	struct CollisionCube *next;
-	AABB bounds;
-} CollisionCube;
+	struct CollisionCylinder *next;
+	Circle bounds;
+} CollisionCylinder;
 
 typedef struct
 {
 	Mesh *mesh_list;
 	PlacedMesh *placed_mesh_list;
-	CollisionCube *collision_list;
+	CollisionCylinder *collision_list;
 	PlacedEntity *placed_entity_list;
 } ThreeDeeLevel;
 
@@ -1350,13 +1373,14 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 	ser_MD_u64(&ser, &num_collision_cubes);
 	for(MD_u64 i = 0; i < num_collision_cubes; i++)
 	{
-		CollisionCube *new_cube = MD_PushArray(arena, CollisionCube, 1);
+		CollisionCylinder *new_cylinder = MD_PushArray(arena, CollisionCylinder, 1);
 		Vec2 twodee_pos;
 		Vec2 size;
 		ser_Vec2(&ser, &twodee_pos);
 		ser_Vec2(&ser, &size);
-		new_cube->bounds = aabb_centered(twodee_pos, size);
-		MD_StackPush(out.collision_list, new_cube);
+		new_cylinder->bounds.center = twodee_pos;
+		new_cylinder->bounds.radius = (size.x + size.y) * 0.5f; // @TODO(Phillip): @Temporary
+		MD_StackPush(out.collision_list, new_cylinder);
 	}
 
 	// placed entities
@@ -3651,6 +3675,13 @@ bool overlapping(AABB a, AABB b)
 	return true; // both segments overlapping
 }
 
+bool overlapping_circle(Circle a, Circle b)
+{
+	Vec2 disp = SubV2(b.center, a.center);
+	float dist = LenV2(disp);
+	return (dist < a.radius + b.radius);
+}
+
 bool has_point(AABB aabb, Vec2 point)
 {
 	return
@@ -4370,21 +4401,20 @@ Vec2 get_penetration_vector(AABB stable, AABB dynamic)
 // returns new pos after moving and sliding against collidable things
 Vec2 move_and_slide(MoveSlideParams p)
 {
-	Vec2 collision_aabb_size = entity_aabb_size(p.from);
+	float collision_radius = entity_radius(p.from);
 	Vec2 new_pos = AddV2(p.position, p.movement_this_frame);
 
-	assert(collision_aabb_size.x > 0.0f);
-	assert(collision_aabb_size.y > 0.0f);
-	AABB at_new = aabb_centered(new_pos, collision_aabb_size);
+	assert(collision_radius > 0.0f);
+	Circle at_new = {new_pos, collision_radius};
 	typedef struct
 	{
-		AABB aabb;
+		Circle circle;
 		Entity *e; // required
 	} CollisionObj;
 	BUFF(CollisionObj, 256) to_check = { 0 };
 
 	// add world boxes
-	for(CollisionCube *cur = level_threedee.collision_list; cur; cur = cur->next)
+	for(CollisionCylinder *cur = level_threedee.collision_list; cur; cur = cur->next)
 	{
 		BUFF_APPEND(&to_check, ((CollisionObj){cur->bounds, gs.world_entity}));
 	}
@@ -4396,7 +4426,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 		{
 			if (it != p.from && !(it->is_npc && it->dead) && !it->is_world)
 			{
-				BUFF_APPEND(&to_check, ((CollisionObj){aabb_centered(it->pos, entity_aabb_size(it)), it}));
+				BUFF_APPEND(&to_check, ((CollisionObj){.circle.center = it->pos, .circle.radius = entity_radius(it), it}));
 			}
 		}
 	}
@@ -4410,7 +4440,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 
 	BUFF_ITER(CollisionObj, &to_check)
 	{
-		if (overlapping(at_new, it->aabb))
+		if (overlapping_circle(at_new, it->circle))
 		{
 			BUFF_APPEND(&actually_overlapping, *it);
 		}
@@ -4418,14 +4448,14 @@ Vec2 move_and_slide(MoveSlideParams p)
 
 
 	float smallest_distance = FLT_MAX;
-	int smallest_aabb_index = 0;
+	int smallest_circle_index = 0;
 	int i = 0;
 	BUFF_ITER(CollisionObj, &actually_overlapping)
 	{
-		float cur_dist = LenV2(SubV2(aabb_center(at_new), aabb_center(it->aabb)));
+		float cur_dist = LenV2(SubV2(at_new.center, it->circle.center));
 		if (cur_dist < smallest_distance) {
 			smallest_distance = cur_dist;
-			smallest_aabb_index = i;
+			smallest_circle_index = i;
 		}
 		i++;
 	}
@@ -4434,11 +4464,11 @@ Vec2 move_and_slide(MoveSlideParams p)
 	OverlapBuff overlapping_smallest_first = { 0 };
 	if (actually_overlapping.cur_index > 0)
 	{
-		BUFF_APPEND(&overlapping_smallest_first, actually_overlapping.data[smallest_aabb_index]);
+		BUFF_APPEND(&overlapping_smallest_first, actually_overlapping.data[smallest_circle_index]);
 	}
 	BUFF_ITER_I(CollisionObj, &actually_overlapping, i)
 	{
-		if (i == smallest_aabb_index)
+		if (i == smallest_circle_index)
 		{
 		}
 		else
@@ -4452,7 +4482,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 	{
 		dbgcol(GREEN)
 		{
-			dbgplanerect(it->aabb);
+			dbgplanerect(aabb_centered(it->circle.center, (Vec2){it->circle.radius, it->circle.radius}));
 		}
 	}
 
@@ -4461,21 +4491,20 @@ Vec2 move_and_slide(MoveSlideParams p)
 
 	BUFF_ITER(CollisionObj, &actually_overlapping)
 		dbgcol(WHITE)
-		dbgplanerect(it->aabb);
+		dbgplanerect(aabb_centered(it->circle.center, (Vec2){it->circle.radius, it->circle.radius}));
 
 	BUFF_ITER(CollisionObj, &overlapping_smallest_first)
 		dbgcol(WHITE)
-		dbgplanesquare(aabb_center(it->aabb));
+		dbgplanesquare(it->circle.center);
 
 	CollisionInfo info = { 0 };
 	for (int col_iter_i = 0; col_iter_i < 1; col_iter_i++)
 		BUFF_ITER(CollisionObj, &overlapping_smallest_first)
 		{
-			AABB to_depenetrate_from = it->aabb;
+			Circle to_depenetrate_from = it->circle;
 
-			Vec2 resolution_vector = get_penetration_vector(to_depenetrate_from, at_new);
-			at_new.upper_left  = AddV2(at_new.upper_left , resolution_vector);
-			at_new.lower_right = AddV2(at_new.lower_right, resolution_vector);
+			Vec2 resolution_vector = NozV2(SubV2(at_new.center, to_depenetrate_from.center));
+			at_new.center = AddV2(to_depenetrate_from.center, MulV2F(resolution_vector, to_depenetrate_from.radius + at_new.radius));
 			bool happened_with_this_one = true;
 
 			if(happened_with_this_one)
@@ -4508,7 +4537,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 
 	if (p.col_info_out) *p.col_info_out = info;
 
-	Vec2 result_pos = aabb_center(at_new);
+	Vec2 result_pos = at_new.center;
 	return result_pos;
 }
 
