@@ -28,6 +28,12 @@
 #define SOKOL_GLES2
 #endif
 
+#define DRWAV_ASSERT game_assert
+#define SOKOL_ASSERT game_assert
+#define STBDS_ASSERT game_assert
+#define STBI_ASSERT  game_assert
+#define STBTT_assert game_assert
+
 #include "utility.h"
 
 #ifdef WINDOWS
@@ -67,11 +73,14 @@ __declspec(dllexport) uint32_t AmdPowerXpressRequestHighPerformance = 0x00000001
 #pragma warning(pop)
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
-#define STB_DS_IMPLEMENTATION
-#include "stb_ds.h"
 #include "HandmadeMath.h"
 #define DR_WAV_IMPLEMENTATION
 #include "dr_wav.h"
+#define STB_DS_IMPLEMENTATION
+#include "stb_ds.h" // placed last because it includes <assert.h>
+
+#undef assert
+#define assert game_assert
 
 #pragma warning(pop)
 
@@ -179,6 +188,8 @@ void web_arena_set_auto_align(WebArena *arena, size_t align)
 #define STBSP_ADD_TO_FUNCTIONS no_ubsan
 #define MD_FUNCTION no_ubsan
 #include "md.h"
+#undef  MD_Assert
+#define MD_Assert assert
 #include "md.c"
 #pragma warning(pop)
 
