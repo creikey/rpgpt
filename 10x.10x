@@ -18,7 +18,7 @@
 		<RunCommandWorkingDirectory></RunCommandWorkingDirectory>
 		<DebugCommand>remedybg.exe start-debugging</DebugCommand>
 		<ExePathCommand></ExePathCommand>
-		<DebugSln></DebugSln>
+		<DebugSln>main.sln</DebugSln>
 		<UseVisualStudioEnvBat>true</UseVisualStudioEnvBat>
 		<Configurations>
 			<Configuration>Debug</Configuration>

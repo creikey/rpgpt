@@ -1,5 +1,7 @@
 @echo off
 
+pushd %~dp0%
+
 rmdir /S /q build_web
 mkdir build_web
 
@@ -23,8 +25,10 @@ if "%1" == "NO_VALIDATION" (
     echo If you want to turn graphics validation off to make web debug build faster, provide a command line argument called "NO_VALIDATION" to this build script
 )
 
-goto :EOF
+goto :success
 
 :error
 echo Failed to build
+:success
+popd
 exit /B %ERRORLEVEL%

@@ -28,6 +28,12 @@
 #define SOKOL_GLES2
 #endif
 
+#define DRWAV_ASSERT game_assert
+#define SOKOL_ASSERT game_assert
+#define STBDS_ASSERT game_assert
+#define STBI_ASSERT  game_assert
+#define STBTT_assert game_assert
+
 #include "utility.h"
 
 #ifdef WINDOWS
@@ -67,11 +73,14 @@ __declspec(dllexport) uint32_t AmdPowerXpressRequestHighPerformance = 0x00000001
 #pragma warning(pop)
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
-#define STB_DS_IMPLEMENTATION
-#include "stb_ds.h"
 #include "HandmadeMath.h"
 #define DR_WAV_IMPLEMENTATION
 #include "dr_wav.h"
+#define STB_DS_IMPLEMENTATION
+#include "stb_ds.h" // placed last because it includes <assert.h>
+
+#undef assert
+#define assert game_assert
 
 #pragma warning(pop)
 
@@ -179,6 +188,8 @@ void web_arena_set_auto_align(WebArena *arena, size_t align)
 #define STBSP_ADD_TO_FUNCTIONS no_ubsan
 #define MD_FUNCTION no_ubsan
 #include "md.h"
+#undef  MD_Assert
+#define MD_Assert assert
 #include "md.c"
 #pragma warning(pop)
 
@@ -278,6 +289,12 @@ typedef struct AABB
 	Vec2 lower_right;
 } AABB;
 
+typedef struct Circle
+{
+	Vec2 center;
+	float radius;
+} Circle;
+
 typedef struct Quad
 {
 	union
@@ -312,6 +329,7 @@ typedef struct AudioSample
 {
 	float *pcm_data; // allocated by loader, must be freed
 	uint64_t pcm_data_length;
+	unsigned int num_channels;
 } AudioSample;
 
 typedef struct AudioPlayer
@@ -328,18 +346,19 @@ AudioPlayer playing_audio[128] = { 0 };
 
 AudioSample load_wav_audio(const char *path)
 {
-	unsigned int channels;
 	unsigned int sampleRate;
 	AudioSample to_return = { 0 };
-	to_return.pcm_data = drwav_open_file_and_read_pcm_frames_f32(path, &channels, &sampleRate, &to_return.pcm_data_length, 0);
-	assert(channels == 1);
+	to_return.pcm_data = drwav_open_file_and_read_pcm_frames_f32(path, &to_return.num_channels, &sampleRate, &to_return.pcm_data_length, 0);
+	assert(to_return.num_channels == 1 || to_return.num_channels == 2);
 	assert(sampleRate == SAMPLE_RATE);
 	return to_return;
 }
 
-uint64_t cursor_pcm(AudioPlayer *p)
+void cursor_pcm(AudioPlayer *p, uint64_t *integer, float *fractional)
 {
-	return (uint64_t)(p->cursor_time * SAMPLE_RATE);
+	double sample_time = p->cursor_time * SAMPLE_RATE;
+	*integer = (uint64_t)sample_time;
+	*fractional = (float)(sample_time - *integer);
 }
 float float_rand(float min, float max)
 {
@@ -511,6 +530,8 @@ void generation_thread(void* my_request_voidptr)
 		DWORD status_code_size = sizeof(status_code);
 		WinAssertWithErrorCode(WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &status_code, &status_code_size, WINHTTP_NO_HEADER_INDEX));
 		Log("Status code: %lu\n", status_code);
+
+		WinAssertWithErrorCode(status_code != 500);
 
 		DWORD dwSize = 0;
 		MD_String8List received_data_list = {0};
@@ -695,6 +716,23 @@ Vec2 entity_aabb_size(Entity *e)
 	{
 		assert(false);
 		return (Vec2) { 0 };
+	}
+}
+
+float entity_radius(Entity *e)
+{
+	if (e->is_character)
+	{
+		return 0.35f;
+	}
+	else if (e->is_npc)
+	{
+		return 0.5f;
+	}
+	else
+	{
+		assert(false);
+		return 0;
 	}
 }
 
@@ -1222,17 +1260,17 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 	return to_return;
 }
 
-typedef struct CollisionCube
+typedef struct CollisionCylinder
 {
-	struct CollisionCube *next;
-	AABB bounds;
-} CollisionCube;
+	struct CollisionCylinder *next;
+	Circle bounds;
+} CollisionCylinder;
 
 typedef struct
 {
 	Mesh *mesh_list;
 	PlacedMesh *placed_mesh_list;
-	CollisionCube *collision_list;
+	CollisionCylinder *collision_list;
 	PlacedEntity *placed_entity_list;
 } ThreeDeeLevel;
 
@@ -1335,13 +1373,14 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 	ser_MD_u64(&ser, &num_collision_cubes);
 	for(MD_u64 i = 0; i < num_collision_cubes; i++)
 	{
-		CollisionCube *new_cube = MD_PushArray(arena, CollisionCube, 1);
+		CollisionCylinder *new_cylinder = MD_PushArray(arena, CollisionCylinder, 1);
 		Vec2 twodee_pos;
 		Vec2 size;
 		ser_Vec2(&ser, &twodee_pos);
 		ser_Vec2(&ser, &size);
-		new_cube->bounds = aabb_centered(twodee_pos, size);
-		MD_StackPush(out.collision_list, new_cube);
+		new_cylinder->bounds.center = twodee_pos;
+		new_cylinder->bounds.radius = (size.x + size.y) * 0.5f; // @TODO(Phillip): @Temporary
+		MD_StackPush(out.collision_list, new_cylinder);
 	}
 
 	// placed entities
@@ -2878,29 +2917,51 @@ float decode_normalized_float32(PixelData encoded)
 
 void audio_stream_callback(float *buffer, int num_frames, int num_channels)
 {
-	assert(num_channels == 1);
+	assert(num_channels == 2);
 	const int num_samples = num_frames * num_channels;
 	double time_per_sample = 1.0 / (double)SAMPLE_RATE;
-	for (int i = 0; i < num_samples; i++)
+	for (int i = 0; i < num_samples; i += num_channels)
 	{
-		float output_frame = 0.0f;
+		float output_frames[2] = {0};
 		for (int audio_i = 0; audio_i < ARRLEN(playing_audio); audio_i++)
 		{
 			AudioPlayer *it = &playing_audio[audio_i];
 			if (it->sample != 0)
 			{
-				if (cursor_pcm(it) >= it->sample->pcm_data_length)
+				uint64_t pcm_position_int;
+				float pcm_position_frac;
+				cursor_pcm(it, &pcm_position_int, &pcm_position_frac);
+				if (pcm_position_int + 1 >= it->sample->pcm_data_length)
 				{
 					it->sample = 0;
 				}
 				else
 				{
-					output_frame += it->sample->pcm_data[cursor_pcm(it)]*(float)(it->volume + 1.0);
+					const int source_num_channels = it->sample->num_channels;
+					float volume = (float)(it->volume + 1.0);
+					if (source_num_channels == 1) {
+						float src = Lerp(it->sample->pcm_data[pcm_position_int], pcm_position_frac, it->sample->pcm_data[pcm_position_int + 1]) * volume;
+						output_frames[0] += src;
+						output_frames[1] += src;
+					} else if (source_num_channels == 2) {
+						float src[2];
+						src[0] = Lerp(it->sample->pcm_data[pcm_position_int * 2 + 0], pcm_position_frac, it->sample->pcm_data[(pcm_position_int + 1) * 2 + 0]) * volume;
+						src[1] = Lerp(it->sample->pcm_data[pcm_position_int * 2 + 1], pcm_position_frac, it->sample->pcm_data[(pcm_position_int + 1) * 2 + 1]) * volume;
+						output_frames[0] += src[0];
+						output_frames[1] += src[1];
+					} else {
+						assert(false);
+					}
 					it->cursor_time += time_per_sample*(it->pitch + 1.0);
 				}
 			}
 		}
-		buffer[i] = output_frame;
+		if (num_channels == 1) {
+			buffer[i] = (output_frames[0] + output_frames[1]) * 0.5f;
+		} else if (num_channels == 2) {
+			buffer[i + 0] = output_frames[0];
+			buffer[i + 1] = output_frames[1];
+		}
 	}
 }
 
@@ -3149,6 +3210,7 @@ void init(void)
 	saudio_setup(&(saudio_desc) {
 			.stream_cb = audio_stream_callback,
 			.logger.func = slog_func,
+			.num_channels = 2,
 			});
 
 	load_assets();
@@ -3613,6 +3675,13 @@ bool overlapping(AABB a, AABB b)
 	return true; // both segments overlapping
 }
 
+bool overlapping_circle(Circle a, Circle b)
+{
+	Vec2 disp = SubV2(b.center, a.center);
+	float dist = LenV2(disp);
+	return (dist < a.radius + b.radius);
+}
+
 bool has_point(AABB aabb, Vec2 point)
 {
 	return
@@ -3863,7 +3932,7 @@ void colorquad(Quad q, Color col)
 }
 
 
-Vec2 NormV2_or_zero(Vec2 v)
+Vec2 NozV2(Vec2 v)
 {
 	if(v.x == 0.0f && v.y == 0.0f)
 	{
@@ -3877,7 +3946,7 @@ Vec2 NormV2_or_zero(Vec2 v)
 
 Quad line_quad(Vec2 from, Vec2 to, float line_width)
 {
-	Vec2 normal = rotate_counter_clockwise(NormV2_or_zero(SubV2(to, from)));
+	Vec2 normal = rotate_counter_clockwise(NozV2(SubV2(to, from)));
 
 	return (Quad){
 		.points = {
@@ -3926,7 +3995,7 @@ void dbgbigsquare(Vec2 at)
 {
 #ifdef DEVTOOLS
 	if (!show_devtools) return;
-	colorquad(quad_centered(at, V2(20.0, 20.0)), BLUE);
+	colorquad(quad_centered(at, V2(20.0, 20.0)), debug_color);
 #else
 	(void)at;
 #endif
@@ -4332,21 +4401,20 @@ Vec2 get_penetration_vector(AABB stable, AABB dynamic)
 // returns new pos after moving and sliding against collidable things
 Vec2 move_and_slide(MoveSlideParams p)
 {
-	Vec2 collision_aabb_size = entity_aabb_size(p.from);
+	float collision_radius = entity_radius(p.from);
 	Vec2 new_pos = AddV2(p.position, p.movement_this_frame);
 
-	assert(collision_aabb_size.x > 0.0f);
-	assert(collision_aabb_size.y > 0.0f);
-	AABB at_new = aabb_centered(new_pos, collision_aabb_size);
+	assert(collision_radius > 0.0f);
+	Circle at_new = {new_pos, collision_radius};
 	typedef struct
 	{
-		AABB aabb;
+		Circle circle;
 		Entity *e; // required
 	} CollisionObj;
 	BUFF(CollisionObj, 256) to_check = { 0 };
 
 	// add world boxes
-	for(CollisionCube *cur = level_threedee.collision_list; cur; cur = cur->next)
+	for(CollisionCylinder *cur = level_threedee.collision_list; cur; cur = cur->next)
 	{
 		BUFF_APPEND(&to_check, ((CollisionObj){cur->bounds, gs.world_entity}));
 	}
@@ -4358,7 +4426,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 		{
 			if (it != p.from && !(it->is_npc && it->dead) && !it->is_world)
 			{
-				BUFF_APPEND(&to_check, ((CollisionObj){aabb_centered(it->pos, entity_aabb_size(it)), it}));
+				BUFF_APPEND(&to_check, ((CollisionObj){.circle.center = it->pos, .circle.radius = entity_radius(it), it}));
 			}
 		}
 	}
@@ -4372,7 +4440,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 
 	BUFF_ITER(CollisionObj, &to_check)
 	{
-		if (overlapping(at_new, it->aabb))
+		if (overlapping_circle(at_new, it->circle))
 		{
 			BUFF_APPEND(&actually_overlapping, *it);
 		}
@@ -4380,14 +4448,14 @@ Vec2 move_and_slide(MoveSlideParams p)
 
 
 	float smallest_distance = FLT_MAX;
-	int smallest_aabb_index = 0;
+	int smallest_circle_index = 0;
 	int i = 0;
 	BUFF_ITER(CollisionObj, &actually_overlapping)
 	{
-		float cur_dist = LenV2(SubV2(aabb_center(at_new), aabb_center(it->aabb)));
+		float cur_dist = LenV2(SubV2(at_new.center, it->circle.center));
 		if (cur_dist < smallest_distance) {
 			smallest_distance = cur_dist;
-			smallest_aabb_index = i;
+			smallest_circle_index = i;
 		}
 		i++;
 	}
@@ -4396,11 +4464,11 @@ Vec2 move_and_slide(MoveSlideParams p)
 	OverlapBuff overlapping_smallest_first = { 0 };
 	if (actually_overlapping.cur_index > 0)
 	{
-		BUFF_APPEND(&overlapping_smallest_first, actually_overlapping.data[smallest_aabb_index]);
+		BUFF_APPEND(&overlapping_smallest_first, actually_overlapping.data[smallest_circle_index]);
 	}
 	BUFF_ITER_I(CollisionObj, &actually_overlapping, i)
 	{
-		if (i == smallest_aabb_index)
+		if (i == smallest_circle_index)
 		{
 		}
 		else
@@ -4414,7 +4482,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 	{
 		dbgcol(GREEN)
 		{
-			dbgplanerect(it->aabb);
+			dbgplanerect(aabb_centered(it->circle.center, (Vec2){it->circle.radius, it->circle.radius}));
 		}
 	}
 
@@ -4423,21 +4491,20 @@ Vec2 move_and_slide(MoveSlideParams p)
 
 	BUFF_ITER(CollisionObj, &actually_overlapping)
 		dbgcol(WHITE)
-		dbgplanerect(it->aabb);
+		dbgplanerect(aabb_centered(it->circle.center, (Vec2){it->circle.radius, it->circle.radius}));
 
 	BUFF_ITER(CollisionObj, &overlapping_smallest_first)
 		dbgcol(WHITE)
-		dbgplanesquare(aabb_center(it->aabb));
+		dbgplanesquare(it->circle.center);
 
 	CollisionInfo info = { 0 };
 	for (int col_iter_i = 0; col_iter_i < 1; col_iter_i++)
 		BUFF_ITER(CollisionObj, &overlapping_smallest_first)
 		{
-			AABB to_depenetrate_from = it->aabb;
+			Circle to_depenetrate_from = it->circle;
 
-			Vec2 resolution_vector = get_penetration_vector(to_depenetrate_from, at_new);
-			at_new.upper_left  = AddV2(at_new.upper_left , resolution_vector);
-			at_new.lower_right = AddV2(at_new.lower_right, resolution_vector);
+			Vec2 resolution_vector = NozV2(SubV2(at_new.center, to_depenetrate_from.center));
+			at_new.center = AddV2(to_depenetrate_from.center, MulV2F(resolution_vector, to_depenetrate_from.radius + at_new.radius));
 			bool happened_with_this_one = true;
 
 			if(happened_with_this_one)
@@ -4470,7 +4537,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 
 	if (p.col_info_out) *p.col_info_out = info;
 
-	Vec2 result_pos = aabb_center(at_new);
+	Vec2 result_pos = at_new.center;
 	return result_pos;
 }
 
@@ -5875,7 +5942,7 @@ void frame(void)
 						if (it->is_npc || it->is_character)
 						{
 							if(LenV2(it->last_moved) > 0.0f && !it->killed)
-								it->rotation = lerp_angle(it->rotation, dt * 8.0f, AngleOfV2(it->last_moved));
+								it->rotation = lerp_angle(it->rotation, dt * (it->quick_turning_timer > 0 ? 12.0f : 8.0f), AngleOfV2(it->last_moved));
 						}
 
 						if (it->is_npc)
@@ -6637,7 +6704,22 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 					{
 						gs.player->last_moved = NormV2(movement);
 						Vec2 target_vel = MulV2F(movement, pixels_per_meter * speed);
-						gs.player->vel = LerpV2(gs.player->vel, dt * 15.0f, target_vel);
+						float player_speed = LenV2(gs.player->vel);
+						float target_speed = LenV2(target_vel);
+						bool quick_turn = (player_speed < target_speed / 2) || DotV2(gs.player->vel, target_vel) < -0.707f;
+						gs.player->quick_turning_timer -= dt;
+						if (quick_turn) {
+							gs.player->quick_turning_timer = 0.125f;
+						}
+						if (quick_turn) {
+							gs.player->vel = target_vel;
+						} else { // framerate-independent smoothly transition towards target (functions as friction when target is 0)
+							gs.player->vel = SubV2(gs.player->vel, target_vel);
+							gs.player->vel = MulV2F(gs.player->vel, powf(1e-8f, dt));
+							gs.player->vel = AddV2(gs.player->vel, target_vel);
+						}
+						// printf("%f%s\n", LenV2(gs.player->vel), gs.player->quick_turning_timer > 0 ? " QUICK TURN" : "");
+
 						gs.player->pos = move_and_slide((MoveSlideParams) { gs.player, gs.player->pos, MulV2F(gs.player->vel, dt) });
 
 						bool should_append = false;
@@ -6908,7 +6990,27 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 				Vec2 pos = V2(0.0, screen_size().Y);
 				int num_entities = 0;
 				ENTITIES_ITER(gs.entities) num_entities++;
-				MD_String8 stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nGameplay processing: %.1f ms\nEntities: %d\nDraw calls: %d\nDrawn Vertices: %d\nProfiling: %s\nNumber gameplay processing loops: %d\nFlyecam: %s\nPlayer position: %f %f\n", dt*1000.0, last_frame_processing_time*1000.0, last_frame_gameplay_processing_time*1000.0, num_entities, num_draw_calls, num_vertices, profiling ? "yes" : "no", num_timestep_loops, flycam ? "yes" : "no", v2varg(gs.player->pos));
+				MD_String8 stats =
+					tprint("Frametime: %.1f ms\n"
+					       "Processing: %.1f ms\n"
+					       "Gameplay processing: %.1f ms\n"
+					       "Entities: %d\n"
+					       "Draw calls: %d\n"
+					       "Drawn Vertices: %d\n"
+					       "Profiling: %s\n"
+					       "Number gameplay processing loops: %d\n"
+					       "Flycam: %s\n"
+					       "Player position: %f %f\n",
+					       dt*1000.0,
+					       last_frame_processing_time*1000.0,
+					       last_frame_gameplay_processing_time*1000.0,
+					       num_entities,
+					       num_draw_calls,
+					       num_vertices,
+					       profiling ? "yes" : "no",
+					       num_timestep_loops,
+					       flycam ? "yes" : "no",
+					       v2varg(gs.player->pos));
 				AABB bounds = draw_text((TextParams) { true, stats, pos, BLACK, 1.0f });
 				pos.Y -= bounds.upper_left.Y - screen_size().Y;
 				bounds = draw_text((TextParams) { true, stats, pos, BLACK, 1.0f });
