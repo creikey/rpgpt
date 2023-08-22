@@ -19,7 +19,7 @@ import (
  "github.com/stripe/stripe-go/v74/checkout/session"
 
  "gorm.io/gorm"
- "gorm.io/driver/sqlite"
+ "github.com/glebarez/sqlite"
 
  "github.com/creikey/rpgpt/server/codes"
 )
