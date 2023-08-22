@@ -2743,7 +2743,7 @@ void create_screenspace_gfx_state()
 	state.threedee_pass_image = sg_make_image(&desc);
 
 	desc.label = "threedee-pass-depth-render-target";
-	desc.pixel_format = SG_PIXELFORMAT_DEPTH;
+	desc.pixel_format = sapp_depth_format();
 	state.threedee_pass_depth_image = sg_make_image(&desc);
 
 	state.threedee_pass = sg_make_pass(&(sg_pass_desc){
@@ -3307,7 +3307,7 @@ void init(void)
 					   [ATTR_threedee_vs_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
 				   }},
 		.depth = {
-			.pixel_format = SG_PIXELFORMAT_DEPTH,
+			.pixel_format = sapp_depth_format(),
 			.compare = SG_COMPAREFUNC_LESS_EQUAL,
 			.write_enabled = true,
 		},
@@ -3332,7 +3332,7 @@ void init(void)
 			{
 			.shader = shd,
 			.depth = {
-				.pixel_format = SG_PIXELFORMAT_DEPTH,
+				.pixel_format = sapp_depth_format(),
 				.compare = SG_COMPAREFUNC_LESS_EQUAL,
 				.write_enabled = true
 			},

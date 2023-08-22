@@ -11930,7 +11930,11 @@ SOKOL_API_IMPL int sapp_color_format(void) {
 }
 
 SOKOL_API_IMPL int sapp_depth_format(void) {
+   #ifdef  SOKOL_GLES2
+    return _SAPP_PIXELFORMAT_DEPTH;
+   #else
     return _SAPP_PIXELFORMAT_DEPTH_STENCIL;
+   #endif
 }
 
 SOKOL_API_IMPL int sapp_sample_count(void) {
