@@ -1,5 +1,7 @@
 @echo off
 
+pushd %~dp0%
+
 rmdir /S /q build_web_release
 mkdir build_web_release
 
@@ -10,8 +12,10 @@ set OUTPUT_FOLDER=build_web_release
 
 call build_web_common.bat || goto :error
 
-goto :EOF
+goto :success
 
 :error
 echo Failed to build
+:success
+popd
 exit /B %ERRORLEVEL%
