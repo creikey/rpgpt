@@ -3901,7 +3901,7 @@ void colorquad(Quad q, Color col)
 }
 
 
-Vec2 NormV2_or_zero(Vec2 v)
+Vec2 NozV2(Vec2 v)
 {
 	if(v.x == 0.0f && v.y == 0.0f)
 	{
@@ -3915,7 +3915,7 @@ Vec2 NormV2_or_zero(Vec2 v)
 
 Quad line_quad(Vec2 from, Vec2 to, float line_width)
 {
-	Vec2 normal = rotate_counter_clockwise(NormV2_or_zero(SubV2(to, from)));
+	Vec2 normal = rotate_counter_clockwise(NozV2(SubV2(to, from)));
 
 	return (Quad){
 		.points = {
@@ -3964,7 +3964,7 @@ void dbgbigsquare(Vec2 at)
 {
 #ifdef DEVTOOLS
 	if (!show_devtools) return;
-	colorquad(quad_centered(at, V2(20.0, 20.0)), BLUE);
+	colorquad(quad_centered(at, V2(20.0, 20.0)), debug_color);
 #else
 	(void)at;
 #endif
@@ -5913,7 +5913,7 @@ void frame(void)
 						if (it->is_npc || it->is_character)
 						{
 							if(LenV2(it->last_moved) > 0.0f && !it->killed)
-								it->rotation = lerp_angle(it->rotation, dt * 8.0f, AngleOfV2(it->last_moved));
+								it->rotation = lerp_angle(it->rotation, dt * (it->quick_turning_timer > 0 ? 12.0f : 8.0f), AngleOfV2(it->last_moved));
 						}
 
 						if (it->is_npc)
@@ -6675,7 +6675,22 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 					{
 						gs.player->last_moved = NormV2(movement);
 						Vec2 target_vel = MulV2F(movement, pixels_per_meter * speed);
-						gs.player->vel = LerpV2(gs.player->vel, dt * 15.0f, target_vel);
+						float player_speed = LenV2(gs.player->vel);
+						float target_speed = LenV2(target_vel);
+						bool quick_turn = (player_speed < target_speed / 2) || DotV2(gs.player->vel, target_vel) < -0.707f;
+						gs.player->quick_turning_timer -= dt;
+						if (quick_turn) {
+							gs.player->quick_turning_timer = 0.125f;
+						}
+						if (quick_turn) {
+							gs.player->vel = target_vel;
+						} else { // framerate-independent smoothly transition towards target (functions as friction when target is 0)
+							gs.player->vel = SubV2(gs.player->vel, target_vel);
+							gs.player->vel = MulV2F(gs.player->vel, powf(1e-8f, dt));
+							gs.player->vel = AddV2(gs.player->vel, target_vel);
+						}
+						// printf("%f%s\n", LenV2(gs.player->vel), gs.player->quick_turning_timer > 0 ? " QUICK TURN" : "");
+
 						gs.player->pos = move_and_slide((MoveSlideParams) { gs.player, gs.player->pos, MulV2F(gs.player->vel, dt) });
 
 						bool should_append = false;
@@ -6946,7 +6961,27 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 				Vec2 pos = V2(0.0, screen_size().Y);
 				int num_entities = 0;
 				ENTITIES_ITER(gs.entities) num_entities++;
-				MD_String8 stats = tprint("Frametime: %.1f ms\nProcessing: %.1f ms\nGameplay processing: %.1f ms\nEntities: %d\nDraw calls: %d\nDrawn Vertices: %d\nProfiling: %s\nNumber gameplay processing loops: %d\nFlyecam: %s\nPlayer position: %f %f\n", dt*1000.0, last_frame_processing_time*1000.0, last_frame_gameplay_processing_time*1000.0, num_entities, num_draw_calls, num_vertices, profiling ? "yes" : "no", num_timestep_loops, flycam ? "yes" : "no", v2varg(gs.player->pos));
+				MD_String8 stats =
+					tprint("Frametime: %.1f ms\n"
+					       "Processing: %.1f ms\n"
+					       "Gameplay processing: %.1f ms\n"
+					       "Entities: %d\n"
+					       "Draw calls: %d\n"
+					       "Drawn Vertices: %d\n"
+					       "Profiling: %s\n"
+					       "Number gameplay processing loops: %d\n"
+					       "Flycam: %s\n"
+					       "Player position: %f %f\n",
+					       dt*1000.0,
+					       last_frame_processing_time*1000.0,
+					       last_frame_gameplay_processing_time*1000.0,
+					       num_entities,
+					       num_draw_calls,
+					       num_vertices,
+					       profiling ? "yes" : "no",
+					       num_timestep_loops,
+					       flycam ? "yes" : "no",
+					       v2varg(gs.player->pos));
 				AABB bounds = draw_text((TextParams) { true, stats, pos, BLACK, 1.0f });
 				pos.Y -= bounds.upper_left.Y - screen_size().Y;
 				bounds = draw_text((TextParams) { true, stats, pos, BLACK, 1.0f });

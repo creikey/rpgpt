@@ -219,6 +219,7 @@ typedef struct Entity
 	// fields for all gs.entities
 	Vec2 pos;
 	Vec2 last_moved;
+	float quick_turning_timer;
 	float rotation;
 	Vec2 vel; // only used sometimes, like in old man and bullet
 	float damage; // at 1.0, dead! zero initialized
