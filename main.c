@@ -7233,9 +7233,31 @@ void event(const sapp_event *e)
 	}
 #endif
 
-	if (e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_code == SAPP_KEYCODE_F11)
+	if (e->type == SAPP_EVENTTYPE_KEY_DOWN &&
+	    (e->key_code == SAPP_KEYCODE_F11 ||
+	     e->key_code == SAPP_KEYCODE_ENTER && ((e->modifiers & SAPP_MODIFIER_ALT) || (e->modifiers & SAPP_MODIFIER_SHIFT))))
 	{
+#ifdef DESKTOP
 		sapp_toggle_fullscreen();
+#else
+		EM_ASM({
+			var elem = document.documentElement;
+			if (document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement)
+			{
+				if (document.exitFullscreen) document.exitFullscreen();
+				else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+				else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
+				else if (document.msExitFullscreen) document.msExitFullscreen();
+			}
+			else
+			{
+				if (elem.requestFullscreen) elem.requestFullscreen();
+				else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
+				else if (elem.mozRequestFullScreen) elem.mozRequestFullScreen();
+				else if (elem.msRequestFullscreen) elem.msRequestFullscreen();
+			}
+		});
+#endif
 	}
 
 #ifdef DEVTOOLS
