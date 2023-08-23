@@ -53,9 +53,6 @@ __declspec(dllexport) uint32_t AmdPowerXpressRequestHighPerformance = 0x00000001
 
 #endif
 
-#define STRINGIZE(x) STRINGIZE2(x)
-#define STRINGIZE2(x) #x
-
 #include "buff.h"
 #include "sokol_app.h"
 #pragma warning(push)
