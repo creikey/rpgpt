@@ -1,9 +1,9 @@
-@echo on
+@echo off
 
-echo Running codegen...
+@REM echo Running codegen...
 
 if exist gen\ (
-  echo "Codegen folder already exists, not deleting because that messes with vscode intellisense..."
+  @REM echo "Codegen folder already exists, not deleting because that messes with vscode intellisense..."
 ) else (
   mkdir gen
 )
