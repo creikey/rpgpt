@@ -43,8 +43,6 @@
 
 #pragma warning(push, 3)
 #include <Windows.h>
-#include <processthreadsapi.h>
-#include <dbghelp.h>
 #include <stdint.h>
 
 // https://developer.download.nvidia.com/devzone/devcenter/gamegraphics/files/OptimusRenderingPolicies.pdf
@@ -474,6 +472,7 @@ LPCWSTR windows_string(MD_String8 s)
 #ifdef DESKTOP
 #ifdef WINDOWS
 #pragma warning(push, 3)
+#pragma comment(lib, "WinHttp")
 #include <WinHttp.h>
 #include <process.h>
 #pragma warning(pop)
@@ -3751,9 +3750,11 @@ typedef enum
 typedef BUFF(char, 200) StacktraceElem;
 typedef BUFF(StacktraceElem, 16) StacktraceInfo;
 
+#if 0 // #ifdef WINDOWS
+#include <dbghelp.h>
+#pragma comment(lib, "DbgHelp")
 StacktraceInfo get_stacktrace()
 {
-#ifdef WINDOWS
 	StacktraceInfo to_return = {0};
 	void *stack[ARRLEN(to_return.data)] = {0};
 	int captured = CaptureStackBackTrace(0, ARRLEN(to_return.data), stack, 0);
@@ -3787,10 +3788,13 @@ StacktraceInfo get_stacktrace()
 		free(symbol);
 	}
 	return to_return;
-#else
-	return (StacktraceInfo){0};
-#endif
 }
+#else
+StacktraceInfo get_stacktrace()
+{
+	return (StacktraceInfo){0};
+}
+#endif
 
 typedef struct DrawParams
 {
