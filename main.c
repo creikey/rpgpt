@@ -7485,7 +7485,7 @@ sapp_desc sokol_main(int argc, char* argv[])
 			.width = 800,
 			.height = 600,
 			//.gl_force_gles2 = true, not sure why this was here in example, look into
-			.window_title = "RPGPT",
+			.window_title = "Dante's Cowboy",
 			.win32_console_attach = true,
 			.win32_console_create = true,
 			.icon.sokol_default = true,
