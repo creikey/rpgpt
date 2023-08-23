@@ -1,4 +1,12 @@
-call run_codegen.bat || goto :error
+setlocal enableDelayedExpansion
+set "do_blender_export=0"
+set "do_codegen=0"
+for %%A in (%*) do (
+    if "%%~A"=="blender_export" ( set "do_blender_export=1" )
+    if "%%~A"=="codegen"        ( set "do_codegen=1" )
+)
+if "%do_blender_export%"=="1" ( call blender_export.bat || goto :error )
+if "%do_codegen%"=="1"        ( call run_codegen.bat || goto :error )
 
 copy marketing_page\favicon.ico %OUTPUT_FOLDER%\favicon.ico
 @REM copy main.c %OUTPUT_FOLDER%\main.c || goto :error
