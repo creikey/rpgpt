@@ -381,8 +381,10 @@ uniform twodee_fs_params {
     vec2 clip_lr;
 
     float alpha_clip_threshold;
+	float time;
 
 		vec2 tex_size;
+		vec2 screen_size;
 };
 
 in vec2 uv;
@@ -414,8 +416,10 @@ uniform twodee_fs_params {
     vec2 clip_lr;
 
     float alpha_clip_threshold;
+	float time;
 
 		vec2 tex_size;
+		vec2 screen_size;
 };
 
 in vec2 uv;
@@ -470,8 +474,10 @@ uniform twodee_fs_params {
     vec2 clip_lr;
 
     float alpha_clip_threshold;
+	float time;
 
 		vec2 tex_size;
+		vec2 screen_size;
 };
 
 in vec2 uv;
@@ -495,6 +501,24 @@ void main() {
 		vec4 col = texture(sampler2D(twodee_tex, fs_twodee_color_correction_smp), uv);
 
 		col.rgb = acesFilm(col.rgb);
+
+		// Film grain
+		vec2 uv = gl_FragCoord.xy / screen_size.xy;
+		float x = uv.x * uv.y * time * 24 + 100.0;
+		vec3 noise = vec3(mod((mod(x, 13.0) + 1.0) * (mod(x, 123.0) + 1.0), 0.01)) * 100.0;
+		col.rgb += (noise - 0.5) * 0.05;
+		col.rgb *= 0.95;
+		// Hard-clip contrast levels
+		float min = 11; float max = 204;
+		col.rgb -= min/255;
+		col.rgb *= 255/(max-min);
+		// Vignette
+		col.rgb *= clamp(1.5 - length(gl_FragCoord.xy / screen_size.xy - vec2(0.5)), 0, 1);
+		// Cross-process
+		float cross_process_strength = 0.5;
+		col.rg *= (col.rg * ((-cross_process_strength) * col.rg + (-1.5 * (-cross_process_strength))) + (0.5 * (-cross_process_strength) + 1));
+		col.b  *= (col.b  * ((+cross_process_strength) * col.b  + (-1.5 * (+cross_process_strength))) + (0.5 * (+cross_process_strength) + 1));
+		col.rgb = clamp(col.rgb, 0, 1);
 
 		frag_color = col;
 }

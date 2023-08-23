@@ -3758,6 +3758,7 @@ void flush_quad_batch()
 	state.bind.fs.samplers[SLOT_threedee_fs_twodee_smp] = state.sampler_linear; // NOTE that this might get FUCKED if a custom pipeline is provided with more/less sampler slots!!!
 	sg_apply_bindings(&state.bind);
 	cur_batch_params.tex_size = img_size(cur_batch_image);
+	cur_batch_params.screen_size = screen_size();
 	sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_threedee_twodee_fs_params, &SG_RANGE(cur_batch_params));
 	cur_batch_params.tex_size = V2(0,0); // unsure if setting the tex_size to something nonzero fucks up the batching so I'm just resetting it back here
 	assert(cur_batch_data_index % FLOATS_PER_VERTEX == 0);
@@ -7100,6 +7101,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 						Vec2 *points = d.quad.points;
 						threedee_twodee_fs_params_t params = {
 							.tint = d.tint,
+							.time = (float)fmod(elapsed_time, 100),
 						};
 						params.alpha_clip_threshold = d.alpha_clip_threshold;
 						if (d.do_clipping)
