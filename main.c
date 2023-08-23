@@ -21,11 +21,13 @@
 #define DESKTOP
 #define WINDOWS
 #define SOKOL_GLCORE33
+#define SAMPLE_COUNT 4
 #endif
 
 #if defined(__EMSCRIPTEN__)
 #define WEB
 #define SOKOL_GLES2
+#define SAMPLE_COUNT 1 // bumping this back to 4 is troublesome for web, because there's a mismatch in sample counts. Perhaps we must upgrade to gles3, in doing so, we should upgrade to the newest sokol gfx.
 #endif
 
 #define DRWAV_ASSERT game_assert
@@ -2708,7 +2710,7 @@ void create_screenspace_gfx_state()
 			.depth = {
 			0
 			},
-			.sample_count = 1,
+			.sample_count = SAMPLE_COUNT,
 			.layout = {
 			.attrs =
 			{
@@ -2738,7 +2740,7 @@ void create_screenspace_gfx_state()
 			.depth = {
 				.pixel_format = SG_PIXELFORMAT_NONE,
 			},
-			.sample_count = 1,
+			.sample_count = SAMPLE_COUNT,
 			.layout = {
 			.attrs =
 			{
@@ -2770,7 +2772,7 @@ void create_screenspace_gfx_state()
 		.wrap_u = SG_WRAP_CLAMP_TO_BORDER,
 		.wrap_v = SG_WRAP_CLAMP_TO_BORDER,
 		.border_color = SG_BORDERCOLOR_OPAQUE_WHITE,
-		.sample_count = 1,
+		.sample_count = SAMPLE_COUNT,
 		.label = "outline-pass-render-target",
 	};
 	state.outline_pass_image = sg_make_image(&desc);
@@ -2782,7 +2784,7 @@ void create_screenspace_gfx_state()
 			.label = "outline-pass",
 	});
 
-	desc.sample_count = 1;
+	desc.sample_count = SAMPLE_COUNT;
 	
 	desc.label = "threedee-pass-render-target";
 	state.threedee_pass_image = sg_make_image(&desc);
@@ -4843,7 +4845,7 @@ Shadow_State init_shadow_state() {
 		.wrap_u = SG_WRAP_CLAMP_TO_BORDER,
 		.wrap_v = SG_WRAP_CLAMP_TO_BORDER,
 		.border_color = SG_BORDERCOLOR_OPAQUE_WHITE,
-		.sample_count = 1,
+		.sample_count = SAMPLE_COUNT,
 		.label = "shadow-map-color-image"
 	};
 	shadows.color_img = sg_make_image(&img_desc);
@@ -4867,7 +4869,7 @@ Shadow_State init_shadow_state() {
 			.shader = sg_make_shader(threedee_mesh_shadow_mapping_shader_desc(sg_query_backend())),
 			// Cull front faces in the shadow map pass
 			// .cull_mode = SG_CULLMODE_BACK,
-			.sample_count = 1,
+			.sample_count = SAMPLE_COUNT,
 			.depth = {
 				.pixel_format = SG_PIXELFORMAT_DEPTH,
 				.compare = SG_COMPAREFUNC_LESS_EQUAL,
@@ -7453,7 +7455,7 @@ sapp_desc sokol_main(int argc, char* argv[])
 			.frame_cb = frame,
 			.cleanup_cb = cleanup,
 			.event_cb = event,
-			.sample_count = 1, // bumping this back to 4 is troublesome for web, because there's a mismatch in sample counts. Perhaps we must upgrade to gles3, in doing so, we should upgrade to the newest sokol gfx.
+			.sample_count = SAMPLE_COUNT,
 			.width = 800,
 			.height = 600,
 			//.gl_force_gles2 = true, not sure why this was here in example, look into
