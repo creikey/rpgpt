@@ -1,4 +1,4 @@
-# [Dante's Cowboy - Wishlist now on Steam!](https://github.com/pmttavara/ph2/releases/download/latest/ph2ed_proto.zip)
+# [Dante's Cowboy - Wishlist now on Steam!](https://store.steampowered.com/app/2501370/Dantes_Cowboy)
 A fantasy western RPG with an immersive and natural dynamic dialogue system powered by GPT.
 
 ![Western Frontier](https://upload.wikimedia.org/wikipedia/commons/thumb/3/32/Distribution_of_US_Rural_Population_during_1900.pdf/page1-1280px-Distribution_of_US_Rural_Population_during_1900.pdf.jpg)
