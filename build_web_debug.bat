@@ -29,6 +29,8 @@ goto :success
 
 :error
 echo Failed to build
+
 :success
+set "returncode=%ERRORLEVEL%"
 popd
-exit /B %ERRORLEVEL%
+exit /B %returncode%

@@ -5,6 +5,7 @@ pushd %~dp0%
 rmdir /S /q build_web_release
 mkdir build_web_release
 
+call blender_export.bat || goto :error
 call run_codegen.bat || goto :error
 
 set FLAGS=-O0 -DNDEBUG
@@ -16,6 +17,8 @@ goto :success
 
 :error
 echo Failed to build
+
 :success
+set "returncode=%ERRORLEVEL%"
 popd
-exit /B %ERRORLEVEL%
+exit /B %returncode%
