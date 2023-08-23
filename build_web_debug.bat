@@ -10,7 +10,7 @@ set FLAGS=-O0 -g -DDEVTOOLS
 set OUTPUT_FOLDER=build_web
 
 
-call build_web_common.bat || goto :error
+call build_web_common.bat %* || goto :error
 
 @echo off
 
