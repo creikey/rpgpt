@@ -60,6 +60,15 @@ __declspec(dllexport) uint32_t AmdPowerXpressRequestHighPerformance = 0x00000001
 #include "sokol_app.h"
 #pragma warning(push)
 #pragma warning(disable : 4191) // unsafe function calling
+#ifdef WEB
+# ifndef GL_EXT_PROTOTYPES
+# define GL_GLEXT_PROTOTYPES
+# endif
+# include <GLES2/gl2.h>
+# include <GLES2/gl2ext.h>
+# undef glGetError
+# define glGetError() (GL_NO_ERROR)
+#endif
 #include "sokol_gfx.h"
 #pragma warning(pop)
 #include "sokol_time.h"
