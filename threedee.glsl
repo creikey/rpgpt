@@ -295,11 +295,6 @@ void main() {
 
 	//col.rgb = vec3(desertness, 0, 0);
 
-	if(col.a < 0.1 && !alpha_blend)
-	{
-		discard;
-	}
-	else
 	{
 
 		vec3 normal = normalize(cross(dFdx(world_space_frag_pos.xyz), dFdy(world_space_frag_pos.xyz)));
@@ -310,16 +305,13 @@ void main() {
 		float lighting_factor = shadow_factor * n_dot_l;
 		lighting_factor = lighting_factor * 0.5 + 0.5;
 
-		if(alpha_blend)
+		if (!alpha_blend)
 		{
-			frag_color = vec4(col.rgb*lighting_factor, col.a);
+			float _Cutoff = 0.75; // Change this! it is tuned for existing bushes and TreeLayer leaves 2023-08-23
+			col.a = (col.a - _Cutoff) / max(fwidth(col.a), 0.0001) + 0.5;
 		}
-		else
-		{
-			frag_color = vec4(col.rgb*lighting_factor, 1.0);
-		}
-		//frag_color = vec4(col.rgb, 1.0);
 	
+		frag_color = vec4(col.rgb*lighting_factor, col.a);
 	}
 }
 @end
@@ -385,6 +377,8 @@ uniform twodee_fs_params {
 
 		vec2 tex_size;
 		vec2 screen_size;
+
+		float flip_and_swap_rgb;
 };
 
 in vec2 uv;
@@ -395,7 +389,10 @@ out vec4 frag_color;
 void main() {
     // clip space is from [-1,1] [left, right]of screen on X, and [-1,1] [bottom, top] of screen on Y
     if(pos.x < clip_ul.x || pos.x > clip_lr.x || pos.y < clip_lr.y || pos.y > clip_ul.y) discard;
-	frag_color = texture(sampler2D(twodee_tex, fs_twodee_smp), uv) * tint;
+	vec2 real_uv = uv;
+	if (flip_and_swap_rgb > 0) real_uv.y = 1 - real_uv.y;
+	frag_color = texture(sampler2D(twodee_tex, fs_twodee_smp), real_uv) * tint;
+	if (flip_and_swap_rgb > 0) frag_color.rgb = frag_color.bgr;
     if(frag_color.a <= alpha_clip_threshold)
     {
      discard;
@@ -420,6 +417,8 @@ uniform twodee_fs_params {
 
 		vec2 tex_size;
 		vec2 screen_size;
+
+		float flip_and_swap_rgb;
 };
 
 in vec2 uv;
@@ -430,13 +429,16 @@ out vec4 frag_color;
 void main() {
     // clip space is from [-1,1] [left, right]of screen on X, and [-1,1] [bottom, top] of screen on Y
     if(pos.x < clip_ul.x || pos.x > clip_lr.x || pos.y < clip_lr.y || pos.y > clip_ul.y) discard;
+	
+	vec2 real_uv = uv;
+	if (flip_and_swap_rgb > 0) real_uv.y = 1 - real_uv.y;
 
 		// 5-tap tent filter: centre, left, right, up, down
-		float c = texture(sampler2D(twodee_tex, fs_twodee_outline_smp), uv).a;
-		float l = texture(sampler2D(twodee_tex, fs_twodee_outline_smp), uv + vec2(-1, 0)/tex_size).a;
-		float r = texture(sampler2D(twodee_tex, fs_twodee_outline_smp), uv + vec2(+1, 0)/tex_size).a;
-		float u = texture(sampler2D(twodee_tex, fs_twodee_outline_smp), uv + vec2(0, +1)/tex_size).a;
-		float d = texture(sampler2D(twodee_tex, fs_twodee_outline_smp), uv + vec2(0, -1)/tex_size).a;
+		float c = texture(sampler2D(twodee_tex, fs_twodee_outline_smp), real_uv).a;
+		float l = texture(sampler2D(twodee_tex, fs_twodee_outline_smp), real_uv + vec2(-1, 0)/tex_size).a;
+		float r = texture(sampler2D(twodee_tex, fs_twodee_outline_smp), real_uv + vec2(+1, 0)/tex_size).a;
+		float u = texture(sampler2D(twodee_tex, fs_twodee_outline_smp), real_uv + vec2(0, +1)/tex_size).a;
+		float d = texture(sampler2D(twodee_tex, fs_twodee_outline_smp), real_uv + vec2(0, -1)/tex_size).a;
 
 		// if centre pixel is ~1, it is inside a shape.
 		// if centre pixel is ~0, it is outside a shape.
@@ -478,6 +480,8 @@ uniform twodee_fs_params {
 
 		vec2 tex_size;
 		vec2 screen_size;
+
+		float flip_and_swap_rgb;
 };
 
 in vec2 uv;
@@ -498,13 +502,17 @@ void main() {
     // clip space is from [-1,1] [left, right]of screen on X, and [-1,1] [bottom, top] of screen on Y
     if(pos.x < clip_ul.x || pos.x > clip_lr.x || pos.y < clip_lr.y || pos.y > clip_ul.y) discard;
 
-		vec4 col = texture(sampler2D(twodee_tex, fs_twodee_color_correction_smp), uv);
+	vec2 real_uv = uv;
+	if (flip_and_swap_rgb > 0) real_uv.y = 1 - real_uv.y;
+
+		vec4 col = texture(sampler2D(twodee_tex, fs_twodee_color_correction_smp), real_uv);
+		if (flip_and_swap_rgb > 0) col.rgb = col.bgr;
 
 		col.rgb = acesFilm(col.rgb);
 
 		// Film grain
-		vec2 uv = gl_FragCoord.xy / screen_size.xy;
-		float x = uv.x * uv.y * time * 24 + 100.0;
+		vec2 grain_uv = gl_FragCoord.xy / screen_size.xy;
+		float x = grain_uv.x * grain_uv.y * time * 24 + 100.0;
 		vec3 noise = vec3(mod((mod(x, 13.0) + 1.0) * (mod(x, 123.0) + 1.0), 0.01)) * 100.0;
 		col.rgb += (noise - 0.5) * 0.05;
 		col.rgb *= 0.95;

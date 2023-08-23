@@ -838,7 +838,7 @@ sg_image load_image(MD_String8 path)
 			{
 			.width = png_width,
 			.height = png_height,
-			.pixel_format = SG_PIXELFORMAT_RGBA8,
+			.pixel_format = sapp_sgcontext().color_format,
 			.num_mipmaps = 1,
 			.data.subimage[0][0] =
 			{
@@ -2646,11 +2646,13 @@ Shadow_State init_shadow_state();
 static struct
 {
 	sg_pass_action clear_everything_pass_action;
+	sg_pass_action threedee_msaa_pass_action;
 	sg_pass_action clear_depth_buffer_pass_action;
 	sg_pipeline twodee_pip;
 	sg_bindings bind;
 
 	sg_pipeline threedee_pip;
+	sg_pipeline threedee_alpha_blended_pip;
 	sg_pipeline armature_pip;
 	sg_bindings threedee_bind;
 
@@ -2758,7 +2760,7 @@ void create_screenspace_gfx_state()
 		.render_target = true,
 		.width = sapp_width(),
 		.height = sapp_height(),
-		.pixel_format = SG_PIXELFORMAT_RGBA8,
+		.pixel_format = sapp_sgcontext().color_format,
 		.label = "outline-pass-render-target",
 	};
 
@@ -2786,7 +2788,7 @@ void create_screenspace_gfx_state()
 	state.threedee_pass_resolve_image = sg_make_image(&desc);
 
 	desc.label = "threedee-pass-depth-render-target";
-	desc.pixel_format = sapp_depth_format();
+	desc.pixel_format = SG_PIXELFORMAT_DEPTH;
 	desc.sample_count = SAMPLE_COUNT;
 	state.threedee_pass_depth_image = sg_make_image(&desc);
 
@@ -3367,30 +3369,38 @@ void init(void)
 	assert(desc);
 	shd = sg_make_shader(desc);
 
-	state.threedee_pip = sg_make_pipeline(&(sg_pipeline_desc){
-		.shader = shd,
-		.layout = {.attrs = {
-					   [ATTR_threedee_vs_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
-					   [ATTR_threedee_vs_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
-				   }},
-		.depth = {
-			.pixel_format = sapp_depth_format(),
-			.compare = SG_COMPAREFUNC_LESS_EQUAL,
-			.write_enabled = true,
-		},
-		.sample_count = SAMPLE_COUNT,
-		.colors[0].blend = (sg_blend_state){
+	{
+		sg_pipeline_desc threedee_pip_desc = {
+			.shader = shd,
+			.layout = {.attrs = {
+						   [ATTR_threedee_vs_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
+						   [ATTR_threedee_vs_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
+					   }},
+			.depth = {
+				.pixel_format = SG_PIXELFORMAT_DEPTH,
+				.compare = SG_COMPAREFUNC_LESS_EQUAL,
+				.write_enabled = true,
+			},
+			.alpha_to_coverage_enabled = true,
+			.sample_count = SAMPLE_COUNT,
+			.colors[0].blend.enabled = false,
+			.label = "threedee",
+		};
+		state.threedee_pip = sg_make_pipeline(&threedee_pip_desc);
+		threedee_pip_desc.depth.write_enabled = false;
+		threedee_pip_desc.alpha_to_coverage_enabled = false;
+		threedee_pip_desc.colors[0].blend = (sg_blend_state){
 			// allow transparency
 			.enabled = true,
 			.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
 			.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
 			.op_rgb = SG_BLENDOP_ADD,
-			.src_factor_alpha = SG_BLENDFACTOR_ONE,
+			.src_factor_alpha = SG_BLENDFACTOR_SRC_ALPHA,
 			.dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
 			.op_alpha = SG_BLENDOP_ADD,
 		},
-		.label = "threedee",
-	});
+		state.threedee_alpha_blended_pip = sg_make_pipeline(&threedee_pip_desc);
+	}
 
 	desc = threedee_armature_shader_desc(sg_query_backend());
 	assert(desc);
@@ -3400,7 +3410,7 @@ void init(void)
 			{
 			.shader = shd,
 			.depth = {
-				.pixel_format = sapp_depth_format(),
+				.pixel_format = SG_PIXELFORMAT_DEPTH,
 				.compare = SG_COMPAREFUNC_LESS_EQUAL,
 				.write_enabled = true
 			},
@@ -3433,6 +3443,9 @@ void init(void)
 	};
 	state.clear_everything_pass_action = state.clear_depth_buffer_pass_action;
 	state.clear_everything_pass_action.colors[0] = (sg_color_attachment_action){ .load_action = SG_LOADACTION_CLEAR, .clear_value = { clearcol.r, clearcol.g, clearcol.b, 1.0f } };
+	state.threedee_msaa_pass_action = state.clear_everything_pass_action;
+	state.threedee_msaa_pass_action.colors[0].load_action = SG_LOADACTION_CLEAR;
+	state.threedee_msaa_pass_action.colors[0].store_action = SG_STOREACTION_DONTCARE;
 
 	state.sampler_linear = sg_make_sampler(&(sg_sampler_desc) {
 		.min_filter = SG_FILTER_LINEAR,
@@ -3759,6 +3772,11 @@ void flush_quad_batch()
 	sg_apply_bindings(&state.bind);
 	cur_batch_params.tex_size = img_size(cur_batch_image);
 	cur_batch_params.screen_size = screen_size();
+#if defined(SOKOL_GLCORE33) || defined(SOKOL_GLES3)
+	cur_batch_params.flip_and_swap_rgb = 0;
+#else
+	cur_batch_params.flip_and_swap_rgb = 1;
+#endif
 	sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_threedee_twodee_fs_params, &SG_RANGE(cur_batch_params));
 	cur_batch_params.tex_size = V2(0,0); // unsure if setting the tex_size to something nonzero fucks up the batching so I'm just resetting it back here
 	assert(cur_batch_data_index % FLOATS_PER_VERTEX == 0);
@@ -4877,7 +4895,7 @@ Shadow_State init_shadow_state() {
 		.render_target = true,
 		.width = SHADOW_MAP_DIMENSION,
 		.height = SHADOW_MAP_DIMENSION,
-		.pixel_format = SG_PIXELFORMAT_RGBA8,
+		.pixel_format = sapp_sgcontext().color_format,
 		.sample_count = 1,
 		.label = "shadow-map-color-image"
 	};
@@ -4908,7 +4926,7 @@ Shadow_State init_shadow_state() {
 				.compare = SG_COMPAREFUNC_LESS_EQUAL,
 				.write_enabled = true,
 			},
-			.colors[0].pixel_format = SG_PIXELFORMAT_RGBA8,
+			.colors[0].pixel_format = sapp_sgcontext().color_format,
 			.label = "shadow-map-pipeline"
 	};
 
@@ -5116,6 +5134,8 @@ void actually_draw_thing(DrawnThing *it, Mat4 light_space_matrix, bool for_outli
 	{
 		if(for_outline)
 			sg_apply_pipeline(state.outline_mesh_pip);
+		else if (it->alpha_blend)
+			sg_apply_pipeline(state.threedee_alpha_blended_pip);
 		else
 			sg_apply_pipeline(state.threedee_pip);
 		sg_bindings bindings = {0};
@@ -5384,7 +5404,7 @@ void flush_all_drawn_things(Vec3 light_dir, Vec3 cam_pos, Vec3 cam_facing, Vec3 
 
 		// actually draw, IMPORTANT after this drawn_this_frame is zeroed out!
 		{
-			sg_begin_pass(state.threedee_pass, &state.clear_everything_pass_action);
+			sg_begin_pass(state.threedee_pass, &state.threedee_msaa_pass_action);
 
 			// draw meshes
 			SLICE_ITER(DrawnThing, drawn_this_frame)
