@@ -26,8 +26,8 @@
 
 #if defined(__EMSCRIPTEN__)
 #define WEB
-#define SOKOL_GLES2
-#define SAMPLE_COUNT 1 // bumping this back to 4 is troublesome for web, because there's a mismatch in sample counts. Perhaps we must upgrade to gles3, in doing so, we should upgrade to the newest sokol gfx.
+#define SOKOL_GLES3
+#define SAMPLE_COUNT 4
 #endif
 
 #define DRWAV_ASSERT game_assert
@@ -58,11 +58,7 @@ __declspec(dllexport) uint32_t AmdPowerXpressRequestHighPerformance = 0x00000001
 #pragma warning(push)
 #pragma warning(disable : 4191) // unsafe function calling
 #ifdef WEB
-# ifndef GL_EXT_PROTOTYPES
-# define GL_GLEXT_PROTOTYPES
-# endif
-# include <GLES2/gl2.h>
-# include <GLES2/gl2ext.h>
+# include <GLES3/gl3.h>
 # undef glGetError
 # define glGetError() (GL_NO_ERROR)
 #endif
@@ -843,17 +839,14 @@ sg_image load_image(MD_String8 path)
 			.width = png_width,
 			.height = png_height,
 			.pixel_format = SG_PIXELFORMAT_RGBA8,
-			.min_filter = SG_FILTER_LINEAR,
 			.num_mipmaps = 1,
-			.wrap_u = SG_WRAP_CLAMP_TO_EDGE,
-			.wrap_v = SG_WRAP_CLAMP_TO_EDGE,
-			.mag_filter = SG_FILTER_LINEAR,
 			.data.subimage[0][0] =
 			{
 			.ptr = pixels,
 			.size = (size_t)(png_width * png_height * num_channels),
 			}
 			});
+
 	loaded->image = to_return;
 	MD_ReleaseScratch(scratch);
 	return to_return;
@@ -1232,14 +1225,6 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 		.width = to_return.bones_texture_width,
 		.height = to_return.bones_texture_height,
 		.pixel_format = SG_PIXELFORMAT_RGBA8,
-		.min_filter = SG_FILTER_NEAREST,
-		.mag_filter = SG_FILTER_NEAREST,
-
-		// for webgl NPOT texures https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/Tutorial/Using_textures_in_WebGL
-		.wrap_u = SG_WRAP_CLAMP_TO_EDGE,
-		.wrap_v = SG_WRAP_CLAMP_TO_EDGE,
-		.wrap_w = SG_WRAP_CLAMP_TO_EDGE,
-
 		.usage = SG_USAGE_STREAM,
 	});
 
@@ -2670,16 +2655,22 @@ static struct
 	sg_bindings threedee_bind;
 
 	sg_image outline_pass_image;
+	sg_image outline_pass_resolve_image;
 	sg_pass outline_pass;
 	sg_pipeline outline_mesh_pip;
 	sg_pipeline outline_armature_pip;
 
 	sg_pass threedee_pass; // is a pass so I can do post processing in a shader
 	sg_image threedee_pass_image;
+	sg_image threedee_pass_resolve_image;
 	sg_image threedee_pass_depth_image;
 
 	sg_pipeline twodee_outline_pip;
 	sg_pipeline twodee_colorcorrect_pip;
+
+	sg_sampler sampler_linear;
+	sg_sampler sampler_linear_border;
+	sg_sampler sampler_nearest;
 
 	Shadow_State shadows;
 } state;
@@ -2695,7 +2686,9 @@ void create_screenspace_gfx_state()
 	MAYBE_DESTROY(state.threedee_pass, sg_destroy_pass);
 
 	MAYBE_DESTROY(state.outline_pass_image, sg_destroy_image);
+	MAYBE_DESTROY(state.outline_pass_resolve_image, sg_destroy_image);
 	MAYBE_DESTROY(state.threedee_pass_image, sg_destroy_image);
+	MAYBE_DESTROY(state.threedee_pass_resolve_image, sg_destroy_image);
 	MAYBE_DESTROY(state.threedee_pass_depth_image, sg_destroy_image);
 #undef MAYBE_DESTROY
 
@@ -2766,34 +2759,40 @@ void create_screenspace_gfx_state()
 		.width = sapp_width(),
 		.height = sapp_height(),
 		.pixel_format = SG_PIXELFORMAT_RGBA8,
-		.min_filter = SG_FILTER_LINEAR,
-		.mag_filter = SG_FILTER_LINEAR,
-		.wrap_u = SG_WRAP_CLAMP_TO_BORDER,
-		.wrap_v = SG_WRAP_CLAMP_TO_BORDER,
-		.border_color = SG_BORDERCOLOR_OPAQUE_WHITE,
-		.sample_count = SAMPLE_COUNT,
 		.label = "outline-pass-render-target",
 	};
+
+	desc.sample_count = SAMPLE_COUNT;
 	state.outline_pass_image = sg_make_image(&desc);
+	desc.sample_count = 1;
+	state.outline_pass_resolve_image = sg_make_image(&desc);
 	state.outline_pass = sg_make_pass(&(sg_pass_desc){
 			.color_attachments[0].image = state.outline_pass_image,
+			.resolve_attachments[0].image = state.outline_pass_resolve_image,
 			.depth_stencil_attachment = {
 				0
 			},
 			.label = "outline-pass",
 	});
 
-	desc.sample_count = SAMPLE_COUNT;
+	desc.sample_count = 1;
 	
 	desc.label = "threedee-pass-render-target";
+	desc.sample_count = SAMPLE_COUNT;
 	state.threedee_pass_image = sg_make_image(&desc);
+
+	desc.label = "threedee-pass-resolve-render-target";
+	desc.sample_count = 1;
+	state.threedee_pass_resolve_image = sg_make_image(&desc);
 
 	desc.label = "threedee-pass-depth-render-target";
 	desc.pixel_format = sapp_depth_format();
+	desc.sample_count = SAMPLE_COUNT;
 	state.threedee_pass_depth_image = sg_make_image(&desc);
 
 	state.threedee_pass = sg_make_pass(&(sg_pass_desc){
 			.color_attachments[0].image = state.threedee_pass_image,
+			.resolve_attachments[0].image = state.threedee_pass_resolve_image,
 			.depth_stencil_attachment = (sg_pass_attachment_desc){
 				.image = state.threedee_pass_depth_image,
 				.mip_level = 0,
@@ -3013,8 +3012,8 @@ Color blendalpha(Color c, float alpha)
 // in pixels
 Vec2 img_size(sg_image img)
 {
-	sg_image_info info = sg_query_image_info(img);
-	return V2((float)info.width, (float)info.height);
+	sg_image_desc desc = sg_query_image_desc(img);
+	return V2((float)desc.width, (float)desc.height);
 }
 
 #ifdef DEVTOOLS
@@ -3136,8 +3135,6 @@ LoadedFont load_font(MD_Arena *arena, MD_String8 font_filepath, float font_size)
 		.width = font_bitmap_width,
 		.height = font_bitmap_width,
 		.pixel_format = SG_PIXELFORMAT_RGBA8,
-		.min_filter = SG_FILTER_LINEAR,
-		.mag_filter = SG_FILTER_LINEAR,
 		.data.subimage[0][0] =
 		{
 			.ptr = font_bitmap_rgba,
@@ -3212,6 +3209,7 @@ void init(void)
 	sg_setup(&(sg_desc) {
 			.context = sapp_sgcontext(),
 			.buffer_pool_size = 512,
+			.logger.func = slog_func,
 			});
 	stm_setup();
 	saudio_setup(&(saudio_desc) {
@@ -3380,6 +3378,7 @@ void init(void)
 			.compare = SG_COMPAREFUNC_LESS_EQUAL,
 			.write_enabled = true,
 		},
+		.sample_count = SAMPLE_COUNT,
 		.colors[0].blend = (sg_blend_state){
 			// allow transparency
 			.enabled = true,
@@ -3405,6 +3404,7 @@ void init(void)
 				.compare = SG_COMPAREFUNC_LESS_EQUAL,
 				.write_enabled = true
 			},
+			.sample_count = SAMPLE_COUNT,
 			.layout = {
 			.attrs =
 			{
@@ -3428,11 +3428,42 @@ void init(void)
 
 	state.clear_depth_buffer_pass_action = (sg_pass_action)
 	{
-		.colors[0] = { .action = SG_ACTION_LOAD },
-		.depth = { .action = SG_ACTION_CLEAR, .value = 1.0f },
+		.colors[0] = { .load_action = SG_LOADACTION_LOAD },
+		.depth = { .load_action = SG_LOADACTION_CLEAR, .clear_value = 1.0f },
 	};
 	state.clear_everything_pass_action = state.clear_depth_buffer_pass_action;
-	state.clear_everything_pass_action.colors[0] = (sg_color_attachment_action){ .action = SG_ACTION_CLEAR, .value = { clearcol.r, clearcol.g, clearcol.b, 1.0f } };
+	state.clear_everything_pass_action.colors[0] = (sg_color_attachment_action){ .load_action = SG_LOADACTION_CLEAR, .clear_value = { clearcol.r, clearcol.g, clearcol.b, 1.0f } };
+
+	state.sampler_linear = sg_make_sampler(&(sg_sampler_desc) {
+		.min_filter = SG_FILTER_LINEAR,
+		.mag_filter = SG_FILTER_LINEAR,
+		// .mipmap_filter = SG_FILTER_LINEAR,
+		.wrap_u = SG_WRAP_CLAMP_TO_EDGE,
+		.wrap_v = SG_WRAP_CLAMP_TO_EDGE,
+		// .max_anisotropy = 16,
+		.label = "sampler-linear",
+	});
+
+	state.sampler_linear_border = sg_make_sampler(&(sg_sampler_desc) {
+		.min_filter = SG_FILTER_LINEAR,
+		.mag_filter = SG_FILTER_LINEAR,
+		.wrap_u = SG_WRAP_CLAMP_TO_BORDER,
+		.wrap_v = SG_WRAP_CLAMP_TO_BORDER,
+		.border_color = SG_BORDERCOLOR_OPAQUE_WHITE,
+		.label = "sampler-linear-border",
+	});
+
+	state.sampler_nearest = sg_make_sampler(&(sg_sampler_desc) {
+		.min_filter = SG_FILTER_NEAREST,
+		.mag_filter = SG_FILTER_NEAREST,
+
+		// for webgl NPOT texures https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/Tutorial/Using_textures_in_WebGL
+		.wrap_u = SG_WRAP_CLAMP_TO_EDGE,
+		.wrap_v = SG_WRAP_CLAMP_TO_EDGE,
+		.wrap_w = SG_WRAP_CLAMP_TO_EDGE,
+
+		.label = "sampler-nearest",
+	});
 }
 
 Vec2 screen_size()
@@ -3723,7 +3754,8 @@ void flush_quad_batch()
 
 
 	state.bind.vertex_buffer_offsets[0] = sg_append_buffer(state.bind.vertex_buffers[0], &(sg_range) { cur_batch_data, cur_batch_data_index*sizeof(*cur_batch_data) });
-	state.bind.fs_images[SLOT_threedee_twodee_tex] = cur_batch_image;
+	state.bind.fs.images[SLOT_threedee_twodee_tex] = cur_batch_image; // NOTE that this might get FUCKED if a custom pipeline is provided with more/less texture slots!!!
+	state.bind.fs.samplers[SLOT_threedee_fs_twodee_smp] = state.sampler_linear; // NOTE that this might get FUCKED if a custom pipeline is provided with more/less sampler slots!!!
 	sg_apply_bindings(&state.bind);
 	cur_batch_params.tex_size = img_size(cur_batch_image);
 	sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_threedee_twodee_fs_params, &SG_RANGE(cur_batch_params));
@@ -4827,8 +4859,8 @@ Shadow_State init_shadow_state() {
 
 	shadows.pass_action = (sg_pass_action) {
 		.colors[0] = {
-			.action = SG_ACTION_CLEAR,
-			.value = { 1.0f, 1.0f, 1.0f, 1.0f }
+			.load_action = SG_LOADACTION_CLEAR,
+			.clear_value = { 1.0f, 1.0f, 1.0f, 1.0f }
 		}
 	};
 
@@ -4838,18 +4870,14 @@ Shadow_State init_shadow_state() {
 		 be pertinent to just dig into sokol and add the functionality we want later,
 		 but as a first pass, we will just do as the romans do. I.e. have both a colour
 		 and depth component. - Canada Day 2023.
+		 TODO: with GLES3, depth only rendering passes are now supported
 		 */
 	sg_image_desc img_desc = {
 		.render_target = true,
 		.width = SHADOW_MAP_DIMENSION,
 		.height = SHADOW_MAP_DIMENSION,
 		.pixel_format = SG_PIXELFORMAT_RGBA8,
-		.min_filter = SG_FILTER_LINEAR,
-		.mag_filter = SG_FILTER_LINEAR,
-		.wrap_u = SG_WRAP_CLAMP_TO_BORDER,
-		.wrap_v = SG_WRAP_CLAMP_TO_BORDER,
-		.border_color = SG_BORDERCOLOR_OPAQUE_WHITE,
-		.sample_count = SAMPLE_COUNT,
+		.sample_count = 1,
 		.label = "shadow-map-color-image"
 	};
 	shadows.color_img = sg_make_image(&img_desc);
@@ -4873,7 +4901,7 @@ Shadow_State init_shadow_state() {
 			.shader = sg_make_shader(threedee_mesh_shadow_mapping_shader_desc(sg_query_backend())),
 			// Cull front faces in the shadow map pass
 			// .cull_mode = SG_CULLMODE_BACK,
-			.sample_count = SAMPLE_COUNT,
+			.sample_count = 1,
 			.depth = {
 				.pixel_format = SG_PIXELFORMAT_DEPTH,
 				.compare = SG_COMPAREFUNC_LESS_EQUAL,
@@ -4887,7 +4915,7 @@ Shadow_State init_shadow_state() {
 
 	desc.label = "armature-shadow-map-pipeline";
 	desc.shader = sg_make_shader(threedee_armature_shadow_mapping_shader_desc(sg_query_backend()));
-	sg_vertex_attr_desc skeleton_vertex_attrs[] = {
+	sg_vertex_attr_state skeleton_vertex_attrs[] = {
 			[ATTR_threedee_vs_skeleton_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
 			[ATTR_threedee_vs_skeleton_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
 			[ATTR_threedee_vs_skeleton_indices_in].format = SG_VERTEXFORMAT_USHORT4N,
@@ -5090,9 +5118,17 @@ void actually_draw_thing(DrawnThing *it, Mat4 light_space_matrix, bool for_outli
 		else
 			sg_apply_pipeline(state.threedee_pip);
 		sg_bindings bindings = {0};
-		bindings.fs_images[SLOT_threedee_tex] = it->mesh->image;
-		if(!for_outline)
-			bindings.fs_images[SLOT_threedee_shadow_map] = state.shadows.color_img;
+		bindings.fs.images[SLOT_threedee_tex] = it->mesh->image;
+		if(for_outline)
+		{
+			bindings.fs.samplers[SLOT_threedee_fs_outline_smp] = state.sampler_linear;
+		}
+		else
+		{
+			bindings.fs.images[SLOT_threedee_shadow_map] = state.shadows.color_img;
+			bindings.fs.samplers[SLOT_threedee_fs_shadow_smp] = state.sampler_linear_border;
+			bindings.fs.samplers[SLOT_threedee_fs_smp] = state.sampler_linear;
+		}
 		bindings.vertex_buffers[0] = it->mesh->loaded_buffer;
 		sg_apply_bindings(&bindings);
 
@@ -5118,10 +5154,19 @@ void actually_draw_thing(DrawnThing *it, Mat4 light_space_matrix, bool for_outli
 		else
 			sg_apply_pipeline(state.armature_pip);
 		sg_bindings bindings = {0};
-		bindings.vs_images[SLOT_threedee_bones_tex] = it->armature->bones_texture;
-		bindings.fs_images[SLOT_threedee_tex] = it->armature->image;
-		if(!for_outline)
-			bindings.fs_images[SLOT_threedee_shadow_map] = state.shadows.color_img;
+		bindings.vs.images[SLOT_threedee_bones_tex] = it->armature->bones_texture;
+		bindings.vs.samplers[SLOT_threedee_vs_skeleton_smp] = state.sampler_nearest;
+		bindings.fs.images[SLOT_threedee_tex] = it->armature->image;
+		if(for_outline)
+		{
+			bindings.fs.samplers[SLOT_threedee_fs_outline_smp] = state.sampler_linear;
+		}
+		else
+		{
+			bindings.fs.images[SLOT_threedee_shadow_map] = state.shadows.color_img;
+			bindings.fs.samplers[SLOT_threedee_fs_shadow_smp] = state.sampler_linear_border;
+			bindings.fs.samplers[SLOT_threedee_fs_smp] = state.sampler_linear;
+		}
 		bindings.vertex_buffers[0] = it->armature->loaded_buffer;
 		sg_apply_bindings(&bindings);
 
@@ -5265,7 +5310,8 @@ void flush_all_drawn_things(Vec3 light_dir, Vec3 cam_pos, Vec3 cam_facing, Vec3 
 				if(it->mesh)
 				{
 					sg_bindings bindings = {0};
-					bindings.fs_images[SLOT_threedee_tex] = it->mesh->image;
+					bindings.fs.images[SLOT_threedee_tex] = it->mesh->image;
+					bindings.fs.samplers[SLOT_threedee_fs_shadow_mapping_smp] = state.sampler_linear;
 					bindings.vertex_buffers[0] = it->mesh->loaded_buffer;
 					sg_apply_bindings(&bindings);
 
@@ -5290,8 +5336,10 @@ void flush_all_drawn_things(Vec3 light_dir, Vec3 cam_pos, Vec3 cam_facing, Vec3 
 				if(it->armature)
 				{
 					sg_bindings bindings = {0};
-					bindings.vs_images[SLOT_threedee_bones_tex] = it->armature->bones_texture;
-					bindings.fs_images[SLOT_threedee_tex] = it->armature->image;
+					bindings.vs.images[SLOT_threedee_bones_tex] = it->armature->bones_texture;
+					bindings.vs.samplers[SLOT_threedee_vs_skeleton_smp] = state.sampler_nearest;
+					bindings.fs.images[SLOT_threedee_tex] = it->armature->image;
+					bindings.fs.samplers[SLOT_threedee_fs_shadow_mapping_smp] = state.sampler_linear;
 					bindings.vertex_buffers[0] = it->armature->loaded_buffer;
 					sg_apply_bindings(&bindings);
 
@@ -5317,8 +5365,8 @@ void flush_all_drawn_things(Vec3 light_dir, Vec3 cam_pos, Vec3 cam_facing, Vec3 
 		{
 			sg_begin_pass(state.outline_pass, &(sg_pass_action) {
 				.colors[0] = {
-					.action = SG_ACTION_CLEAR,
-					.value = { 0.0f, 0.0f, 0.0f, 0.0f },
+					.load_action = SG_LOADACTION_CLEAR,
+					.clear_value = { 0.0f, 0.0f, 0.0f, 0.0f },
 				}
 			});
 
@@ -5674,8 +5722,8 @@ void frame(void)
 		flush_all_drawn_things(light_dir, cam_pos, facing, right);
 
 		// draw the 3d render
-		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.threedee_pass_image), WHITE, .layer = LAYER_WORLD, .custom_pipeline = state.twodee_colorcorrect_pip });
-		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.outline_pass_image), WHITE, .custom_pipeline = state.twodee_outline_pip, .layer = LAYER_UI});
+		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.threedee_pass_resolve_image), WHITE, .layer = LAYER_WORLD, .custom_pipeline = state.twodee_colorcorrect_pip });
+		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.outline_pass_resolve_image), WHITE, .custom_pipeline = state.twodee_outline_pip, .layer = LAYER_UI});
 
 		// 2d drawing TODO move this to when the drawing is flushed.
 		sg_begin_default_pass(&state.clear_depth_buffer_pass_action, sapp_width(), sapp_height());
@@ -6949,7 +6997,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 			{
 				Vec2 depth_size = V2(200.0f, 200.0f);
 				draw_quad((DrawParams){quad_at(V2(screen_size().x - depth_size.x, screen_size().y), depth_size), IMG(state.shadows.color_img), WHITE, .layer = LAYER_UI_FG});
-				draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y/2.0f), MulV2F(screen_size(), 0.1f)), IMG(state.outline_pass_image), WHITE, .layer = LAYER_UI_FG});
+				draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y/2.0f), MulV2F(screen_size(), 0.1f)), IMG(state.outline_pass_resolve_image), WHITE, .layer = LAYER_UI_FG});
 
 				Vec3 view_cam_pos = MulM4V4(InvGeneralM4(view), V4(0,0,0,1)).xyz;
 				//if(view_cam_pos.y >= 4.900f) // causes nan if not true... not good...
@@ -7110,10 +7158,10 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 						};
 
 						// convert to uv space
-						sg_image_info info = sg_query_image_info(d.image);
+						sg_image_desc desc = sg_query_image_desc(d.image);
 						for (int i = 0; i < 4; i++)
 						{
-							tex_coords[i] = DivV2(tex_coords[i], V2((float)info.width, (float)info.height));
+							tex_coords[i] = DivV2(tex_coords[i], V2((float)desc.width, (float)desc.height));
 						}
 						for (int i = 0; i < 4; i++)
 						{
@@ -7481,13 +7529,13 @@ sapp_desc sokol_main(int argc, char* argv[])
 			.frame_cb = frame,
 			.cleanup_cb = cleanup,
 			.event_cb = event,
-			.sample_count = SAMPLE_COUNT,
+			.sample_count = 1,
 			.width = 800,
 			.height = 600,
-			//.gl_force_gles2 = true, not sure why this was here in example, look into
 			.window_title = "Dante's Cowboy",
 			.win32_console_attach = true,
 			.win32_console_create = true,
 			.icon.sokol_default = true,
+			.logger.func = slog_func,
 	};
 }
