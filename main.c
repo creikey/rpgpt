@@ -826,7 +826,7 @@ sg_image load_image(MD_String8 path)
 
 	assert(pixels);
 	assert(desired_channels == num_channels);
-	Log("Path %.*s | Loading image with dimensions %d %d\n", MD_S8VArg(path), png_width, png_height);
+	//Log("Path %.*s | Loading image with dimensions %d %d\n", MD_S8VArg(path), png_width, png_height);
 	to_return = sg_make_image(&(sg_image_desc)
 			{
 			.width = png_width,
@@ -1100,7 +1100,7 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 	to_return.image = load_image(MD_S8Fmt(scratch.arena, "assets/exported_3d/%.*s", MD_S8VArg(image_filename)));
 
 	ser_MD_u64(&ser, &to_return.bones_length);
-	Log("Armature %.*s has %llu bones\n", MD_S8VArg(armature_name), to_return.bones_length);
+	//Log("Armature %.*s has %llu bones\n", MD_S8VArg(armature_name), to_return.bones_length);
 	to_return.bones = MD_PushArray(arena, Bone, to_return.bones_length);
 
 	for(MD_u64 i = 0; i < to_return.bones_length; i++)
@@ -1140,7 +1140,7 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 	}
 
 	ser_MD_u64(&ser, &to_return.animations_length);
-	Log("Armature %.*s has  %llu animations\n", MD_S8VArg(armature_name), to_return.animations_length);
+	//Log("Armature %.*s has  %llu animations\n", MD_S8VArg(armature_name), to_return.animations_length);
 	to_return.animations = MD_PushArray(arena, Animation, to_return.animations_length);
 
 	for(MD_u64 i = 0; i < to_return.animations_length; i++)
@@ -1197,7 +1197,7 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 		for(int ii = 0; ii < 4; ii++)
 			to_return.vertices[i].joint_weights[ii] = joint_weights[ii];
 	}
-	Log("Armature %.*s has %llu vertices\n", MD_S8VArg(armature_name), to_return.vertices_length);
+	//Log("Armature %.*s has %llu vertices\n", MD_S8VArg(armature_name), to_return.vertices_length);
 
 	assert(!ser.cur_error.failed);
 	MD_ReleaseScratch(scratch);
@@ -1212,7 +1212,7 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 	to_return.bones_texture_width = 16;
 	to_return.bones_texture_height = (int)to_return.bones_length;
 
-	Log("Amrature %.*s has bones texture size (%d, %d)\n", MD_S8VArg(armature_name), to_return.bones_texture_width, to_return.bones_texture_height);
+	//Log("Armature %.*s has bones texture size (%d, %d)\n", MD_S8VArg(armature_name), to_return.bones_texture_width, to_return.bones_texture_height);
 	to_return.bones_texture = sg_make_image(&(sg_image_desc) {
 		.width = to_return.bones_texture_width,
 		.height = to_return.bones_texture_height,
@@ -1400,7 +1400,7 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 				ser.cur_error = (SerError){.failed = true, .why = MD_S8Fmt(arena, "Couldn't find placed npc kind '%.*s'...\n", MD_S8VArg(placed_entity_name))};
 			}
 
-			Log("Loaded placed entity '%.*s' at %f %f %f\n", MD_S8VArg(placed_entity_name), v3varg(new_placed->t.offset));
+			//Log("Loaded placed entity '%.*s' at %f %f %f\n", MD_S8VArg(placed_entity_name), v3varg(new_placed->t.offset));
 		}
 	}
 
@@ -2138,7 +2138,8 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 				PushWithLint(scratch.arena, &drama_errors, "Failed to parse: `%.*s`\n", MD_S8VArg(to_print));
 			}
 		}
-
+		
+		BUFF(NpcKind, 128) not_on_map = {0};
 		if(drama_errors.node_count == 0)
 		{
 			MD_Node *can_hear = MD_NilNode();
@@ -2245,10 +2246,19 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 
 								if(!found)
 								{
-									Log("Warning: NPC of kind %s isn't on the map, but has entries in the drama document\n", characters[want].enum_name);
+									bool already_warned = false;
+									BUFF_ITER(NpcKind, &not_on_map)
+									{
+										if(*it == want) already_warned = true;
+									}
+									if(!already_warned)
+									{
+										//Log("Warning: NPC of kind %s isn't on the map, but has entries in the drama document\n", characters[want].enum_name);
+										BUFF_APPEND(&not_on_map, want);
+									}
 								}
 							}
-							Log("Propagated to %d name '%s'...\n", want, characters[want].name);
+							//Log("Propagated to %d name '%s'...\n", want, characters[want].name);
 						}
 					}
 				}
@@ -3167,6 +3177,32 @@ void stbi_flip_into_correct_direction(bool do_it)
 	if(do_it) stbi_set_flip_vertically_on_load(true);
 }
 
+MD_String8 make_devtools_help(MD_Arena *arena)
+{
+	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
+	MD_String8List list = {0};
+
+	#define P(...) PushWithLint(scratch.arena, &list, __VA_ARGS__)
+	
+	P("===============================================\n");
+	P("===============================================\n");
+	P("~~~~~~~~~~~--Devtools is Activated!--~~~~~~~~~~\n");
+	P("This means more asserts are turned on, and generally you are just better setup to detect errors and do some introspection on the program\n");
+	P("\nKeyboard bindings and things you can do:\n");
+	
+	P("7 - toggles the visibility of devtools debug drawing and debug text\n");
+	P("F - toggles flycam\n");
+	P("T - toggles freezing the mouse\n");
+	P("9 - instantly wins the game\n");
+	P("P - toggles spall profiling on/off, don't leave on for very long as it consumes a lot of storage if you do that. The resulting spall trace is saved to the file '%s'\n", PROFILING_SAVE_FILENAME);
+	P("If you hover over somebody it will display some parts of their memories, can be somewhat helpful\n");
+
+	#undef P
+	MD_String8 to_return = MD_S8ListJoin(arena, list, &(MD_StringJoin){0});
+	MD_ReleaseScratch(scratch);
+	return to_return;
+}
+
 void init(void)
 {
 	stbi_flip_into_correct_direction(true);
@@ -3185,6 +3221,8 @@ void init(void)
 
 #ifdef DEVTOOLS
 	Log("Devtools is on!\n");
+	MD_String8 devtools_help = make_devtools_help(frame_arena);
+	printf("%.*s\n", MD_S8VArg(devtools_help));
 #else
 	Log("Devtools is off!\n");
 #endif
@@ -3205,7 +3243,11 @@ void init(void)
 			.num_channels = 2,
 			});
 
+	Log("Loading assets...\n");
 	load_assets();
+	Log("Done.\n");
+
+	Log("Loading 3D assets...\n");
 
 	MD_String8 binary_file;
 
@@ -3233,6 +3275,7 @@ void init(void)
 	shifted_farmer_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Farmer.bin"));
 	shifted_farmer_armature.image = image_shifted_farmer;
 
+	Log("Done.\n");
 
 	MD_ArenaClear(frame_arena);
 
@@ -3260,6 +3303,7 @@ void init(void)
 			.usage = SG_USAGE_STREAM,
 			//.data = SG_RANGE(vertices),
 #ifdef DEVTOOLS
+			// this is so the debug drawing has more vertices to work with
 			.size = 1024*2500,
 #else
 			.size = 1024*700,
@@ -7422,7 +7466,7 @@ void event(const sapp_event *e)
 				profiling = !profiling;
 				if (profiling)
 				{
-					init_profiling("rpgpt.spall");
+					init_profiling(PROFILING_SAVE_FILENAME);
 					init_profiling_mythread(0);
 				}
 				else

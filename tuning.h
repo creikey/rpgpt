@@ -29,6 +29,7 @@
 #define BIG_ARENA_SIZE (ARENA_SIZE * 4)
 
 #ifdef DEVTOOLS
+#define PROFILING_SAVE_FILENAME "rpgpt.spall"
 // server url cannot have trailing slash
 //#define MOCK_AI_RESPONSE
 #define SERVER_DOMAIN "localhost"
