@@ -708,11 +708,7 @@ float max_coord(Vec2 v)
 // aabb advice by iRadEntertainment
 Vec2 entity_aabb_size(Entity *e)
 {
-	if (e->is_character)
-	{
-		return V2(1.0f*0.9f, 1.0f*0.5f);
-	}
-	else if (e->is_npc)
+	if (e->is_npc)
 	{
 		return V2(1,1);
 	}
@@ -725,13 +721,9 @@ Vec2 entity_aabb_size(Entity *e)
 
 float entity_radius(Entity *e)
 {
-	if (e->is_character)
+	if (e->is_npc)
 	{
 		return 0.35f;
-	}
-	else if (e->is_npc)
-	{
-		return 0.5f;
 	}
 	else
 	{
@@ -859,7 +851,6 @@ SER_MAKE_FOR_TYPE(double);
 SER_MAKE_FOR_TYPE(float);
 SER_MAKE_FOR_TYPE(PropKind);
 SER_MAKE_FOR_TYPE(NpcKind);
-SER_MAKE_FOR_TYPE(CharacterState);
 SER_MAKE_FOR_TYPE(Memory);
 SER_MAKE_FOR_TYPE(Vec2);
 SER_MAKE_FOR_TYPE(Vec3);
@@ -1643,7 +1634,7 @@ CanTalkTo get_can_talk_to(Entity *e)
 	CanTalkTo to_return = {0};
 	ENTITIES_ITER(gs.entities)
 	{
-		if(it != e && (it->is_npc || it->is_character) && LenV2(SubV2(it->pos, e->pos)) < PROPAGATE_ACTIONS_RADIUS)
+		if(it != e && (it->is_npc) && LenV2(SubV2(it->pos, e->pos)) < PROPAGATE_ACTIONS_RADIUS)
 		{
 			BUFF_APPEND(&to_return, it);
 		}
@@ -1655,7 +1646,7 @@ Entity *get_targeted(Entity *from, NpcKind targeted)
 {
 	ENTITIES_ITER(gs.entities)
 	{
-		if(it != from && (it->is_npc || it->is_character) && LenV2(SubV2(it->pos, from->pos)) < PROPAGATE_ACTIONS_RADIUS && it->npc_kind == targeted)
+		if(it != from && (it->is_npc) && LenV2(SubV2(it->pos, from->pos)) < PROPAGATE_ACTIONS_RADIUS && it->npc_kind == targeted)
 		{
 			return it;
 		}
@@ -1889,7 +1880,7 @@ bool perform_action(GameState *gs, Entity *from, Action a)
 	bool proceed_propagating = true;
 	if(is_valid.size > 0)
 	{
-		assert(!from->is_character);
+		assert(from->npc_kind != NPC_Player);
 		append_to_errors(from, is_valid);
 		proceed_propagating = false;
 	}
@@ -1908,7 +1899,7 @@ bool perform_action(GameState *gs, Entity *from, Action a)
 		cause_action_side_effects(from, a);
 
 		// self memory
-		if(!from->is_character)
+		if(from->npc_kind != NPC_Player)
 		{
 			MemoryContext my_context = context;
 			my_context.i_said_this = true;
@@ -2110,15 +2101,11 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 		Entity *cur_entity = new_entity(gs);
 		cur_entity->npc_kind = cur->npc_kind;
 		cur_entity->pos = point_plane(cur->t.offset);
+		cur_entity->is_npc = true;
 		if(cur_entity->npc_kind == NPC_Player)
 		{
 			found_player = true;
-			cur_entity->is_character = true;
 			gs->player = cur_entity;
-		}
-		else
-		{
-			cur_entity->is_npc = true;
 		}
 	}
 	assert(found_player);
@@ -2402,12 +2389,7 @@ void ser_entity(SerState *ser, Entity *e)
 	ser_int(ser, &e->gen_request_id);
 	ser_Vec2(ser, &e->target_goto);
 
-	// character
-	ser_bool(ser, &e->is_character);
-	ser_Vec2(ser, &e->to_throw_direction);
-
 	SER_BUFF(ser, Vec2, &e->position_history);
-	ser_CharacterState(ser, &e->state);
 	ser_EntityRef(ser, &e->talking_to);
 }
 
@@ -2443,7 +2425,7 @@ void ser_GameState(SerState *ser, GameState *gs)
 	{
 		ARR_ITER(Entity, gs->entities)
 		{
-			if(it->is_character)
+			if(it->npc_kind == NPC_Player)
 			{
 				gs->player = it;
 			}
@@ -5648,43 +5630,40 @@ void frame(void)
 
 		ENTITIES_ITER(gs.entities)
 		{
-			if(it->is_npc || it->is_character)
+			if(it->is_npc)
 			{
 				Transform draw_with = entity_transform(it);
 
-				if(it->npc_kind == NPC_Player)
+				assert(it->is_npc);
+				Armature *to_use = 0;
+
+				if (it->npc_kind == NPC_Daniel)
+					to_use = &farmer_armature;
+				else if (it->npc_kind == NPC_Raphael)
+					to_use = &man_in_black_armature;
+				else if (it->npc_kind == NPC_Angel)
+					to_use = &angel_armature;
+				else if (it->npc_kind == NPC_Player)
+					to_use = &player_armature;
+				else
+					assert(false);
+
+				if (it->killed)
+					to_use->go_to_animation = MD_S8Lit("Die Backwards");
+				else if (LenV2(it->vel) > 0.5f)
+					to_use->go_to_animation = MD_S8Lit("Running");
+				else
+					to_use->go_to_animation = MD_S8Lit("Idle");
+
+				draw_thing((DrawnThing){.armature = to_use, .t = draw_with, .outline = gete(gs.player->interacting_with) == it});
+
+				if (gete(it->aiming_shotgun_at))
 				{
-					draw_thing((DrawnThing){.armature = &player_armature, .t = draw_with});
-				}
-				else 
-				{
-					assert(it->is_npc);
-					Armature *to_use = 0;
-
-					if(it->npc_kind == NPC_Daniel)
-						to_use = &farmer_armature;
-					else if(it->npc_kind == NPC_Raphael)
-						to_use = &man_in_black_armature;
-					else if(it->npc_kind == NPC_Angel)
-						to_use = &angel_armature;
-					else
-						assert(false);
-
-					if(LenV2(it->vel) > 0.5f)
-						to_use->go_to_animation = MD_S8Lit("Running");
-					else
-						to_use->go_to_animation = MD_S8Lit("Idle");
-
-					draw_thing((DrawnThing){.armature = to_use, .t = draw_with, .outline = gete(gs.player->interacting_with) == it});
-
-					if(gete(it->aiming_shotgun_at))
-					{
-						Transform shotgun_t = draw_with;
-						shotgun_t.offset.y += 0.7f;
-						shotgun_t.scale = V3(4,4,4);
-						shotgun_t.rotation = rot_on_plane_to_quat(AngleOfV2(SubV2(gete(it->aiming_shotgun_at)->pos, it->pos)));
-						draw_thing((DrawnThing){.mesh = &mesh_shotgun, .t = shotgun_t});
-					}
+					Transform shotgun_t = draw_with;
+					shotgun_t.offset.y += 0.7f;
+					shotgun_t.scale = V3(4, 4, 4);
+					shotgun_t.rotation = rot_on_plane_to_quat(AngleOfV2(SubV2(gete(it->aiming_shotgun_at)->pos, it->pos)));
+					draw_thing((DrawnThing){.mesh = &mesh_shotgun, .t = shotgun_t});
 				}
 			}
 		}
@@ -5869,17 +5848,16 @@ void frame(void)
 		// @Place(UI rendering that happens before gameplay processing so can consume events before the gameplay needs them)
 		PROFILE_SCOPE("Entity UI Rendering")
 		{
-
-
 			ENTITIES_ITER(gs.entities)
 			{
-				if (it->is_npc)
+				if (it->is_npc && it->npc_kind != NPC_Player)
 				{
 					if(it->undismissed_action)
 					{
 						assert(it->undismissed_action_tick <= gs.tick); // no future undismissed actions
 					}
-
+					
+					// dialog bubble rendering
 					const float text_scale = BUBBLE_TEXT_SCALE;
 					float dist = LenV2(SubV2(it->pos, gs.player->pos));
 					float bubble_factor = 1.0f - clamp01(dist / 6.0f);
@@ -6027,24 +6005,18 @@ void frame(void)
 				}
 
 				// process gs.entities process entities
-				player_in_combat = false; // in combat set by various enemies when they fight the player
 				PROFILE_SCOPE("entity processing")
 				{
 					ENTITIES_ITER(gs.entities)
 					{
 						assert(!(it->exists && it->generation == 0));
 						
-						if (it->is_npc || it->is_character)
-						{
-							if(LenV2(it->last_moved) > 0.0f && !it->killed)
-								it->rotation = lerp_angle(it->rotation, dt * (it->quick_turning_timer > 0 ? 12.0f : 8.0f), AngleOfV2(it->last_moved));
-						}
+						if(LenV2(it->last_moved) > 0.0f && !it->killed)
+							it->rotation = lerp_angle(it->rotation, dt * (it->quick_turning_timer > 0 ? 12.0f : 8.0f), AngleOfV2(it->last_moved));
 
 						if (it->is_npc)
 						{
-
 							// @Place(entity processing)
-							
 							if(it->dialog_fade > 0.0f)
 								it->dialog_fade -= dt/DIALOG_FADE_TIME;
 							
@@ -6059,8 +6031,9 @@ void frame(void)
 							}
 							if(toface)
 								it->target_rotation = AngleOfV2(SubV2(toface->pos, it->pos));
-
-							it->rotation = lerp_angle(it->rotation, unwarped_dt*8.0f, it->target_rotation);
+							
+							if(it->npc_kind != NPC_Player)
+								it->rotation = lerp_angle(it->rotation, unwarped_dt*8.0f, it->target_rotation);
 
 							if (it->gen_request_id != 0 && !gs.stopped_time)
 							{
@@ -6544,9 +6517,6 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 								it->destroy = true;
 							}
 						}
-						else if (it->is_character)
-						{
-						}
 						else if (it->is_world)
 						{
 						}
@@ -6588,7 +6558,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 						}
 						if (it->perceptions_dirty)
 						{
-							if(it->is_character)
+							if(it->npc_kind == NPC_Player)
 							{
 								it->perceptions_dirty = false;
 							}
@@ -6709,7 +6679,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 							{
 								bool entity_talkable = true;
 								if (entity_talkable) entity_talkable = entity_talkable && (*it)->is_npc;
-								if (entity_talkable) entity_talkable = entity_talkable && !(*it)->is_character;
+								if (entity_talkable) entity_talkable = entity_talkable && (*it)->npc_kind != NPC_Player;
 #ifdef WEB
 								if (entity_talkable) entity_talkable = entity_talkable && (*it)->gen_request_id == 0;
 #endif
@@ -6727,13 +6697,6 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 								}
 							}
 						}
-
-						// maybe get rid of talking to
-						if (gs.player->waiting_on_speech_with_somebody)
-						{
-							gs.player->state = CHARACTER_IDLE;
-						}
-
 						interacting_with = closest_interact_with;
 
 						gs.player->interacting_with = frome(interacting_with);
@@ -6757,44 +6720,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 					}
 
 					float speed = 0.0f;
-					{
-						if(gs.player->killed) gs.player->state = CHARACTER_KILLED;
-						
-						switch(gs.player->state)
-						{
-						case CHARACTER_WALKING:
-							player_armature.go_to_animation = MD_S8Lit("Running");
-							break;
-						case CHARACTER_IDLE:
-							player_armature.go_to_animation = MD_S8Lit("Idle");
-							break;
-						case CHARACTER_KILLED:
-							player_armature.go_to_animation = MD_S8Lit("Die Backwards");
-							player_armature.next_animation_isnt_looping = true;
-							break;
-						}
-
-						switch (gs.player->state)
-						{
-						case CHARACTER_WALKING:
-								speed = PLAYER_SPEED;
-								if (LenV2(movement) == 0.0)
-								{
-								gs.player->state = CHARACTER_IDLE;
-								}
-								else
-								{
-								}
-								break;
-						case CHARACTER_IDLE:
-								if (LenV2(movement) > 0.01)
-								gs.player->state = CHARACTER_WALKING;
-								break;
-						case CHARACTER_KILLED:
-								break;
-						}
-					} // not time stopped
-
+					if(!gs.player->killed) speed = PLAYER_SPEED;
 					// velocity processing
 					{
 						gs.player->last_moved = NormV2(movement);
@@ -6907,17 +6833,6 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 				draw_quad((DrawParams) { quad_centered(interacting_with->pos, V2(TILE_SIZE, TILE_SIZE)), image_hovering_circle, full_region(image_hovering_circle), WHITE, .layer = LAYER_UI });
 			}
 
-			if (gs.player->state == CHARACTER_WALKING)
-			{
-			}
-			else if (gs.player->state == CHARACTER_IDLE)
-			{
-			}
-			else
-			{
-				assert(false); // unknown character state? not defined how to draw
-			}
-
 			// hurt vignette
 			if (gs.player->damage > 0.0)
 			{
@@ -7010,7 +6925,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 			draw_centered_text((TextParams){false, without_unsaid, V2(screen_size().x*0.5f, screen_size().y*0.75f), blendalpha(WHITE, visible), 1.0f, .use_font = &font_for_text_input});
 			draw_centered_text((TextParams){false, MD_S8Lit("(Press E to speak)"), V2(screen_size().x*0.5f, screen_size().y*0.25f), blendalpha(WHITE, visible*0.5f), 0.8f, .use_font = &font_for_text_input});
 
-			if(pressed.interact)
+			if(should_be_visible && pressed.interact)
 			{
 				begin_text_input();
 			}

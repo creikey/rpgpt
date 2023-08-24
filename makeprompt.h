@@ -151,19 +151,11 @@ typedef struct EntityRef
 	int generation;
 } EntityRef;
 
-typedef enum CharacterState
-{
-	CHARACTER_WALKING,
-	CHARACTER_IDLE,
-	CHARACTER_KILLED,
-} CharacterState;
-
 typedef enum
 {
 	STANDING_INDIFFERENT,
 	STANDING_JOINED,
 } NPCPlayerStanding;
-
 
 typedef Vec4 Color;
 
@@ -219,7 +211,6 @@ typedef struct Entity
 	// the kinds are at the top so you can quickly see what kind an entity is in the debugger
 	bool is_world; // the static world. An entity is always returned when you collide with something so support that here
 	bool is_npc;
-	bool is_character;
 
 	// fields for all gs.entities
 	Vec2 pos;
@@ -262,15 +253,8 @@ typedef struct Entity
 	int gen_request_id;
 	Vec2 target_goto;
 
-
-
-
-	// character
-	bool waiting_on_speech_with_somebody;
 	EntityRef interacting_with; // for drawing outline on maybe interacting with somebody
-	Vec2 to_throw_direction;
 	BUFF(Vec2, 8) position_history; // so npcs can follow behind the player
-	CharacterState state;
 	EntityRef talking_to;
 } Entity;
 
@@ -408,7 +392,7 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 		AddFmt("The characters who are near you, that you can target:\n");
 		BUFF_ITER(Entity*, &can_talk_to)
 		{
-			assert((*it)->is_npc || (*it)->is_character);
+			assert((*it)->is_npc);
 			MD_String8 info = MD_S8Lit("");
 			if((*it)->killed)
 			{
@@ -575,7 +559,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 action_
 	{
 		error_message = FmtWithLint(arena, "Speech string provided is too big, maximum bytes is %d", MAX_SENTENCE_LENGTH);
 	}
-	assert(!e->is_character); // player can't perform AI actions?
+	assert(e->npc_kind != NPC_Player); // player can't perform AI actions?
 
 	if(error_message.size == 0)
 	{
