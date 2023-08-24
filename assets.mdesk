@@ -6,6 +6,10 @@
 {
  filepath: "maninblack.png",
 }
+@image angel:
+{
+ filepath: "angel.png",
+}
 @image unread_triangle:
 {
  filepath: "unread_triangle.png",
@@ -21,6 +25,10 @@
 @sound simple_talk:
 {
  filepath: "simple_text_chirp.wav",
+}
+@sound angel_grunt_0:
+{
+ filepath: "angel_grunt_0.wav",
 }
 @sound grunt_0:
 {

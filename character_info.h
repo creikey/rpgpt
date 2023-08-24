@@ -30,6 +30,11 @@ ActionInfo actions[] = {
 		NO_ARGUMENT,
 	},
 	{
+		.name = "approach",
+		.description = "There has been an error, please report to the developer.  No NPCs should be able to do this",
+		ARGUMENT("Expects the argument to be who you're approaching"),
+	},
+	{
 		.name = "join",
 		.description = "Joins somebody else's party, so you follow them everywhere",
 		ARGUMENT("Expects the argument to be who you're joining"),
@@ -100,5 +105,10 @@ CharacterGen characters[] = {
 		.name = "Passerby",
 		.enum_name = "Passerby",
 		.prompt = CHARACTER_PROMPT_PREFIX("Random Passerby") "random person, just passing by",
+	},
+	{
+		.name = "Angel",
+		.enum_name = "Angel",
+		.prompt = CHARACTER_PROMPT_PREFIX("Angel") "mysterious, radiant, mystical creature the player first talks to. You guide the entire game: deciding on an objective for the player to fulfill until you believe they've learned their lesson, whatever that means to them.",
 	},
 };

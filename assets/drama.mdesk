@@ -32,6 +32,10 @@
 {enum: Daniel, dialog: "Exactly what I'll do to you if you don't keep your mouth shut", to: Raphael, action: ACT_put_shotgun_away}
 {enum: Raphael, dialog: "Y-y-y-yes sir.", to: Daniel}
 
+{can_hear: [Devil, Angel]}
+{enum: Devil, dialog: "You will fall!", to: Angel}
+{enum: Angel, dialog: "Perhaps. And then I will rise as He has, from the corpse and ashes, the sun rises.", to: Devil}
+
 /*
 {can_hear: [WellDweller, Farmer, ManInBlack]},
 {enum: WellDweller, dialog: "What a fearful farm you live in, come down to the well, the grass is damper down here.", to: Farmer, mood: Scared, thoughts: "Nobody can take me from my well"},

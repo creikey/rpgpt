@@ -365,6 +365,7 @@ float float_rand(float min, float max)
 	float scale = rand() / (float) RAND_MAX; /* [0, 1.0] */
 	return min + scale * (max - min); /* [min, max] */
 }
+// always randomizes pitch
 void play_audio(AudioSample *sample, float volume)
 {
 	AudioPlayer *to_use = 0;
@@ -2530,7 +2531,7 @@ GameState load_from_string(MD_Arena *arena, MD_Arena *error_arena, MD_String8 da
 		.arena = temp.arena,
 		.error_arena = error_arena,
 	};
-	GameState to_return = {0};
+	GameState to_return = { 0 };
 	ser_GameState(&ser, &to_return);
 	if(ser.cur_error.failed)
 	{
@@ -3158,6 +3159,7 @@ Armature player_armature = {0};
 Armature farmer_armature = {0};
 Armature shifted_farmer_armature = {0};
 Armature man_in_black_armature = {0};
+Armature angel_armature = {0};
 
 // armatureanimations are processed once every visual frame from this list
 Armature *armatures[] = {
@@ -3165,6 +3167,7 @@ Armature *armatures[] = {
 	&farmer_armature,
 	&shifted_farmer_armature,
 	&man_in_black_armature,
+	&angel_armature,
 };
 
 Mesh mesh_player = {0};
@@ -3231,6 +3234,9 @@ void init(void)
 
 	man_in_black_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Man In Black"));
 	man_in_black_armature.image = image_man_in_black;
+
+	angel_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Angel"));
+	angel_armature.image = image_angel;
 
 	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/Farmer.bin"));
 	farmer_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Farmer.bin"));
@@ -3731,10 +3737,11 @@ void flush_quad_batch()
 
 typedef enum
 {
-	LAYER_TILEMAP,
+	LAYER_INVALID,
 	LAYER_WORLD,
 	LAYER_UI,
 	LAYER_UI_FG,
+	LAYER_UI_TEXTINPUT,
 	LAYER_SCREENSPACE_EFFECTS,
 
 	LAYER_LAST
@@ -3965,7 +3972,7 @@ void line(Vec2 from, Vec2 to, float line_width, Color color)
 }
 
 #ifdef DEVTOOLS
-bool show_devtools = true;
+bool show_devtools = false;
 #ifdef PROFILING
 extern bool profiling;
 #else
@@ -4204,6 +4211,7 @@ typedef struct TextParams
 	Color *colors; // color per character, if not null must be array of same length as text
 	bool do_clipping;
 	LoadedFont *use_font; // if null, uses default font
+	Layer layer;
 } TextParams;
 
 // returns bounds. To measure text you can set dry run to true and get the bounds
@@ -4297,7 +4305,12 @@ AABB draw_text(TextParams t)
 							col = t.colors[i];
 						}
 
-						draw_quad((DrawParams) { to_draw, font.image, font_atlas_region, col, t.clip_to, .layer = LAYER_UI_FG, .do_clipping = t.do_clipping });
+						Layer to_use = LAYER_UI_FG;
+						if(t.layer != LAYER_INVALID)
+						{
+							to_use = t.layer;
+						}
+						draw_quad((DrawParams) { to_draw, font.image, font_atlas_region, col, t.clip_to, .layer = to_use, .do_clipping = t.do_clipping });
 					}
 				}
 			}
@@ -5570,6 +5583,8 @@ void frame(void)
 						to_use = &farmer_armature;
 					else if(it->npc_kind == NPC_Raphael)
 						to_use = &man_in_black_armature;
+					else if(it->npc_kind == NPC_Angel)
+						to_use = &angel_armature;
 					else
 						assert(false);
 
@@ -5671,15 +5686,15 @@ void frame(void)
 
 		// @Place(text input drawing)
 #ifdef DESKTOP
-		draw_quad((DrawParams){quad_at(V2(0,screen_size().y), screen_size()), IMG(image_white_square), blendalpha(BLACK, text_input_fade*0.3f), .layer = LAYER_UI_FG});
+		draw_quad((DrawParams){quad_at(V2(0,screen_size().y), screen_size()), IMG(image_white_square), blendalpha(BLACK, text_input_fade*0.3f), .layer = LAYER_UI_TEXTINPUT});
 		Vec2 edge_of_text = MulV2F(screen_size(), 0.5f);
 		if(text_input_buffer_length > 0)
 		{
-			AABB bounds = draw_centered_text((TextParams){false, MD_S8(text_input_buffer, text_input_buffer_length), MulV2F(screen_size(), 0.5f), blendalpha(WHITE, text_input_fade), 1.0f, .use_font = &font_for_text_input});
+			AABB bounds = draw_centered_text((TextParams){false, MD_S8(text_input_buffer, text_input_buffer_length), MulV2F(screen_size(), 0.5f), blendalpha(WHITE, text_input_fade), 1.0f, .use_font = &font_for_text_input, .layer = LAYER_UI_TEXTINPUT});
 			edge_of_text = bounds.lower_right;
 		}
 		Vec2 cursor_center = V2(edge_of_text.x,screen_size().y/2.0f);
-		draw_quad((DrawParams){quad_centered(cursor_center, V2(3.0f, 80.0f)), IMG(image_white_square), blendalpha(WHITE, text_input_fade * (sinf((float)elapsed_time*8.0f)/2.0f + 0.5f)), .layer = LAYER_UI_FG});
+		draw_quad((DrawParams){quad_centered(cursor_center, V2(3.0f, 80.0f)), IMG(image_white_square), blendalpha(WHITE, text_input_fade * (sinf((float)elapsed_time*8.0f)/2.0f + 0.5f)), .layer = LAYER_UI_TEXTINPUT});
 #endif
 
 		// Draw Tilemap draw tilemap tilemap drawing
@@ -5877,10 +5892,8 @@ void frame(void)
 		static bool player_in_combat = false;
 
 
-
-
 		float speed_target = 1.0f;
-		gs.stopped_time = cur_unread_entity != 0;
+		gs.stopped_time = cur_unread_entity != 0 || (!gs.no_angel_screen);
 		if(gs.stopped_time) speed_target = 0.0f;
 		// pausing the game
 		speed_factor = Lerp(speed_factor, unwarped_dt*10.0f, speed_target);
@@ -6849,6 +6862,75 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 			Vec2 text_center = V2(screen_size().x / 2.0f, screen_size().y*0.8f);
 			draw_quad((DrawParams){centered_quad(text_center, V2(screen_size().x*0.8f, screen_size().y*0.1f)), IMG(image_white_square), blendalpha(BLACK, 0.5f), .layer = LAYER_UI_FG});
 			draw_centered_text((TextParams){false, MD_S8Lit("The AI server is having technical difficulties..."), text_center, WHITE, 1.0f });
+		}
+
+		// angel screen
+		{
+			static float visible = 1.0f;
+			bool should_be_visible = !gs.no_angel_screen;
+			visible = Lerp(visible, unwarped_dt*2.0f, should_be_visible ? 1.0f : 0.0f);
+
+			Entity *angel_entity = 0;
+			ENTITIES_ITER(gs.entities)
+			{
+				if(it->is_npc && it->npc_kind == NPC_Angel)
+				{
+					assert(!angel_entity);
+					angel_entity = it;
+				} 
+			}
+			assert(angel_entity);
+
+			if(should_be_visible) gs.player->talking_to = frome(angel_entity);
+
+			draw_quad((DrawParams) {quad_at(V2(0,screen_size().y), screen_size()), IMG(image_white_square), blendalpha(BLACK, visible), .layer = LAYER_UI_FG});
+
+			static MD_String8List to_say = {0};
+			static double cur_characters = 0;
+			if(to_say.node_count == 0)
+			{
+				to_say = split_by_word(persistent_arena, MD_S8Lit("You've been asleep for a long long time..."));
+				cur_characters  = 0;
+			}
+			MD_String8 cur_word = {0};
+			MD_String8Node *cur_word_node = 0;
+			double chars_said = cur_characters;
+			for(MD_String8Node *cur = to_say.first; cur; cur = cur->next)
+			{
+				if((int)chars_said < cur->string.size)
+				{
+					cur_word = cur->string;
+					cur_word_node = cur;
+					break;
+				}
+				chars_said -= (double)cur->string.size;
+			}
+			if(!cur_word.str)
+			{
+				cur_word = to_say.last->string;
+				cur_word_node = to_say.last;
+			}
+
+			cur_characters += unwarped_dt*ANGEL_CHARACTERS_PER_SEC;
+			chars_said += unwarped_dt*ANGEL_CHARACTERS_PER_SEC;
+			if(chars_said > cur_word.size && cur_word_node->next)
+			{
+				play_audio(&sound_angel_grunt_0, 1.0f);
+			}
+
+			assert(cur_word_node);
+			MD_String8Node *prev_next = cur_word_node->next;
+			cur_word_node->next = 0;
+			MD_String8 without_unsaid = MD_S8ListJoin(frame_arena, to_say, &(MD_StringJoin){.mid = MD_S8Lit(" ")});
+			cur_word_node->next = prev_next;
+
+			draw_centered_text((TextParams){false, without_unsaid, V2(screen_size().x*0.5f, screen_size().y*0.75f), blendalpha(WHITE, visible), 1.0f, .use_font = &font_for_text_input});
+			draw_centered_text((TextParams){false, MD_S8Lit("(Press E to speak)"), V2(screen_size().x*0.5f, screen_size().y*0.25f), blendalpha(WHITE, visible*0.5f), 0.8f, .use_font = &font_for_text_input});
+
+			if(pressed.interact)
+			{
+				begin_text_input();
+			}
 		}
 
 		// win screen
