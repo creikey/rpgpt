@@ -6946,6 +6946,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 		}
 
 		// angel screen
+		gs.no_angel_screen = true;
 		{
 			static float visible = 1.0f;
 			bool should_be_visible = !gs.no_angel_screen;

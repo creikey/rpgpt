@@ -4,6 +4,7 @@ Urgent:
 - gman character that gives you randomized goals such as (kill so and so) or (befriend blank) or (get john to go to other room), and decides itself with gpt when you're done with the game, when you've 'learned your lesson'.
 - room system where characters can go to rooms. camera constrained to room bounds, and know which rooms are near them to go to
 - make them understand they're holding their shotgun more
+- Fix everything about the shotgun, put shotgun away  
 - can't interact with characters while they're thinking
 - fix stencil image being resized working
 - bubbles collide with eachother so they can't overlap
