@@ -1,9 +1,28 @@
 Urgent:
+- REALLY look into characters not being able to shoot eachother
 - Tag memories from drama as permanent so they're never forgotten and always seed character behavior
 - gman character that gives you randomized goals such as (kill so and so) or (befriend blank) or (get john to go to other room), and decides itself with gpt when you're done with the game, when you've 'learned your lesson'.
 - room system where characters can go to rooms. camera constrained to room bounds, and know which rooms are near them to go to
+- make them understand they're holding their shotgun more
+- can't interact with characters while they're thinking
+- fix stencil image being resized working
+- bubbles collide with eachother so they can't overlap
+- set the game in oregon (suggestion by phillip)
+- nocodegen instead of codegen argument
+- camera pans to who is speaking and acting
+- E keyboard hints (tutorializing)
+- dot dot dot speech bubble to show that they heard your request, but are ignoring you.
 
 Long distance:
 - Design character creator
+- Let ChatGPT file bug reports with something like !BugReport(This shouldn't be happening, developer. I killed them and they're still alive)
+- Cylindrical colliders for the people
 - System where I can upload any AI interaction into gpt playground and inspect the conversation
 - Incrementally higher resolution system for all textures, configured in a #define. Also flips the images at build time
+- Stop time when you talk to people
+- Much higher move accel, almost instantaneously goes to 
+- Imgui Button doesn't move enough when highlighted
+- Higher res text instead of text scaling
+- Make space and shift also interact
+
+- Maybe walk by default and shift to run
