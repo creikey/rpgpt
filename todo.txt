@@ -1,5 +1,6 @@
 Urgent:
 - REALLY look into characters not being able to shoot eachother
+- Silent threshold for each character from 0 to 1 that controls random chance after every eavesdropped dialog that the character says nothing in response
 - Tag memories from drama as permanent so they're never forgotten and always seed character behavior
 - gman character that gives you randomized goals such as (kill so and so) or (befriend blank) or (get john to go to other room), and decides itself with gpt when you're done with the game, when you've 'learned your lesson'.
 - room system where characters can go to rooms. camera constrained to room bounds, and know which rooms are near them to go to
@@ -14,8 +15,13 @@ Urgent:
 - E keyboard hints (tutorializing)
 - dot dot dot speech bubble to show that they heard your request, but are ignoring you.
 
+Next deleting commit:
+- Delete tilemap rendering
+- Remove speak_shortcut get_shortcut in pressed state, consolodate interact into pressedstate
+
+
 Long distance:
-- Design character creator
+- Design character creator (text input is always a modal, keeps code simple don't have to make a banger line edit)
 - Let ChatGPT file bug reports with something like !BugReport(This shouldn't be happening, developer. I killed them and they're still alive)
 - Cylindrical colliders for the people
 - System where I can upload any AI interaction into gpt playground and inspect the conversation
