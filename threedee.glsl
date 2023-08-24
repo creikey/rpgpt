@@ -82,7 +82,8 @@ uniform skeleton_vs_params {
 	vec2 bones_tex_size;
 };
 
-uniform sampler2D bones_tex;
+uniform texture2D bones_tex;
+uniform sampler vs_skeleton_smp;
 
 float decode_normalized_float32(vec4 v)
 {
@@ -110,7 +111,7 @@ void main() {
 		{
 			for(int col = 0; col < 4; col++)
 			{
-				bone_mat[col][row] = decode_normalized_float32(texture(bones_tex, vec2((0.5 + col*4 + row)/bones_tex_size.x, y_coord)));
+				bone_mat[col][row] = decode_normalized_float32(texture(sampler2D(bones_tex, vs_skeleton_smp), vec2((0.5 + col*4 + row)/bones_tex_size.x, y_coord)));
 			}
 		}
 
@@ -172,8 +173,10 @@ void main() {
 
 @fs fs
 
-uniform sampler2D tex;
-uniform sampler2D shadow_map;
+uniform texture2D tex;
+uniform texture2D shadow_map;
+uniform sampler fs_smp;
+uniform samplerShadow fs_shadow_smp;
 
 uniform fs_params {
 	int shadow_map_dimension;
@@ -193,7 +196,7 @@ float decodeDepth(vec4 rgba) {
     return dot(rgba, vec4(1.0, 1.0/255.0, 1.0/65025.0, 1.0/16581375.0));
 }
 
-float do_shadow_sample(sampler2D shadowMap, vec2 uv, float scene_depth, float n_dot_l) {
+float do_shadow_sample(texture2D shadowMap, vec2 uv, float scene_depth, float n_dot_l) {
 	{
 		//WebGL does not support GL_CLAMP_TO_BORDER, or border colors at all it seems, so we have to check explicitly.
 		//This will probably slow down other versions which do support texture borders, but the current system does
@@ -201,7 +204,7 @@ float do_shadow_sample(sampler2D shadowMap, vec2 uv, float scene_depth, float n_
 		if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
 			return 1.0;
 	}
-	float map_depth = decodeDepth(texture(shadowMap, uv));
+	float map_depth = decodeDepth(texture(sampler2D(shadowMap, fs_shadow_smp), uv));
 
     // float bias = max(0.03f * (1.0f - n_dot_l), 0.005f);
     // bias = clamp(bias, 0.0, 0.01);
@@ -216,7 +219,7 @@ float do_shadow_sample(sampler2D shadowMap, vec2 uv, float scene_depth, float n_
 }
 
 
-float bilinear_shadow_sample(sampler2D shadowMap, vec2 uv, int texture_width, int texture_height, float scene_depth_light_space, float n_dot_l) {
+float bilinear_shadow_sample(texture2D shadowMap, vec2 uv, int texture_width, int texture_height, float scene_depth_light_space, float n_dot_l) {
 	vec2 texture_dim = vec2(float(texture_width), float(texture_height));
 	vec2 texel_dim  = vec2(1.0 / float(texture_width ), 1.0 / float(texture_height));
 
@@ -244,7 +247,7 @@ float bilinear_shadow_sample(sampler2D shadowMap, vec2 uv, int texture_width, in
 	return result;
 }
 
-float calculate_shadow_factor(sampler2D shadowMap, vec4 light_space_fragment_position, float n_dot_l) {
+float calculate_shadow_factor(texture2D shadowMap, vec4 light_space_fragment_position, float n_dot_l) {
 	float shadow = 1.0;
 
 	vec3 projected_coords = light_space_fragment_position.xyz / light_space_fragment_position.w;
@@ -275,7 +278,7 @@ float calculate_shadow_factor(sampler2D shadowMap, vec4 light_space_fragment_pos
 }
 
 void main() {
-	vec4 col = texture(tex, uv);
+	vec4 col = texture(sampler2D(tex, fs_smp), uv);
 
 	bool alpha_blend = bool(alpha_blend_int);
 	
@@ -292,11 +295,6 @@ void main() {
 
 	//col.rgb = vec3(desertness, 0, 0);
 
-	if(col.a < 0.1 && !alpha_blend)
-	{
-		discard;
-	}
-	else
 	{
 
 		vec3 normal = normalize(cross(dFdx(world_space_frag_pos.xyz), dFdy(world_space_frag_pos.xyz)));
@@ -307,23 +305,21 @@ void main() {
 		float lighting_factor = shadow_factor * n_dot_l;
 		lighting_factor = lighting_factor * 0.5 + 0.5;
 
-		if(alpha_blend)
+		if (!alpha_blend)
 		{
-			frag_color = vec4(col.rgb*lighting_factor, col.a);
+			float _Cutoff = 0.75; // Change this! it is tuned for existing bushes and TreeLayer leaves 2023-08-23
+			col.a = (col.a - _Cutoff) / max(fwidth(col.a), 0.0001) + 0.5;
 		}
-		else
-		{
-			frag_color = vec4(col.rgb*lighting_factor, 1.0);
-		}
-		//frag_color = vec4(col.rgb, 1.0);
 	
+		frag_color = vec4(col.rgb*lighting_factor, col.a);
 	}
 }
 @end
 
 @fs fs_shadow_mapping
 
-uniform sampler2D tex;
+uniform texture2D tex;
+uniform sampler fs_shadow_mapping_smp;
 
 in vec3 pos;
 in vec2 uv;
@@ -341,7 +337,7 @@ vec4 encodeDepth(float v) {
 }
 
 void main() {
-	vec4 col = texture(tex, uv);
+	vec4 col = texture(sampler2D(tex, fs_shadow_mapping_smp), uv);
 	if(col.a < 0.5)
 	{
 		discard;
@@ -366,7 +362,9 @@ void main() {
 @end
 
 @fs fs_twodee
-uniform sampler2D twodee_tex;
+uniform texture2D twodee_tex;
+uniform sampler fs_twodee_smp;
+
 uniform twodee_fs_params {
     vec4 tint;
 
@@ -375,8 +373,12 @@ uniform twodee_fs_params {
     vec2 clip_lr;
 
     float alpha_clip_threshold;
+	float time;
 
 		vec2 tex_size;
+		vec2 screen_size;
+
+		float flip_and_swap_rgb;
 };
 
 in vec2 uv;
@@ -387,7 +389,10 @@ out vec4 frag_color;
 void main() {
     // clip space is from [-1,1] [left, right]of screen on X, and [-1,1] [bottom, top] of screen on Y
     if(pos.x < clip_ul.x || pos.x > clip_lr.x || pos.y < clip_lr.y || pos.y > clip_ul.y) discard;
-    frag_color = texture(twodee_tex, uv) * tint;
+	vec2 real_uv = uv;
+	if (flip_and_swap_rgb > 0) real_uv.y = 1 - real_uv.y;
+	frag_color = texture(sampler2D(twodee_tex, fs_twodee_smp), real_uv) * tint;
+	if (flip_and_swap_rgb > 0) frag_color.rgb = frag_color.bgr;
     if(frag_color.a <= alpha_clip_threshold)
     {
      discard;
@@ -397,7 +402,9 @@ void main() {
 @end
 
 @fs fs_twodee_outline
-uniform sampler2D twodee_tex;
+uniform texture2D twodee_tex;
+uniform sampler fs_twodee_outline_smp;
+
 uniform twodee_fs_params {
     vec4 tint;
 
@@ -406,8 +413,12 @@ uniform twodee_fs_params {
     vec2 clip_lr;
 
     float alpha_clip_threshold;
+	float time;
 
 		vec2 tex_size;
+		vec2 screen_size;
+
+		float flip_and_swap_rgb;
 };
 
 in vec2 uv;
@@ -418,31 +429,45 @@ out vec4 frag_color;
 void main() {
     // clip space is from [-1,1] [left, right]of screen on X, and [-1,1] [bottom, top] of screen on Y
     if(pos.x < clip_ul.x || pos.x > clip_lr.x || pos.y < clip_lr.y || pos.y > clip_ul.y) discard;
+	
+	vec2 real_uv = uv;
+	if (flip_and_swap_rgb > 0) real_uv.y = 1 - real_uv.y;
 
-		float left = texture(twodee_tex, uv + vec2(-1, 0)/tex_size).a;
-		float right = texture(twodee_tex, uv + vec2(1, 0)/tex_size).a;
-		float up = texture(twodee_tex, uv + vec2(0, 1)/tex_size).a;
-		float down = texture(twodee_tex, uv + vec2(0, -1)/tex_size).a;
+		// 5-tap tent filter: centre, left, right, up, down
+		float c = texture(sampler2D(twodee_tex, fs_twodee_outline_smp), real_uv).a;
+		float l = texture(sampler2D(twodee_tex, fs_twodee_outline_smp), real_uv + vec2(-1, 0)/tex_size).a;
+		float r = texture(sampler2D(twodee_tex, fs_twodee_outline_smp), real_uv + vec2(+1, 0)/tex_size).a;
+		float u = texture(sampler2D(twodee_tex, fs_twodee_outline_smp), real_uv + vec2(0, +1)/tex_size).a;
+		float d = texture(sampler2D(twodee_tex, fs_twodee_outline_smp), real_uv + vec2(0, -1)/tex_size).a;
 
-		if(
-			false
-			|| left > 0.1 && right < 0.1
-			|| left < 0.1 && right > 0.1
-			|| up < 0.1 && down > 0.1
-			|| up > 0.1 && down < 0.1
-		)
-		{
-			frag_color = vec4(1.0);
-		}
-		else
-		{
-			frag_color = vec4(0.0);
-		}
+		// if centre pixel is ~1, it is inside a shape.
+		// if centre pixel is ~0, it is outside a shape.
+		// if it is in the middle, it is near an MSAA-resolved edge.
+		// we parallel-compute the inside AND outside glows, and then lerp using c.
+		float lerp_t = c;
+
+		// buffer is linear-space to be ACES-corrected later, but MSAA happens in gamma space;
+		// I want a gamma-space blend; so I cheaply do pow(x, 2) by computing x*x.
+		c *= c; l *= l; r *= r; u *= u; d *= d;
+
+		float accum_o =     (c + l + r + u + d);
+		float accum_i = 5 - (c + l + r + u + d);
+		accum_o = 0.3 * accum_o;
+		accum_i = 0.3 * accum_i;
+		accum_o = clamp(accum_o, 0, 1);
+		accum_i = clamp(accum_i, 0, 1);
+		accum_o = sqrt(accum_o); // cheap gamma-undo
+		accum_i = sqrt(accum_i); // cheap gamma-undo
+
+		float accum = mix(accum_o, accum_i, lerp_t);
+		frag_color = vec4(1, 1, 1, accum);
 }
 @end
 
 @fs fs_twodee_color_correction
-uniform sampler2D twodee_tex;
+uniform texture2D twodee_tex;
+uniform sampler fs_twodee_color_correction_smp;
+
 uniform twodee_fs_params {
     vec4 tint;
 
@@ -451,8 +476,12 @@ uniform twodee_fs_params {
     vec2 clip_lr;
 
     float alpha_clip_threshold;
+	float time;
 
 		vec2 tex_size;
+		vec2 screen_size;
+
+		float flip_and_swap_rgb;
 };
 
 in vec2 uv;
@@ -473,9 +502,31 @@ void main() {
     // clip space is from [-1,1] [left, right]of screen on X, and [-1,1] [bottom, top] of screen on Y
     if(pos.x < clip_ul.x || pos.x > clip_lr.x || pos.y < clip_lr.y || pos.y > clip_ul.y) discard;
 
-		vec4 col = texture(twodee_tex, uv);
+	vec2 real_uv = uv;
+	if (flip_and_swap_rgb > 0) real_uv.y = 1 - real_uv.y;
+
+		vec4 col = texture(sampler2D(twodee_tex, fs_twodee_color_correction_smp), real_uv);
+		if (flip_and_swap_rgb > 0) col.rgb = col.bgr;
 
 		col.rgb = acesFilm(col.rgb);
+
+		// Film grain
+		vec2 grain_uv = gl_FragCoord.xy / screen_size.xy;
+		float x = grain_uv.x * grain_uv.y * time * 24 + 100.0;
+		vec3 noise = vec3(mod((mod(x, 13.0) + 1.0) * (mod(x, 123.0) + 1.0), 0.01)) * 100.0;
+		col.rgb += (noise - 0.5) * 0.05;
+		col.rgb *= 0.95;
+		// Hard-clip contrast levels
+		float min = 11; float max = 204;
+		col.rgb -= min/255;
+		col.rgb *= 255/(max-min);
+		// Vignette
+		col.rgb *= clamp(1.5 - length(gl_FragCoord.xy / screen_size.xy - vec2(0.5)), 0, 1);
+		// Cross-process
+		float cross_process_strength = 0.5;
+		col.rg *= (col.rg * ((-cross_process_strength) * col.rg + (-1.5 * (-cross_process_strength))) + (0.5 * (-cross_process_strength) + 1));
+		col.b  *= (col.b  * ((+cross_process_strength) * col.b  + (-1.5 * (+cross_process_strength))) + (0.5 * (+cross_process_strength) + 1));
+		col.rgb = clamp(col.rgb, 0, 1);
 
 		frag_color = col;
 }
@@ -484,7 +535,8 @@ void main() {
 
 @fs fs_outline
 
-uniform sampler2D tex;
+uniform texture2D tex;
+uniform sampler fs_outline_smp;
 
 in vec3 pos;
 in vec2 uv;
@@ -495,7 +547,7 @@ in vec4 world_space_frag_pos;
 out vec4 frag_color;
 
 void main() {
-	vec4 col = texture(tex, uv);
+	vec4 col = texture(sampler2D(tex, fs_outline_smp), uv);
 	if(col.a < 0.5)
 	{
 		discard;

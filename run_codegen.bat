@@ -9,7 +9,7 @@ if exist gen\ (
 )
 
 @REM shaders
-thirdparty\sokol-shdc.exe --input threedee.glsl --output gen\threedee.glsl.h --slang glsl100:hlsl5:metal_macos:glsl330 || goto :error
+thirdparty\sokol-shdc.exe --input threedee.glsl --output gen\threedee.glsl.h --slang glsl300es:hlsl5:glsl330 || goto :error
 
 @REM metadesk codegen
 cl /nologo /diagnostics:caret /Ithirdparty /W3 /Zi /WX codegen.c || goto :error
