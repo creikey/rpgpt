@@ -1,10 +1,10 @@
-# rpgpt
-RPG GPT. Short experience
+# [Dante's Cowboy - Wishlist now on Steam!](https://store.steampowered.com/app/2501370/Dantes_Cowboy)
+A fantasy western RPG with an immersive and natural dynamic dialogue system powered by GPT.
 
 ![Western Frontier](https://upload.wikimedia.org/wikipedia/commons/thumb/3/32/Distribution_of_US_Rural_Population_during_1900.pdf/page1-1280px-Distribution_of_US_Rural_Population_during_1900.pdf.jpg)
 
 # Important Building Steps and Contribution Notes
-Every time you checkin/clone the project, you have to unzip art.blend... If this is annoying to you, make a git hook
+Every time you checkin/clone the project, make sure to call `blender_export.bat` at least once! This will auto-extract `art\art.blend` and run `art\Exporter.py`, thereby baking, validating, and exporting all the assets and the level.
 
 When editing Exporter.py in either the blender editor, or in a text editor in the repo, you  have to continually make sure blender's internal version of the script doesn't go out of date with the actual script on disk, by either saving consistently from blender to disk if you're editing from blender, or by reloading from disk in the blend file before each commit.
 

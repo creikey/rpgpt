@@ -1,42 +1,23 @@
 #pragma once
 
 #include <stdio.h>
-#include <stdbool.h>
+
+#define STRINGIZE(x) STRINGIZE2(x)
+#define STRINGIZE2(x) #x
 
 #ifdef WEB
-#include <signal.h>
-#define game_debugbreak() raise(SIGTRAP)
-
-#define game_assert_4127_push
-#define game_assert_4127_pop
-
+#define assert_impl(cond, str) ((cond) || (EM_ASM({ assert(0, UTF8ToString($0) + UTF8ToString($1)); }, (__func__), (str)), 0))
 #elif defined(DESKTOP)
-#define game_debugbreak() __debugbreak()
-
-#define game_assert_4127_push __pragma(warning(push)) __pragma(warning(disable:4127))
-#define game_assert_4127_pop  __pragma(warning(pop))
-
+#define assert_impl(cond, str) ((cond) || (fputs("Assertion failed: " __FUNCTION__ str "\n", stderr), __debugbreak(), 0))
 #else
 #error "Don't know how to assert for current platform configuration"
-#define game_debugbreak() (void)(0)
 #endif
-
-static void assert_impl(const char *func, const char *file, long line, const char *expression)
-{
-	fprintf(stderr, "Assert fail in %s(%s:%ld):\n    \"%s\"\n", func, file, line, expression);
-}
 
 #ifdef NDEBUG
-#define game_assert(cond) game_assert_4127_push do { (void)0; } while (0) game_assert_4127_pop
+#define game_assert(cond) ((void)0)
 #else
-#define game_assert(cond) game_assert_4127_push do { \
-	if (!(cond)) { \
-		assert_impl(__func__, __FILE__, __LINE__, #cond); \
-		game_debugbreak(); \
-	} \
-} while (0) game_assert_4127_pop
+#define game_assert(cond) assert_impl(cond, "(" __FILE__ ":" STRINGIZE(__LINE__) "): \"" #cond "\"")
 #endif
-
 
 #ifdef assert
 #undef assert

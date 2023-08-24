@@ -21,11 +21,13 @@
 #define DESKTOP
 #define WINDOWS
 #define SOKOL_GLCORE33
+#define SAMPLE_COUNT 4
 #endif
 
 #if defined(__EMSCRIPTEN__)
 #define WEB
 #define SOKOL_GLES2
+#define SAMPLE_COUNT 1 // bumping this back to 4 is troublesome for web, because there's a mismatch in sample counts. Perhaps we must upgrade to gles3, in doing so, we should upgrade to the newest sokol gfx.
 #endif
 
 #define DRWAV_ASSERT game_assert
@@ -41,8 +43,6 @@
 
 #pragma warning(push, 3)
 #include <Windows.h>
-#include <processthreadsapi.h>
-#include <dbghelp.h>
 #include <stdint.h>
 
 // https://developer.download.nvidia.com/devzone/devcenter/gamegraphics/files/OptimusRenderingPolicies.pdf
@@ -53,13 +53,19 @@ __declspec(dllexport) uint32_t AmdPowerXpressRequestHighPerformance = 0x00000001
 
 #endif
 
-#define STRINGIZE(x) STRINGIZE2(x)
-#define STRINGIZE2(x) #x
-
 #include "buff.h"
 #include "sokol_app.h"
 #pragma warning(push)
 #pragma warning(disable : 4191) // unsafe function calling
+#ifdef WEB
+# ifndef GL_EXT_PROTOTYPES
+# define GL_GLEXT_PROTOTYPES
+# endif
+# include <GLES2/gl2.h>
+# include <GLES2/gl2ext.h>
+# undef glGetError
+# define glGetError() (GL_NO_ERROR)
+#endif
 #include "sokol_gfx.h"
 #pragma warning(pop)
 #include "sokol_time.h"
@@ -467,6 +473,7 @@ LPCWSTR windows_string(MD_String8 s)
 #ifdef DESKTOP
 #ifdef WINDOWS
 #pragma warning(push, 3)
+#pragma comment(lib, "WinHttp")
 #include <WinHttp.h>
 #include <process.h>
 #pragma warning(pop)
@@ -2703,7 +2710,7 @@ void create_screenspace_gfx_state()
 			.depth = {
 			0
 			},
-			.sample_count = 1,
+			.sample_count = SAMPLE_COUNT,
 			.layout = {
 			.attrs =
 			{
@@ -2733,7 +2740,7 @@ void create_screenspace_gfx_state()
 			.depth = {
 				.pixel_format = SG_PIXELFORMAT_NONE,
 			},
-			.sample_count = 1,
+			.sample_count = SAMPLE_COUNT,
 			.layout = {
 			.attrs =
 			{
@@ -2765,7 +2772,7 @@ void create_screenspace_gfx_state()
 		.wrap_u = SG_WRAP_CLAMP_TO_BORDER,
 		.wrap_v = SG_WRAP_CLAMP_TO_BORDER,
 		.border_color = SG_BORDERCOLOR_OPAQUE_WHITE,
-		.sample_count = 1,
+		.sample_count = SAMPLE_COUNT,
 		.label = "outline-pass-render-target",
 	};
 	state.outline_pass_image = sg_make_image(&desc);
@@ -2777,7 +2784,7 @@ void create_screenspace_gfx_state()
 			.label = "outline-pass",
 	});
 
-	desc.sample_count = 1;
+	desc.sample_count = SAMPLE_COUNT;
 	
 	desc.label = "threedee-pass-render-target";
 	state.threedee_pass_image = sg_make_image(&desc);
@@ -3750,9 +3757,11 @@ typedef enum
 typedef BUFF(char, 200) StacktraceElem;
 typedef BUFF(StacktraceElem, 16) StacktraceInfo;
 
+#if 0 // #ifdef WINDOWS
+#include <dbghelp.h>
+#pragma comment(lib, "DbgHelp")
 StacktraceInfo get_stacktrace()
 {
-#ifdef WINDOWS
 	StacktraceInfo to_return = {0};
 	void *stack[ARRLEN(to_return.data)] = {0};
 	int captured = CaptureStackBackTrace(0, ARRLEN(to_return.data), stack, 0);
@@ -3786,10 +3795,13 @@ StacktraceInfo get_stacktrace()
 		free(symbol);
 	}
 	return to_return;
-#else
-	return (StacktraceInfo){0};
-#endif
 }
+#else
+StacktraceInfo get_stacktrace()
+{
+	return (StacktraceInfo){0};
+}
+#endif
 
 typedef struct DrawParams
 {
@@ -4850,7 +4862,7 @@ Shadow_State init_shadow_state() {
 		.wrap_u = SG_WRAP_CLAMP_TO_BORDER,
 		.wrap_v = SG_WRAP_CLAMP_TO_BORDER,
 		.border_color = SG_BORDERCOLOR_OPAQUE_WHITE,
-		.sample_count = 1,
+		.sample_count = SAMPLE_COUNT,
 		.label = "shadow-map-color-image"
 	};
 	shadows.color_img = sg_make_image(&img_desc);
@@ -4874,7 +4886,7 @@ Shadow_State init_shadow_state() {
 			.shader = sg_make_shader(threedee_mesh_shadow_mapping_shader_desc(sg_query_backend())),
 			// Cull front faces in the shadow map pass
 			// .cull_mode = SG_CULLMODE_BACK,
-			.sample_count = 1,
+			.sample_count = SAMPLE_COUNT,
 			.depth = {
 				.pixel_format = SG_PIXELFORMAT_DEPTH,
 				.compare = SG_COMPAREFUNC_LESS_EQUAL,
@@ -7303,9 +7315,31 @@ void event(const sapp_event *e)
 	}
 #endif
 
-	if (e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_code == SAPP_KEYCODE_F11)
+	if (e->type == SAPP_EVENTTYPE_KEY_DOWN &&
+	    (e->key_code == SAPP_KEYCODE_F11 ||
+	     e->key_code == SAPP_KEYCODE_ENTER && ((e->modifiers & SAPP_MODIFIER_ALT) || (e->modifiers & SAPP_MODIFIER_SHIFT))))
 	{
+#ifdef DESKTOP
 		sapp_toggle_fullscreen();
+#else
+		EM_ASM({
+			var elem = document.documentElement;
+			if (document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement)
+			{
+				if (document.exitFullscreen) document.exitFullscreen();
+				else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+				else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
+				else if (document.msExitFullscreen) document.msExitFullscreen();
+			}
+			else
+			{
+				if (elem.requestFullscreen) elem.requestFullscreen();
+				else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
+				else if (elem.mozRequestFullScreen) elem.mozRequestFullScreen();
+				else if (elem.msRequestFullscreen) elem.msRequestFullscreen();
+			}
+		});
+#endif
 	}
 
 #ifdef DEVTOOLS
@@ -7529,11 +7563,11 @@ sapp_desc sokol_main(int argc, char* argv[])
 			.frame_cb = frame,
 			.cleanup_cb = cleanup,
 			.event_cb = event,
-			.sample_count = 1, // bumping this back to 4 is troublesome for web, because there's a mismatch in sample counts. Perhaps we must upgrade to gles3, in doing so, we should upgrade to the newest sokol gfx.
+			.sample_count = SAMPLE_COUNT,
 			.width = 800,
 			.height = 600,
 			//.gl_force_gles2 = true, not sure why this was here in example, look into
-			.window_title = "RPGPT",
+			.window_title = "Dante's Cowboy",
 			.win32_console_attach = true,
 			.win32_console_create = true,
 			.icon.sokol_default = true,
