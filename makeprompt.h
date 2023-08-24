@@ -205,6 +205,11 @@ void chunk_from_s8(TextChunk *into, MD_String8 from)
 	into->text_length = (int)from.size;
 }
 
+typedef struct
+{
+	NpcKind who_to_kill;
+} GameObjective;
+
 typedef struct Entity
 {
 	bool exists;
@@ -283,6 +288,8 @@ typedef BUFF(ActionKind, 8) AvailableActions;
 typedef struct GameState {
 	uint64_t tick;
 	bool won;
+	
+	bool no_angel_screen;
 	
 	// processing may still occur after time has stopped on the gamestate, 
 	bool stopped_time;
@@ -365,6 +372,18 @@ MD_String8 make_json_node(MD_Arena *arena, MessageType type, MD_String8 content)
 	return to_return;
 }
 
+MD_String8 npc_to_human_readable(Entity *me, NpcKind kind)
+{
+	if(me->npc_kind == kind)
+	{
+		return MD_S8Lit("You");
+	}
+	else
+	{
+		return MD_S8CString(characters[kind].name);
+	}
+}
+
 // outputs json which is parsed by the server
 MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, CanTalkTo can_talk_to)
 {
@@ -427,24 +446,29 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 			{
 				switch(it->action_taken)
 				{
+				#define HUMAN(kind) MD_S8VArg(npc_to_human_readable(e, kind))
 				case ACT_none:
 					break;
 				case ACT_join:
-					AddFmt("%s joined %s\n", characters[it->context.author_npc_kind].name, characters[it->action_argument.targeting].name);
+					AddFmt("%.*s joined %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action_argument.targeting));
 					break;
 				case ACT_leave:
-					AddFmt("%s left their party\n", characters[it->context.author_npc_kind].name);
+					AddFmt("%.*s left their party\n",  HUMAN(it->context.author_npc_kind));
 					break;
 				case ACT_aim_shotgun:
-					AddFmt("%s aimed their shotgun at %s\n", characters[it->context.author_npc_kind].name, characters[it->action_argument.targeting].name);
+					AddFmt("%.*s aimed their shotgun at %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action_argument.targeting));
 					break;
 				case ACT_fire_shotgun:
-					AddFmt("%s fired their shotgun at %s, brutally murdering them.\n", characters[it->context.author_npc_kind].name, characters[it->action_argument.targeting].name);
+					AddFmt("%.*s fired their shotgun at %.*s, brutally murdering them.\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action_argument.targeting));
 					break;
 				case ACT_put_shotgun_away:
-					AddFmt("%s holstered their shotgun, no longer threatening anybody\n", characters[it->context.author_npc_kind].name);
+					AddFmt("%.*s holstered their shotgun, no longer threatening anybody\n", HUMAN(it->context.author_npc_kind));
 					break;
-}
+				case ACT_approach:
+					AddFmt("%.*s approached %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action_argument.targeting));
+					break;
+				#undef HUMAN
+				}
 			}
 			if(it->speech.text_length > 0)
 			{
