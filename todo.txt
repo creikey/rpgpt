@@ -15,11 +15,6 @@ Urgent:
 - E keyboard hints (tutorializing)
 - dot dot dot speech bubble to show that they heard your request, but are ignoring you.
 
-Next deleting commit:
-- Delete tilemap rendering
-- Remove speak_shortcut get_shortcut in pressed state, consolodate interact into pressedstate
-
-
 Long distance:
 - Design character creator (text input is always a modal, keeps code simple don't have to make a banger line edit)
 - Let ChatGPT file bug reports with something like !BugReport(This shouldn't be happening, developer. I killed them and they're still alive)

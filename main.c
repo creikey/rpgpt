@@ -4781,9 +4781,6 @@ typedef struct
 	bool interact;
 	bool mouse_down;
 	bool mouse_up;
-
-	bool speak_shortcut;
-	bool give_shortcut;
 } PressedState;
 
 PressedState pressed = { 0 };
@@ -5529,7 +5526,6 @@ void frame(void)
 		Vec3 cam_pos = AddV3(player_pos, away_from_player);
 
 		Vec2 movement = { 0 };
-		bool interact = false;
 		if (mobile_controls)
 		{
 			movement = SubV2(thumbstick_nub_pos, thumbstick_base_pos);
@@ -5537,7 +5533,6 @@ void frame(void)
 			{
 				movement = MulV2F(NormV2(movement), LenV2(movement) / (thumbstick_base_size()*0.5f));
 			}
-			interact = pressed.interact;
 		}
 		else
 		{
@@ -5545,7 +5540,6 @@ void frame(void)
 					(float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A],
 					(float)keydown[SAPP_KEYCODE_W] - (float)keydown[SAPP_KEYCODE_S]
 					);
-			interact = pressed.interact;
 		}
 		if (LenV2(movement) > 1.0)
 		{
@@ -5758,81 +5752,6 @@ void frame(void)
 		draw_quad((DrawParams){quad_centered(cursor_center, V2(3.0f, 80.0f)), IMG(image_white_square), blendalpha(WHITE, text_input_fade * (sinf((float)elapsed_time*8.0f)/2.0f + 0.5f)), .layer = LAYER_UI_TEXTINPUT});
 #endif
 
-		// Draw Tilemap draw tilemap tilemap drawing
-#if 0
-		PROFILE_SCOPE("tilemap")
-		{
-			Vec2 starting_world = AddV2(world_cam_aabb().upper_left, V2(-TILE_SIZE, TILE_SIZE));
-			Vec2 ending_world = AddV2(world_cam_aabb().lower_right, V2(TILE_SIZE, -TILE_SIZE));
-
-			TileCoord starting_point = world_to_tilecoord(starting_world);
-			TileCoord ending_point = world_to_tilecoord(ending_world);
-
-			int starting_row = starting_point.y;
-			int ending_row = ending_point.y;
-
-			int starting_col = starting_point.x;
-			int ending_col = ending_point.x;
-
-			for (int layer = 0; layer < LAYERS; layer++)
-			{
-				for (int row = starting_row; row < ending_row; row++)
-				{
-					for (int col = starting_col; col < ending_col; col++)
-					{
-						TileCoord cur_coord = { col, row };
-						TileInstance cur = get_tile_layer(cur_level, layer, cur_coord);
-
-						int tileset_i = 0;
-						uint16_t max_gid = 0;
-						for (int i = 0; i < ARRLEN(tilesets); i++)
-						{
-							TileSet tileset = tilesets[i];
-							if (cur.kind > tileset.first_gid && tileset.first_gid > max_gid)
-							{
-								tileset_i = i;
-								max_gid = tileset.first_gid;
-							}
-						}
-
-						TileSet tileset = tilesets[tileset_i];
-						cur.kind -= tileset.first_gid - 1;
-
-						if (cur.kind != 0)
-						{
-							Vec2 tile_size = V2(TILE_SIZE, TILE_SIZE);
-
-							sg_image tileset_image = *tileset.img;
-
-							Vec2 tile_image_coord = tile_id_to_coord(tileset_image, tile_size, cur.kind);
-
-							AnimatedTile *anim = NULL;
-							for (int i = 0; i < sizeof(tileset.animated) / sizeof(*tileset.animated); i++)
-							{
-								if (tileset.animated[i].exists && tileset.animated[i].id_from == cur.kind-1)
-								{
-									anim = &tileset.animated[i];
-								}
-							}
-							if (anim)
-							{
-								double time_per_frame = 0.1;
-								int frame_index = (int)(elapsed_time / time_per_frame) % anim->num_frames;
-								tile_image_coord = tile_id_to_coord(tileset_image, tile_size, anim->frames[frame_index] + 1);
-							}
-
-							AABB region;
-							region.upper_left = tile_image_coord;
-							region.lower_right = AddV2(region.upper_left, tile_size);
-
-							draw_quad((DrawParams) { true, tile_quad(cur_coord), tileset_image, region, WHITE, .layer = LAYER_TILEMAP });
-						}
-					}
-				}
-			}
-		}
-#endif
-
 		Entity *cur_unread_entity = 0;
 		uint64_t earliest_unread_time = gs.tick;
 		ENTITIES_ITER(gs.entities)
@@ -5890,7 +5809,7 @@ void frame(void)
 								.layer = LAYER_UI_FG,
 						});
 
-						if (interact)
+						if (pressed.interact)
 						{
 							if(it->words_said_on_page < words_to_say.node_count)
 							{
@@ -5913,7 +5832,7 @@ void frame(void)
 									it->words_said_on_page = 0;
 								}								
 							}
-							interact = false;
+							pressed.interact = false;
 						}
 					}
 					it->loading_anim_in = Lerp(it->loading_anim_in, unwarped_dt * 5.0f, it->gen_request_id != 0 ? 1.0f : 0.0f);
@@ -6702,7 +6621,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 						gs.player->interacting_with = frome(interacting_with);
 					}
 
-					if (interact)
+					if (pressed.interact)
 					{
 						if (closest_interact_with)
 						{
@@ -6771,7 +6690,6 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 
 				pressed = (PressedState) { 0 };
 				memset(keypressed, 0, sizeof(keypressed));
-				interact = false;
 			} // while loop
 
             last_frame_gameplay_processing_time = stm_sec(stm_diff(stm_now(), time_start_gameplay_processing));
@@ -7470,15 +7388,6 @@ void event(const sapp_event *e)
 			if (e->key_code == SAPP_KEYCODE_E)
 			{
 				pressed.interact = true;
-			}
-
-			if (e->key_code == SAPP_KEYCODE_S)
-			{
-				pressed.speak_shortcut = true;
-			}
-			if (e->key_code == SAPP_KEYCODE_G)
-			{
-				pressed.give_shortcut = true;
 			}
 
 			if (e->key_code == SAPP_KEYCODE_LEFT_SHIFT)
