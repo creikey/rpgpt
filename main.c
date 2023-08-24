@@ -3459,7 +3459,7 @@ void init(void)
 		// .mipmap_filter = SG_FILTER_LINEAR,
 		.wrap_u = SG_WRAP_CLAMP_TO_EDGE,
 		.wrap_v = SG_WRAP_CLAMP_TO_EDGE,
-		// .max_anisotropy = 16,
+		.max_anisotropy = 16,
 		.label = "sampler-linear",
 	});
 
@@ -3469,6 +3469,7 @@ void init(void)
 		.wrap_u = SG_WRAP_CLAMP_TO_BORDER,
 		.wrap_v = SG_WRAP_CLAMP_TO_BORDER,
 		.border_color = SG_BORDERCOLOR_OPAQUE_WHITE,
+		.max_anisotropy = 16,
 		.label = "sampler-linear-border",
 	});
 

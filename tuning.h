@@ -1,4 +1,5 @@
-#pragma once
+#ifndef TUNING_H // #pragma once isn't supported by sokol-shdc yet
+#define TUNING_H
 
 #define LEVEL_TILES 150 // width and height of level tiles array
 #define LAYERS 3
@@ -71,3 +72,20 @@
 #define NEAR_PLANE_DISTANCE (0.01f)
 #define FAR_PLANE_DISTANCE (45.0f)
 #define SHADOW_MAP_DIMENSION (2048)
+
+// Post-processing
+#if 0 // use this to completely disable
+#define FILM_GRAIN_STRENGTH    0   // 0 to 100
+#define CONTRAST_BOOST_MIN     0   // 0 to 255
+#define CONTRAST_BOOST_MAX     255 // 0 to 255
+#define VIGNETTE_STRENGTH      0   // 0 to 100
+#define CROSS_PROCESS_STRENGTH 0   // 0 to 100
+#else
+#define FILM_GRAIN_STRENGTH    0   // 0 to 100
+#define CONTRAST_BOOST_MIN     11  // 0 to 255
+#define CONTRAST_BOOST_MAX     204 // 0 to 255
+#define VIGNETTE_STRENGTH      50  // 0 to 100
+#define CROSS_PROCESS_STRENGTH 50  // 0 to 100
+#endif
+
+#endif // TUNING_H
