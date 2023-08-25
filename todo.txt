@@ -1,9 +1,9 @@
 Urgent:
+- room system where characters can go to rooms. camera constrained to room bounds, and know which rooms are near them to go to
 - REALLY look into characters not being able to shoot eachother
 - Silent threshold for each character from 0 to 1 that controls random chance after every eavesdropped dialog that the character says nothing in response
 - Tag memories from drama as permanent so they're never forgotten and always seed character behavior
 - gman character that gives you randomized goals such as (kill so and so) or (befriend blank) or (get john to go to other room), and decides itself with gpt when you're done with the game, when you've 'learned your lesson'.
-- room system where characters can go to rooms. camera constrained to room bounds, and know which rooms are near them to go to
 - make them understand they're holding their shotgun more
 - Fix everything about the shotgun, put shotgun away  
 - can't interact with characters while they're thinking

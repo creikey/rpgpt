@@ -1250,13 +1250,36 @@ typedef struct CollisionCylinder
 	Circle bounds;
 } CollisionCylinder;
 
-typedef struct
+typedef struct Room
 {
-	Mesh *mesh_list;
+	struct Room *next;
+
+	MD_String8 name;
 	PlacedMesh *placed_mesh_list;
 	CollisionCylinder *collision_list;
 	PlacedEntity *placed_entity_list;
+} Room;
+
+typedef struct
+{
+	Mesh *mesh_list;
+	Room *room_list;
 } ThreeDeeLevel;
+
+Room *get_cur_room(ThreeDeeLevel *level)
+{
+	Room *in_room = 0;
+	for(Room *cur = level->room_list; cur; cur = cur->next)
+	{
+		if(MD_S8Match(cur->name, MD_S8Lit("Forest"), 0))
+		{
+			in_room = cur;
+			break;
+		}
+	}
+	assert(in_room);
+	return in_room;
+}
 
 void ser_BlenderTransform(SerState *ser, BlenderTransform *t)
 {
@@ -1298,112 +1321,120 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 	};
 	ThreeDeeLevel out = {0};
 
-	// placed meshes
+	MD_u64 num_rooms = 0;
+	ser_MD_u64(&ser, &num_rooms);
+
+	for(MD_u64 i = 0; i < num_rooms; i++)
 	{
-		MD_u64 num_placed = 0;
-		ser_MD_u64(&ser, &num_placed);
-		arena->align = 16; // SSE requires quaternions are 16 byte aligned
-		for(MD_u64 i = 0; i < num_placed; i++)
+		Room *new_room = MD_PushArray(arena, Room, 1);
+		ser_MD_String8(&ser, &new_room->name, arena);
+
+		// placed meshes
 		{
-			PlacedMesh *new_placed = MD_PushArray(arena, PlacedMesh, 1);
-			//PlacedMesh *new_placed = calloc(sizeof(PlacedMesh), 1);
-
-			ser_MD_String8(&ser, &new_placed->name, arena);
-
-			BlenderTransform blender_transform = {0};
-			ser_BlenderTransform(&ser, &blender_transform);
-
-			new_placed->t = blender_to_game_transform(blender_transform);
-
-			MD_StackPush(out.placed_mesh_list, new_placed);
-
-			//Log("Placed mesh '%.*s' pos %f %f %f rotation %f %f %f %f scale %f %f %f\n", MD_S8VArg(placed_mesh_name), v3varg(new_placed->t.offset), qvarg(new_placed->t.rotation), v3varg(new_placed->t.scale));
-
-			// load the mesh if we haven't already
-
-			bool mesh_found = false;
-			for(Mesh *cur = out.mesh_list; cur; cur = cur->next)
+			MD_u64 num_placed = 0;
+			ser_MD_u64(&ser, &num_placed);
+			arena->align = 16; // SSE requires quaternions are 16 byte aligned
+			for (MD_u64 i = 0; i < num_placed; i++)
 			{
-				if(MD_S8Match(cur->name, new_placed->name, 0))
+				PlacedMesh *new_placed = MD_PushArray(arena, PlacedMesh, 1);
+				// PlacedMesh *new_placed = calloc(sizeof(PlacedMesh), 1);
+
+				ser_MD_String8(&ser, &new_placed->name, arena);
+
+				BlenderTransform blender_transform = {0};
+				ser_BlenderTransform(&ser, &blender_transform);
+
+				new_placed->t = blender_to_game_transform(blender_transform);
+
+				MD_StackPush(new_room->placed_mesh_list, new_placed);
+
+				// Log("Placed mesh '%.*s' pos %f %f %f rotation %f %f %f %f scale %f %f %f\n", MD_S8VArg(placed_mesh_name), v3varg(new_placed->t.offset), qvarg(new_placed->t.rotation), v3varg(new_placed->t.scale));
+
+				// load the mesh if we haven't already
+				bool mesh_found = false;
+				for (Mesh *cur = out.mesh_list; cur; cur = cur->next)
 				{
-					mesh_found = true;
-					new_placed->draw_with = cur;
-					assert(cur->name.size > 0);
-					break;
+					if (MD_S8Match(cur->name, new_placed->name, 0))
+					{
+						mesh_found = true;
+						new_placed->draw_with = cur;
+						assert(cur->name.size > 0);
+						break;
+					}
+				}
+
+				if (!mesh_found)
+				{
+					MD_String8 to_load_filepath = MD_S8Fmt(scratch.arena, "assets/exported_3d/%.*s.bin", MD_S8VArg(new_placed->name));
+					// Log("Loading mesh '%.*s'...\n", MD_S8VArg(to_load_filepath));
+					MD_String8 binary_mesh_file = MD_LoadEntireFile(scratch.arena, to_load_filepath);
+					if (!binary_mesh_file.str)
+					{
+						ser.cur_error = (SerError){.failed = true, .why = MD_S8Fmt(ser.error_arena, "Couldn't load file '%.*s'", to_load_filepath)};
+					}
+					else
+					{
+						Mesh *new_mesh = MD_PushArray(arena, Mesh, 1);
+						*new_mesh = load_mesh(arena, binary_mesh_file, new_placed->name);
+						MD_StackPush(out.mesh_list, new_mesh);
+						new_placed->draw_with = new_mesh;
+					}
 				}
 			}
+		}
 
-			if(!mesh_found)
+		MD_u64 num_collision_cubes;
+		ser_MD_u64(&ser, &num_collision_cubes);
+		for (MD_u64 i = 0; i < num_collision_cubes; i++)
+		{
+			CollisionCylinder *new_cylinder = MD_PushArray(arena, CollisionCylinder, 1);
+			Vec2 twodee_pos;
+			Vec2 size;
+			ser_Vec2(&ser, &twodee_pos);
+			ser_Vec2(&ser, &size);
+			new_cylinder->bounds.center = twodee_pos;
+			new_cylinder->bounds.radius = (size.x + size.y) * 0.5f; // @TODO(Phillip): @Temporary
+			MD_StackPush(new_room->collision_list, new_cylinder);
+		}
+
+		// placed entities
+		{
+			MD_u64 num_placed = 0;
+			ser_MD_u64(&ser, &num_placed);
+			arena->align = 16; // SSE requires quaternions are 16 byte aligned
+			for (MD_u64 i = 0; i < num_placed; i++)
 			{
-				MD_String8 to_load_filepath = MD_S8Fmt(scratch.arena, "assets/exported_3d/%.*s.bin", MD_S8VArg(new_placed->name));
-				//Log("Loading mesh '%.*s'...\n", MD_S8VArg(to_load_filepath));
-				MD_String8 binary_mesh_file = MD_LoadEntireFile(scratch.arena, to_load_filepath);
-				if(!binary_mesh_file.str)
+				PlacedEntity *new_placed = MD_PushArray(arena, PlacedEntity, 1);
+				MD_String8 placed_entity_name = {0};
+				ser_MD_String8(&ser, &placed_entity_name, scratch.arena);
+
+				bool found = false;
+				ARR_ITER_I(CharacterGen, characters, kind)
 				{
-					ser.cur_error = (SerError){.failed = true, .why = MD_S8Fmt(ser.error_arena, "Couldn't load file '%.*s'", to_load_filepath)};
+					if (MD_S8Match(MD_S8CString(it->enum_name), placed_entity_name, 0))
+					{
+						found = true;
+						new_placed->npc_kind = kind;
+					}
+				}
+				BlenderTransform blender_transform = {0};
+				ser_BlenderTransform(&ser, &blender_transform);
+				if (found)
+				{
+					new_placed->t = blender_to_game_transform(blender_transform);
+					MD_StackPush(new_room->placed_entity_list, new_placed);
 				}
 				else
 				{
-					Mesh *new_mesh = MD_PushArray(arena, Mesh, 1);
-					*new_mesh = load_mesh(arena, binary_mesh_file, new_placed->name);
-					MD_StackPush(out.mesh_list, new_mesh);
-					new_placed->draw_with = new_mesh;
+					ser.cur_error = (SerError){.failed = true, .why = MD_S8Fmt(arena, "Couldn't find placed npc kind '%.*s'...\n", MD_S8VArg(placed_entity_name))};
 				}
+
+				// Log("Loaded placed entity '%.*s' at %f %f %f\n", MD_S8VArg(placed_entity_name), v3varg(new_placed->t.offset));
 			}
 		}
+
+		MD_StackPush(out.room_list, new_room);
 	}
-
-	MD_u64 num_collision_cubes;
-	ser_MD_u64(&ser, &num_collision_cubes);
-	for(MD_u64 i = 0; i < num_collision_cubes; i++)
-	{
-		CollisionCylinder *new_cylinder = MD_PushArray(arena, CollisionCylinder, 1);
-		Vec2 twodee_pos;
-		Vec2 size;
-		ser_Vec2(&ser, &twodee_pos);
-		ser_Vec2(&ser, &size);
-		new_cylinder->bounds.center = twodee_pos;
-		new_cylinder->bounds.radius = (size.x + size.y) * 0.5f; // @TODO(Phillip): @Temporary
-		MD_StackPush(out.collision_list, new_cylinder);
-	}
-
-	// placed entities
-	{
-		MD_u64 num_placed = 0;
-		ser_MD_u64(&ser, &num_placed);
-		arena->align = 16; // SSE requires quaternions are 16 byte aligned
-		for(MD_u64 i = 0; i < num_placed; i++)
-		{
-			PlacedEntity *new_placed = MD_PushArray(arena, PlacedEntity, 1);
-			MD_String8 placed_entity_name = {0};
-			ser_MD_String8(&ser, &placed_entity_name, scratch.arena);
-
-
-			bool found = false;
-			ARR_ITER_I(CharacterGen, characters, kind)
-			{
-				if(MD_S8Match(MD_S8CString(it->enum_name), placed_entity_name, 0))
-				{
-					found = true;
-					new_placed->npc_kind = kind;
-				}
-			}
-			BlenderTransform blender_transform = {0};
-			ser_BlenderTransform(&ser, &blender_transform);
-			if(found)
-			{
-				new_placed->t = blender_to_game_transform(blender_transform);
-				MD_StackPush(out.placed_entity_list, new_placed);
-			}
-			else
-			{
-				ser.cur_error = (SerError){.failed = true, .why = MD_S8Fmt(arena, "Couldn't find placed npc kind '%.*s'...\n", MD_S8VArg(placed_entity_name))};
-			}
-
-			//Log("Loaded placed entity '%.*s' at %f %f %f\n", MD_S8VArg(placed_entity_name), v3varg(new_placed->t.offset));
-		}
-	}
-
 
 	assert(!ser.cur_error.failed);
 	MD_ReleaseScratch(scratch);
@@ -2095,8 +2126,10 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 {
 	memset(gs, 0, sizeof(GameState));
 
+	Room *in_room = get_cur_room(level);
+
 	bool found_player = false;
-	for(PlacedEntity *cur = level->placed_entity_list; cur; cur = cur->next)
+	for(PlacedEntity *cur = in_room->placed_entity_list; cur; cur = cur->next)
 	{
 		Entity *cur_entity = new_entity(gs);
 		cur_entity->npc_kind = cur->npc_kind;
@@ -3168,7 +3201,6 @@ Armature *armatures[] = {
 	&angel_armature,
 };
 
-Mesh mesh_player = {0};
 Mesh mesh_simple_worm = {0};
 Mesh mesh_shotgun = {0};
 
@@ -3251,17 +3283,14 @@ void init(void)
 
 	MD_String8 binary_file;
 
-	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/level.bin"));
+	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/rooms.bin"));
 	level_threedee = load_level(persistent_arena, binary_file);
 
-	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/ExportedWithAnims.bin"));
-	mesh_player = load_mesh(persistent_arena, binary_file, MD_S8Lit("ExportedWithAnims.bin"));
+	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/Shotgun.bin"));
+	mesh_shotgun = load_mesh(persistent_arena, binary_file, MD_S8Lit("Shotgun.bin"));
 
-	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/ShotgunMesh.bin"));
-	mesh_shotgun = load_mesh(persistent_arena, binary_file, MD_S8Lit("ShotgunMesh.bin"));
-
-	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/ArmatureExportedWithAnims.bin"));
-	player_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("ArmatureExportedWithAnims.bin"));
+	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/NormalGuyArmature.bin"));
+	player_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("NormalGuyArmature.bin"));
 
 	man_in_black_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Man In Black"));
 	man_in_black_armature.image = image_man_in_black;
@@ -3269,8 +3298,8 @@ void init(void)
 	angel_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Angel"));
 	angel_armature.image = image_angel;
 
-	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/Farmer.bin"));
-	farmer_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Farmer.bin"));
+	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/FarmerArmature.bin"));
+	farmer_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("FarmerArmature.bin"));
 
 	shifted_farmer_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Farmer.bin"));
 	shifted_farmer_armature.image = image_shifted_farmer;
@@ -4517,7 +4546,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 	BUFF(CollisionObj, 256) to_check = { 0 };
 
 	// add world boxes
-	for(CollisionCylinder *cur = level_threedee.collision_list; cur; cur = cur->next)
+	for(CollisionCylinder *cur = get_cur_room(&level_threedee)->collision_list; cur; cur = cur->next)
 	{
 		BUFF_APPEND(&to_check, ((CollisionObj){cur->bounds, gs.world_entity}));
 	}
@@ -5632,7 +5661,7 @@ void frame(void)
 
 		// @Place(draw 3d things)
 
-		for(PlacedMesh *cur = level_threedee.placed_mesh_list; cur; cur = cur->next)
+		for(PlacedMesh *cur = get_cur_room(&level_threedee)->placed_mesh_list; cur; cur = cur->next)
 		{
 			float seed = (float)((int64_t)cur % 1024);
 
