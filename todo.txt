@@ -1,24 +1,22 @@
 Urgent:
-- room system where characters can go to rooms. camera constrained to room bounds, and know which rooms are near them to go to
-- REALLY look into characters not being able to shoot eachother
+- Fix everything about the shotgun, put shotgun away. Make them understand they're holding their shotgun more. REALLY look into characters not being able to shoot eachother
 - Silent threshold for each character from 0 to 1 that controls random chance after every eavesdropped dialog that the character says nothing in response
 - Tag memories from drama as permanent so they're never forgotten and always seed character behavior
-- gman character that gives you randomized goals such as (kill so and so) or (befriend blank) or (get john to go to other room), and decides itself with gpt when you're done with the game, when you've 'learned your lesson'.
-- make them understand they're holding their shotgun more
-- Fix everything about the shotgun, put shotgun away  
+- simple room transition system for angel/real map interop, angel room
+- angel character that gives you randomized goals such as (kill so and so) or (befriend blank) or (get john to go to other room), and decides itself with gpt when you're done with the game, when you've 'learned your lesson'.
 - can't interact with characters while they're thinking
-- fix stencil image being resized working
+- fix stencil image being resized in web working
 - bubbles collide with eachother so they can't overlap
-- set the game in oregon (suggestion by phillip)
-- nocodegen instead of codegen argument
 - camera pans to who is speaking and acting
 - E keyboard hints (tutorializing)
 - dot dot dot speech bubble to show that they heard your request, but are ignoring you.
 
 Long distance:
-- Design character creator (text input is always a modal, keeps code simple don't have to make a banger line edit)
+- nocodegen instead of codegen argument
+- Polygon and circle collision with cutec2 probably for the player being unable to collide with the camera bounds, and non axis aligned collision rects
+- set the game in oregon (suggestion by phillip)
+- Room system where characters can go to rooms. camera constrained to room bounds, and know which rooms are near them to go to
 - Let ChatGPT file bug reports with something like !BugReport(This shouldn't be happening, developer. I killed them and they're still alive)
-- Cylindrical colliders for the people
 - System where I can upload any AI interaction into gpt playground and inspect the conversation
 - Incrementally higher resolution system for all textures, configured in a #define. Also flips the images at build time
 - Stop time when you talk to people
@@ -26,5 +24,5 @@ Long distance:
 - Imgui Button doesn't move enough when highlighted
 - Higher res text instead of text scaling
 - Make space and shift also interact
-
+- Design character creator (text input is always a modal, keeps code simple don't have to make a banger line edit)
 - Maybe walk by default and shift to run
