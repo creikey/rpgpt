@@ -7391,7 +7391,7 @@ void event(const sapp_event *e)
 
 	if(flycam)
 	{
-    if (e->type == SAPP_EVENTTYPE_MOUSE_MOVE)
+		if (e->type == SAPP_EVENTTYPE_MOUSE_MOVE && !mouse_frozen)
 		{
 			const float rotation_speed = 0.001f;
 			flycam_horizontal_rotation -= e->mouse_dx * rotation_speed;
