@@ -1,7 +1,7 @@
 Urgent:
 - Fix everything about the shotgun, put shotgun away. Make them understand they're holding their shotgun more. REALLY look into characters not being able to shoot eachother
+- On startup if devtools print the estimated cost per generation request of the worst offending character
 - Silent threshold for each character from 0 to 1 that controls random chance after every eavesdropped dialog that the character says nothing in response
-- Tag memories from drama as permanent so they're never forgotten and always seed character behavior
 - simple room transition system for angel/real map interop, angel room
 - angel character that gives you randomized goals such as (kill so and so) or (befriend blank) or (get john to go to other room), and decides itself with gpt when you're done with the game, when you've 'learned your lesson'.
 - can't interact with characters while they're thinking
@@ -19,6 +19,7 @@ Long distance:
 - Let ChatGPT file bug reports with something like !BugReport(This shouldn't be happening, developer. I killed them and they're still alive)
 - System where I can upload any AI interaction into gpt playground and inspect the conversation
 - Incrementally higher resolution system for all textures, configured in a #define. Also flips the images at build time
+- Maybe check the hashes of the exported meshes if they all have the same name in the file, to attempt to detect identical geometry data. Same deal with textures in blender, or maybe in the game too actually.
 - Stop time when you talk to people
 - Much higher move accel, almost instantaneously goes to 
 - Imgui Button doesn't move enough when highlighted

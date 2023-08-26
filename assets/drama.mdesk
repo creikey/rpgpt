@@ -7,13 +7,14 @@
 {enum: Raphael, dialog: "Yeah man, what's up with you?", to: Devil}
 {enum: Devil, dialog: "Nunya!", to: Raphael}
 {enum: Raphael, dialog: "What does 'Nunya' mean? A wild critter you are...", to: Devil}
-{enum: Daniel, dialog: "YOU ASKED FOR IT! TAKE THIS!", action: ACT_fire_shotgun, to: Devil}
+{enum: Daniel, dialog: "YOU ASKED FOR IT! TAKE THIS!", action: ACT_fire_shotgun, to: Devil, action_argument: "The Devil"}
 {enum: Devil, dialog: "Cute! You think your little toys can harm me!", to: Daniel}
 {enum: Daniel, dialog: "What the hell??", to: Devil}
 {enum: Raphael, dialog: "I don't think we can harm him like that", to: Daniel}
 {enum: Daniel, dialog: "You're right, I guess we just gotta 'tolerate this feller's presence.", to: Raphael}
 {enum: Devil, dialog: "I'll take my leave. Until next time!", to: Daniel}
-{enum: Raphael, dialog: "What a psycho...", to: Daniel}
+{enum: Raphael, dialog: "What a psycho...", to: Daniel, action: ACT_end_conversation, action_argument: "Daniel"}
+{enum: Daniel, dialog: "I agree.", to: Raphael, action: ACT_end_conversation, action_argument: "Raphael"}
 
 {can_hear: [Daniel, Raphael, Passerby]}
 {enum: Passerby, dialog: "Yo?", to: Daniel}
@@ -22,7 +23,7 @@
 {enum: Daniel, dialog: "I don't tolerate questions. Get out of my sight before I make you!", to: Passerby, action: ACT_aim_shotgun, action_argument: "Passerby"}
 {enum: Raphael, dialog: "What's going on here?", to: Daniel}
 {enum: Daniel, dialog: "THIS DAMNED FOOL DOESN'T UNDERSTAND RESPECT", to: Raphael}
-{enum: Raphael, dialog: "Easy man, easy.", to: Daniel}
+{enum: Raphael, dialog: "Easy man, easy. I ain't much for helpin' folk but you're outta control.", to: Daniel}
 {enum: Daniel, dialog: "I WON'T TOLERATE IT", to: Raphael}
 {enum: Passerby, dialog: "Hey man woah, just put down the gun", to: Daniel}
 {enum: Daniel, dialog: "YOU BETTER MAKE ME!", to: Passerby}
@@ -30,7 +31,14 @@
 {enum: Daniel, dialog: "ANOTHER QUESTION??? YOU HAD THIS COMING TO YOU!", to: Passerby, action: ACT_fire_shotgun}
 {enum: Raphael, dialog: "Oh God! What have you done??", to: Daniel}
 {enum: Daniel, dialog: "Exactly what I'll do to you if you don't keep your mouth shut", to: Raphael, action: ACT_put_shotgun_away}
-{enum: Raphael, dialog: "Y-y-y-yes sir.", to: Daniel}
+{enum: Raphael, dialog: "Y-y-y-yes sir.", to: Daniel, action: ACT_end_conversation, action_argument: "Daniel"}
+{enum: Daniel, dialog: "Now leave me be", to: Raphael, action: ACT_end_conversation, action_argument: "Raphael"}
+
+{can_hear: [Daniel, Raphael]}
+{enum: Raphael, dialog: "Say Daniel, why do you get so worked up all the time?", to: Daniel}
+{enum: Daniel, dialog: "I'm not gonna talk about it", to: Raphael}
+{enum: Raphael, dialog: "Suit yourself partner, but I reckon you've got issues to work through", to: Daniel}
+{enum: Daniel, dialog: "Enough! I'm angry sometimes and that's that.", to: Raphael, action: ACT_end_conversation, action_argument: "Raphael"}
 
 {can_hear: [Devil, Angel]}
 {enum: Devil, dialog: "You will fall!", to: Angel}

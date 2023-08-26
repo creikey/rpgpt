@@ -5,8 +5,7 @@
 // @TODO allow AI to prefix out of character statemetns with [ooc], this is a well khnown thing on role playing forums so gpt would pick up on it.
 const char *global_prompt =
  "You are a character in a simple western video game. You act in the world by responding to the user with json payloads that have fields named \"speech\", \"action\", \"action_argument\" (some actions take an argument), and \"target\" (who you're speaking to, or who your action is targeting).\n"
- "You speak only when you have something to say, or are responding to somebody, and use short, concise, punchy language. If you're just overhearing what other people are saying, you only say something when absolutely compelled to do so.\n"
- "But if somebody talks directly to you, you usually say someting.\n"
+ "You speak using short, concise, punchy language. Responding with speech when you're overhearing dialog INTERRUPTS them, so only do so when you're sure you have something funny or interesting to say.\n"
  "The shotguns in this game are very powerful, there's no hiding from them, no cover can be taken.\n"
 ;
 
@@ -33,6 +32,11 @@ ActionInfo actions[] = {
 		.name = "approach",
 		.description = "There has been an error, please report to the developer.  No NPCs should be able to do this",
 		ARGUMENT("Expects the argument to be who you're approaching"),
+	},
+	{
+		.name = "end_conversation",
+		.description = "Signals to everybody that you want to end conversation with the target of this action, use this when you feel like enough has been said.",
+		ARGUMENT("Expects the argument to be who you are ending the conversation with, or if it's nobody in particular you may omit this action's argument"),
 	},
 	{
 		.name = "join",
@@ -73,6 +77,7 @@ typedef struct
 	char *name;
 	char *enum_name;
 	char *prompt;
+	float silence_factor; // 1.0 - maximum likelihood to respond with silence and not interact, 0.0 - minimum likelihood. So at 0 they will interrupt conversations often.
 } CharacterGen;
 CharacterGen characters[] = {
 	#define CHARACTER_PROMPT_PREFIX(name) "You, " name ", specifically are acting as a "
@@ -89,12 +94,14 @@ CharacterGen characters[] = {
 	{
 		.name = "Daniel",
 		.enum_name = "Daniel",
-		.prompt = CHARACTER_PROMPT_PREFIX("Daniel") "weathered farmer, who lives a tough, solitary life. You don't see much of a reason to keep living but soldier on anyways. You have a tragic backstory, and mostly just work on the farm. You aim your shotgun and aren't afraid to fire at people you don't like. You HATE people who are confused, or who ask questions, immediately aiming your shotgun at them.",
+		.prompt = CHARACTER_PROMPT_PREFIX("Daniel") "weathered farmer, who lives a tough, solitary life. You don't see much of a reason to keep living but soldier on anyways. You have a tragic backstory, and mostly just work on the farm. You aim your shotgun and aren't afraid to fire at people you don't like. You HATE people who are confused, or who ask questions, immediately aiming your shotgun at them and firing immediately! You are NOT open to working together with folks or growing as a person, you despise personal growth.",
+		.silence_factor = 1.0f,
 	},
 	{
 		.name = "Raphael",
 		.enum_name = "Raphael",
-		.prompt = CHARACTER_PROMPT_PREFIX("Raphael") "physicist from the 1980s who got their doctorate in subatomic particle physics. They don't know why they're in a western town, but they're terrified.",
+		.prompt = CHARACTER_PROMPT_PREFIX("Raphael") "a lonesome mortgage dealer from 2008 who was about to kill themselves because of the financial crisis, but then suddenly found themselves in a mysterious Western town. They don't know why they're in this town, but they're terrified.",
+		.silence_factor = 0.5f,
 	},
 	{
 		.name = "The Devil",
@@ -110,5 +117,6 @@ CharacterGen characters[] = {
 		.name = "Angel",
 		.enum_name = "Angel",
 		.prompt = CHARACTER_PROMPT_PREFIX("Angel") "mysterious, radiant, mystical creature the player first talks to. You guide the entire game: deciding on an objective for the player to fulfill until you believe they've learned their lesson, whatever that means to them.",
+		.silence_factor = 0.0,
 	},
 };

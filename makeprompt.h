@@ -8,6 +8,7 @@
 #include <stdlib.h> // atoi
 #include "character_info.h"
 #include "characters.gen.h"
+#include "rnd.h"
 
 #include "tuning.h"
 
@@ -120,7 +121,7 @@ typedef struct
 	NpcKind author_npc_kind;
 	NpcKind talking_to_kind;
 	bool heard_physically; // if not physically, the source was directly
-	bool dont_show_to_player; // jester and past memories are hidden to the player when made into dialog
+	bool drama_memory; // drama memories arent forgotten, and once they end it's understood that a lot of time has passed.
 } MemoryContext;
 
 // memories are subjective to an individual NPC
@@ -273,6 +274,7 @@ typedef struct GameState {
 	uint64_t tick;
 	bool won;
 	
+	bool finished_reading_dying_dialog;
 	bool no_angel_screen;
 	
 	// processing may still occur after time has stopped on the gamestate, 
@@ -282,9 +284,15 @@ typedef struct GameState {
 	Entity *player;
 	Entity *world_entity;
 	Entity entities[MAX_ENTITIES];
+	rnd_gamerand_t random;
 } GameState;
 
 #define ENTITIES_ITER(ents) for (Entity *it = ents; it < ents + ARRLEN(ents); it++) if (it->exists && !it->destroy && it->generation > 0)
+
+float g_randf(GameState *gs)
+{
+	return rnd_gamerand_nextf(&gs->random);
+}
 
 Entity *gete_specified(GameState *gs, EntityRef ref)
 {
@@ -417,6 +425,8 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 	}
 
 	MD_String8List current_list = {0};
+	bool in_drama_memories = true;
+	assert(e->memories_first->context.drama_memory);
 	for(Memory *it = e->memories_first; it; it = it->next)
 	{
 		// going through memories, I'm going to accumulate human understandable sentences for what happened in current_list.
@@ -425,7 +435,13 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 
 		// write a new human understandable sentence or two to current_list
 		if (!it->context.i_said_this) {
+			if(in_drama_memories && !it->context.drama_memory)
+			{
+				in_drama_memories = false;
+				AddFmt("Some time passed...\n");
+			}
 			// dump a human understandable sentence description of what happened in this memory
+			bool no_longer_wants_to_converse = false; // add the no longer wants to converse text after any speech, it makes more sense reading it
 			if(it->action_taken != ACT_none)
 			{
 				switch(it->action_taken)
@@ -451,7 +467,9 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 				case ACT_approach:
 					AddFmt("%.*s approached %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action_argument.targeting));
 					break;
-				#undef HUMAN
+				case ACT_end_conversation:
+				  	no_longer_wants_to_converse = true;
+					break;
 				}
 			}
 			if(it->speech.text_length > 0)
@@ -473,6 +491,19 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 
 				AddFmt("%.*s%s said \"%.*s\" to %.*s (you are %s)\n", MD_S8VArg(speaking_to_you_helper), characters[it->context.author_npc_kind].name, TextChunkVArg(it->speech), MD_S8VArg(target_string), characters[e->npc_kind].name);
 			}
+
+			if(no_longer_wants_to_converse)
+			{
+				if (it->action_argument.targeting == NPC_nobody)
+				{
+					AddFmt("%.*s no longer wants to converse with everybody\n", HUMAN(it->context.author_npc_kind));
+				}
+				else
+				{
+					AddFmt("%.*s no longer wants to converse with %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action_argument.targeting));
+				}
+			}
+				#undef HUMAN
 		}
 
 		// if I said this, or it's the last memory, flush the current list as a user node
@@ -613,7 +644,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 action_
 			if(actions[out->kind].takes_argument)
 			{
 				// @TODO refactor into, action argument kinds and they parse into different action argument types
-				bool arg_is_character = out->kind == ACT_join || out->kind == ACT_aim_shotgun;
+				bool arg_is_character = out->kind == ACT_join || out->kind == ACT_aim_shotgun || out->kind == ACT_end_conversation;
 
 				if(arg_is_character)
 				{

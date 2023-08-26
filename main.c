@@ -38,6 +38,7 @@
 
 #include "utility.h"
 
+
 #ifdef WINDOWS
 
 
@@ -316,6 +317,7 @@ typedef struct Quad
 #include "character_info.h"
 #include "characters.gen.h"
 
+#define RND_IMPLEMENTATION
 #include "makeprompt.h"
 typedef BUFF(Entity*, 16) Overlapping;
 
@@ -1643,9 +1645,23 @@ void push_memory(GameState *gs, Entity *e, Memory new_memory)
 	for(Memory *cur = e->memories_first; cur; cur = cur->next) count += 1;
 	while(count >= REMEMBERED_MEMORIES)
 	{
-		Memory *freed = e->memories_first;
-		MD_DblRemove(e->memories_first, e->memories_last, freed);
-		MD_StackPush(memories_free_list, freed);
+		Memory *to_remove = e->memories_first;
+		assert(to_remove->context.drama_memory);
+		while(true)
+		{
+			if(!to_remove->context.drama_memory)
+			{
+				break;
+			}
+			if(to_remove->next == 0)
+			{
+				Log("Error: the drama memories for the character %s are bigger than the maximum number of remembered memories %d, so they can't be permanently remembered\n", characters[e->npc_kind].name, REMEMBERED_MEMORIES);
+				assert(false);
+			}
+			to_remove = to_remove->next;
+		}
+		MD_DblRemove(e->memories_first, e->memories_last, to_remove);
+		MD_StackPush(memories_free_list, to_remove);
 		count -= 1;
 	}
 	if(gs->stopped_time)
@@ -2125,6 +2141,7 @@ Vec2 point_plane(Vec3 p)
 void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *level)
 {
 	memset(gs, 0, sizeof(GameState));
+	rnd_gamerand_seed(&gs->random, RANDOM_SEED);
 
 	Room *in_room = get_cur_room(level);
 
@@ -2153,7 +2170,7 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 		it->target_rotation = it->rotation;
 	}
 
-	// @Place(parse and enact the drama document)
+	// @Place(parse and enact the drama document parse drama)
 	if(1)
 	{
 		MD_String8List drama_errors = {0};
@@ -2175,6 +2192,8 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 		BUFF(NpcKind, 128) not_on_map = {0};
 		if(drama_errors.node_count == 0)
 		{
+			// used
+
 			MD_Node *can_hear = MD_NilNode();
 			for(MD_Node *cur = parse.node->first_child->first_child; !MD_NodeIsNil(cur) && drama_errors.node_count == 0; cur = cur->next)
 			{
@@ -2199,7 +2218,7 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 
 					Action current_action = {0};
 					MemoryContext current_context = {0};
-					current_context.dont_show_to_player = true;
+					current_context.drama_memory = true;
 					if(drama_errors.node_count == 0)
 					{
 						MD_String8 enum_str = expect_childnode(scratch.arena, cur, MD_S8Lit("enum"), &drama_errors)->first_child->string;
@@ -2243,6 +2262,7 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 						}
 					}
 
+
 					if(drama_errors.node_count == 0)
 					{
 						for(MD_Node *cur_kind_node = can_hear; !MD_NodeIsNil(cur_kind_node); cur_kind_node = cur_kind_node->next)
@@ -2265,9 +2285,13 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 										{
 											// it's good for NPC health that they have examples of not saying anything in response to others speaking,
 											// so that they do the same when it's unlikely for them to talk.
-											Action no_speak = {0};
-											MemoryContext no_speak_context = {.i_said_this = true, .author_npc_kind = it->npc_kind};
-											remember_action(gs, it, no_speak, no_speak_context);
+											
+											if(g_randf(gs) < characters[it->npc_kind].silence_factor)
+											{
+												Action no_speak = {0};
+												MemoryContext no_speak_context = {.i_said_this = true, .author_npc_kind = it->npc_kind};
+												remember_action(gs, it, no_speak, no_speak_context);
+											}
 										}
 
 										it->undismissed_action = false; // prevent the animating in sound effects of words said in drama document
@@ -2292,6 +2316,24 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 								}
 							}
 							//Log("Propagated to %d name '%s'...\n", want, characters[want].name);
+						}
+					}
+				
+					// if ended conversation, make the target of the end of conversation action output silence
+					if(drama_errors.node_count == 0)
+					{
+						// I use FmtWithLint and the actions[] array here so it's a compile error if we ever remove this action or rename it, instead of just directly putting the string
+						if(current_action.kind == ACT_end_conversation)
+						{
+							ENTITIES_ITER(gs->entities)
+							{
+								if(it->is_npc && it->npc_kind == current_action.argument.targeting)
+								{
+									Action no_speak = {0};
+									MemoryContext no_speak_context = {.i_said_this = true, .author_npc_kind = it->npc_kind};
+									remember_action(gs, it, no_speak, no_speak_context);
+								}
+							}
 						}
 					}
 				}
@@ -3224,6 +3266,7 @@ MD_String8 make_devtools_help(MD_Arena *arena)
 	
 	P("7 - toggles the visibility of devtools debug drawing and debug text\n");
 	P("F - toggles flycam\n");
+	P("Q - if you're hovering over somebody, pressing this will print to the console a detailed overview of their state\n");
 	P("T - toggles freezing the mouse\n");
 	P("9 - instantly wins the game\n");
 	P("P - toggles spall profiling on/off, don't leave on for very long as it consumes a lot of storage if you do that. The resulting spall trace is saved to the file '%s'\n", PROFILING_SAVE_FILENAME);
@@ -6948,8 +6991,9 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 		{
 			static float visible = 0.0f;
 			float target = 0.0f;
-			if(gs.player->killed && !cur_unread_entity)
+			if(gs.player->killed && (!cur_unread_entity || gs.finished_reading_dying_dialog))
 			{
+				gs.finished_reading_dying_dialog = true;
 				target = 1.0f;
 			}
 			visible = Lerp(visible, unwarped_dt*4.0f, target);
@@ -7044,15 +7088,21 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 
 							if(keypressed[SAPP_KEYCODE_Q] && !receiving_text_input)
 							{
-								Log("-- Printing debug memories for %s --\n", characters[to_view->npc_kind].name);
+								Log("\n\n==========------- Printing debugging information for %s -------==========\n", characters[to_view->npc_kind].name);
+								Log("\nMemories-----------------------------\n");
 								int mem_idx = 0;
 								for(Memory *cur = to_view->memories_first; cur; cur = cur->next)
 								{
 									MD_String8 to_text = cur->context.talking_to_kind != NPC_nobody ? MD_S8Fmt(frame_arena, " to %s ", characters[cur->context.talking_to_kind].name) : MD_S8Lit("");
-									MD_String8 text = MD_S8Fmt(frame_arena, "%s%s%.*s: %.*s", to_view->npc_kind == cur->context.author_npc_kind ? "(Me) " : "", characters[cur->context.author_npc_kind].name, MD_S8VArg(to_text), cur->speech.text_length, cur->speech);
+									MD_String8 speech = TextChunkString8(cur->speech);
+									if(speech.size == 0) speech = MD_S8Lit("<said nothing>");
+									MD_String8 text = MD_S8Fmt(frame_arena, "%s%s%.*s: %.*s", to_view->npc_kind == cur->context.author_npc_kind ? "(Me) " : "", characters[cur->context.author_npc_kind].name, MD_S8VArg(to_text), MD_S8VArg(speech));
 									printf("Memory %d: %.*s\n", mem_idx, MD_S8VArg(text));
 									mem_idx++;
 								}
+								Log("\nPrompt-----------------------------\n");
+								MD_String8 prompt  = generate_chatgpt_prompt(frame_arena, &gs, to_view, get_can_talk_to(to_view));
+								printf("%.*s\n", MD_S8VArg(prompt));
 							}
 						}
 					}
