@@ -1,7 +1,6 @@
 Urgent:
 - Fix everything about the shotgun, put shotgun away. Make them understand they're holding their shotgun more. REALLY look into characters not being able to shoot eachother
 - On startup if devtools print the estimated cost per generation request of the worst offending character
-- Silent threshold for each character from 0 to 1 that controls random chance after every eavesdropped dialog that the character says nothing in response
 - simple room transition system for angel/real map interop, angel room
 - angel character that gives you randomized goals such as (kill so and so) or (befriend blank) or (get john to go to other room), and decides itself with gpt when you're done with the game, when you've 'learned your lesson'.
 - can't interact with characters while they're thinking
