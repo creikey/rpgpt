@@ -5759,11 +5759,18 @@ void frame(void)
 					assert(false);
 
 				if (it->killed)
+				{
 					to_use->go_to_animation = MD_S8Lit("Die Backwards");
+					to_use->next_animation_isnt_looping = true;
+				}
 				else if (LenV2(it->vel) > 0.5f)
+				{
 					to_use->go_to_animation = MD_S8Lit("Running");
+				}
 				else
+				{
 					to_use->go_to_animation = MD_S8Lit("Idle");
+				}
 
 				draw_thing((DrawnThing){.armature = to_use, .t = draw_with, .outline = gete(gs.player->interacting_with) == it});
 
@@ -6991,7 +6998,12 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 		{
 			static float visible = 0.0f;
 			float target = 0.0f;
-			if(gs.player->killed && (!cur_unread_entity || gs.finished_reading_dying_dialog))
+			bool anybody_unread = false;
+			ENTITIES_ITER(gs.entities)
+			{
+				if(it->undismissed_action) anybody_unread = true;
+			}
+			if(gs.player->killed && (!anybody_unread || gs.finished_reading_dying_dialog))
 			{
 				gs.finished_reading_dying_dialog = true;
 				target = 1.0f;
