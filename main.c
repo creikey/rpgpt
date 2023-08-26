@@ -4767,7 +4767,7 @@ MD_String8 last_said_sentence(Entity *npc)
 
 	for(Memory *cur = npc->memories_last; cur; cur = cur->prev)
 	{
-		if(cur->context.author_npc_kind == npc->npc_kind)
+		if(cur->context.author_npc_kind == npc->npc_kind && cur->speech.text_length > 0)
 		{
 			to_return = TextChunkString8(cur->speech);
 			break;
