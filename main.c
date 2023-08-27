@@ -2686,13 +2686,23 @@ void end_text_input(char *what_player_said_cstr)
 
 		chunk_from_s8(&to_perform.speech, what_player_said);
 
-		if(gete(gs.player->talking_to))
+		if(!gs.no_angel_screen)
 		{
-			assert(gete(gs.player->talking_to)->is_npc);
-			to_perform.talking_to_kind = gete(gs.player->talking_to)->npc_kind;
+			Entity *angel = 0;
+			ENTITIES_ITER(gs.entities) if(it->npc_kind == NPC_Angel) angel = it;
+			to_perform.talking_to_kind = NPC_Angel;
+			perform_action(&gs, gs.player, to_perform);
 		}
+		else
+		{
+			if (gete(gs.player->talking_to))
+			{
+				assert(gete(gs.player->talking_to)->is_npc);
+				to_perform.talking_to_kind = gete(gs.player->talking_to)->npc_kind;
+			}
 
-		perform_action(&gs, gs.player, to_perform);
+			perform_action(&gs, gs.player, to_perform);
+		}
 	}
 	MD_ReleaseScratch(scratch);
 }
@@ -5565,16 +5575,35 @@ void flush_all_drawn_things(Vec3 light_dir, Vec3 cam_pos, Vec3 cam_facing, Vec3 
 	}
 }
 
+typedef struct
+{
+	float text_scale;
+	float width_in_pixels;
+	float text_width_in_pixels;
+	LoadedFont *font;
+	int lines_per_page;
+	int maximum_pages_from_ai;
+} TextPlacementSettings;
+
+TextPlacementSettings speech_bubble = {
+	.text_scale = 1.0f,
+	.width_in_pixels = 400.0f,
+	.text_width_in_pixels = 400.0f * 0.8f,
+	.font = &default_font,
+	.lines_per_page = 2,
+	.maximum_pages_from_ai = 2,
+};
+
 // Unsaid words are still there, so you gotta handle the animation homie
-MD_String8List words_on_current_page(Entity *it)
+MD_String8List words_on_current_page(Entity *it, TextPlacementSettings *settings)
 {
 	MD_String8 last = last_said_sentence(it);
-	PlacedWordList placed = place_wrapped_words(frame_arena, split_by_word(frame_arena, last), BUBBLE_TEXT_SCALE, BUBBLE_TEXT_WIDTH_PIXELS, BUBBLE_FONT);
+	PlacedWordList placed = place_wrapped_words(frame_arena, split_by_word(frame_arena, last), settings->text_scale, settings->width_in_pixels, *settings->font);
 
 	MD_String8List on_current_page = {0};
 	for(PlacedWord *cur = placed.first; cur; cur = cur->next)
 	{
-		if(cur->line_index / BUBBLE_LINES_PER_PAGE == it->cur_page_index)
+		if(cur->line_index / settings->lines_per_page == it->cur_page_index)
 			MD_S8ListPush(frame_arena, &on_current_page, cur->text);	
 	}
 
@@ -5583,9 +5612,9 @@ MD_String8List words_on_current_page(Entity *it)
 	//return place_wrapped_words(frame_arena, on_current_page, text_scale, aabb_size(placing_text_in).x, default_font);
 }
 
-MD_String8List words_on_current_page_without_unsaid(Entity *it)
+MD_String8List words_on_current_page_without_unsaid(Entity *it, TextPlacementSettings *settings)
 {
-	MD_String8List all_words = words_on_current_page(it);
+	MD_String8List all_words = words_on_current_page(it, settings);
 	int index = 0;
 	MD_String8List to_return = {0};
 	for(MD_String8Node *cur = all_words.first; cur; cur = cur->next)
@@ -5875,6 +5904,80 @@ void frame(void)
 		sg_begin_default_pass(&state.clear_depth_buffer_pass_action, sapp_width(), sapp_height());
 		sg_apply_pipeline(state.twodee_pip);
 
+		// @Place(high priority UI rendering, like angel screen)
+
+		// angel screen
+		{
+			static float visible = 1.0f;
+			bool should_be_visible = !gs.no_angel_screen;
+			visible = Lerp(visible, unwarped_dt*2.0f, should_be_visible ? 1.0f : 0.0f);
+
+			Entity *angel_entity = 0;
+			ENTITIES_ITER(gs.entities)
+			{
+				if(it->is_npc && it->npc_kind == NPC_Angel)
+				{
+					assert(!angel_entity);
+					angel_entity = it;
+				} 
+			}
+			assert(angel_entity);
+
+			if(should_be_visible) gs.player->talking_to = frome(angel_entity);
+
+			draw_quad((DrawParams) {quad_at(V2(0,screen_size().y), screen_size()), IMG(image_white_square), blendalpha(BLACK, visible), .layer = LAYER_UI_FG});
+
+			static MD_String8List to_say = {0};
+			static double cur_characters = 0;
+			if(to_say.node_count == 0)
+			{
+				to_say = split_by_word(persistent_arena, MD_S8Lit("You've been asleep for a long long time..."));
+				cur_characters  = 0;
+			}
+			MD_String8 cur_word = {0};
+			MD_String8Node *cur_word_node = 0;
+			double chars_said = cur_characters;
+			for(MD_String8Node *cur = to_say.first; cur; cur = cur->next)
+			{
+				if((int)chars_said < cur->string.size)
+				{
+					cur_word = cur->string;
+					cur_word_node = cur;
+					break;
+				}
+				chars_said -= (double)cur->string.size;
+			}
+			if(!cur_word.str)
+			{
+				cur_word = to_say.last->string;
+				cur_word_node = to_say.last;
+			}
+
+			cur_characters += unwarped_dt*ANGEL_CHARACTERS_PER_SEC;
+			chars_said += unwarped_dt*ANGEL_CHARACTERS_PER_SEC;
+			if(chars_said > cur_word.size && cur_word_node->next)
+			{
+				play_audio(&sound_angel_grunt_0, 1.0f);
+			}
+
+			assert(cur_word_node);
+			MD_String8Node *prev_next = cur_word_node->next;
+			cur_word_node->next = 0;
+			MD_String8 without_unsaid = MD_S8ListJoin(frame_arena, to_say, &(MD_StringJoin){.mid = MD_S8Lit(" ")});
+			cur_word_node->next = prev_next;
+
+			draw_centered_text((TextParams){false, without_unsaid, V2(screen_size().x*0.5f, screen_size().y*0.75f), blendalpha(WHITE, visible), 1.0f, .use_font = &font_for_text_input});
+			draw_centered_text((TextParams){false, MD_S8Lit("(Press E to speak)"), V2(screen_size().x*0.5f, screen_size().y*0.25f), blendalpha(WHITE, visible*0.5f), 0.8f, .use_font = &font_for_text_input});
+
+			if(should_be_visible && pressed.interact)
+			{
+				begin_text_input();
+				pressed.interact = false;
+			}
+		}
+
+
+
 		// @Place(text input drawing)
 #ifdef DESKTOP
 		draw_quad((DrawParams){quad_at(V2(0,screen_size().y), screen_size()), IMG(image_white_square), blendalpha(BLACK, text_input_fade*0.3f), .layer = LAYER_UI_TEXTINPUT});
@@ -5913,13 +6016,13 @@ void frame(void)
 					}
 					
 					// dialog bubble rendering
-					const float text_scale = BUBBLE_TEXT_SCALE;
+					const float text_scale = speech_bubble.text_scale;
 					float dist = LenV2(SubV2(it->pos, gs.player->pos));
 					float bubble_factor = 1.0f - clamp01(dist / 6.0f);
 					Vec3 bubble_pos = AddV3(plane_point(it->pos), V3(0, 1.7f, 0)); // 1.7 meters is about 5'8", average person height
 					Vec2 head_pos = threedee_to_screenspace(bubble_pos);
 					Vec2 screen_pos = head_pos;
-					Vec2 size = V2(BUBBLE_WIDTH_PIXELS, BUBBLE_WIDTH_PIXELS);
+					Vec2 size = V2(speech_bubble.width_in_pixels, speech_bubble.width_in_pixels);
 					Vec2 bubble_center = AddV2(screen_pos, V2(-10.0f, 55.0f));
 					float dialog_alpha = clamp01(bubble_factor * it->dialog_fade);
 					bool unread = false;
@@ -5935,7 +6038,7 @@ void frame(void)
 							blendalpha(WHITE, dialog_alpha),
 							.layer = LAYER_UI_FG,
 					});
-					MD_String8List words_to_say = words_on_current_page(it);
+					MD_String8List words_to_say = words_on_current_page(it, &speech_bubble);
 					if (unread)
 					{
 						draw_quad((DrawParams){
@@ -5955,7 +6058,7 @@ void frame(void)
 							else
 							{
 								it->cur_page_index += 1;
-								if(words_on_current_page(it).node_count == 0)
+								if(words_on_current_page(it, &speech_bubble).node_count == 0)
 								{
 									// don't reset words_said_on_page because, even when the action is dismissed, the text for the last
 									// page of dialog should still linger
@@ -5978,10 +6081,10 @@ void frame(void)
 							blendalpha(WHITE, it->loading_anim_in),
 							.layer = LAYER_UI_FG,
 					});
-					AABB placing_text_in = aabb_centered(AddV2(bubble_center, V2(0, 10.0f)), V2(BUBBLE_TEXT_WIDTH_PIXELS, size.y * 0.15f));
+					AABB placing_text_in = aabb_centered(AddV2(bubble_center, V2(0, 10.0f)), V2(speech_bubble.text_width_in_pixels, size.y * 0.15f));
 					dbgrect(placing_text_in);
 
-					MD_String8List to_draw = words_on_current_page_without_unsaid(it);
+					MD_String8List to_draw = words_on_current_page_without_unsaid(it, &speech_bubble);
 					if(to_draw.node_count != 0)
 					{
 						PlacedWordList placed = place_wrapped_words(frame_arena, to_draw, text_scale, aabb_size(placing_text_in).x, default_font);  
@@ -6137,11 +6240,12 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 										MD_String8 parse_response = parse_chatgpt_response(scratch.arena, it, sentence_str, &out);
 
 										// check that it wraps in below two lines
-										PlacedWordList placed = place_wrapped_words(frame_arena, split_by_word(frame_arena, TextChunkString8(out.speech)), BUBBLE_TEXT_SCALE, BUBBLE_TEXT_WIDTH_PIXELS, BUBBLE_FONT);
+										TextPlacementSettings *to_wrap_to = &speech_bubble;
+										PlacedWordList placed = place_wrapped_words(frame_arena, split_by_word(frame_arena, TextChunkString8(out.speech)), to_wrap_to->text_scale, to_wrap_to->text_width_in_pixels, *to_wrap_to->font);
 										int words_over_limit = 0;
 										for(PlacedWord *cur = placed.first; cur; cur = cur->next)
 										{
-											if(cur->line_index >= BUBBLE_LINES_PER_PAGE*AI_MAX_BUBBLE_PAGES_IN_OUTPUT) // the max number of lines of text on a bubble
+											if(cur->line_index >= to_wrap_to->lines_per_page*to_wrap_to->maximum_pages_from_ai) // the max number of lines of text on a bubble
 											{
 												words_over_limit += 1;
 											}
@@ -6218,12 +6322,12 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 						if (it->is_npc)
 						{
 							// character speech animation text input
-							if (true)
+							if (it->npc_kind != NPC_Angel)
 							{
 								MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 
-								MD_String8List to_say = words_on_current_page(it);
-								MD_String8List to_say_without_unsaid = words_on_current_page_without_unsaid(it);
+								MD_String8List to_say = words_on_current_page(it, &speech_bubble);
+								MD_String8List to_say_without_unsaid = words_on_current_page_without_unsaid(it, &speech_bubble);
 								if(to_say.node_count > 0 && it->words_said_on_page < to_say.node_count)
 								{
 									if(cur_unread_entity == it)
@@ -6916,75 +7020,6 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 			draw_centered_text((TextParams){false, MD_S8Lit("The AI server is having technical difficulties..."), text_center, WHITE, 1.0f });
 		}
 
-		// angel screen
-		gs.no_angel_screen = true;
-		{
-			static float visible = 1.0f;
-			bool should_be_visible = !gs.no_angel_screen;
-			visible = Lerp(visible, unwarped_dt*2.0f, should_be_visible ? 1.0f : 0.0f);
-
-			Entity *angel_entity = 0;
-			ENTITIES_ITER(gs.entities)
-			{
-				if(it->is_npc && it->npc_kind == NPC_Angel)
-				{
-					assert(!angel_entity);
-					angel_entity = it;
-				} 
-			}
-			assert(angel_entity);
-
-			if(should_be_visible) gs.player->talking_to = frome(angel_entity);
-
-			draw_quad((DrawParams) {quad_at(V2(0,screen_size().y), screen_size()), IMG(image_white_square), blendalpha(BLACK, visible), .layer = LAYER_UI_FG});
-
-			static MD_String8List to_say = {0};
-			static double cur_characters = 0;
-			if(to_say.node_count == 0)
-			{
-				to_say = split_by_word(persistent_arena, MD_S8Lit("You've been asleep for a long long time..."));
-				cur_characters  = 0;
-			}
-			MD_String8 cur_word = {0};
-			MD_String8Node *cur_word_node = 0;
-			double chars_said = cur_characters;
-			for(MD_String8Node *cur = to_say.first; cur; cur = cur->next)
-			{
-				if((int)chars_said < cur->string.size)
-				{
-					cur_word = cur->string;
-					cur_word_node = cur;
-					break;
-				}
-				chars_said -= (double)cur->string.size;
-			}
-			if(!cur_word.str)
-			{
-				cur_word = to_say.last->string;
-				cur_word_node = to_say.last;
-			}
-
-			cur_characters += unwarped_dt*ANGEL_CHARACTERS_PER_SEC;
-			chars_said += unwarped_dt*ANGEL_CHARACTERS_PER_SEC;
-			if(chars_said > cur_word.size && cur_word_node->next)
-			{
-				play_audio(&sound_angel_grunt_0, 1.0f);
-			}
-
-			assert(cur_word_node);
-			MD_String8Node *prev_next = cur_word_node->next;
-			cur_word_node->next = 0;
-			MD_String8 without_unsaid = MD_S8ListJoin(frame_arena, to_say, &(MD_StringJoin){.mid = MD_S8Lit(" ")});
-			cur_word_node->next = prev_next;
-
-			draw_centered_text((TextParams){false, without_unsaid, V2(screen_size().x*0.5f, screen_size().y*0.75f), blendalpha(WHITE, visible), 1.0f, .use_font = &font_for_text_input});
-			draw_centered_text((TextParams){false, MD_S8Lit("(Press E to speak)"), V2(screen_size().x*0.5f, screen_size().y*0.25f), blendalpha(WHITE, visible*0.5f), 0.8f, .use_font = &font_for_text_input});
-
-			if(should_be_visible && pressed.interact)
-			{
-				begin_text_input();
-			}
-		}
 
 		// win screen
 		{

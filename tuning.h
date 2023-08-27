@@ -19,11 +19,6 @@
 #define CAM_VERTICAL_TO_HORIZONTAL_RATIO 0.95f
 #define DIALOG_FADE_TIME 3.0f
 
-#define BUBBLE_WIDTH_PIXELS 400.0f
-#define BUBBLE_TEXT_WIDTH_PIXELS (BUBBLE_WIDTH_PIXELS*0.8f)
-#define BUBBLE_TEXT_SCALE 1.0f
-#define BUBBLE_FONT default_font
-#define BUBBLE_LINES_PER_PAGE 2
 #define AI_MAX_BUBBLE_PAGES_IN_OUTPUT 2
 
 #define ARENA_SIZE (1024*1024*20)
@@ -32,7 +27,7 @@
 #ifdef DEVTOOLS
 #define PROFILING_SAVE_FILENAME "rpgpt.spall"
 // server url cannot have trailing slash
-#define MOCK_AI_RESPONSE
+//#define MOCK_AI_RESPONSE
 #define SERVER_DOMAIN "localhost"
 #define SERVER_PORT 8090
 #define IS_SERVER_SECURE 0
