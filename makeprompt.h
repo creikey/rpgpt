@@ -274,6 +274,7 @@ typedef struct GameState {
 	uint64_t tick;
 	bool won;
 	
+	MD_String8 current_room_name; // the string is allocated on the level that is currently loaded
 	bool finished_reading_dying_dialog;
 	bool no_angel_screen;
 	

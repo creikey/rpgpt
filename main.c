@@ -1268,12 +1268,12 @@ typedef struct
 	Room *room_list;
 } ThreeDeeLevel;
 
-Room *get_cur_room(ThreeDeeLevel *level)
+Room *get_cur_room(GameState *gs, ThreeDeeLevel *level)
 {
 	Room *in_room = 0;
 	for(Room *cur = level->room_list; cur; cur = cur->next)
 	{
-		if(MD_S8Match(cur->name, MD_S8Lit("Forest"), 0))
+		if(MD_S8Match(cur->name, gs->current_room_name, 0))
 		{
 			in_room = cur;
 			break;
@@ -2143,8 +2143,21 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 	memset(gs, 0, sizeof(GameState));
 	rnd_gamerand_seed(&gs->random, RANDOM_SEED);
 
-	Room *in_room = get_cur_room(level);
+	// the target room will be whichever room has the player
+	for(Room *cur_room = level->room_list; cur_room; cur_room = cur_room->next)
+	{
+		for(PlacedEntity *cur = cur_room->placed_entity_list; cur; cur = cur->next)
+		{
+			if(cur->npc_kind == NPC_Player)
+			{
+				gs->current_room_name = cur_room->name;
+				break;
+			}
+		}
+		if(gs->current_room_name.size > 0) break;
+	}
 
+	Room *in_room = get_cur_room(gs, level);
 	bool found_player = false;
 	for(PlacedEntity *cur = in_room->placed_entity_list; cur; cur = cur->next)
 	{
@@ -4589,7 +4602,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 	BUFF(CollisionObj, 256) to_check = { 0 };
 
 	// add world boxes
-	for(CollisionCylinder *cur = get_cur_room(&level_threedee)->collision_list; cur; cur = cur->next)
+	for(CollisionCylinder *cur = get_cur_room(&gs, &level_threedee)->collision_list; cur; cur = cur->next)
 	{
 		BUFF_APPEND(&to_check, ((CollisionObj){cur->bounds, gs.world_entity}));
 	}
@@ -5704,7 +5717,7 @@ void frame(void)
 
 		// @Place(draw 3d things)
 
-		for(PlacedMesh *cur = get_cur_room(&level_threedee)->placed_mesh_list; cur; cur = cur->next)
+		for(PlacedMesh *cur = get_cur_room(&gs, &level_threedee)->placed_mesh_list; cur; cur = cur->next)
 		{
 			float seed = (float)((int64_t)cur % 1024);
 
@@ -6646,6 +6659,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 										//if (it->memories_last->context.author_npc_kind != it->npc_kind)
 										{
 											const char *action = 0;
+											const char *action_argument = "Raphael";
 											if(gete(it->aiming_shotgun_at))
 											{
 												action = "fire_shotgun";
@@ -6658,7 +6672,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 											char *next_dialog = rigged_dialog[it->times_talked_to % ARRLEN(rigged_dialog)];
 											char *target = characters[it->memories_last->context.author_npc_kind].name;
 											target = characters[NPC_Player].name;
-											ai_response = FmtWithLint(frame_arena, "{\"target\": \"%s\", \"action\": \"%s\", \"action_argument\": \"The Player\", \"speech\": \"%s\"}", target, action, next_dialog);
+											ai_response = FmtWithLint(frame_arena, "{\"target\": \"%s\", \"action\": \"%s\", \"action_argument\": \"%s\", \"speech\": \"%s\"}", target, action, action_argument, next_dialog);
 											it->times_talked_to += 1;
 										}
 										else
