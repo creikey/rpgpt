@@ -27,7 +27,7 @@
 #ifdef DEVTOOLS
 #define PROFILING_SAVE_FILENAME "rpgpt.spall"
 // server url cannot have trailing slash
-//#define MOCK_AI_RESPONSE
+#define MOCK_AI_RESPONSE
 #define SERVER_DOMAIN "localhost"
 #define SERVER_PORT 8090
 #define IS_SERVER_SECURE 0

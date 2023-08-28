@@ -1,4 +1,7 @@
 Urgent:
+- White sidebars on angel's speech that recede away.
+- Mystical particles that float upwards.
+- Gradient png on the bottom that has more alpha, controlled by same parameter as white sidebars.
 - Fix everything about the shotgun, put shotgun away. Make them understand they're holding their shotgun more. REALLY look into characters not being able to shoot eachother
 - On startup if devtools print the estimated cost per generation request of the worst offending character
 - simple room transition system for angel/real map interop, angel room

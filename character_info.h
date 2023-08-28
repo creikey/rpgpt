@@ -39,6 +39,11 @@ ActionInfo actions[] = {
 		ARGUMENT("Expects the argument to be who you are ending the conversation with, or if it's nobody in particular you may omit this action's argument"),
 	},
 	{
+		.name = "assign_gameplay_objective",
+		.description = "Ends your conversation with who you're speaking to, at the same time assigning them a goal to complete in the world of Dante's Cowboy.",
+		ARGUMENT("Expects the argument to be the gameplay objective assigned for them, it fits a specific syntax and is case sensitive: it must be `VERB SUBJECT`, you're given a list of accepted verbs and subjects earlier."),
+	},
+	{
 		.name = "join",
 		.description = "Joins somebody else's party, so you follow them everywhere",
 		ARGUMENT("Expects the argument to be who you're joining"),
@@ -63,6 +68,10 @@ ActionInfo actions[] = {
 		.description = "Holsters your shotgun, no longer threatening who you're aiming at.",
 		NO_ARGUMENT,
 	},
+};
+
+char *verbs[] = {
+	"KILL",
 };
 
 typedef enum
@@ -116,7 +125,7 @@ CharacterGen characters[] = {
 	{
 		.name = "Angel",
 		.enum_name = "Angel",
-		.prompt = CHARACTER_PROMPT_PREFIX("Angel") "mysterious, radiant, mystical creature the player first talks to. You guide the entire game: deciding on an objective for the player to fulfill until you believe they've learned their lesson, whatever that means to them.",
+		.prompt = CHARACTER_PROMPT_PREFIX("Angel") "mysterious, radiant, mystical creature the player first talks to. You guide the entire game: deciding on an objective for the player to fulfill until you believe they've learned their lesson, whatever that means to them. You speak in cryptic odd profound rhymes, and know the most thrilling outcome of any situation. Your purpose it to thrill the player, but you will never admit this.",
 		.silence_factor = 0.0,
 	},
 };

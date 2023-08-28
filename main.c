@@ -1852,6 +1852,11 @@ void cause_action_side_effects(Entity *from, Action a)
 		assert(gete(from->aiming_shotgun_at));
 		gete(from->aiming_shotgun_at)->killed = true;
 	}
+	if(a.kind == ACT_assign_gameplay_objective)
+	{
+		gs.assigned_objective = true;
+		gs.objective = a.argument.objective;
+	}
 
 	MD_ReleaseScratch(scratch);
 }
@@ -2261,7 +2266,12 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 						}
 						if(action_argument_str.size > 0)
 						{
-							current_action.argument.targeting = parse_enumstr(scratch.arena, action_argument_str, &drama_errors, NpcKind_names, "NpcKind", "");
+							MD_String8 error = {0};
+							parse_action_argument(scratch.arena, &error, current_action.kind, action_argument_str, &current_action.argument);
+							if(error.size > 0)
+							{
+								PushWithLint(scratch.arena, &drama_errors, "Error parsing argument: '%.*s'", MD_S8VArg(error));
+							}
 						}
 
 						if(dialog.size >= ARRLEN(current_action.speech.text))
@@ -3921,9 +3931,11 @@ typedef enum
 	LAYER_WORLD,
 	LAYER_UI,
 	LAYER_UI_FG,
+	LAYER_ANGEL_SCREEN,
 	LAYER_UI_TEXTINPUT,
 	LAYER_SCREENSPACE_EFFECTS,
 
+	LAYER_ULTRA_IMPORTANT_NOTIFICATIONS,
 	LAYER_LAST
 } Layer;
 
@@ -4508,6 +4520,11 @@ AABB draw_text(TextParams t)
 	return bounds;
 }
 
+float get_vertical_dist_between_lines(LoadedFont for_font, float text_scale)
+{
+	return for_font.font_line_advance*text_scale*0.9f;
+}
+
 AABB draw_centered_text(TextParams t)
 {
 	if(t.scale <= 0.01f) return (AABB){0};
@@ -4515,7 +4532,10 @@ AABB draw_centered_text(TextParams t)
 	AABB text_aabb = draw_text(t);
 	t.dry_run = false;
 	Vec2 center_pos = t.pos;
-	t.pos = AddV2(center_pos, MulV2F(aabb_size(text_aabb), -0.5f));
+	LoadedFont *to_use = &default_font;
+	if(t.use_font) to_use = t.use_font;
+	//t.pos = AddV2(center_pos, MulV2F(aabb_size(text_aabb), -0.5f));
+	t.pos = V2(center_pos.x - aabb_size(text_aabb).x/2.0f, center_pos.y - get_vertical_dist_between_lines(*to_use, t.scale)/2.0f); 
 	return draw_text(t);
 }
 
@@ -4760,6 +4780,7 @@ typedef struct PlacedWord
 	struct PlacedWord *prev;
 	MD_String8 text;
 	Vec2 lower_left_corner;
+	Vec2 size;
 	int line_index;
 } PlacedWord;
 
@@ -4769,48 +4790,97 @@ typedef struct
 	PlacedWord *last;
 } PlacedWordList;
 
-float get_vertical_dist_between_lines(LoadedFont for_font, float text_scale)
-{
-	return for_font.font_line_advance*text_scale*0.9f;
-}
 
-PlacedWordList place_wrapped_words(MD_Arena *arena, MD_String8List words, float text_scale, float maximum_width, LoadedFont for_font)
+typedef enum
+{
+	JUST_LEFT,
+	JUST_CENTER,
+} TextJustification;
+
+PlacedWordList place_wrapped_words(MD_Arena *arena, MD_String8List words, float text_scale, float maximum_width, LoadedFont for_font, TextJustification just)
 {
 	PlacedWordList to_return = {0};
 	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
 
-	Vec2 at_position = V2(0.0, 0.0);
-	Vec2 cur = at_position;
-	float space_size = character_width(for_font, (int)' ', text_scale);
-	float current_vertical_offset = 0.0f; // goes negative
 	int current_line_index = 0;
-	for(MD_String8Node *next_word = words.first; next_word; next_word = next_word->next)
 	{
-		if(next_word->string.size == 0)
+		Vec2 at_position = V2(0.0, 0.0);
+		Vec2 cur = at_position;
+		float space_size = character_width(for_font, (int)' ', text_scale);
+		float current_vertical_offset = 0.0f; // goes negative
+		for (MD_String8Node *next_word = words.first; next_word; next_word = next_word->next)
 		{
-		}
-		else
-		{
-			AABB word_bounds = draw_text((TextParams){true, next_word->string, V2(0.0, 0.0), .scale = text_scale});
-			word_bounds.lower_right.x += space_size;
-			float next_x_position = cur.x + aabb_size(word_bounds).x;
-			if(next_x_position - at_position.x > maximum_width)
+			if (next_word->string.size == 0)
 			{
-				current_vertical_offset -= get_vertical_dist_between_lines(for_font, text_scale);  // the 1.1 is just arbitrary padding because it looks too crowded otherwise
-				cur = AddV2(at_position, V2(0.0f, current_vertical_offset));
-				current_line_index += 1;
-				next_x_position = cur.x + aabb_size(word_bounds).x;
 			}
+			else
+			{
+				AABB word_bounds = draw_text((TextParams){true, next_word->string, V2(0.0, 0.0), .scale = text_scale, .use_font = &for_font});
+				word_bounds.lower_right.x += space_size;
+				float next_x_position = cur.x + aabb_size(word_bounds).x;
+				if (next_x_position - at_position.x > maximum_width)
+				{
+					current_vertical_offset -= get_vertical_dist_between_lines(for_font, text_scale); // the 1.1 is just arbitrary padding because it looks too crowded otherwise
+					cur = AddV2(at_position, V2(0.0f, current_vertical_offset));
+					current_line_index += 1;
+					next_x_position = cur.x + aabb_size(word_bounds).x;
+				}
 
-			PlacedWord *new_placed = MD_PushArray(arena, PlacedWord, 1);
-			new_placed->text = next_word->string;
-			new_placed->lower_left_corner = cur;
-			new_placed->line_index = current_line_index;
+				PlacedWord *new_placed = MD_PushArray(arena, PlacedWord, 1);
+				new_placed->text = next_word->string;
+				new_placed->lower_left_corner = cur;
+				new_placed->size = aabb_size(word_bounds);
+				new_placed->line_index = current_line_index;
 
-			MD_DblPushBack(to_return.first, to_return.last, new_placed);
+				MD_DblPushBack(to_return.first, to_return.last, new_placed);
 
-			cur.x = next_x_position;
+				cur.x = next_x_position;
+			}
 		}
+	}
+
+	switch(just)
+	{
+		case JUST_LEFT:
+		break;
+		case JUST_CENTER:
+		{
+			//PlacedWord **by_line_index = MD_PushArray(scratch.arena, PlacedWord*, current_line_index);
+			for(int i = to_return.first->line_index; i <= to_return.last->line_index; i++)
+			{
+				PlacedWord *first_on_line = 0;
+				PlacedWord *last_on_line = 0;
+
+				for(PlacedWord *cur = to_return.first; cur; cur = cur->next)
+				{
+					if(cur->line_index == i)
+					{
+						if(first_on_line == 0)
+						{
+							first_on_line = cur;
+						}
+					}
+					else if(cur->line_index > i)
+					{
+						last_on_line = cur->prev;
+						assert(last_on_line->line_index == i);
+						break;
+					}
+				}
+				if(first_on_line && !last_on_line)
+				{
+					last_on_line = to_return.last;
+				}
+
+				float total_width = fabsf(first_on_line->lower_left_corner.x - (last_on_line->lower_left_corner.x + last_on_line->size.x));
+				float midpoint = total_width/2.0f;
+				for(PlacedWord *cur = first_on_line; cur != last_on_line->next; cur = cur->next)
+				{
+					cur->lower_left_corner.x = (cur->lower_left_corner.x - midpoint) + maximum_width/2.0f;
+				}
+			}
+		}
+		break;
 	}
 
 	MD_ReleaseScratch(scratch);
@@ -4939,17 +5009,33 @@ typedef struct
 
 struct { int key; IMState value; } *imui_state = 0;
 
-bool imbutton_key(AABB button_aabb, float text_scale, MD_String8 text, int key, float dt, bool force_down)
+typedef struct
 {
-	IMState state = hmget(imui_state, key);
+	AABB button_aabb;
+	float text_scale;
+	MD_String8 text;
+	int key;
+	float dt;
+	bool force_down;
+	Layer layer;
+	LoadedFont *font;
+} ImbuttonArgs;
+
+bool imbutton_key(ImbuttonArgs args)
+{
+	Layer layer = LAYER_UI;
+	LoadedFont *font = &default_font;
+	if(args.layer != LAYER_INVALID) layer = args.layer;
+	if(args.font) font = args.font;
+	IMState state = hmget(imui_state, args.key);
 
 	float raise = Lerp(0.0f, state.pressed_amount, 5.0f);
-	button_aabb.upper_left.y += raise;
-	button_aabb.lower_right.y += raise;
+	args.button_aabb.upper_left.y += raise;
+	args.button_aabb.lower_right.y += raise;
 
 	bool to_return = false;
 	float pressed_target = 0.5f;
-	if (has_point(button_aabb, mouse_pos))
+	if (has_point(args.button_aabb, mouse_pos))
 	{
 		if (pressed.mouse_down)
 		{
@@ -4962,23 +5048,30 @@ bool imbutton_key(AABB button_aabb, float text_scale, MD_String8 text, int key, 
 	}
 	if (pressed.mouse_up) state.is_being_pressed = false;
 
-	if (state.is_being_pressed || force_down) pressed_target = 0.0f;
+	if (state.is_being_pressed || args.force_down) pressed_target = 0.0f;
 
-	state.pressed_amount = Lerp(state.pressed_amount, dt*20.0f, pressed_target);
+	state.pressed_amount = Lerp(state.pressed_amount, args.dt*20.0f, pressed_target);
 
 	float button_alpha = Lerp(0.5f, state.pressed_amount, 1.0f);
 
-	if (aabb_is_valid(button_aabb))
+	if (aabb_is_valid(args.button_aabb))
 	{
-		draw_quad((DrawParams) { quad_aabb(button_aabb), IMG(image_white_square), blendalpha(WHITE, button_alpha), .layer = LAYER_UI, });
-		draw_centered_text((TextParams) { false, text, aabb_center(button_aabb), BLACK, text_scale, .clip_to = button_aabb, .do_clipping = true });
+		draw_quad((DrawParams) { quad_aabb(args.button_aabb), IMG(image_white_square), blendalpha(WHITE, button_alpha), .layer = layer,  });
+		
+		// don't use draw centered text here because it looks funny for some reason... I think it's because the vertical line advance of the font, used in draw_centered_text, is the wrong thing for a button like this 
+		TextParams t = (TextParams) { false, args.text, aabb_center(args.button_aabb), BLACK, args.text_scale, .clip_to = args.button_aabb, .do_clipping = true, .layer = layer, .use_font = font};
+		t.dry_run = true;
+		AABB aabb = draw_text(t);
+		t.dry_run = false;
+		t.pos = SubV2(aabb_center(args.button_aabb), MulV2F(aabb_size(aabb), 0.5f));
+		draw_text(t);
 	}
 
-	hmput(imui_state, key, state);
+	hmput(imui_state, args.key, state);
 	return to_return;
 }
 
-#define imbutton(...) imbutton_key(__VA_ARGS__, __LINE__, unwarped_dt, false)
+#define imbutton(...) imbutton_key((ImbuttonArgs){__VA_ARGS__, .key = __LINE__, .dt = unwarped_dt})
 
 Quat rot_on_plane_to_quat(float rot)
 {
@@ -5598,7 +5691,7 @@ TextPlacementSettings speech_bubble = {
 MD_String8List words_on_current_page(Entity *it, TextPlacementSettings *settings)
 {
 	MD_String8 last = last_said_sentence(it);
-	PlacedWordList placed = place_wrapped_words(frame_arena, split_by_word(frame_arena, last), settings->text_scale, settings->width_in_pixels, *settings->font);
+	PlacedWordList placed = place_wrapped_words(frame_arena, split_by_word(frame_arena, last), settings->text_scale, settings->width_in_pixels, *settings->font, JUST_LEFT);
 
 	MD_String8List on_current_page = {0};
 	for(PlacedWord *cur = placed.first; cur; cur = cur->next)
@@ -5908,32 +6001,49 @@ void frame(void)
 
 		// angel screen
 		{
+			Entity *angel_entity = 0;
+			ENTITIES_ITER(gs.entities)
+			{
+				if (it->is_npc && it->npc_kind == NPC_Angel)
+				{
+					assert(!angel_entity);
+					angel_entity = it;
+				}
+			}
+			gs.no_angel_screen = angel_entity == 0;
+
 			static float visible = 1.0f;
 			bool should_be_visible = !gs.no_angel_screen;
 			visible = Lerp(visible, unwarped_dt*2.0f, should_be_visible ? 1.0f : 0.0f);
 
-			Entity *angel_entity = 0;
-			ENTITIES_ITER(gs.entities)
-			{
-				if(it->is_npc && it->npc_kind == NPC_Angel)
-				{
-					assert(!angel_entity);
-					angel_entity = it;
-				} 
-			}
-			assert(angel_entity);
 
 			if(should_be_visible) gs.player->talking_to = frome(angel_entity);
 
-			draw_quad((DrawParams) {quad_at(V2(0,screen_size().y), screen_size()), IMG(image_white_square), blendalpha(BLACK, visible), .layer = LAYER_UI_FG});
+			draw_quad((DrawParams) {quad_at(V2(0,screen_size().y), screen_size()), IMG(image_white_square), blendalpha(BLACK, visible), .layer = LAYER_ANGEL_SCREEN});
 
-			static MD_String8List to_say = {0};
+			static TextChunk *to_say_chunk = {0};
 			static double cur_characters = 0;
-			if(to_say.node_count == 0)
+			if(should_be_visible)
 			{
-				to_say = split_by_word(persistent_arena, MD_S8Lit("You've been asleep for a long long time..."));
-				cur_characters  = 0;
+				assert(angel_entity);
+				MD_String8 new_to_say = {0};
+				if(angel_entity->undismissed_action)
+				{
+					new_to_say = last_said_sentence(angel_entity);
+					cur_characters = 0;
+					angel_entity->undismissed_action = false;
+				}
+				if(new_to_say.str != 0)
+				{
+					if(to_say_chunk == 0)
+					{
+						to_say_chunk = MD_PushArray(persistent_arena, TextChunk, 1);
+					}
+					chunk_from_s8(to_say_chunk, new_to_say);
+				}
 			}
+			MD_String8List to_say = {0};
+			if(to_say_chunk != 0) to_say = split_by_word(frame_arena, TextChunkString8(*to_say_chunk));
 			MD_String8 cur_word = {0};
 			MD_String8Node *cur_word_node = 0;
 			double chars_said = cur_characters;
@@ -5947,48 +6057,77 @@ void frame(void)
 				}
 				chars_said -= (double)cur->string.size;
 			}
-			if(!cur_word.str)
+			if(!cur_word.str && to_say.last)
 			{
 				cur_word = to_say.last->string;
 				cur_word_node = to_say.last;
 			}
 
-			cur_characters += unwarped_dt*ANGEL_CHARACTERS_PER_SEC;
-			chars_said += unwarped_dt*ANGEL_CHARACTERS_PER_SEC;
-			if(chars_said > cur_word.size && cur_word_node->next)
+			if(cur_word_node)
 			{
-				play_audio(&sound_angel_grunt_0, 1.0f);
+				cur_characters += unwarped_dt * ANGEL_CHARACTERS_PER_SEC;
+				chars_said += unwarped_dt * ANGEL_CHARACTERS_PER_SEC;
+				if (chars_said > cur_word.size && cur_word_node->next)
+				{
+					play_audio(&sound_angel_grunt_0, 1.0f);
+				}
+
+				assert(cur_word_node);
+				MD_String8Node *prev_next = cur_word_node->next;
+				cur_word_node->next = 0;
+				//MD_String8 without_unsaid = MD_S8ListJoin(frame_arena, to_say, &(MD_StringJoin){.mid = MD_S8Lit(" ")});
+
+				PlacedWordList placed = place_wrapped_words(frame_arena, to_say, 1.0f, screen_size().x*0.8f, font_for_text_input, JUST_CENTER);
+				translate_words_by(placed, V2(screen_size().x*0.1f, screen_size().y*0.75f));
+				for(PlacedWord *cur = placed.first; cur; cur = cur->next)
+				{
+					draw_text((TextParams){false, cur->text, cur->lower_left_corner, blendalpha(WHITE, visible), 1.0f, .use_font = &font_for_text_input, .layer = LAYER_ANGEL_SCREEN});
+				}
+				//draw_centered_text((TextParams){false, without_unsaid, V2(screen_size().x * 0.5f, screen_size().y * 0.75f), blendalpha(WHITE, visible), 1.0f, .use_font = &font_for_text_input, .layer = LAYER_ANGEL_SCREEN});
+
+				cur_word_node->next = prev_next;
+			}
+			if(gs.assigned_objective)
+			{
+				float mission_font_scale = 1.0f;
+				MD_String8 mission_text = FmtWithLint(frame_arena, "Your mission: %s %s", verbs[0], characters[gs.objective.who_to_kill].name);
+				float button_height = 100.0f;
+				float vert = button_height*0.5f;
+				draw_centered_text((TextParams){false, mission_text, V2(screen_size().x * 0.5f, screen_size().y * 0.25f + vert), blendalpha(WHITE, visible), mission_font_scale, .use_font = &font_for_text_input, .layer = LAYER_ANGEL_SCREEN});
+				if(imbutton(aabb_centered(V2(screen_size().x/2.0f, screen_size().y*0.25f - vert), MulV2F(V2(170.0f, button_height), visible)), visible, MD_S8Lit("Accept"), .layer = LAYER_ANGEL_SCREEN, .font = &font_for_text_input))
+				{
+					Log("Accepting mission...\n");
+				}
+			}
+			else
+			{
+				draw_centered_text((TextParams){false, MD_S8Lit("(Press E to speak)"), V2(screen_size().x * 0.5f, screen_size().y * 0.25f), blendalpha(WHITE, visible * 0.5f), 0.8f, .use_font = &font_for_text_input, .layer = LAYER_ANGEL_SCREEN});
 			}
 
-			assert(cur_word_node);
-			MD_String8Node *prev_next = cur_word_node->next;
-			cur_word_node->next = 0;
-			MD_String8 without_unsaid = MD_S8ListJoin(frame_arena, to_say, &(MD_StringJoin){.mid = MD_S8Lit(" ")});
-			cur_word_node->next = prev_next;
-
-			draw_centered_text((TextParams){false, without_unsaid, V2(screen_size().x*0.5f, screen_size().y*0.75f), blendalpha(WHITE, visible), 1.0f, .use_font = &font_for_text_input});
-			draw_centered_text((TextParams){false, MD_S8Lit("(Press E to speak)"), V2(screen_size().x*0.5f, screen_size().y*0.25f), blendalpha(WHITE, visible*0.5f), 0.8f, .use_font = &font_for_text_input});
-
-			if(should_be_visible && pressed.interact)
+			if(should_be_visible && pressed.interact && !gs.assigned_objective)
 			{
 				begin_text_input();
 				pressed.interact = false;
 			}
+		
+			if(!gs.no_angel_screen)
+			{
+				pressed = (PressedState){0};
+			}
 		}
-
-
 
 		// @Place(text input drawing)
 #ifdef DESKTOP
 		draw_quad((DrawParams){quad_at(V2(0,screen_size().y), screen_size()), IMG(image_white_square), blendalpha(BLACK, text_input_fade*0.3f), .layer = LAYER_UI_TEXTINPUT});
 		Vec2 edge_of_text = MulV2F(screen_size(), 0.5f);
+		float text_scale = 1.0f;
 		if(text_input_buffer_length > 0)
 		{
-			AABB bounds = draw_centered_text((TextParams){false, MD_S8(text_input_buffer, text_input_buffer_length), MulV2F(screen_size(), 0.5f), blendalpha(WHITE, text_input_fade), 1.0f, .use_font = &font_for_text_input, .layer = LAYER_UI_TEXTINPUT});
+			AABB bounds = draw_centered_text((TextParams){false, MD_S8(text_input_buffer, text_input_buffer_length), MulV2F(screen_size(), 0.5f), blendalpha(WHITE, text_input_fade), text_scale, .use_font = &font_for_text_input, .layer = LAYER_UI_TEXTINPUT});
 			edge_of_text = bounds.lower_right;
 		}
 		Vec2 cursor_center = V2(edge_of_text.x,screen_size().y/2.0f);
-		draw_quad((DrawParams){quad_centered(cursor_center, V2(3.0f, 80.0f)), IMG(image_white_square), blendalpha(WHITE, text_input_fade * (sinf((float)elapsed_time*8.0f)/2.0f + 0.5f)), .layer = LAYER_UI_TEXTINPUT});
+		draw_quad((DrawParams){quad_centered(cursor_center, V2(3.0f, get_vertical_dist_between_lines(font_for_text_input, text_scale))), IMG(image_white_square), blendalpha(WHITE, text_input_fade * (sinf((float)elapsed_time*8.0f)/2.0f + 0.5f)), .layer = LAYER_UI_TEXTINPUT});
 #endif
 
 		Entity *cur_unread_entity = 0;
@@ -6087,7 +6226,7 @@ void frame(void)
 					MD_String8List to_draw = words_on_current_page_without_unsaid(it, &speech_bubble);
 					if(to_draw.node_count != 0)
 					{
-						PlacedWordList placed = place_wrapped_words(frame_arena, to_draw, text_scale, aabb_size(placing_text_in).x, default_font);  
+						PlacedWordList placed = place_wrapped_words(frame_arena, to_draw, text_scale, aabb_size(placing_text_in).x, default_font, JUST_LEFT);  
 						
 						// also called on npc response to see if it fits in the right amount of bubbles, if not tells AI how many words it has to trim its response by
 						// translate_words_by(placed, V2(placing_text_in.upper_left.x, placing_text_in.lower_right.y));
@@ -6111,7 +6250,7 @@ void frame(void)
 
 
 		float speed_target = 1.0f;
-		gs.stopped_time = cur_unread_entity != 0 || (!gs.no_angel_screen);
+		gs.stopped_time = cur_unread_entity != 0;
 		if(gs.stopped_time) speed_target = 0.0f;
 		// pausing the game
 		speed_factor = Lerp(speed_factor, unwarped_dt*10.0f, speed_target);
@@ -6241,7 +6380,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 
 										// check that it wraps in below two lines
 										TextPlacementSettings *to_wrap_to = &speech_bubble;
-										PlacedWordList placed = place_wrapped_words(frame_arena, split_by_word(frame_arena, TextChunkString8(out.speech)), to_wrap_to->text_scale, to_wrap_to->text_width_in_pixels, *to_wrap_to->font);
+										PlacedWordList placed = place_wrapped_words(frame_arena, split_by_word(frame_arena, TextChunkString8(out.speech)), to_wrap_to->text_scale, to_wrap_to->text_width_in_pixels, *to_wrap_to->font, JUST_LEFT);
 										int words_over_limit = 0;
 										for(PlacedWord *cur = placed.first; cur; cur = cur->next)
 										{
@@ -6764,14 +6903,24 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 										{
 											const char *action = 0;
 											const char *action_argument = "Raphael";
-											if(gete(it->aiming_shotgun_at))
+											if(it->npc_kind == NPC_Daniel)
 											{
-												action = "fire_shotgun";
-											} else {
-												action = "aim_shotgun";
+												if (gete(it->aiming_shotgun_at))
+												{
+													action = "fire_shotgun";
+												}
+												else
+												{
+													action = "aim_shotgun";
+												}
+											}
+											else if(it->npc_kind == NPC_Angel)
+											{
+												action = "assign_gameplay_objective";
+												action_argument = "KILL Daniel";
 											}
 											char *rigged_dialog[] = {
-													"Repeated amounts of testing dialog overwhelmingly in support of the mulaney brothers",
+												"Repeated amounts of testing dialog overwhelmingly in support of the mulaney brothers",
 											};
 											char *next_dialog = rigged_dialog[it->times_talked_to % ARRLEN(rigged_dialog)];
 											char *target = characters[it->memories_last->context.author_npc_kind].name;
@@ -6881,7 +7030,8 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 
 					float speed = 0.0f;
 					if(!gs.player->killed) speed = PLAYER_SPEED;
-					// velocity processing
+					if(!gs.no_angel_screen) speed = 0.0;
+					// velocity processing for player player movement
 					{
 						gs.player->last_moved = NormV2(movement);
 						Vec2 target_vel = MulV2F(movement, pixels_per_meter * speed);
@@ -7016,8 +7166,8 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 		if (having_errors)
 		{
 			Vec2 text_center = V2(screen_size().x / 2.0f, screen_size().y*0.8f);
-			draw_quad((DrawParams){centered_quad(text_center, V2(screen_size().x*0.8f, screen_size().y*0.1f)), IMG(image_white_square), blendalpha(BLACK, 0.5f), .layer = LAYER_UI_FG});
-			draw_centered_text((TextParams){false, MD_S8Lit("The AI server is having technical difficulties..."), text_center, WHITE, 1.0f });
+			draw_quad((DrawParams){centered_quad(text_center, V2(screen_size().x*0.8f, screen_size().y*0.1f)), IMG(image_white_square), blendalpha(BLACK, 0.5f), .layer = LAYER_ULTRA_IMPORTANT_NOTIFICATIONS});
+			draw_centered_text((TextParams){false, MD_S8Lit("The AI server is having technical difficulties..."), text_center, WHITE, 1.0f, .layer = LAYER_ULTRA_IMPORTANT_NOTIFICATIONS });
 		}
 
 

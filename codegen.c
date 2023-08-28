@@ -149,6 +149,7 @@ int main(int argc, char **argv)
 	GEN_ENUM(ActionInfo, actions, "ActionKind", "ActionKind_names", it->name, "ACT_%s,\n");
 	GEN_ENUM(CharacterGen, characters, "NpcKind", "NpcKind_enum_names", it->enum_name, "NPC_%s,\n");
 	GEN_TABLE(CharacterGen,"NpcKind_names", characters,it->name);
+	GEN_ENUM(char*, verbs, "ObjectiveVerb", "ObjectiveVerb_names", *it, "%s\n");
 
 	fclose(char_header);
 

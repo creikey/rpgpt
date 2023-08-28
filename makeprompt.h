@@ -94,15 +94,37 @@ typedef struct TextChunkList
 	TextChunk text;
 } TextChunkList;
 
+typedef struct GameplayObjective
+{
+	ObjectiveVerb verb;
+	NpcKind who_to_kill;
+} GameplayObjective;
+
+typedef enum
+{
+	ARG_CHARACTER,
+	ARG_OBJECTIVE,
+} ActionArgumentKind;
+
 typedef struct
 {
+	ActionArgumentKind kind;
 	NpcKind targeting;
+	GameplayObjective objective;
 } ActionArgument;
 
-// returns ai understandable, human readable name, so not the enum name
-MD_String8 action_argument_string(ActionArgument arg)
+// returns ai understandable, human readable name, on the arena, so not the enum name
+MD_String8 action_argument_string(MD_Arena *arena, ActionArgument arg)
 {
-	return MD_S8CString(characters[arg.targeting].name);
+	switch(arg.kind)
+	{
+		case ARG_CHARACTER:
+		return FmtWithLint(arena, "%s", characters[arg.targeting].name);
+		break;
+		case ARG_OBJECTIVE:
+		return FmtWithLint(arena, "%s %s", verbs[arg.objective.verb], characters[arg.objective.who_to_kill].enum_name);
+	}
+	return (MD_String8){0};
 }
 
 typedef struct Action
@@ -187,7 +209,7 @@ typedef struct
 
 // text chunk must be a literal, not a pointer
 // and this returns a s8 that points at the text chunk memory
-#define TextChunkString8(t) MD_S8((MD_u8*)t.text, t.text_length)
+#define TextChunkString8(t) MD_S8((MD_u8*)(t).text, (t).text_length)
 #define TextChunkVArg(t) MD_S8VArg(TextChunkString8(t))
 
 void chunk_from_s8(TextChunk *into, MD_String8 from)
@@ -197,11 +219,6 @@ void chunk_from_s8(TextChunk *into, MD_String8 from)
 	memcpy(into->text, from.str, from.size);
 	into->text_length = (int)from.size;
 }
-
-typedef struct
-{
-	NpcKind who_to_kill;
-} GameObjective;
 
 typedef struct Entity
 {
@@ -277,6 +294,8 @@ typedef struct GameState {
 	MD_String8 current_room_name; // the string is allocated on the level that is currently loaded
 	bool finished_reading_dying_dialog;
 	bool no_angel_screen;
+	bool assigned_objective;
+	GameplayObjective objective;
 	
 	// processing may still occur after time has stopped on the gamestate, 
 	bool stopped_time;
@@ -321,6 +340,11 @@ void fill_available_actions(GameState *gs, Entity *it, AvailableActions *a)
 	else
 	{
 		BUFF_APPEND(a, ACT_join)
+	}
+
+	if(it->npc_kind == NPC_Angel)
+	{
+		BUFF_APPEND(a, ACT_assign_gameplay_objective);
 	}
 
 	bool has_shotgun = it->npc_kind == NPC_Daniel;
@@ -414,6 +438,21 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 		// @TODO unhardcode this, this will be a description of where the character is right now
 		AddFmt("You're currently standing in Daniel's farm's barn, a run-down structure that barely serves its purpose. Daniel's mighty protective of it though.\n");
 
+		if(e->npc_kind == NPC_Angel)
+		{
+			AddFmt("Acceptable verbs for assigning a gameplay objective:\n");
+			ARR_ITER(char*, verbs)
+			{
+				AddFmt("%s\n", *it);
+			}
+			AddFmt("\n");
+
+			AddFmt("The characters in the game you can use when you assign your gameplay objective:\n");
+			AddFmt("Raphael\n");
+			AddFmt("Daniel\n");
+			AddFmt("\n");
+		}
+
 		AddFmt("The actions you can perform, what they do, and the arguments they expect:\n");
 		AvailableActions can_perform;
 		fill_available_actions(gs, e, &can_perform);
@@ -470,6 +509,9 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 					break;
 				case ACT_end_conversation:
 				  	no_longer_wants_to_converse = true;
+					break;
+				case ACT_assign_gameplay_objective:
+				 	AddFmt("%.*s assigned a definitive game objective to %.*s", HUMAN(it->context.author_npc_kind), HUMAN(it->context.talking_to_kind));
 					break;
 				}
 			}
@@ -528,7 +570,8 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 			AddFmt("{");
 			AddFmt("\"speech\":\"%.*s\",", TextChunkVArg(it->speech));
 			AddFmt("\"action\":\"%s\",", actions[it->action_taken].name);
-			AddFmt("\"action_argument\":\"%.*s\",", MD_S8VArg(action_argument_string(it->action_argument)));
+			MD_String8 arg_str = action_argument_string(scratch.arena, it->action_argument);
+			AddFmt("\"action_argument\":\"%.*s\",", MD_S8VArg(arg_str));
 			AddFmt("\"target\":\"%s\"}", characters[it->context.talking_to_kind].name);
 			AddNewNode(MSG_ASSISTANT);
 		}
@@ -548,6 +591,89 @@ MD_String8 get_field(MD_Node *parent, MD_String8 name)
 	return MD_ChildFromString(parent, name, 0)->first_child->string;
 }
 
+void parse_action_argument(MD_Arena *error_arena, MD_String8 *cur_error_message, ActionKind action, MD_String8 action_argument_str, ActionArgument *out)
+{
+	assert(cur_error_message);
+	if(cur_error_message->size > 0) return;
+	MD_ArenaTemp scratch = MD_GetScratch(&error_arena, 1);
+	MD_String8 action_str = MD_S8CString(actions[action].name);
+	// @TODO refactor into, action argument kinds and they parse into different action argument types
+	bool arg_is_character = action == ACT_join || action == ACT_aim_shotgun || action == ACT_end_conversation;
+	bool arg_is_gameplay_objective = action == ACT_assign_gameplay_objective;
+
+	if (arg_is_character)
+	{
+		out->kind = ARG_CHARACTER;
+		bool found_npc = false;
+		for (int i = 0; i < ARRLEN(characters); i++)
+		{
+			if (MD_S8Match(MD_S8CString(characters[i].name), action_argument_str, 0))
+			{
+				found_npc = true;
+				(*out).targeting = i;
+			}
+		}
+		if (!found_npc)
+		{
+			*cur_error_message = FmtWithLint(error_arena, "Argument for action `%.*s` you gave is `%.*s`, which doesn't exist in the game so is invalid", MD_S8VArg(action_str), MD_S8VArg(action_argument_str));
+		}
+	}
+	else if (arg_is_gameplay_objective)
+	{
+		out->kind = ARG_OBJECTIVE;
+		MD_String8List split = MD_S8Split(scratch.arena, action_argument_str, 1, &MD_S8Lit(" "));
+		if (split.node_count != 2)
+		{
+			*cur_error_message = FmtWithLint(error_arena, "Gameplay objective must follow this format: `VERB ACTION`, with a space between the verb and the action. You gave a response with %d words in it, which isn't the required amount, 2", (int)split.node_count);
+		}
+
+		if (cur_error_message->size == 0)
+		{
+			MD_String8 verb = split.first->string;
+
+			bool found = false;
+			MD_String8List available_verbs = {0};
+			ARR_ITER_I(char *, verbs, verb_enum)
+			{
+				MD_S8ListPush(scratch.arena, &available_verbs, MD_S8CString(*it));
+				if (MD_S8Match(MD_S8CString(*it), verb, 0))
+				{
+					(*out).objective.verb = verb_enum;
+					found = true;
+				}
+			}
+			if (!found)
+			{
+				MD_String8 verbs_str = MD_S8ListJoin(scratch.arena, available_verbs, &(MD_StringJoin){.mid = MD_S8Lit(" ")});
+				*cur_error_message = FmtWithLint(error_arena, "The gameplay verb you provided '%.*s' doesn't match any of the gameplay verbs available to you: %.*s", MD_S8VArg(verb), MD_S8VArg(verbs_str));
+			}
+		}
+
+		if (cur_error_message->size == 0)
+		{
+			MD_String8 subject = split.first->next->string;
+			MD_String8 verb = split.first->string;
+			bool found_npc = false;
+			for (int i = 0; i < ARRLEN(characters); i++)
+			{
+				if (MD_S8Match(MD_S8CString(characters[i].name), subject, 0))
+				{
+					found_npc = true;
+					(*out).objective.who_to_kill = i;
+				}
+			}
+			if (!found_npc)
+			{
+				*cur_error_message = FmtWithLint(error_arena, "Argument for gameplay verb `%.*s` you gave is `%.*s`, which doesn't exist in the game so is invalid", MD_S8VArg(verb), MD_S8VArg(subject));
+			}
+		}
+	}
+	else
+	{
+		assert(false); // don't know how to parse the argument string for this kind of action...
+	}
+	MD_ReleaseScratch(scratch);
+}
 
 // if returned string has size greater than 0, it's the error message. Allocated
 // on arena passed into it or in constant memory
@@ -644,29 +770,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 action_
 		{
 			if(actions[out->kind].takes_argument)
 			{
-				// @TODO refactor into, action argument kinds and they parse into different action argument types
-				bool arg_is_character = out->kind == ACT_join || out->kind == ACT_aim_shotgun || out->kind == ACT_end_conversation;
-
-				if(arg_is_character)
-				{
-					bool found_npc = false;
-					for(int i = 0; i < ARRLEN(characters); i++)
-					{
-						if(MD_S8Match(MD_S8CString(characters[i].name), action_argument_str, 0))
-						{
-							found_npc = true;
-							out->argument.targeting = i;
-						}
-					}
-					if(!found_npc)
-					{
-						error_message = FmtWithLint(arena, "Argument for action `%.*s` you gave is `%.*s`, which doesn't exist in the game so is invalid", MD_S8VArg(action_str), MD_S8VArg(action_argument_str));
-					}
-				}
-				else
-				{
-					assert(false); // don't know how to parse the argument string for this kind of action...
-				}
+				parse_action_argument(arena,&error_message, out->kind, action_argument_str, &out->argument);
 			}
 		}
 	}

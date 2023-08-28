@@ -7,7 +7,7 @@
 {enum: Raphael, dialog: "Yeah man, what's up with you?", to: Devil}
 {enum: Devil, dialog: "Nunya!", to: Raphael}
 {enum: Raphael, dialog: "What does 'Nunya' mean? A wild critter you are...", to: Devil}
-{enum: Daniel, dialog: "YOU ASKED FOR IT! TAKE THIS!", action: ACT_fire_shotgun, to: Devil, action_argument: "The Devil"}
+{enum: Daniel, dialog: "YOU ASKED FOR IT! TAKE THIS!", action: ACT_fire_shotgun, to: Devil}
 {enum: Devil, dialog: "Cute! You think your little toys can harm me!", to: Daniel}
 {enum: Daniel, dialog: "What the hell??", to: Devil}
 {enum: Raphael, dialog: "I don't think we can harm him like that", to: Daniel}
@@ -43,6 +43,12 @@
 {can_hear: [Devil, Angel]}
 {enum: Devil, dialog: "You will fall!", to: Angel}
 {enum: Angel, dialog: "Perhaps. And then I will rise as He has, from the corpse and ashes, the sun rises.", to: Devil}
+
+{can_hear: [Passerby, Angel]}
+{enum: Passerby, dialog: "fjdsklajf", to: Angel}
+{enum: Angel, dialog: "Cryptic gibberish upon me, is casting a stone upon God", to: Passerby}
+{enum: Passerby, dialog: "What is my purpose here?", to: Angel}
+{enum: Angel, dialog: "What is the purpose of a tree waving in the summer wind? A river carving a path into the countryside? Only God knows his plan. But your purpose, here, has been assigned. You must kill raphael. Good luck.", to: Passerby, action: ACT_assign_gameplay_objective, action_argument: "KILL Raphael"}
 
 /*
 {can_hear: [WellDweller, Farmer, ManInBlack]},
