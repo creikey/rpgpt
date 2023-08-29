@@ -1277,7 +1277,7 @@ Room *get_cur_room(GameState *gs, ThreeDeeLevel *level)
 	Room *in_room = 0;
 	for(Room *cur = level->room_list; cur; cur = cur->next)
 	{
-		if(MD_S8Match(cur->name, gs->current_room_name, 0))
+		if(MD_S8Match(cur->name, gs->player->current_room_name, 0))
 		{
 			in_room = cur;
 			break;
@@ -2153,41 +2153,35 @@ void transition_to_room(GameState *gs, ThreeDeeLevel *level, MD_String8 new_room
 {
 	Log("Transitioning to %.*s...\n", MD_S8VArg(new_room_name));
 	assert(gs);
+	(void)level;
 
-	bool already_player_in_gamestate = gs->player != 0;
-	Entity player_entity = {0};
-	if(already_player_in_gamestate)
-	{
-		player_entity = *(gs->player);
-	}
+	gs->player->current_room_name = new_room_name;
+}
 
-	gs->current_room_name = new_room_name;
 
-	memset(gs->entities, 0, sizeof(gs->entities));
-	
-	Room *in_room = get_cur_room(gs, level);
+void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *level)
+{
+	memset(gs, 0, sizeof(GameState));
+	rnd_gamerand_seed(&gs->random, RANDOM_SEED);
+
+	// make entities for all rooms
 	bool found_player = false;
-	for(PlacedEntity *cur = in_room->placed_entity_list; cur; cur = cur->next)
+	for(Room *cur_room = level->room_list; cur_room; cur_room = cur_room->next)
 	{
-		Entity *cur_entity = new_entity(gs);
-		cur_entity->npc_kind = cur->npc_kind;
-		cur_entity->pos = point_plane(cur->t.offset);
-		cur_entity->is_npc = true;
-		if(cur_entity->npc_kind == NPC_Player)
+		for (PlacedEntity *cur = cur_room->placed_entity_list; cur; cur = cur->next)
 		{
-			found_player = true;
-			gs->player = cur_entity;
+			Entity *cur_entity = new_entity(gs);
+			cur_entity->npc_kind = cur->npc_kind;
+			cur_entity->pos = point_plane(cur->t.offset);
+			cur_entity->is_npc = true;
+			cur_entity->current_room_name = cur_room->name;
+			if (cur_entity->npc_kind == NPC_Player)
+			{
+				assert(!found_player);
+				found_player = true;
+				gs->player = cur_entity;
+			}
 		}
-	}
-	if(already_player_in_gamestate)
-	{
-		assert(!found_player);
-		gs->player = new_entity(gs);
-		*(gs->player) = player_entity;
-	}
-	else
-	{
-		assert(found_player);
 	}
 
 	gs->world_entity = new_entity(gs);
@@ -2391,32 +2385,9 @@ void transition_to_room(GameState *gs, ThreeDeeLevel *level, MD_String8 new_room
 	}
 
 
-}
 
 
-void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *level)
-{
-	memset(gs, 0, sizeof(GameState));
-	rnd_gamerand_seed(&gs->random, RANDOM_SEED);
-
-	// the target room will be whichever room has the player
-	MD_String8 target_room_name = {0};
-	for(Room *cur_room = level->room_list; cur_room; cur_room = cur_room->next)
-	{
-		for(PlacedEntity *cur = cur_room->placed_entity_list; cur; cur = cur->next)
-		{
-			if(cur->npc_kind == NPC_Player)
-			{
-				target_room_name = cur_room->name;
-				break;
-			}
-		}
-		if(target_room_name.size > 0) break;
-	}
-	assert(target_room_name.size > 0);
-
-	transition_to_room(gs, &level_threedee, target_room_name);
-
+	transition_to_room(gs, &level_threedee, gs->player->current_room_name);
 }
 
 
@@ -3342,6 +3313,7 @@ MD_String8 make_devtools_help(MD_Arena *arena)
 	P("9 - instantly wins the game\n");
 	P("P - toggles spall profiling on/off, don't leave on for very long as it consumes a lot of storage if you do that. The resulting spall trace is saved to the file '%s'\n", PROFILING_SAVE_FILENAME);
 	P("If you hover over somebody it will display some parts of their memories, can be somewhat helpful\n");
+	P("P - immediately kills %s\n", characters[NPC_Raphael].name);
 
 	#undef P
 	MD_String8 to_return = MD_S8ListJoin(arena, list, &(MD_StringJoin){0});
@@ -4680,7 +4652,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 	{
 		ENTITIES_ITER(gs.entities)
 		{
-			if (it != p.from && !(it->is_npc && it->dead) && !it->is_world)
+			if (it != p.from && !(it->is_npc && it->dead) && !it->is_world && MD_S8Match(it->current_room_name, p.from->current_room_name, 0))
 			{
 				BUFF_APPEND(&to_check, ((CollisionObj){.circle.center = it->pos, .circle.radius = entity_radius(it), it}));
 			}
@@ -5913,7 +5885,7 @@ void frame(void)
 
 		ENTITIES_ITER(gs.entities)
 		{
-			if(it->is_npc)
+			if(it->is_npc && MD_S8Match(it->current_room_name, gs.player->current_room_name, 0))
 			{
 				Transform draw_with = entity_transform(it);
 
@@ -6042,7 +6014,7 @@ void frame(void)
 			Entity *angel_entity = 0;
 			ENTITIES_ITER(gs.entities)
 			{
-				if (it->is_npc && it->npc_kind == NPC_Angel)
+				if (it->is_npc && it->npc_kind == NPC_Angel && MD_S8Match(it->current_room_name, gs.player->current_room_name, 0))
 				{
 					assert(!angel_entity);
 					angel_entity = it;
@@ -6185,7 +6157,7 @@ void frame(void)
 		{
 			ENTITIES_ITER(gs.entities)
 			{
-				if (it->is_npc && it->npc_kind != NPC_Player)
+				if (it->is_npc && it->npc_kind != NPC_Player && MD_S8Match(it->current_room_name, gs.player->current_room_name, 0))
 				{
 					if(it->undismissed_action)
 					{
@@ -6955,7 +6927,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 											else if(it->npc_kind == NPC_Angel)
 											{
 												action = "assign_gameplay_objective";
-												action_argument = "KILL Daniel";
+												action_argument = "KILL Raphael";
 											}
 											char *rigged_dialog[] = {
 												"Repeated amounts of testing dialog overwhelmingly in support of the mulaney brothers",
@@ -7027,6 +6999,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 								bool entity_talkable = true;
 								if (entity_talkable) entity_talkable = entity_talkable && (*it)->is_npc;
 								if (entity_talkable) entity_talkable = entity_talkable && (*it)->npc_kind != NPC_Player;
+								if (entity_talkable) entity_talkable = entity_talkable && !(*it)->killed;
 #ifdef WEB
 								if (entity_talkable) entity_talkable = entity_talkable && (*it)->gen_request_id == 0;
 #endif
@@ -7127,7 +7100,45 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 		pressed = before_gameplay_loops;
 
 
+		// check if game objective has been fulfilled
+		{
+			if(gs.no_angel_screen)
+			{
+				bool fulfilled = false;
+				assert(gs.assigned_objective);
+				switch(gs.objective.verb)
+				{
+					case KILL:
+					ENTITIES_ITER(gs.entities)
+					{
+						if(it->npc_kind == gs.objective.who_to_kill && it->killed)
+						{
+							fulfilled = true;
+							break;
+						}
+					}
+					break;
+				}
+				if(fulfilled)
+				{
+					gs.assigned_objective = false;
+					transition_to_room(&gs, &level_threedee, MD_S8Lit("StartingRoom"));
+				}
+			}
+		}
+
+
 #ifdef DEVTOOLS
+		if(keypressed[SAPP_KEYCODE_P])
+		{
+			ENTITIES_ITER(gs.entities)
+			{
+				if(it->npc_kind == NPC_Raphael)
+				{
+					it->killed = true;
+				}
+			}
+		}
 		if(flycam)
 		{
 			Basis basis = flycam_basis();

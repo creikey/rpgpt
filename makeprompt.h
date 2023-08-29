@@ -238,6 +238,7 @@ typedef struct Entity
 	Vec2 vel; // only used sometimes, like in old man and bullet
 	float damage; // at 1.0, dead! zero initialized
 	bool dead;
+	MD_String8 current_room_name;
 
 	// npcs
 	NpcKind npc_kind;
@@ -291,12 +292,11 @@ typedef struct GameState {
 	uint64_t tick;
 	bool won;
 	
-	MD_String8 current_room_name; // the string is allocated on the level that is currently loaded
 	bool finished_reading_dying_dialog;
 	bool no_angel_screen;
 	bool assigned_objective;
 	GameplayObjective objective;
-	
+
 	// processing may still occur after time has stopped on the gamestate, 
 	bool stopped_time;
 
