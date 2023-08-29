@@ -1,9 +1,17 @@
 Urgent:
-- White sidebars on angel's speech that recede away.
-- Mystical particles that float upwards.
-- Gradient png on the bottom that has more alpha, controlled by same parameter as white sidebars.
-- Fix everything about the shotgun, put shotgun away. Make them understand they're holding their shotgun more. REALLY look into characters not being able to shoot eachother
-- On startup if devtools print the estimated cost per generation request of the worst offending character
+- Remove (MD_) prefix from project
+- Fix camera angle on forest map, probably introduce custom camera angles per map
+- In debugtools show number of arenas allocated, and total megabytes allocated in arenas
+
+- Angel dialog improvements:
+    - White sidebars on angel's speech that recede away.
+    - Mystical particles that float upwards.
+    - Gradient png on the bottom that has more alpha, controlled by same parameter as white sidebars.
+    
+- Fix everything about the shotgun, test put shotgun away. Make them understand they're holding their shotgun more. REALLY look into characters not being able to shoot eachother
+- Cost estimation:
+    - On startup if devtools print the estimated cost per generation request of the worst offending character
+    - Show in upper right a $ amount for AI costs so far to user
 - simple room transition system for angel/real map interop, angel room
 - angel character that gives you randomized goals such as (kill so and so) or (befriend blank) or (get john to go to other room), and decides itself with gpt when you're done with the game, when you've 'learned your lesson'.
 - can't interact with characters while they're thinking

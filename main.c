@@ -2009,7 +2009,7 @@ Entity *new_entity(GameState *gs)
 		}
 	}
 	assert(false);
-	return NULL;
+	return 0;
 }
 
 typedef struct ToVisit {
@@ -2143,25 +2143,24 @@ Vec2 point_plane(Vec3 p)
 
 #define parse_enumstr(arena, enum_str, errors, string_array, enum_kind_name, prefix) parse_enumstr_impl(arena, enum_str, string_array, ARRLEN(string_array), errors, enum_kind_name, prefix)
 
-void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *level)
-{
-	memset(gs, 0, sizeof(GameState));
-	rnd_gamerand_seed(&gs->random, RANDOM_SEED);
+ThreeDeeLevel level_threedee = {0};
 
-	// the target room will be whichever room has the player
-	for(Room *cur_room = level->room_list; cur_room; cur_room = cur_room->next)
+void transition_to_room(GameState *gs, ThreeDeeLevel *level, MD_String8 new_room_name)
+{
+	Log("Transitioning to %.*s...\n", MD_S8VArg(new_room_name));
+	assert(gs);
+
+	bool already_player_in_gamestate = gs->player != 0;
+	Entity player_entity = {0};
+	if(already_player_in_gamestate)
 	{
-		for(PlacedEntity *cur = cur_room->placed_entity_list; cur; cur = cur->next)
-		{
-			if(cur->npc_kind == NPC_Player)
-			{
-				gs->current_room_name = cur_room->name;
-				break;
-			}
-		}
-		if(gs->current_room_name.size > 0) break;
+		player_entity = *(gs->player);
 	}
 
+	gs->current_room_name = new_room_name;
+
+	memset(gs->entities, 0, sizeof(gs->entities));
+	
 	Room *in_room = get_cur_room(gs, level);
 	bool found_player = false;
 	for(PlacedEntity *cur = in_room->placed_entity_list; cur; cur = cur->next)
@@ -2176,11 +2175,19 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 			gs->player = cur_entity;
 		}
 	}
-	assert(found_player);
+	if(already_player_in_gamestate)
+	{
+		assert(!found_player);
+		gs->player = new_entity(gs);
+		*(gs->player) = player_entity;
+	}
+	else
+	{
+		assert(found_player);
+	}
 
 	gs->world_entity = new_entity(gs);
 	gs->world_entity->is_world = true;
-
 
 	ENTITIES_ITER(gs->entities)
 	{
@@ -2378,9 +2385,36 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 			it->perceptions_dirty = false; // nobody should say anything about jester memories
 		}
 	}
+
+
 }
 
-ThreeDeeLevel level_threedee = {0};
+
+void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *level)
+{
+	memset(gs, 0, sizeof(GameState));
+	rnd_gamerand_seed(&gs->random, RANDOM_SEED);
+
+	// the target room will be whichever room has the player
+	MD_String8 target_room_name = {0};
+	for(Room *cur_room = level->room_list; cur_room; cur_room = cur_room->next)
+	{
+		for(PlacedEntity *cur = cur_room->placed_entity_list; cur; cur = cur->next)
+		{
+			if(cur->npc_kind == NPC_Player)
+			{
+				target_room_name = cur_room->name;
+				break;
+			}
+		}
+		if(target_room_name.size > 0) break;
+	}
+	assert(target_room_name.size > 0);
+
+	transition_to_room(gs, &level_threedee, target_room_name);
+
+}
+
 
 void reset_level()
 {
@@ -3380,7 +3414,7 @@ void init(void)
 	shifted_farmer_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Farmer.bin"));
 	shifted_farmer_armature.image = image_shifted_farmer;
 
-	Log("Done.\n");
+	Log("Done. Used %f of the frame arena, %llu kB\n", (double) frame_arena->pos / (double)frame_arena->cap, (frame_arena->pos/1024));
 
 	MD_ArenaClear(frame_arena);
 
@@ -6096,7 +6130,7 @@ void frame(void)
 				draw_centered_text((TextParams){false, mission_text, V2(screen_size().x * 0.5f, screen_size().y * 0.25f + vert), blendalpha(WHITE, visible), mission_font_scale, .use_font = &font_for_text_input, .layer = LAYER_ANGEL_SCREEN});
 				if(imbutton(aabb_centered(V2(screen_size().x/2.0f, screen_size().y*0.25f - vert), MulV2F(V2(170.0f, button_height), visible)), visible, MD_S8Lit("Accept"), .layer = LAYER_ANGEL_SCREEN, .font = &font_for_text_input))
 				{
-					Log("Accepting mission...\n");
+					transition_to_room(&gs, &level_threedee, MD_S8Lit("Forest"));
 				}
 			}
 			else
