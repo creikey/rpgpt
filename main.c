@@ -916,6 +916,7 @@ typedef struct Bone
 	struct Bone *parent;
 	Mat4 matrix_local;
 	Mat4 inverse_model_space_pos;
+	MD_String8 name;
 	float length;
 } Bone;
 
@@ -1096,6 +1097,8 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 	ser_bool(&ser, &is_armature);
 	assert(is_armature);
 
+	ser_MD_String8(&ser, &to_return.name, arena);
+
 	MD_String8 image_filename;
 	ser_MD_String8(&ser, &image_filename, scratch.arena);
 	arena->align = 16; // SSE requires quaternions are 16 byte aligned
@@ -1113,6 +1116,7 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 		BlenderMat inverse_model_space_pose;
 		MD_i32 parent_index;
 
+		ser_MD_String8(&ser, &next_bone->name, arena);
 		ser_int(&ser, &parent_index);
 		ser_BlenderMat(&ser, &model_space_pose);
 		ser_BlenderMat(&ser, &inverse_model_space_pose);

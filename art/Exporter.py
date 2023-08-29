@@ -13,7 +13,6 @@ D = bpy.data
 ROOMS_EXPORT_NAME = "rooms"
 EXPORT_DIRECTORY = "../assets/exported_3d"
 
-
 if os.path.exists(bpy.path.abspath(f"//{EXPORT_DIRECTORY}")):
     shutil.rmtree(bpy.path.abspath(f"//{EXPORT_DIRECTORY}"))
 os.makedirs(bpy.path.abspath(f"//{EXPORT_DIRECTORY}"))
@@ -152,6 +151,7 @@ def export_armatures():
 
         with open(output_filepath, "wb") as f:
             write_b8(f, True) # first byte is true if it's an armature file
+            write_string(f, armature_object.name)
             write_string(f, mesh_image_filename)
             bones_in_armature = []
             for b in armature_object.data.bones:
@@ -173,6 +173,7 @@ def export_armatures():
                         assert False, f"Couldn't find parent of bone {b}"
                     #print(f"Parent of bone {b.name} is index {parent_index} in list {bones_in_armature}")
 
+                write_string(f, b.name)
                 write_i32(f, parent_index)
                 write_4x4matrix(f, model_space_pose)
                 write_4x4matrix(f, inverse_model_space_pose)
