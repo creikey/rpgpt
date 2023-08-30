@@ -220,6 +220,14 @@ void chunk_from_s8(TextChunk *into, MD_String8 from)
 	into->text_length = (int)from.size;
 }
 
+typedef struct RememberedError
+{
+	struct RememberedError *next;
+	struct RememberedError *prev;
+	Memory offending_self_output; // sometimes is just zero value if reason why it's bad is severe enough.
+	TextChunk reason_why_its_bad;
+} RememberedError;
+
 typedef struct Entity
 {
 	bool exists;
@@ -229,6 +237,7 @@ typedef struct Entity
 	// the kinds are at the top so you can quickly see what kind an entity is in the debugger
 	bool is_world; // the static world. An entity is always returned when you collide with something so support that here
 	bool is_npc;
+	NpcKind npc_kind;
 
 	// fields for all gs.entities
 	Vec2 pos;
@@ -241,7 +250,6 @@ typedef struct Entity
 	MD_String8 current_room_name;
 
 	// npcs
-	NpcKind npc_kind;
 	EntityRef joined;
 	EntityRef aiming_shotgun_at;
 	EntityRef looking_at; // aiming shotgun at takes facing priority over this
@@ -250,8 +258,8 @@ typedef struct Entity
 	bool being_hovered;
 	bool perceptions_dirty;
 	float dialog_fade;
-	TextChunkList *errorlist_first;
-	TextChunkList *errorlist_last;
+	RememberedError *errorlist_first;
+	RememberedError *errorlist_last;
 #ifdef DESKTOP
 	int times_talked_to; // for better mocked response string
 #endif
@@ -302,6 +310,7 @@ typedef struct GameState {
 
 	// these must point entities in its own array.
 	Entity *player;
+	Entity *angel;
 	Entity *world_entity;
 	Entity entities[MAX_ENTITIES];
 	rnd_gamerand_t random;
@@ -345,6 +354,11 @@ void fill_available_actions(GameState *gs, Entity *it, AvailableActions *a)
 	if(it->npc_kind == NPC_Angel)
 	{
 		BUFF_APPEND(a, ACT_assign_gameplay_objective);
+	}
+
+	if(it->npc_kind != NPC_Angel)
+	{
+		BUFF_APPEND(a, ACT_end_conversation);
 	}
 
 	bool has_shotgun = it->npc_kind == NPC_Daniel;
@@ -401,6 +415,25 @@ MD_String8 npc_to_human_readable(Entity *me, NpcKind kind)
 	}
 }
 
+
+MD_String8List dump_memory_as_json(MD_Arena *arena, Memory *it)
+{
+	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
+	MD_String8List current_list = {0};
+	#define AddFmt(...) PushWithLint(arena, &current_list, __VA_ARGS__)
+
+	AddFmt("{");
+	AddFmt("\"speech\":\"%.*s\",", TextChunkVArg(it->speech));
+	AddFmt("\"action\":\"%s\",", actions[it->action_taken].name);
+	MD_String8 arg_str = action_argument_string(scratch.arena, it->action_argument);
+	AddFmt("\"action_argument\":\"%.*s\",", MD_S8VArg(arg_str));
+	AddFmt("\"target\":\"%s\"}", characters[it->context.talking_to_kind].name);
+
+ #undef AddFmt
+	MD_ReleaseScratch(scratch);
+	return current_list;
+}
+
 // outputs json which is parsed by the server
 MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, CanTalkTo can_talk_to)
 {
@@ -437,6 +470,8 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 
 		// @TODO unhardcode this, this will be a description of where the character is right now
 		AddFmt("You're currently standing in Daniel's farm's barn, a run-down structure that barely serves its purpose. Daniel's mighty protective of it though.\n");
+
+		AddFmt("\n");
 
 		if(e->npc_kind == NPC_Angel)
 		{
@@ -555,9 +590,14 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 			if(it == e->memories_last && e->errorlist_first)
 			{
 				AddFmt("Errors you made: \n");
-				for(TextChunkList *cur = e->errorlist_first; cur; cur = cur->next)
+				for(RememberedError *cur = e->errorlist_first; cur; cur = cur->next)
 				{
-					AddFmt("%.*s\n", TextChunkVArg(cur->text));
+					if(cur->offending_self_output.speech.text_length > 0 || cur->offending_self_output.action_taken != ACT_none)
+					{
+						MD_String8 offending_json_output = MD_S8ListJoin(scratch.arena, dump_memory_as_json(scratch.arena, &cur->offending_self_output), &(MD_StringJoin){0});
+						AddFmt("When you output, `%.*s`, ", MD_S8VArg(offending_json_output));
+					}
+					AddFmt("%.*s\n", TextChunkVArg(cur->reason_why_its_bad));
 				}
 			}
 			if(current_list.node_count > 0)
@@ -567,12 +607,7 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 		if(it->context.i_said_this)
 		{
 			MD_String8List current_list = {0}; // shadow the list of human understandable sentences to quickly flush 
-			AddFmt("{");
-			AddFmt("\"speech\":\"%.*s\",", TextChunkVArg(it->speech));
-			AddFmt("\"action\":\"%s\",", actions[it->action_taken].name);
-			MD_String8 arg_str = action_argument_string(scratch.arena, it->action_argument);
-			AddFmt("\"action_argument\":\"%.*s\",", MD_S8VArg(arg_str));
-			AddFmt("\"target\":\"%s\"}", characters[it->context.talking_to_kind].name);
+			current_list = dump_memory_as_json(scratch.arena, it);
 			AddNewNode(MSG_ASSISTANT);
 		}
 	}
@@ -583,8 +618,10 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 
 	MD_ReleaseScratch(scratch);
 
+ #undef AddFmt
 	return to_return;
 }
+
 
 MD_String8 get_field(MD_Node *parent, MD_String8 name)
 {

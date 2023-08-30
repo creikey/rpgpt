@@ -16,19 +16,19 @@
 {enum: Raphael, dialog: "What a psycho...", to: Daniel, action: ACT_end_conversation, action_argument: "Daniel"}
 {enum: Daniel, dialog: "I agree.", to: Raphael, action: ACT_end_conversation, action_argument: "Raphael"}
 
-{can_hear: [Daniel, Raphael, Passerby]}
-{enum: Passerby, dialog: "Yo?", to: Daniel}
-{enum: Daniel, dialog: "Are you askin' a question", to: Passerby}
-{enum: Passerby, dialog: "I guess so? What do you think of farmers?", to: Daniel}
-{enum: Daniel, dialog: "I don't tolerate questions. Get out of my sight before I make you!", to: Passerby, action: ACT_aim_shotgun, action_argument: "Passerby"}
+{can_hear: [Daniel, Raphael, PreviousPlayer1]}
+{enum: PreviousPlayer1, dialog: "Yo?", to: Daniel}
+{enum: Daniel, dialog: "Are you askin' a question", to: PreviousPlayer1}
+{enum: PreviousPlayer1, dialog: "I guess so? What do you think of farmers?", to: Daniel}
+{enum: Daniel, dialog: "I don't tolerate questions. Get out of my sight before I make you!", to: PreviousPlayer1, action: ACT_aim_shotgun, action_argument: "PreviousPlayer1"}
 {enum: Raphael, dialog: "What's going on here?", to: Daniel}
 {enum: Daniel, dialog: "THIS DAMNED FOOL DOESN'T UNDERSTAND RESPECT", to: Raphael}
 {enum: Raphael, dialog: "Easy man, easy. I ain't much for helpin' folk but you're outta control.", to: Daniel}
 {enum: Daniel, dialog: "I WON'T TOLERATE IT", to: Raphael}
-{enum: Passerby, dialog: "Hey man woah, just put down the gun", to: Daniel}
-{enum: Daniel, dialog: "YOU BETTER MAKE ME!", to: Passerby}
-{enum: Passerby, dialog: "Why do you have the gun anyways?", to: Daniel}
-{enum: Daniel, dialog: "ANOTHER QUESTION??? YOU HAD THIS COMING TO YOU!", to: Passerby, action: ACT_fire_shotgun}
+{enum: PreviousPlayer1, dialog: "Hey man woah, just put down the gun", to: Daniel}
+{enum: Daniel, dialog: "YOU BETTER MAKE ME!", to: PreviousPlayer1}
+{enum: PreviousPlayer1, dialog: "Why do you have the gun anyways?", to: Daniel}
+{enum: Daniel, dialog: "ANOTHER QUESTION??? YOU HAD THIS COMING TO YOU!", to: PreviousPlayer1, action: ACT_fire_shotgun}
 {enum: Raphael, dialog: "Oh God! What have you done??", to: Daniel}
 {enum: Daniel, dialog: "Exactly what I'll do to you if you don't keep your mouth shut", to: Raphael, action: ACT_put_shotgun_away}
 {enum: Raphael, dialog: "Y-y-y-yes sir.", to: Daniel, action: ACT_end_conversation, action_argument: "Daniel"}
@@ -44,11 +44,19 @@
 {enum: Devil, dialog: "You will fall!", to: Angel}
 {enum: Angel, dialog: "Perhaps. And then I will rise as He has, from the corpse and ashes, the sun rises.", to: Devil}
 
-{can_hear: [Passerby, Angel]}
-{enum: Passerby, dialog: "fjdsklajf", to: Angel}
-{enum: Angel, dialog: "Cryptic gibberish upon me, is casting a stone upon God", to: Passerby}
-{enum: Passerby, dialog: "What is my purpose here?", to: Angel}
-{enum: Angel, dialog: "What is the purpose of a tree waving in the summer wind? A river carving a path into the countryside? Only God knows his plan. But your purpose, here, has been assigned. You must kill raphael. Good luck.", to: Passerby, action: ACT_assign_gameplay_objective, action_argument: "KILL Raphael"}
+{can_hear: [PreviousPlayer1, Angel]}
+{enum: PreviousPlayer1, dialog: "fjdsklajf", to: Angel}
+{enum: Angel, dialog: "Cryptic gibberish upon me, is casting a stone upon God", to: PreviousPlayer1}
+{enum: PreviousPlayer1, dialog: "What is my purpose here?", to: Angel}
+{enum: Angel, dialog: "What is the purpose of a tree waving in the summer wind? A river carving a path into the countryside? Only God knows his plan. But your purpose, here, has been assigned. You must kill raphael. Good luck.", to: PreviousPlayer1, action: ACT_assign_gameplay_objective, action_argument: "KILL Raphael"}
+
+{can_hear: [PreviousPlayer2, Angel]}
+{enum: PreviousPlayer2, dialog: "What am I supposed to do?", to: Angel}
+{enum: Angel, dialog: "What do you most desire?", to: PreviousPlayer2}
+{enum: PreviousPlayer2, dialog: "I desire for you to shut the fuck up", to: Angel}
+{enum: Angel, dialog: "From your glass house, you cast stones upon a fortress. Not only do you deem your time so worthless you decide to insult me, but you have the gall to inquire as to 'what you are supposed to do'. You are A Worm.", to: PreviousPlayer2}
+{enum: PreviousPlayer2, dialog: "Jeez alright", to: Angel}
+{enum: Angel, dialog: "At once depart, and if you wish to redeem yourself, you must kill Daniel.", to: PreviousPlayer2, action: ACT_assign_gameplay_objective, action_argument: "KILL Daniel"}
 
 /*
 {can_hear: [WellDweller, Farmer, ManInBlack]},

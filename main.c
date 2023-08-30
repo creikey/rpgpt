@@ -576,6 +576,12 @@ void generation_thread(void* my_request_voidptr)
 
 int make_generation_request(MD_String8 post_req_body)
 {
+	// checking for taken characters, pipe should only occur at the beginning
+	for(MD_u64 i = 1; i < post_req_body.size; i++)
+	{
+		assert(post_req_body.str[i] != '|');
+	}
+
 	ChatRequest *to_return = 0;
 	if(requests_free_list)
 	{
@@ -634,54 +640,46 @@ ISANERROR("Only know how to do desktop http requests on windows")
 #endif // DESKTOP
 
 Memory *memories_free_list = 0;
-
-TextChunkList *text_chunk_free_list = 0;
+RememberedError *remembered_error_free_list = 0;
 
 // s.size must be less than MAX_SENTENCE_LENGTH, or assert fails
-void into_chunk(TextChunk *t, MD_String8 s)
+
+RememberedError *allocate_remembered_error(MD_Arena *arena)
 {
-	assert(s.size < MAX_SENTENCE_LENGTH);
-	memcpy(t->text, s.str, s.size);
-	t->text_length = (int)s.size;
-}
-TextChunkList *allocate_text_chunk(MD_Arena *arena)
-{
-	TextChunkList *to_return = 0;
-	if(text_chunk_free_list)
+	RememberedError *to_return = 0;
+	if(remembered_error_free_list)
 	{
-		to_return = text_chunk_free_list;
-		MD_StackPop(text_chunk_free_list);
+		to_return = remembered_error_free_list;
+		MD_StackPop(remembered_error_free_list);
 	}
 	else
 	{
-		to_return = MD_PushArray(arena, TextChunkList, 1);
+		to_return = MD_PushArray(arena, RememberedError, 1);
 	}
-	*to_return = (TextChunkList){0};
+	*to_return = (RememberedError){0};
 	return to_return;
 }
-void remove_text_chunk_from(TextChunkList **first, TextChunkList **last, TextChunkList *chunk)
+void remove_remembered_error_from(RememberedError **first, RememberedError **last, RememberedError *chunk)
 {
 	MD_DblRemove(*first, *last, chunk);
-	MD_StackPush(text_chunk_free_list, chunk);
+	MD_StackPush(remembered_error_free_list, chunk);
 }
-int text_chunk_list_count(TextChunkList *first)
+
+void append_to_errors(Entity *from, Memory incorrect_memory, MD_String8 s)
 {
-	int ret = 0;
-	for(TextChunkList *cur = first; cur != 0; cur = cur->next)
+	RememberedError *err = allocate_remembered_error(persistent_arena);
+	chunk_from_s8(&err->reason_why_its_bad, s);
+	err->offending_self_output = incorrect_memory;
+
+	while(true)
 	{
-		ret++;
+		int count = 0;
+		for(RememberedError *cur = from->errorlist_first; cur; cur = cur->next) count++;
+
+		if(count < REMEMBERED_ERRORS) break;
+		remove_remembered_error_from(&from->errorlist_first, &from->errorlist_last, from->errorlist_first);
 	}
-	return ret;
-}
-void append_to_errors(Entity *from, MD_String8 s)
-{
-	TextChunkList *error_chunk = allocate_text_chunk(persistent_arena);
-	into_chunk(&error_chunk->text, s);
-	while(text_chunk_list_count(from->errorlist_first) > REMEMBERED_ERRORS)
-	{
-		remove_text_chunk_from(&from->errorlist_first, &from->errorlist_last, from->errorlist_first);
-	}
-	MD_DblPushBack(from->errorlist_first, from->errorlist_last, error_chunk);
+	MD_DblPushBack(from->errorlist_first, from->errorlist_last, err);
 	from->perceptions_dirty = true;
 }
 
@@ -853,6 +851,7 @@ SER_MAKE_FOR_TYPE(double);
 SER_MAKE_FOR_TYPE(float);
 SER_MAKE_FOR_TYPE(PropKind);
 SER_MAKE_FOR_TYPE(NpcKind);
+SER_MAKE_FOR_TYPE(ActionKind);
 SER_MAKE_FOR_TYPE(Memory);
 SER_MAKE_FOR_TYPE(Vec2);
 SER_MAKE_FOR_TYPE(Vec3);
@@ -1705,14 +1704,19 @@ Entity *get_targeted(Entity *from, NpcKind targeted)
 	return 0;
 }
 
-void remember_action(GameState *gs, Entity *to_modify, Action a, MemoryContext context)
+Memory make_memory(Action a, MemoryContext context)
 {
 	Memory new_memory = {0};
 	new_memory.speech = a.speech;
 	new_memory.action_taken = a.kind;
 	new_memory.context = context;
 	new_memory.action_argument = a.argument;
+	return new_memory;
+}
 
+void remember_action(GameState *gs, Entity *to_modify, Action a, MemoryContext context)
+{
+	Memory new_memory = make_memory(a, context);
 	push_memory(gs, to_modify, new_memory);
 
 	if(context.i_said_this && (a.speech.text_length > 0 || a.kind != ACT_none))
@@ -1872,6 +1876,7 @@ typedef struct PropagatingAction
 	Action a;
 	MemoryContext context;
 
+	TextChunk in_room_name;
 	Vec2 from;
 	bool already_propagated_to[MAX_ENTITIES]; // tracks by index of entity
 	float progress; // if greater than or equal to 1.0, is freed
@@ -1937,18 +1942,18 @@ bool perform_action(GameState *gs, Entity *from, Action a)
 	if(is_valid.size > 0)
 	{
 		assert(from->npc_kind != NPC_Player);
-		append_to_errors(from, is_valid);
+		append_to_errors(from, make_memory(a, context), is_valid);
 		proceed_propagating = false;
 	}
 
-
+	bool angel_heard_action = false;
 
 	Entity *targeted = 0; 
 	if(proceed_propagating)
 	{
 		targeted = get_targeted(from, a.talking_to_kind);
 		if(from->errorlist_first)
-			MD_StackPush(text_chunk_free_list, from->errorlist_first);
+			MD_StackPush(remembered_error_free_list, from->errorlist_first);
 		from->errorlist_first = 0;
 		from->errorlist_last = 0;
 
@@ -1959,12 +1964,13 @@ bool perform_action(GameState *gs, Entity *from, Action a)
 		{
 			MemoryContext my_context = context;
 			my_context.i_said_this = true;
+			angel_heard_action = angel_heard_action || from->npc_kind == NPC_Angel;
 			remember_action(gs, from, a, my_context); 
 		}
 
 		if(a.speech.text_length == 0 && a.kind == ACT_none)
 		{
-			proceed_propagating = false; // didn't say anything
+			proceed_propagating = false; // didn't say or do anything
 		}
 	}
 
@@ -1973,11 +1979,13 @@ bool perform_action(GameState *gs, Entity *from, Action a)
 		// memory of target
 		if(targeted)
 		{
+			angel_heard_action = angel_heard_action || targeted->npc_kind == NPC_Angel;
 			remember_action(gs, targeted, a, context);
 		}
 
 		// propagate physically
 		PropagatingAction to_propagate = {0};
+		chunk_from_s8(&to_propagate.in_room_name, from->current_room_name);
 		to_propagate.a = a;
 		to_propagate.context = context;
 		to_propagate.from = from->pos;
@@ -1987,6 +1995,14 @@ bool perform_action(GameState *gs, Entity *from, Action a)
 			to_propagate = ignore_entity(targeted, to_propagate);
 		}
 		push_propagating(to_propagate);
+	}
+
+	// the angel knows all
+	if(!MD_S8Match(gs->player->current_room_name, MD_S8Lit("StartingRoom"), 0) && !angel_heard_action)
+	{
+		MemoryContext angel_context = context;
+		angel_context.i_said_this = false;
+		remember_action(gs, gs->angel, a, angel_context);
 	}
 
 	MD_ReleaseScratch(scratch);
@@ -2156,6 +2172,11 @@ void transition_to_room(GameState *gs, ThreeDeeLevel *level, MD_String8 new_room
 	(void)level;
 
 	gs->player->current_room_name = new_room_name;
+
+	if(MD_S8Match(new_room_name, MD_S8Lit("StartingLevel"), 0))
+	{
+		gs->angel->perceptions_dirty = true;
+	}
 }
 
 
@@ -2165,7 +2186,6 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 	rnd_gamerand_seed(&gs->random, RANDOM_SEED);
 
 	// make entities for all rooms
-	bool found_player = false;
 	for(Room *cur_room = level->room_list; cur_room; cur_room = cur_room->next)
 	{
 		for (PlacedEntity *cur = cur_room->placed_entity_list; cur; cur = cur->next)
@@ -2177,12 +2197,19 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 			cur_entity->current_room_name = cur_room->name;
 			if (cur_entity->npc_kind == NPC_Player)
 			{
-				assert(!found_player);
-				found_player = true;
+				assert(!gs->player);
 				gs->player = cur_entity;
+			}
+			if (cur_entity->npc_kind == NPC_Angel)
+			{
+				assert(!gs->angel);
+				gs->angel = cur_entity;
 			}
 		}
 	}
+
+	assert(gs->player);
+	assert(gs->angel);
 
 	gs->world_entity = new_entity(gs);
 	gs->world_entity->is_world = true;
@@ -2442,14 +2469,17 @@ void ser_entity(SerState *ser, Entity *e)
 	ser_bool(ser, &e->being_hovered);
 	ser_bool(ser, &e->perceptions_dirty);
 
+	/* rememboring errorlist is disabled for being a bad idea because as game is improved the errors go out of date, and to begin with it's not even that necessary
+	But also it's too hard to maintain
 	if(ser->serializing)
 	{
-		TextChunkList *cur = e->errorlist_first;
+		RememberedError *cur = e->errorlist_first;
 		bool more_errors = cur != 0;
 		ser_bool(ser, &more_errors);
 		while(more_errors)
 		{
-			ser_TextChunk(ser, &cur->text);
+			ser_TextChunk(ser, &cur->reason_why_its_bad);
+			ser_Memory(ser, &cur->offending_self_output)
 			cur = cur->next;
 			more_errors = cur != 0;
 			ser_bool(ser, &more_errors);
@@ -2467,6 +2497,7 @@ void ser_entity(SerState *ser, Entity *e)
 			ser_bool(ser, &more_errors);
 		}
 	}
+	*/
 
 	if(ser->serializing)
 	{
@@ -6292,13 +6323,20 @@ void frame(void)
 				{
 					for(PropagatingAction *cur = propagating; cur; cur = cur->next)
 					{
+						assert(cur->in_room_name.text_length > 0);
 						if(cur->progress < 1.0f)
 						{
 							cur->progress += dt;
 							float effective_radius = propagating_radius(cur);
 							ENTITIES_ITER(gs.entities)
 							{
-								if(it->is_npc && LenV2(SubV2(it->pos, cur->from)) < effective_radius)
+								bool should_propagate = true
+								&& it->is_npc 
+								&& LenV2(SubV2(it->pos, cur->from)) < effective_radius
+								&& MD_S8Match(TextChunkString8(cur->in_room_name), it->current_room_name, 0)
+								&& it->npc_kind != NPC_Angel // angels already hear everything, this would duplicate the hearing of the action
+								;
+								if(should_propagate)
 								{
 									if(!cur->already_propagated_to[frome(it).index])
 									{
@@ -6402,13 +6440,8 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 
 										if(words_over_limit > 0)
 										{
-											// trim what the npc said so that the error message is never more than the text chunk, which without this would be super possible
-											// if the speech the npc already made was too big
-											int max_words_of_original_speech = MAX_SENTENCE_LENGTH / 2;
-											MD_String8 original_speech = TextChunkString8(out.speech);
-											MD_String8 trimmed_original_speech = original_speech.size < max_words_of_original_speech ? original_speech : FmtWithLint(frame_arena, "...%.*s", MD_S8VArg(MD_S8Substring(original_speech, original_speech.size - max_words_of_original_speech, original_speech.size)));
-											MD_String8 new_err = FmtWithLint(frame_arena, "You said '%.*s' which is %d words over the maximum limit, you must be more succinct and remove at least that many words", MD_S8VArg(trimmed_original_speech), words_over_limit);
-											append_to_errors(it, new_err);
+											MD_String8 new_err = FmtWithLint(frame_arena, "Your speech is %d words over the maximum limit, you must be more succinct and remove at least that many words", words_over_limit);
+											append_to_errors(it, make_memory(out, (MemoryContext){.i_said_this = true, .author_npc_kind = it->npc_kind, .talking_to_kind = out.talking_to_kind}), new_err);
 										}
 										else
 										{
@@ -6422,7 +6455,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 											else
 											{
 												Log("There was a parse error: `%.*s`\n", MD_S8VArg(parse_response));
-												append_to_errors(it, parse_response);
+												append_to_errors(it, (Memory){0}, parse_response);
 											}
 										}
 
@@ -6859,124 +6892,120 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 					}
 
 					ENTITIES_ITER(gs.entities)
+					if(it->is_npc)
 					{
-						if (it->perceptions_dirty && !npc_does_dialog(it))
+						bool doesnt_prompt_on_dirty_perceptions = false
+						|| it->npc_kind == NPC_Player
+						|| (it->npc_kind == NPC_Angel && gs.no_angel_screen)
+						|| !npc_does_dialog(it) // not sure what's up with this actually, potentially remove
+						|| !MD_S8Match(it->current_room_name, gs.player->current_room_name, 0)
+						;
+						if (it->perceptions_dirty && doesnt_prompt_on_dirty_perceptions)
 						{
 							it->perceptions_dirty = false;
 						}
 						if (it->perceptions_dirty)
 						{
-							if(it->npc_kind == NPC_Player)
+							if (!gs.stopped_time)
 							{
-								it->perceptions_dirty = false;
-							}
-							else if(it->is_npc)
-							{
-								if (!gs.stopped_time)
-								{
-									it->perceptions_dirty = false; // needs to be in beginning because they might be redirtied by the new perception
-									MD_String8 prompt_str = {0};
+								it->perceptions_dirty = false; // needs to be in beginning because they might be redirtied by the new perception
+								MD_String8 prompt_str = {0};
 #ifdef DO_CHATGPT_PARSING
-									prompt_str = generate_chatgpt_prompt(frame_arena, &gs, it, get_can_talk_to(it));
+								prompt_str = generate_chatgpt_prompt(frame_arena, &gs, it, get_can_talk_to(it));
 #else
-									generate_prompt(it, &prompt);
+								generate_prompt(it, &prompt);
 #endif
-									Log("Sending request with prompt `%.*s`\n", MD_S8VArg(prompt_str));
+								Log("Sending request with prompt `%.*s`\n", MD_S8VArg(prompt_str));
 
 #ifdef WEB
-									// fire off generation request, save id
-									MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-									MD_String8 terminated_completion_url = nullterm(scratch.arena, FmtWithLint(scratch.arena, "%s://%s:%d/completion", IS_SERVER_SECURE ? "https" : "http", SERVER_DOMAIN, SERVER_PORT));
-									int req_id = EM_ASM_INT({
-										return make_generation_request(UTF8ToString($0, $1), UTF8ToString($2, $3));
-									},
-																					prompt_str.str, (int)prompt_str.size, terminated_completion_url.str, (int)terminated_completion_url.size);
-									it->gen_request_id = req_id;
-									MD_ReleaseScratch(scratch);
+								// fire off generation request, save id
+								MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+								MD_String8 terminated_completion_url = nullterm(scratch.arena, FmtWithLint(scratch.arena, "%s://%s:%d/completion", IS_SERVER_SECURE ? "https" : "http", SERVER_DOMAIN, SERVER_PORT));
+								int req_id = EM_ASM_INT({
+									return make_generation_request(UTF8ToString($0, $1), UTF8ToString($2, $3));
+								},
+																				prompt_str.str, (int)prompt_str.size, terminated_completion_url.str, (int)terminated_completion_url.size);
+								it->gen_request_id = req_id;
+								MD_ReleaseScratch(scratch);
 #endif
 
 #ifdef DESKTOP
-									MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+								MD_ArenaTemp scratch = MD_GetScratch(0, 0);
 
-									MD_String8 ai_response = {0};
-									bool mocking_the_ai_response = false;
+								MD_String8 ai_response = {0};
+								bool mocking_the_ai_response = false;
 #ifdef DEVTOOLS
 #ifdef MOCK_AI_RESPONSE
-									mocking_the_ai_response = true;
+								mocking_the_ai_response = true;
 #endif
 #endif
-									bool succeeded = true; // couldn't get AI response if false
-									if (mocking_the_ai_response)
+								bool succeeded = true; // couldn't get AI response if false
+								if (mocking_the_ai_response)
+								{
+									if (it->memories_last->context.talking_to_kind == it->npc_kind)
+									//if (it->memories_last->context.author_npc_kind != it->npc_kind)
 									{
-										if (it->memories_last->context.talking_to_kind == it->npc_kind)
-										//if (it->memories_last->context.author_npc_kind != it->npc_kind)
+										const char *action = 0;
+										const char *action_argument = "Raphael";
+										if(it->npc_kind == NPC_Daniel)
 										{
-											const char *action = 0;
-											const char *action_argument = "Raphael";
-											if(it->npc_kind == NPC_Daniel)
+											if (gete(it->aiming_shotgun_at))
 											{
-												if (gete(it->aiming_shotgun_at))
-												{
-													action = "fire_shotgun";
-												}
-												else
-												{
-													action = "aim_shotgun";
-												}
+												action = "fire_shotgun";
 											}
-											else if(it->npc_kind == NPC_Angel)
+											else
 											{
-												action = "assign_gameplay_objective";
-												action_argument = "KILL Raphael";
+												action = "aim_shotgun";
 											}
-											char *rigged_dialog[] = {
-												"Repeated amounts of testing dialog overwhelmingly in support of the mulaney brothers",
-											};
-											char *next_dialog = rigged_dialog[it->times_talked_to % ARRLEN(rigged_dialog)];
-											char *target = characters[it->memories_last->context.author_npc_kind].name;
-											target = characters[NPC_Player].name;
-											ai_response = FmtWithLint(frame_arena, "{\"target\": \"%s\", \"action\": \"%s\", \"action_argument\": \"%s\", \"speech\": \"%s\"}", target, action, action_argument, next_dialog);
-											it->times_talked_to += 1;
 										}
-										else
+										else if(it->npc_kind == NPC_Angel)
 										{
-											ai_response = MD_S8Lit("{\"target\": \"nobody\", \"action\": \"none\", \"speech\": \"\"}");
+											action = "assign_gameplay_objective";
+											action_argument = "KILL Raphael";
 										}
-
-										// something to mock
-										if (ai_response.size > 0)
-										{
-											Log("Mocking...\n");
-											Action a = {0};
-											MD_String8 error_message = MD_S8Lit("Something really bad happened bro. File " STRINGIZE(__FILE__) " Line " STRINGIZE(__LINE__));
-											if (succeeded)
-											{
-												error_message = parse_chatgpt_response(scratch.arena, it, ai_response, &a);
-											}
-
-											assert(succeeded);
-											assert(error_message.size == 0);
-
-											MD_String8 valid_str = is_action_valid(frame_arena, it, a);
-											assert(valid_str.size == 0);
-											perform_action(&gs, it, a);
-										}
+										char *rigged_dialog[] = {
+											"Repeated amounts of testing dialog overwhelmingly in support of the mulaney brothers",
+										};
+										char *next_dialog = rigged_dialog[it->times_talked_to % ARRLEN(rigged_dialog)];
+										char *target = characters[it->memories_last->context.author_npc_kind].name;
+										target = characters[NPC_Player].name;
+										ai_response = FmtWithLint(frame_arena, "{\"target\": \"%s\", \"action\": \"%s\", \"action_argument\": \"%s\", \"speech\": \"%s\"}", target, action, action_argument, next_dialog);
+										it->times_talked_to += 1;
 									}
 									else
 									{
-										MD_String8 post_request_body = FmtWithLint(scratch.arena, "|%.*s", MD_S8VArg(prompt_str));
-										it->gen_request_id = make_generation_request(post_request_body);
+										ai_response = MD_S8Lit("{\"target\": \"nobody\", \"action\": \"none\", \"speech\": \"\"}");
 									}
 
+									// something to mock
+									if (ai_response.size > 0)
+									{
+										Log("Mocking...\n");
+										Action a = {0};
+										MD_String8 error_message = MD_S8Lit("Something really bad happened bro. File " STRINGIZE(__FILE__) " Line " STRINGIZE(__LINE__));
+										if (succeeded)
+										{
+											error_message = parse_chatgpt_response(scratch.arena, it, ai_response, &a);
+										}
 
-								MD_ReleaseScratch(scratch);
+										assert(succeeded);
+										assert(error_message.size == 0);
+
+										MD_String8 valid_str = is_action_valid(frame_arena, it, a);
+										assert(valid_str.size == 0);
+										perform_action(&gs, it, a);
+									}
+								}
+								else
+								{
+									MD_String8 post_request_body = FmtWithLint(scratch.arena, "|%.*s", MD_S8VArg(prompt_str));
+									it->gen_request_id = make_generation_request(post_request_body);
+								}
+
+
+							MD_ReleaseScratch(scratch);
 #undef SAY
 #endif	// desktop endif
-								}
-							}
-							else
-							{
-								assert(false);
 							}
 						}
 					}
@@ -7262,10 +7291,12 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 			float shake_speed = 9.0f;
 			Vec2 win_offset = V2(sinf((float)unwarped_elapsed_time * shake_speed * 1.5f + 0.1f), sinf((float)unwarped_elapsed_time * shake_speed + 0.3f));
 			win_offset = MulV2F(win_offset, 10.0f);
-			draw_centered_text((TextParams){false, MD_S8Lit("YOU WERE KILLED"), AddV2(MulV2F(screen_size(), 0.5f), win_offset), WHITE, 3.0f*visible});
+			draw_centered_text((TextParams){false, MD_S8Lit("YOU WERE KILLED"), AddV2(MulV2F(screen_size(), 0.5f), win_offset), WHITE, 3.0f*visible}); // YOU DIED
 
-			if(imbutton(aabb_centered(V2(screen_size().x/2.0f, screen_size().y*0.25f), MulV2F(V2(170.0f, 60.0f), visible)), 1.5f*visible, MD_S8Lit("Restart")))
+			if(imbutton(aabb_centered(V2(screen_size().x/2.0f, screen_size().y*0.25f), MulV2F(V2(170.0f, 60.0f), visible)), 1.5f*visible, MD_S8Lit("Continue")))
 			{
+				gs.player->killed = false;
+				transition_to_room(&gs, &level_threedee, MD_S8Lit("StartingRoom"));
 				reset_level();
 			}
 		}
