@@ -96,8 +96,7 @@ typedef struct TextChunkList
 
 typedef struct GameplayObjective
 {
-	ObjectiveVerb verb;
-	NpcKind who_to_kill;
+	TextChunk description;
 } GameplayObjective;
 
 typedef enum
@@ -113,19 +112,6 @@ typedef struct
 	GameplayObjective objective;
 } ActionArgument;
 
-// returns ai understandable, human readable name, on the arena, so not the enum name
-MD_String8 action_argument_string(MD_Arena *arena, ActionArgument arg)
-{
-	switch(arg.kind)
-	{
-		case ARG_CHARACTER:
-		return FmtWithLint(arena, "%s", characters[arg.targeting].name);
-		break;
-		case ARG_OBJECTIVE:
-		return FmtWithLint(arena, "%s %s", verbs[arg.objective.verb], characters[arg.objective.who_to_kill].enum_name);
-	}
-	return (MD_String8){0};
-}
 
 typedef struct Action
 {
@@ -219,6 +205,21 @@ void chunk_from_s8(TextChunk *into, MD_String8 from)
 	memcpy(into->text, from.str, from.size);
 	into->text_length = (int)from.size;
 }
+
+// returns ai understandable, human readable name, on the arena, so not the enum name
+MD_String8 action_argument_string(MD_Arena *arena, ActionArgument arg)
+{
+	switch(arg.kind)
+	{
+		case ARG_CHARACTER:
+		return FmtWithLint(arena, "%s", characters[arg.targeting].name);
+		break;
+		case ARG_OBJECTIVE:
+		return FmtWithLint(arena, "%.*s", MD_S8VArg(TextChunkString8(arg.objective.description)));
+	}
+	return (MD_String8){0};
+}
+
 
 typedef struct RememberedError
 {
@@ -473,21 +474,6 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 
 		AddFmt("\n");
 
-		if(e->npc_kind == NPC_Angel)
-		{
-			AddFmt("Acceptable verbs for assigning a gameplay objective:\n");
-			ARR_ITER(char*, verbs)
-			{
-				AddFmt("%s\n", *it);
-			}
-			AddFmt("\n");
-
-			AddFmt("The characters in the game you can use when you assign your gameplay objective:\n");
-			AddFmt("Raphael\n");
-			AddFmt("Daniel\n");
-			AddFmt("\n");
-		}
-
 		AddFmt("The actions you can perform, what they do, and the arguments they expect:\n");
 		AvailableActions can_perform;
 		fill_available_actions(gs, e, &can_perform);
@@ -506,7 +492,6 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 	{
 		// going through memories, I'm going to accumulate human understandable sentences for what happened in current_list.
 		// when I see an 'i_said_this' memory, that means I flush. and add a new assistant node.
-
 
 		// write a new human understandable sentence or two to current_list
 		if (!it->context.i_said_this) {
@@ -547,6 +532,9 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 					break;
 				case ACT_assign_gameplay_objective:
 				 	AddFmt("%.*s assigned a definitive game objective to %.*s", HUMAN(it->context.author_npc_kind), HUMAN(it->context.talking_to_kind));
+					break;
+				case ACT_award_victory:
+					AddFmt("%.*s awarded victory to %.*s", HUMAN(it->context.author_npc_kind), HUMAN(it->context.talking_to_kind));
 					break;
 				}
 			}
@@ -658,51 +646,14 @@ void parse_action_argument(MD_Arena *error_arena, MD_String8 *cur_error_message,
 	else if (arg_is_gameplay_objective)
 	{
 		out->kind = ARG_OBJECTIVE;
-		MD_String8List split = MD_S8Split(scratch.arena, action_argument_str, 1, &MD_S8Lit(" "));
-		if (split.node_count != 2)
+		if(action_argument_str.size >= MAX_SENTENCE_LENGTH)
 		{
-			*cur_error_message = FmtWithLint(error_arena, "Gameplay objective must follow this format: `VERB ACTION`, with a space between the verb and the action. You gave a response with %d words in it, which isn't the required amount, 2", (int)split.node_count);
+			MD_String8 trimmed = MD_S8Substring(action_argument_str, action_argument_str.size - MAX_SENTENCE_LENGTH/2, action_argument_str.size);
+			*cur_error_message = FmtWithLint(error_arena, "What you said for your action argument, '%.*s...' is WAY too big for the game to handle, it can be a maximum of %d characters, but you output %d!.", MD_S8VArg(trimmed), MAX_SENTENCE_LENGTH, (int)action_argument_str.size);
 		}
-
-		if (cur_error_message->size == 0)
+		if(cur_error_message->size == 0)
 		{
-			MD_String8 verb = split.first->string;
-
-			bool found = false;
-			MD_String8List available_verbs = {0};
-			ARR_ITER_I(char *, verbs, verb_enum)
-			{
-				MD_S8ListPush(scratch.arena, &available_verbs, MD_S8CString(*it));
-				if (MD_S8Match(MD_S8CString(*it), verb, 0))
-				{
-					(*out).objective.verb = verb_enum;
-					found = true;
-				}
-			}
-			if (!found)
-			{
-				MD_String8 verbs_str = MD_S8ListJoin(scratch.arena, available_verbs, &(MD_StringJoin){.mid = MD_S8Lit(" ")});
-				*cur_error_message = FmtWithLint(error_arena, "The gameplay verb you provided '%.*s' doesn't match any of the gameplay verbs available to you: %.*s", MD_S8VArg(verb), MD_S8VArg(verbs_str));
-			}
-		}
-
-		if (cur_error_message->size == 0)
-		{
-			MD_String8 subject = split.first->next->string;
-			MD_String8 verb = split.first->string;
-			bool found_npc = false;
-			for (int i = 0; i < ARRLEN(characters); i++)
-			{
-				if (MD_S8Match(MD_S8CString(characters[i].name), subject, 0))
-				{
-					found_npc = true;
-					(*out).objective.who_to_kill = i;
-				}
-			}
-			if (!found_npc)
-			{
-				*cur_error_message = FmtWithLint(error_arena, "Argument for gameplay verb `%.*s` you gave is `%.*s`, which doesn't exist in the game so is invalid", MD_S8VArg(verb), MD_S8VArg(subject));
-			}
+			chunk_from_s8(&out->objective.description, action_argument_str);
 		}
 	}
 	else

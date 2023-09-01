@@ -2843,7 +2843,7 @@ void create_screenspace_gfx_state()
 			{
 			.shader = shd,
 			.depth = {
-			0
+				.pixel_format = SG_PIXELFORMAT_NONE,
 			},
 			.sample_count = SAMPLE_COUNT,
 			.layout = {
@@ -3318,6 +3318,7 @@ Armature *armatures[] = {
 
 Mesh mesh_simple_worm = {0};
 Mesh mesh_shotgun = {0};
+Mesh mesh_angel_totem = {0};
 
 void stbi_flip_into_correct_direction(bool do_it)
 {
@@ -3405,6 +3406,9 @@ void init(void)
 
 	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/Shotgun.bin"));
 	mesh_shotgun = load_mesh(persistent_arena, binary_file, MD_S8Lit("Shotgun.bin"));
+
+	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/AngelTotem.bin"));
+	mesh_angel_totem = load_mesh(persistent_arena, binary_file, MD_S8Lit("AngelTotem.bin"));
 
 	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/NormalGuyArmature.bin"));
 	player_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("NormalGuyArmature.bin"));
@@ -5918,45 +5922,67 @@ void frame(void)
 		{
 			if(it->is_npc && MD_S8Match(it->current_room_name, gs.player->current_room_name, 0))
 			{
+				assert(it->is_npc);
 				Transform draw_with = entity_transform(it);
 
-				assert(it->is_npc);
-				Armature *to_use = 0;
-
-				if (it->npc_kind == NPC_Daniel)
-					to_use = &farmer_armature;
-				else if (it->npc_kind == NPC_Raphael)
-					to_use = &man_in_black_armature;
-				else if (it->npc_kind == NPC_Angel)
-					to_use = &angel_armature;
-				else if (it->npc_kind == NPC_Player)
-					to_use = &player_armature;
-				else
-					assert(false);
-
-				if (it->killed)
+				if(it->npc_kind == NPC_AngelTotem)
 				{
-					to_use->go_to_animation = MD_S8Lit("Die Backwards");
-					to_use->next_animation_isnt_looping = true;
-				}
-				else if (LenV2(it->vel) > 0.5f)
-				{
-					to_use->go_to_animation = MD_S8Lit("Running");
+					draw_thing((DrawnThing){.mesh = &mesh_angel_totem, .t = draw_with, .outline = gete(gs.player->interacting_with) == it});
 				}
 				else
 				{
-					to_use->go_to_animation = MD_S8Lit("Idle");
-				}
+					Armature *to_use = 0;
+					switch (it->npc_kind)
+					{
+					case NPC_Daniel:
+						to_use = &farmer_armature;
+						break;
+					case NPC_Raphael:
+						to_use = &man_in_black_armature;
+						break;
+					case NPC_Angel:
+						to_use = &angel_armature;
+						break;
+					case NPC_Player:
+						to_use = &player_armature;
+						break;
+					case NPC_nobody:
+					case NPC_AngelTotem:
+					case NPC_Devil:
+					case NPC_PreviousPlayer1:
+					case NPC_PreviousPlayer2:
+						assert(false);
+						break;
+					}
+					if (it->killed)
+					{
+						assert(false);
+						break;
+					}
+					if (it->killed)
+					{
+						to_use->go_to_animation = MD_S8Lit("Die Backwards");
+						to_use->next_animation_isnt_looping = true;
+					}
+					else if (LenV2(it->vel) > 0.5f)
+					{
+						to_use->go_to_animation = MD_S8Lit("Running");
+					}
+					else
+					{
+						to_use->go_to_animation = MD_S8Lit("Idle");
+					}
 
-				draw_thing((DrawnThing){.armature = to_use, .t = draw_with, .outline = gete(gs.player->interacting_with) == it});
+					draw_thing((DrawnThing){.armature = to_use, .t = draw_with, .outline = gete(gs.player->interacting_with) == it});
 
-				if (gete(it->aiming_shotgun_at))
-				{
-					Transform shotgun_t = draw_with;
-					shotgun_t.offset.y += 0.7f;
-					shotgun_t.scale = V3(4, 4, 4);
-					shotgun_t.rotation = rot_on_plane_to_quat(AngleOfV2(SubV2(gete(it->aiming_shotgun_at)->pos, it->pos)));
-					draw_thing((DrawnThing){.mesh = &mesh_shotgun, .t = shotgun_t});
+					if (gete(it->aiming_shotgun_at))
+					{
+						Transform shotgun_t = draw_with;
+						shotgun_t.offset.y += 0.7f;
+						shotgun_t.scale = V3(4, 4, 4);
+						shotgun_t.rotation = rot_on_plane_to_quat(AngleOfV2(SubV2(gete(it->aiming_shotgun_at)->pos, it->pos)));
+						draw_thing((DrawnThing){.mesh = &mesh_shotgun, .t = shotgun_t});
+					}
 				}
 			}
 		}
@@ -6131,7 +6157,7 @@ void frame(void)
 			if(gs.assigned_objective)
 			{
 				float mission_font_scale = 1.0f;
-				MD_String8 mission_text = FmtWithLint(frame_arena, "Your mission: %s %s", verbs[0], characters[gs.objective.who_to_kill].name);
+				MD_String8 mission_text = FmtWithLint(frame_arena, "Your mission: %.*s", MD_S8VArg(TextChunkString8(gs.objective.description)));
 				float button_height = 100.0f;
 				float vert = button_height*0.5f;
 				draw_centered_text((TextParams){false, mission_text, V2(screen_size().x * 0.5f, screen_size().y * 0.25f + vert), blendalpha(WHITE, visible), mission_font_scale, .use_font = &font_for_text_input, .layer = LAYER_ANGEL_SCREEN});
@@ -6899,6 +6925,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 						|| (it->npc_kind == NPC_Angel && gs.no_angel_screen)
 						|| !npc_does_dialog(it) // not sure what's up with this actually, potentially remove
 						|| !MD_S8Match(it->current_room_name, gs.player->current_room_name, 0)
+						|| it->npc_kind == NPC_AngelTotem
 						;
 						if (it->perceptions_dirty && doesnt_prompt_on_dirty_perceptions)
 						{
@@ -7057,6 +7084,10 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 						{
 							if (closest_interact_with->is_npc)
 							{
+								if(closest_interact_with->npc_kind == NPC_AngelTotem)
+								{
+									transition_to_room(&gs, &level_threedee, MD_S8Lit("StartingRoom"));
+								}
 								// begin dialog with closest npc
 								gs.player->talking_to = frome(closest_interact_with);
 								begin_text_input();
@@ -7129,32 +7160,6 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 		pressed = before_gameplay_loops;
 
 
-		// check if game objective has been fulfilled
-		{
-			if(gs.no_angel_screen)
-			{
-				bool fulfilled = false;
-				assert(gs.assigned_objective);
-				switch(gs.objective.verb)
-				{
-					case KILL:
-					ENTITIES_ITER(gs.entities)
-					{
-						if(it->npc_kind == gs.objective.who_to_kill && it->killed)
-						{
-							fulfilled = true;
-							break;
-						}
-					}
-					break;
-				}
-				if(fulfilled)
-				{
-					gs.assigned_objective = false;
-					transition_to_room(&gs, &level_threedee, MD_S8Lit("StartingRoom"));
-				}
-			}
-		}
 
 
 #ifdef DEVTOOLS

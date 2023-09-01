@@ -1,4 +1,5 @@
 [
+
 {can_hear: [Daniel, Raphael]}
 {enum: Devil, dialog: "What's up cracker jack?", to: Daniel}
 {enum: Daniel, dialog: "What the hell are you talking about?", to: Devil}
@@ -48,7 +49,13 @@
 {enum: PreviousPlayer1, dialog: "fjdsklajf", to: Angel}
 {enum: Angel, dialog: "Cryptic gibberish upon me, is casting a stone upon God", to: PreviousPlayer1}
 {enum: PreviousPlayer1, dialog: "What is my purpose here?", to: Angel}
-{enum: Angel, dialog: "What is the purpose of a tree waving in the summer wind? A river carving a path into the countryside? Only God knows his plan. But your purpose, here, has been assigned. You must kill raphael. Good luck.", to: PreviousPlayer1, action: ACT_assign_gameplay_objective, action_argument: "KILL Raphael"}
+{enum: Angel, dialog: "What is the purpose of a tree waving in the summer wind? A river carving a path into the countryside? Only God knows his plan. But your purpose, here, has been assigned. You must drive raphael to despair. Good luck.", to: PreviousPlayer1, action: ACT_assign_gameplay_objective, action_argument: "Convince Raphael that he has no purpose in his life, making him despondent"}
+{can_hear: [PreviousPlayer1, Angel, Raphael]}
+{enum: PreviousPlayer1, dialog: "Your life is meaningless, trust me.", to: Raphael}
+{enum: Raphael, dialog: "Oh... Oh god... You're right!", to: PreviousPlayer1}
+{enum: PreviousPlayer1, dialog: "So, how did I do?", to: Angel}
+{enum: Angel, dialog: "Quickly you've done it: He's completely perilous. Congratulations.", to: PreviousPlayer1, action: ACT_award_victory}
+
 
 {can_hear: [PreviousPlayer2, Angel]}
 {enum: PreviousPlayer2, dialog: "What am I supposed to do?", to: Angel}
@@ -56,13 +63,6 @@
 {enum: PreviousPlayer2, dialog: "I desire for you to shut the fuck up", to: Angel}
 {enum: Angel, dialog: "From your glass house, you cast stones upon a fortress. Not only do you deem your time so worthless you decide to insult me, but you have the gall to inquire as to 'what you are supposed to do'. You are A Worm.", to: PreviousPlayer2}
 {enum: PreviousPlayer2, dialog: "Jeez alright", to: Angel}
-{enum: Angel, dialog: "At once depart, and if you wish to redeem yourself, you must kill Daniel.", to: PreviousPlayer2, action: ACT_assign_gameplay_objective, action_argument: "KILL Daniel"}
+{enum: Angel, dialog: "At once depart, and if you wish to redeem yourself, you must convince Daniel that he is a Giraffe.", to: PreviousPlayer2, action: ACT_assign_gameplay_objective, action_argument: "Convince Daniel that he's a giraffe"}
 
-/*
-{can_hear: [WellDweller, Farmer, ManInBlack]},
-{enum: WellDweller, dialog: "What a fearful farm you live in, come down to the well, the grass is damper down here.", to: Farmer, mood: Scared, thoughts: "Nobody can take me from my well"},
-{enum: Farmer, dialog: "Sure as shit I won't!", to: WellDweller, mood: Scared, thoughts: "What a greasy looking feller"},
-{enum: WellDweller, dialog: "Have it your way! Doomsday is upon us", to: Farmer, mood: Scared, thoughts: "He has no idea what he's in for"},
-{enum: ManInBlack, dialog: "Doomsday's all I know anyways", mood: Indifferent, thoughts: "What's coming... is only a nightmare"},
-*/
 ]

@@ -78,6 +78,9 @@ def is_file_in_project(file_path):
             return True
     return False
 
+def name_despite_copied(name):
+    return name.split(".")[0]
+
 saved_images = set()
 def ensure_tex_saved_and_get_name(o) -> str:
     """returns the name of the mesh's texture's png in the exported directory, of the current object"""
@@ -368,7 +371,7 @@ def export_meshes_and_levels():
 
                 for o in no_hidden(entities_collection.objects):
                     assert o.rotation_euler.order == 'XYZ', f"Invalid rotation euler order for object of name '{o.name}', it's {o.rotation_euler.order} but must be XYZ"
-                    placed_entities.append((o.name, mapping @ o.location, o.rotation_euler, o.scale))
+                    placed_entities.append((name_despite_copied(o.name), mapping @ o.location, o.rotation_euler, o.scale))
 
 
             write_u64(f, len(placed_meshes))

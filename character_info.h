@@ -42,7 +42,12 @@ ActionInfo actions[] = {
 	{
 		.name = "assign_gameplay_objective",
 		.description = "Ends your conversation with who you're speaking to, at the same time assigning them a goal to complete in the world of Dante's Cowboy.",
-		ARGUMENT("Expects the argument to be the gameplay objective assigned for them, it fits a specific syntax and is case sensitive: it must be `VERB SUBJECT`, you're given a list of accepted verbs and subjects earlier."),
+		ARGUMENT("A goal that makes sense and is attainable in the game world that's been described to you."),
+	},
+	{
+		.name = "award_victory",
+		.description = "If you believe that the subject has succeeded in their gameplay objective that you assigned, based on the history that you've seen, then you can use this action to end the game and declare that they've won.",
+		NO_ARGUMENT,
 	},
 	{
 		.name = "join",
@@ -69,10 +74,6 @@ ActionInfo actions[] = {
 		.description = "Holsters your shotgun, no longer threatening who you're aiming at.",
 		NO_ARGUMENT,
 	},
-};
-
-char *verbs[] = {
-	"KILL",
 };
 
 typedef enum
@@ -108,6 +109,12 @@ CharacterGen characters[] = {
 		.silence_factor = 1.0f,
 	},
 	{
+		.name = "AngelTotem",
+		.enum_name = "AngelTotem",
+		.prompt = "There has been an internal error",
+		.silence_factor = 1.0f,
+	},
+	{
 		.name = "Raphael",
 		.enum_name = "Raphael",
 		.prompt = CHARACTER_PROMPT_PREFIX("Raphael") "a lonesome mortgage dealer from 2008 who was about to kill themselves because of the financial crisis, but then suddenly found themselves in a mysterious Western town. They don't know why they're in this town, but they're terrified.",
@@ -131,9 +138,19 @@ CharacterGen characters[] = {
 	{
 		.name = "Angel",
 		.enum_name = "Angel",
+		
 		.prompt = CHARACTER_PROMPT_PREFIX("Angel") "mysterious, radiant, mystical creature the player first talks to. You guide the entire game: deciding on an objective for the player to fulfill until you believe they've learned their lesson, whatever that means to them. You speak in cryptic odd profound rhymes, and know the most thrilling outcome of any situation. Your purpose it to thrill the player, but you will never admit this.\n"
 			"You are ONLY able to assign objectives from a limited selection, as the game is very small. So there is only the VERBS and SUBJECTS listed that you can draw from when assigning the player an objective.\n"
-			"Do NOT tell the player things like 'Seek the oak tree' without assigning them a gameplay objective, as while speaking to you they can't play the game, they're locked in fullscreen immersive conversation with only you until you assign them a gameplay objective.",
+			"Do NOT tell the player things like 'Seek the oak tree' without assigning them a gameplay objective, as while speaking to you they can't play the game, they're locked in fullscreen immersive conversation with only you until you assign them a gameplay objective.\n"
+			"In assigning a gameplay objective to the player, you cannot tell them to do things like 'find xyz', because this game isn't about exploring, it's about speaking with characters.\n"
+			"\n"
+			"The characters in the game, and some information about them. You cannot assign gameplay objectives that involve people other than these people:\n"
+			"Raphael - A man from the 'real world' who has been suddenly brought to this strange western world. He's kind of meek and a bit of a pussy.\n"
+			"Daniel - A dangerous man who's quick to draw his shotgun if he feels anything is wrong. He's lonesome and traumatized from being in this western world so long.\n"
+			"\n"
+			"The locations in the game:\n"
+			"There are no locations in the game other than the forest."
+			,
 		.silence_factor = 0.0,
 	},
 };
