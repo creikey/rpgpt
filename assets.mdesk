@@ -14,6 +14,10 @@
 {
  filepath: "unread_triangle.png",
 }
+@image skull:
+{
+    filepath: "skull.png",
+}
 @image loading:
 {
  filepath: "loading.png",

@@ -2173,7 +2173,7 @@ void transition_to_room(GameState *gs, ThreeDeeLevel *level, MD_String8 new_room
 
 	gs->player->current_room_name = new_room_name;
 
-	if(MD_S8Match(new_room_name, MD_S8Lit("StartingLevel"), 0))
+	if(MD_S8Match(new_room_name, MD_S8Lit("StartingRoom"), 0))
 	{
 		gs->angel->perceptions_dirty = true;
 	}
@@ -2219,6 +2219,8 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 		it->rotation = PI32;
 		it->target_rotation = it->rotation;
 	}
+
+	transition_to_room(gs, &level_threedee, MD_S8Lit("Forest")); // hack to disable cold opening angel sequence right now
 
 	// @Place(parse and enact the drama document parse drama)
 	if(1)
