@@ -65,9 +65,9 @@
 
 
 //Rendering
-#define FIELD_OF_VIEW (PI32/4.0f)
+#define FIELD_OF_VIEW (0.6911112070083618) // FOV
 #define NEAR_PLANE_DISTANCE (0.01f)
-#define FAR_PLANE_DISTANCE (45.0f)
+#define FAR_PLANE_DISTANCE (70.0f)
 #define SHADOW_MAP_DIMENSION (2048)
 
 // Post-processing

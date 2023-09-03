@@ -6,6 +6,7 @@ import struct
 from mathutils import *; from math import *
 from bpy_extras.io_utils import (axis_conversion)
 from dataclasses import dataclass
+import cProfile
 
 C = bpy.context
 D = bpy.data
@@ -300,7 +301,7 @@ def collect_and_validate_mesh_objects(collection_with_only_mesh_objects):
 
     return to_return
 
-def get_startswith(name_of_overarching_thing, iterable, starts_with):
+def get_startswith(name_of_overarching_thing, iterable, starts_with, required = True):
     """
     Gets the thing in iterable that starts with starts with, and makes sure there's only *one* thing that starts with starts with
     name_of_overarching_thing is for the error message, for reporting in what collection things went wrong in.
@@ -310,7 +311,7 @@ def get_startswith(name_of_overarching_thing, iterable, starts_with):
         if thing.name.startswith(starts_with):
             assert to_return == None, f"Duplicate thing that starts with '{starts_with}' found in {name_of_overarching_thing} called {thing.name}"
             to_return = thing
-    assert to_return != None, f"Couldn't find thing that starts with '{starts_with}' as a child of '{name_of_overarching_thing}', but one is required"
+    if required: assert to_return != None, f"Couldn't find thing that starts with '{starts_with}' as a child of '{name_of_overarching_thing}', but one is required"
     return to_return
 
 def no_hidden(objects):
@@ -373,6 +374,17 @@ def export_meshes_and_levels():
                     assert o.rotation_euler.order == 'XYZ', f"Invalid rotation euler order for object of name '{o.name}', it's {o.rotation_euler.order} but must be XYZ"
                     placed_entities.append((name_despite_copied(o.name), mapping @ o.location, o.rotation_euler, o.scale))
 
+            camera_override = None
+            if True:
+                camera_object = get_startswith(room_collection.name, room_collection.objects, "Camera", required = False)
+                if camera_object:
+                    camera_override = mapping @ camera_object.location
+
+            write_b8(f, camera_override != None)
+            if camera_override:
+                write_f32(f, camera_override.x)
+                write_f32(f, camera_override.y)
+                write_f32(f, camera_override.z)
 
             write_u64(f, len(placed_meshes))
             for p in placed_meshes:
@@ -454,5 +466,8 @@ def export_meshes_and_levels():
     print("Success!")
 
 
-export_armatures()
-export_meshes_and_levels()
+def export_everything():
+    export_armatures()
+    export_meshes_and_levels()
+export_everything()
+#cProfile.run("export_everything") # gave up optimizing this because after reading this output I'm not sure what the best direction is, it seems like it's just a lot of data, specifically the images, is why it's slow... I could hash them and only write if the hash changes but whatever

@@ -1251,6 +1251,8 @@ typedef struct Room
 {
 	struct Room *next;
 
+	bool camera_offset_is_overridden;
+	Vec3 camera_offset;
 	String8 name;
 	PlacedMesh *placed_mesh_list;
 	CollisionCylinder *collision_list;
@@ -1325,6 +1327,12 @@ ThreeDeeLevel load_level(Arena *arena, String8 binary_file)
 	{
 		Room *new_room = PushArray(arena, Room, 1);
 		ser_String8(&ser, &new_room->name, arena);
+
+		ser_bool(&ser, &new_room->camera_offset_is_overridden);
+		if(new_room->camera_offset_is_overridden)
+		{
+			ser_Vec3(&ser, &new_room->camera_offset);
+		}
 
 		// placed meshes
 		{
@@ -5813,6 +5821,10 @@ void frame(void)
 			away_from_player = V3(x, y, 0.0);
 		}
 		away_from_player = MulM4V4(Rotate_RH(-PI32/3.0f + PI32, V3(0,1,0)), IsPoint(away_from_player)).xyz;
+		if(get_cur_room(&gs, &level_threedee)->camera_offset_is_overridden)
+		{
+			away_from_player = get_cur_room(&gs, &level_threedee)->camera_offset;
+		}
 		Vec3 cam_pos = AddV3(player_pos, away_from_player);
 
 		Vec2 movement = { 0 };
@@ -5839,16 +5851,10 @@ void frame(void)
 
 		Vec3 light_dir;
 		{
-			float spin_factor = 0.0f;
-			float t = (float)elapsed_time * spin_factor;
-
-			float x = cosf(t);
-			float z = sinf(t);
-
-			light_dir = NormV3(V3(x, -0.5f, z));
+			float t = (float)(elapsed_time/3.0f - floor(elapsed_time/3.0f));
+			Vec3 sun_vector = V3(2.0f*t - 1.0f, sinf(t*PI32), 0.8f); // where the sun is pointing from
+			light_dir = NormV3(MulV3F(sun_vector, -1.0f));
 		}
-
-
 
 		// make movement relative to camera forward
 		Vec3 facing = NormV3(SubV3(player_pos, cam_pos));
@@ -5945,11 +5951,6 @@ void frame(void)
 					case NPC_Devil:
 					case NPC_PreviousPlayer1:
 					case NPC_PreviousPlayer2:
-						assert(false);
-						break;
-					}
-					if (it->killed)
-					{
 						assert(false);
 						break;
 					}
