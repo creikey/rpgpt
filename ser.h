@@ -4,32 +4,32 @@
 
 typedef struct
 {
- MD_b8 failed;
- MD_String8 why;
+ b8 failed;
+ String8 why;
 } SerError;
 
 typedef struct
 {
- MD_u8 *data; // set to 0 to dry run and get maximum size. max doesn't matter in this case
- MD_u64 cur;
- MD_u64 max;
+ u8 *data; // set to 0 to dry run and get maximum size. max doesn't matter in this case
+ u64 cur;
+ u64 max;
 
- MD_Arena *arena; // allocate everything new on this, so that if serialization fails allocations can be undone
+ Arena *arena; // allocate everything new on this, so that if serialization fails allocations can be undone
  // Serializing should never allocate. So this can be null when you serialize
 
  int version;
  SerError cur_error;
- MD_Arena *error_arena; // all error messages are allocated here
+ Arena *error_arena; // all error messages are allocated here
 
- MD_b8 serializing;
+ b8 serializing;
 } SerState;
 
 
-void ser_bytes(SerState *ser, MD_u8 *bytes, MD_u64 bytes_size)
+void ser_bytes(SerState *ser, u8 *bytes, u64 bytes_size)
 {
 	if(!ser->data && !ser->serializing)
 	{
-		ser->cur_error = (SerError){.failed = true, .why = MD_S8Lit("Deserializing but the data is null")};
+		ser->cur_error = (SerError){.failed = true, .why = S8Lit("Deserializing but the data is null")};
 	}
 
  if(!ser->cur_error.failed)
@@ -39,7 +39,7 @@ void ser_bytes(SerState *ser, MD_u8 *bytes, MD_u64 bytes_size)
    // maximum doesn't matter unless writing to data
    if(ser->cur + bytes_size > ser->max)
    {
-    ser->cur_error = (SerError){.failed = true, .why = MD_S8Lit("Too big bro")};
+    ser->cur_error = (SerError){.failed = true, .why = S8Lit("Too big bro")};
    }
    else
    {
@@ -61,24 +61,24 @@ void ser_bytes(SerState *ser, MD_u8 *bytes, MD_u64 bytes_size)
 
 #define SER_MAKE_FOR_TYPE(type) void ser_##type(SerState *ser, type *into) \
 { \
- ser_bytes(ser, (MD_u8*)into, sizeof(*into)); \
+ ser_bytes(ser, (u8*)into, sizeof(*into)); \
 }
 
 SER_MAKE_FOR_TYPE(int);
-SER_MAKE_FOR_TYPE(MD_u64);
+SER_MAKE_FOR_TYPE(u64);
 
 // Embeds the string into the serialized binary. When deserializing copies the
 // deserialized data onto a newly allocated buffer
-void ser_MD_String8(SerState *ser, MD_String8 *s, MD_Arena *allocate_onto)
+void ser_String8(SerState *ser, String8 *s, Arena *allocate_onto)
 {
-	ser_MD_u64(ser, &s->size);
+	ser_u64(ser, &s->size);
 	if(ser->serializing)
 	{
 		ser_bytes(ser, s->str, s->size);
 	}
 	else
 	{
-		s->str = MD_ArenaPush(allocate_onto, s->size);
+		s->str = ArenaPush(allocate_onto, s->size);
 		ser_bytes(ser, s->str, s->size);
 	}
 }

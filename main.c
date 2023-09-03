@@ -91,7 +91,7 @@ __declspec(dllexport) uint32_t AmdPowerXpressRequestHighPerformance = 0x00000001
 #ifdef WEB
 #define __gnu_linux__
 #define i386
-#define MD_DEFAULT_ARENA 0
+#define DEFAULT_ARENA 0
 
 typedef struct WebArena
 {
@@ -168,14 +168,14 @@ void web_arena_set_auto_align(WebArena *arena, size_t align)
 	arena->align = align;
 }
 
-#define MD_IMPL_Arena WebArena
-#define MD_IMPL_ArenaAlloc web_arena_alloc
-#define MD_IMPL_ArenaRelease web_arena_release
-#define MD_IMPL_ArenaGetPos web_arena_get_pos
-#define MD_IMPL_ArenaPush web_arena_push
-#define MD_IMPL_ArenaPopTo web_arena_pop_to
-#define MD_IMPL_ArenaSetAutoAlign web_arena_set_auto_align
-#define MD_IMPL_ArenaMinPos 64 // no idea what this is honestly
+#define IMPL_Arena WebArena
+#define IMPL_ArenaAlloc web_arena_alloc
+#define IMPL_ArenaRelease web_arena_release
+#define IMPL_ArenaGetPos web_arena_get_pos
+#define IMPL_ArenaPush web_arena_push
+#define IMPL_ArenaPopTo web_arena_pop_to
+#define IMPL_ArenaSetAutoAlign web_arena_set_auto_align
+#define IMPL_ArenaMinPos 64 // no idea what this is honestly
 #endif // web
 
 #pragma warning(disable : 4996) // fopen is safe. I don't care about fopen_s
@@ -189,10 +189,10 @@ void web_arena_set_auto_align(WebArena *arena, size_t align)
 #pragma warning(disable : 4457) // hiding function variable happens
 #pragma warning(disable : 4668) // __GNU_C__ macro undefined, fixing
 #define STBSP_ADD_TO_FUNCTIONS no_ubsan
-#define MD_FUNCTION no_ubsan
+#define FUNCTION no_ubsan
 #include "md.h"
-#undef  MD_Assert
-#define MD_Assert assert
+#undef  Assert
+#define Assert assert
 #include "md.c"
 #pragma warning(pop)
 
@@ -208,10 +208,10 @@ void web_arena_set_auto_align(WebArena *arena, size_t align)
 #endif
 #include "profiling.h"
 
-MD_String8 nullterm(MD_Arena *copy_onto, MD_String8 to_nullterm)
+String8 nullterm(Arena *copy_onto, String8 to_nullterm)
 {
-	MD_String8 to_return = {0};
-	to_return.str = MD_PushArray(copy_onto, MD_u8, to_nullterm.size + 1);
+	String8 to_return = {0};
+	to_return.str = PushArray(copy_onto, u8, to_nullterm.size + 1);
 	to_return.size = to_nullterm.size + 1;
 	to_return.str[to_return.size - 1] = '\0';
 	memcpy(to_return.str, to_nullterm.str, to_nullterm.size);
@@ -321,14 +321,6 @@ typedef struct Quad
 #include "makeprompt.h"
 typedef BUFF(Entity*, 16) Overlapping;
 
-// no alignment etc because lazy
-typedef struct Arena
-{
-	char *data;
-	size_t data_size;
-	size_t cur;
-} Arena;
-
 typedef struct AudioSample
 {
 	float *pcm_data; // allocated by loader, must be freed
@@ -417,7 +409,7 @@ bool is_receiving_text_input()
 }
 
 #ifdef DESKTOP
-MD_u8 text_input_buffer[MAX_SENTENCE_LENGTH] = {0};
+u8 text_input_buffer[MAX_SENTENCE_LENGTH] = {0};
 int text_input_buffer_length = 0;
 #else
 #ifdef WEB
@@ -453,15 +445,15 @@ Vec2 FloorV2(Vec2 v)
 	return V2(floorf(v.x), floorf(v.y));
 }
 
-MD_Arena *frame_arena = 0;
-MD_Arena *persistent_arena = 0; // watch out, arenas have limited size. 
+Arena *frame_arena = 0;
+Arena *persistent_arena = 0; // watch out, arenas have limited size. 
 
 #ifdef WINDOWS
 // uses frame arena
-LPCWSTR windows_string(MD_String8 s)
+LPCWSTR windows_string(String8 s)
 {
 	int num_characters = MultiByteToWideChar(CP_UTF8, 0, (LPCCH)s.str, (int)s.size, 0, 0);
-	wchar_t *to_return = MD_PushArray(frame_arena, wchar_t, num_characters + 1); // also allocate for null terminating character
+	wchar_t *to_return = PushArray(frame_arena, wchar_t, num_characters + 1); // also allocate for null terminating character
 	assert(MultiByteToWideChar(CP_UTF8, 0, (LPCCH)s.str, (int)s.size, to_return, num_characters) == num_characters);
 	to_return[num_characters] = '\0';
 	return to_return;
@@ -485,8 +477,8 @@ typedef struct ChatRequest
 	int status;
 	TextChunk generated;
 	uintptr_t thread_handle;
-	MD_Arena *arena;
-	MD_String8 post_req_body; // allocated on thread_arena
+	Arena *arena;
+	String8 post_req_body; // allocated on thread_arena
 } ChatRequest;
 
 ChatRequest *requests_first = 0;
@@ -506,7 +498,7 @@ void generation_thread(void* my_request_voidptr)
 	HINTERNET hSession = WinHttpOpen(L"PlayGPT winhttp backend", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
 	WinAssertWithErrorCode(hSession);
 
-	LPCWSTR windows_server_name = windows_string(MD_S8Lit(SERVER_DOMAIN));
+	LPCWSTR windows_server_name = windows_string(S8Lit(SERVER_DOMAIN));
 	HINTERNET hConnect = WinHttpConnect(hSession, windows_server_name, SERVER_PORT, 0);
 	WinAssertWithErrorCode(hConnect);
 	int security_flags = 0;
@@ -540,7 +532,7 @@ void generation_thread(void* my_request_voidptr)
 		WinAssertWithErrorCode(status_code != 500);
 
 		DWORD dwSize = 0;
-		MD_String8List received_data_list = {0};
+		String8List received_data_list = {0};
 		do
 		{
 			dwSize = 0;
@@ -552,17 +544,17 @@ void generation_thread(void* my_request_voidptr)
 			}
 			else
 			{
-				MD_u8* out_buffer = MD_PushArray(my_request->arena, MD_u8, dwSize + 1);
+				u8* out_buffer = PushArray(my_request->arena, u8, dwSize + 1);
 				DWORD dwDownloaded = 0;
 				WinAssertWithErrorCode(WinHttpReadData(hRequest, (LPVOID)out_buffer, dwSize, &dwDownloaded));
 				out_buffer[dwDownloaded - 1] = '\0';
 				Log("Got this from http, size %lu: %s\n", dwDownloaded, out_buffer);
-				MD_S8ListPush(my_request->arena, &received_data_list, MD_S8(out_buffer, dwDownloaded)); 
+				S8ListPush(my_request->arena, &received_data_list, S8(out_buffer, dwDownloaded)); 
 			}
 		} while (dwSize > 0);
-		MD_String8 received_data = MD_S8ListJoin(my_request->arena, received_data_list, &(MD_StringJoin){0});
+		String8 received_data = S8ListJoin(my_request->arena, received_data_list, &(StringJoin){0});
 
-		MD_String8 ai_response = MD_S8Substring(received_data, 1, received_data.size);
+		String8 ai_response = S8Substring(received_data, 1, received_data.size);
 		if(ai_response.size > ARRLEN(my_request->generated.text))
 		{
 			Log("%lld too big for %lld\n", ai_response.size, ARRLEN(my_request->generated.text));
@@ -574,10 +566,10 @@ void generation_thread(void* my_request_voidptr)
 	}
 }
 
-int make_generation_request(MD_String8 post_req_body)
+int make_generation_request(String8 post_req_body)
 {
 	// checking for taken characters, pipe should only occur at the beginning
-	for(MD_u64 i = 1; i < post_req_body.size; i++)
+	for(u64 i = 1; i < post_req_body.size; i++)
 	{
 		assert(post_req_body.str[i] != '|');
 	}
@@ -587,25 +579,25 @@ int make_generation_request(MD_String8 post_req_body)
 	{
 		to_return = requests_free_list;
 		requests_free_list = requests_free_list->next;
-		//MD_StackPop(requests_free_list);
+		//StackPop(requests_free_list);
 		*to_return = (ChatRequest){0};
 	}
 	else
 	{
-		to_return = MD_PushArrayZero(persistent_arena, ChatRequest, 1);
+		to_return = PushArrayZero(persistent_arena, ChatRequest, 1);
 	}
-	to_return->arena = MD_ArenaAlloc();
+	to_return->arena = ArenaAlloc();
 	to_return->id = next_request_id;
 	next_request_id += 1;
 
-	to_return->post_req_body.str = MD_PushArrayZero(to_return->arena, MD_u8, post_req_body.size);
+	to_return->post_req_body.str = PushArrayZero(to_return->arena, u8, post_req_body.size);
 	to_return->post_req_body.size = post_req_body.size;
 	memcpy(to_return->post_req_body.str, post_req_body.str, post_req_body.size);
 
 	to_return->thread_handle = _beginthread(generation_thread, 0, to_return);
 	assert(to_return->thread_handle);
 
-	MD_DblPushBack(requests_first, requests_last, to_return);
+	DblPushBack(requests_first, requests_last, to_return);
 
 	return to_return->id;
 }
@@ -629,9 +621,9 @@ ChatRequest *get_by_id(int id)
 void done_with_request(int id)
 {
 	ChatRequest *req = get_by_id(id);
-	MD_ArenaRelease(req->arena);
-	MD_DblRemove(requests_first, requests_last, req);
-	MD_StackPush(requests_free_list, req);
+	ArenaRelease(req->arena);
+	DblRemove(requests_first, requests_last, req);
+	StackPush(requests_free_list, req);
 }
 
 #else
@@ -644,28 +636,28 @@ RememberedError *remembered_error_free_list = 0;
 
 // s.size must be less than MAX_SENTENCE_LENGTH, or assert fails
 
-RememberedError *allocate_remembered_error(MD_Arena *arena)
+RememberedError *allocate_remembered_error(Arena *arena)
 {
 	RememberedError *to_return = 0;
 	if(remembered_error_free_list)
 	{
 		to_return = remembered_error_free_list;
-		MD_StackPop(remembered_error_free_list);
+		StackPop(remembered_error_free_list);
 	}
 	else
 	{
-		to_return = MD_PushArray(arena, RememberedError, 1);
+		to_return = PushArray(arena, RememberedError, 1);
 	}
 	*to_return = (RememberedError){0};
 	return to_return;
 }
 void remove_remembered_error_from(RememberedError **first, RememberedError **last, RememberedError *chunk)
 {
-	MD_DblRemove(*first, *last, chunk);
-	MD_StackPush(remembered_error_free_list, chunk);
+	DblRemove(*first, *last, chunk);
+	StackPush(remembered_error_free_list, chunk);
 }
 
-void append_to_errors(Entity *from, Memory incorrect_memory, MD_String8 s)
+void append_to_errors(Entity *from, Memory incorrect_memory, String8 s)
 {
 	RememberedError *err = allocate_remembered_error(persistent_arena);
 	chunk_from_s8(&err->reason_why_its_bad, s);
@@ -679,17 +671,17 @@ void append_to_errors(Entity *from, Memory incorrect_memory, MD_String8 s)
 		if(count < REMEMBERED_ERRORS) break;
 		remove_remembered_error_from(&from->errorlist_first, &from->errorlist_last, from->errorlist_first);
 	}
-	MD_DblPushBack(from->errorlist_first, from->errorlist_last, err);
+	DblPushBack(from->errorlist_first, from->errorlist_last, err);
 	from->perceptions_dirty = true;
 }
 
-MD_String8 tprint(char *format, ...)
+String8 tprint(char *format, ...)
 {
-	MD_String8 to_return = {0};
+	String8 to_return = {0};
 	va_list argptr;
 	va_start(argptr, format);
 
-	to_return = MD_S8FmtV(frame_arena, format, argptr);
+	to_return = S8FmtV(frame_arena, format, argptr);
 
 	va_end(argptr);
 	return to_return;
@@ -777,26 +769,26 @@ AABB entity_aabb(Entity *e)
 typedef struct LoadedImage
 {
 	struct LoadedImage *next;
-	MD_String8 name;
+	String8 name;
 	sg_image image;
 } LoadedImage;
 
 LoadedImage *loaded_images = 0;
 
-sg_image load_image(MD_String8 path)
+sg_image load_image(String8 path)
 {
-	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+	ArenaTemp scratch = GetScratch(0, 0);
 	for(LoadedImage *cur = loaded_images; cur; cur = cur->next)
 	{
-		if(MD_S8Match(cur->name, path, 0))
+		if(S8Match(cur->name, path, 0))
 		{
 			return cur->image;
 		}
 	}
 
-	LoadedImage *loaded = MD_PushArray(persistent_arena, LoadedImage, 1);
-	loaded->name = MD_S8Copy(persistent_arena, path);
-	MD_StackPush(loaded_images, loaded);
+	LoadedImage *loaded = PushArray(persistent_arena, LoadedImage, 1);
+	loaded->name = S8Copy(persistent_arena, path);
+	StackPush(loaded_images, loaded);
 
 	sg_image to_return = { 0 };
 
@@ -811,8 +803,8 @@ sg_image load_image(MD_String8 path)
 	if(num_channels == 3)
 	{
 		stbi_uc *old_pixels = pixels;
-		pixels = MD_ArenaPush(scratch.arena, png_width * png_height * 4 * sizeof(stbi_uc));
-		for(MD_u64 pixel_i = 0; pixel_i < png_width * png_height; pixel_i++)
+		pixels = ArenaPush(scratch.arena, png_width * png_height * 4 * sizeof(stbi_uc));
+		for(u64 pixel_i = 0; pixel_i < png_width * png_height; pixel_i++)
 		{
 			pixels[pixel_i*4 + 0] = old_pixels[pixel_i*3 + 0];
 			pixels[pixel_i*4 + 1] = old_pixels[pixel_i*3 + 1];
@@ -826,7 +818,7 @@ sg_image load_image(MD_String8 path)
 
 	assert(pixels);
 	assert(desired_channels == num_channels);
-	//Log("Path %.*s | Loading image with dimensions %d %d\n", MD_S8VArg(path), png_width, png_height);
+	//Log("Path %.*s | Loading image with dimensions %d %d\n", S8VArg(path), png_width, png_height);
 	to_return = sg_make_image(&(sg_image_desc)
 			{
 			.width = png_width,
@@ -841,7 +833,7 @@ sg_image load_image(MD_String8 path)
 			});
 
 	loaded->image = to_return;
-	MD_ReleaseScratch(scratch);
+	ReleaseScratch(scratch);
 	return to_return;
 }
 
@@ -857,7 +849,7 @@ SER_MAKE_FOR_TYPE(Vec2);
 SER_MAKE_FOR_TYPE(Vec3);
 SER_MAKE_FOR_TYPE(EntityRef);
 SER_MAKE_FOR_TYPE(NPCPlayerStanding);
-SER_MAKE_FOR_TYPE(MD_u16);
+SER_MAKE_FOR_TYPE(u16);
 
 void ser_Quat(SerState *ser, Quat *q)
 {
@@ -886,7 +878,7 @@ typedef struct
 {
 	Vec3 position;
 	Vec2 uv;
-	MD_u16  joint_indices[4];
+	u16  joint_indices[4];
 	float joint_weights[4];
 } ArmatureVertex;
 
@@ -897,11 +889,11 @@ typedef struct Mesh
 	struct Mesh *next;
 
 	Vertex *vertices;
-	MD_u64 num_vertices;
+	u64 num_vertices;
 
 	sg_buffer loaded_buffer;
 	sg_image image;
-	MD_String8 name;
+	String8 name;
 } Mesh;
 
 typedef struct PoseBone
@@ -915,19 +907,19 @@ typedef struct Bone
 	struct Bone *parent;
 	Mat4 matrix_local;
 	Mat4 inverse_model_space_pos;
-	MD_String8 name;
+	String8 name;
 	float length;
 } Bone;
 
 typedef struct AnimationTrack
 {
 	PoseBone *poses;
-	MD_u64 poses_length;
+	u64 poses_length;
 } AnimationTrack;
 
 typedef struct Animation
 {
-	MD_String8 name;
+	String8 name;
 	// assumed to be the same as the number of bones in the armature the animation is in 
 	AnimationTrack *tracks; 
 } Animation;
@@ -944,7 +936,7 @@ typedef struct PlacedMesh
 	struct PlacedMesh *next;
 	Transform t;
 	Mesh *draw_with;
-	MD_String8 name;
+	String8 name;
 } PlacedMesh;
 
 typedef struct PlacedEntity
@@ -958,9 +950,9 @@ typedef struct PlacedEntity
 // arena must last as long as the Mesh lasts. Internal data points to `arena`, such as
 // the name of the mesh's buffer in sokol. The returned mesh doesn't point to the binary
 // file anymore.
-Mesh load_mesh(MD_Arena *arena, MD_String8 binary_file, MD_String8 mesh_name)
+Mesh load_mesh(Arena *arena, String8 binary_file, String8 mesh_name)
 {
-	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
+	ArenaTemp scratch = GetScratch(&arena, 1);
 	SerState ser = {
 		.data = binary_file.str,
 		.max = binary_file.size,
@@ -974,27 +966,27 @@ Mesh load_mesh(MD_Arena *arena, MD_String8 binary_file, MD_String8 mesh_name)
 	ser_bool(&ser, &is_armature);
 	assert(!is_armature);
 
-	MD_String8 image_filename;
-	ser_MD_String8(&ser, &image_filename, scratch.arena);
-	to_return.image = load_image(MD_S8Fmt(scratch.arena, "assets/exported_3d/%.*s", MD_S8VArg(image_filename)));
+	String8 image_filename;
+	ser_String8(&ser, &image_filename, scratch.arena);
+	to_return.image = load_image(S8Fmt(scratch.arena, "assets/exported_3d/%.*s", S8VArg(image_filename)));
 
-	ser_MD_u64(&ser, &to_return.num_vertices);
-	//Log("Mesh %.*s has %llu vertices and image filename '%.*s'\n", MD_S8VArg(mesh_name), to_return.num_vertices, MD_S8VArg(image_filename));
+	ser_u64(&ser, &to_return.num_vertices);
+	//Log("Mesh %.*s has %llu vertices and image filename '%.*s'\n", S8VArg(mesh_name), to_return.num_vertices, S8VArg(image_filename));
 
-	to_return.vertices = MD_ArenaPush(arena, sizeof(*to_return.vertices) * to_return.num_vertices);
-	for(MD_u64 i = 0; i < to_return.num_vertices; i++)
+	to_return.vertices = ArenaPush(arena, sizeof(*to_return.vertices) * to_return.num_vertices);
+	for(u64 i = 0; i < to_return.num_vertices; i++)
 	{
 		ser_Vertex(&ser, &to_return.vertices[i]);
 	}
 
 	assert(!ser.cur_error.failed);
-	MD_ReleaseScratch(scratch);
+	ReleaseScratch(scratch);
 
 	to_return.loaded_buffer = sg_make_buffer(&(sg_buffer_desc)
 			{
 			.usage = SG_USAGE_IMMUTABLE,
 			.data = (sg_range){.ptr = to_return.vertices, .size = to_return.num_vertices * sizeof(Vertex)},
-			.label = (const char*)nullterm(arena, MD_S8Fmt(arena, "%.*s-vertices", MD_S8VArg(mesh_name))).str,
+			.label = (const char*)nullterm(arena, S8Fmt(arena, "%.*s-vertices", S8VArg(mesh_name))).str,
 			});
 
 	to_return.name = mesh_name;
@@ -1048,20 +1040,20 @@ Transform default_transform()
 
 typedef struct
 {
-	MD_String8 name;
+	String8 name;
 
 	Bone *bones;
-	MD_u64 bones_length;
+	u64 bones_length;
 
 	Animation *animations;
-	MD_u64 animations_length;
+	u64 animations_length;
 
 	// when set, blends to that animation next time this armature is processed for that
-	MD_String8 go_to_animation;
+	String8 go_to_animation;
 	bool next_animation_isnt_looping;
 
 	Transform *current_poses; // allocated on loading of the armature
-	MD_String8 currently_playing_animation; // CANNOT be null.
+	String8 currently_playing_animation; // CANNOT be null.
 	bool currently_playing_isnt_looping;
 	float animation_blend_t; // [0,1] how much between current_animation and target_animation. Once >= 1, current = target and target = null.
 	double cur_animation_time; // used for non looping animations to play once
@@ -1069,7 +1061,7 @@ typedef struct
 	Transform *anim_blended_poses; // recalculated once per frame depending on above parameters, which at the same code location are calculated. Is `bones_length` long
 
 	ArmatureVertex *vertices;
-	MD_u64 vertices_length;
+	u64 vertices_length;
 	sg_buffer loaded_buffer;
 
 	sg_image bones_texture;
@@ -1079,10 +1071,10 @@ typedef struct
 } Armature;
 
 // armature_name is used for debugging purposes, it has to effect on things
-Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armature_name)
+Armature load_armature(Arena *arena, String8 binary_file, String8 armature_name)
 {
 	assert(binary_file.str);
-	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
+	ArenaTemp scratch = GetScratch(&arena, 1);
 	SerState ser = {
 		.data = binary_file.str,
 		.max = binary_file.size,
@@ -1096,26 +1088,26 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 	ser_bool(&ser, &is_armature);
 	assert(is_armature);
 
-	ser_MD_String8(&ser, &to_return.name, arena);
+	ser_String8(&ser, &to_return.name, arena);
 
-	MD_String8 image_filename;
-	ser_MD_String8(&ser, &image_filename, scratch.arena);
+	String8 image_filename;
+	ser_String8(&ser, &image_filename, scratch.arena);
 	arena->align = 16; // SSE requires quaternions are 16 byte aligned
-	to_return.image = load_image(MD_S8Fmt(scratch.arena, "assets/exported_3d/%.*s", MD_S8VArg(image_filename)));
+	to_return.image = load_image(S8Fmt(scratch.arena, "assets/exported_3d/%.*s", S8VArg(image_filename)));
 
-	ser_MD_u64(&ser, &to_return.bones_length);
-	//Log("Armature %.*s has %llu bones\n", MD_S8VArg(armature_name), to_return.bones_length);
-	to_return.bones = MD_PushArray(arena, Bone, to_return.bones_length);
+	ser_u64(&ser, &to_return.bones_length);
+	//Log("Armature %.*s has %llu bones\n", S8VArg(armature_name), to_return.bones_length);
+	to_return.bones = PushArray(arena, Bone, to_return.bones_length);
 
-	for(MD_u64 i = 0; i < to_return.bones_length; i++)
+	for(u64 i = 0; i < to_return.bones_length; i++)
 	{
 		Bone *next_bone = &to_return.bones[i];
 
 		BlenderMat model_space_pose;
 		BlenderMat inverse_model_space_pose;
-		MD_i32 parent_index;
+		i32 parent_index;
 
-		ser_MD_String8(&ser, &next_bone->name, arena);
+		ser_String8(&ser, &next_bone->name, arena);
 		ser_int(&ser, &parent_index);
 		ser_BlenderMat(&ser, &model_space_pose);
 		ser_BlenderMat(&ser, &inverse_model_space_pose);
@@ -1128,7 +1120,7 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 		{
 			if(parent_index < 0 || parent_index >= to_return.bones_length)
 			{
-				ser.cur_error = (SerError){.failed = true, .why = MD_S8Fmt(arena, "Parent index deserialized %d is out of range of the pose bones, which has a size of %llu", parent_index, to_return.bones_length)};
+				ser.cur_error = (SerError){.failed = true, .why = S8Fmt(arena, "Parent index deserialized %d is out of range of the pose bones, which has a size of %llu", parent_index, to_return.bones_length)};
 			}
 			else
 			{
@@ -1137,41 +1129,41 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 		}
 	}
 
-	to_return.current_poses = MD_PushArray(arena, Transform, to_return.bones_length);
-	to_return.anim_blended_poses = MD_PushArray(arena, Transform, to_return.bones_length);
+	to_return.current_poses = PushArray(arena, Transform, to_return.bones_length);
+	to_return.anim_blended_poses = PushArray(arena, Transform, to_return.bones_length);
 	for(int i = 0; i < to_return.bones_length; i++)
 	{
 		to_return.anim_blended_poses[i] = (Transform){.scale = V3(1,1,1), .rotation = Make_Q(1,0,0,1)};
 	}
 
-	ser_MD_u64(&ser, &to_return.animations_length);
-	//Log("Armature %.*s has  %llu animations\n", MD_S8VArg(armature_name), to_return.animations_length);
-	to_return.animations = MD_PushArray(arena, Animation, to_return.animations_length);
+	ser_u64(&ser, &to_return.animations_length);
+	//Log("Armature %.*s has  %llu animations\n", S8VArg(armature_name), to_return.animations_length);
+	to_return.animations = PushArray(arena, Animation, to_return.animations_length);
 
-	for(MD_u64 i = 0; i < to_return.animations_length; i++)
+	for(u64 i = 0; i < to_return.animations_length; i++)
 	{
 		Animation *new_anim = &to_return.animations[i];
 		*new_anim = (Animation){0};
 
-		ser_MD_String8(&ser, &new_anim->name, arena);
+		ser_String8(&ser, &new_anim->name, arena);
 
-		new_anim->tracks = MD_PushArray(arena, AnimationTrack, to_return.bones_length);
+		new_anim->tracks = PushArray(arena, AnimationTrack, to_return.bones_length);
 
-		MD_u64 frames_in_anim;
-		ser_MD_u64(&ser, &frames_in_anim);
-		//Log("There are %llu animation frames in animation '%.*s'\n", frames_in_anim, MD_S8VArg(new_anim->name));
+		u64 frames_in_anim;
+		ser_u64(&ser, &frames_in_anim);
+		//Log("There are %llu animation frames in animation '%.*s'\n", frames_in_anim, S8VArg(new_anim->name));
 
-		for(MD_u64 i = 0; i < to_return.bones_length; i++)
+		for(u64 i = 0; i < to_return.bones_length; i++)
 		{
-			new_anim->tracks[i].poses = MD_PushArray(arena, PoseBone, frames_in_anim);
+			new_anim->tracks[i].poses = PushArray(arena, PoseBone, frames_in_anim);
 			new_anim->tracks[i].poses_length = frames_in_anim;
 		}
 
-		for(MD_u64 anim_i = 0; anim_i < frames_in_anim; anim_i++)
+		for(u64 anim_i = 0; anim_i < frames_in_anim; anim_i++)
 		{
 			float time_through;
 			ser_float(&ser, &time_through);
-			for(MD_u64 pose_bone_i = 0; pose_bone_i < to_return.bones_length; pose_bone_i++)
+			for(u64 pose_bone_i = 0; pose_bone_i < to_return.bones_length; pose_bone_i++)
 			{
 				PoseBone *next_pose_bone = &new_anim->tracks[pose_bone_i].poses[anim_i];
 
@@ -1184,16 +1176,16 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 		}
 	}
 
-	ser_MD_u64(&ser, &to_return.vertices_length);
-	to_return.vertices = MD_PushArray(arena, ArmatureVertex, to_return.vertices_length);
-	for(MD_u64 i = 0; i < to_return.vertices_length; i++)
+	ser_u64(&ser, &to_return.vertices_length);
+	to_return.vertices = PushArray(arena, ArmatureVertex, to_return.vertices_length);
+	for(u64 i = 0; i < to_return.vertices_length; i++)
 	{
 		ser_Vec3(&ser, &to_return.vertices[i].position);
 		ser_Vec2(&ser, &to_return.vertices[i].uv);
-		MD_u16 joint_indices[4];
+		u16 joint_indices[4];
 		float joint_weights[4];
 		for(int ii = 0; ii < 4; ii++)
-			ser_MD_u16(&ser, &joint_indices[ii]);
+			ser_u16(&ser, &joint_indices[ii]);
 		for(int ii = 0; ii < 4; ii++)
 			ser_float(&ser, &joint_weights[ii]);
 
@@ -1202,22 +1194,22 @@ Armature load_armature(MD_Arena *arena, MD_String8 binary_file, MD_String8 armat
 		for(int ii = 0; ii < 4; ii++)
 			to_return.vertices[i].joint_weights[ii] = joint_weights[ii];
 	}
-	//Log("Armature %.*s has %llu vertices\n", MD_S8VArg(armature_name), to_return.vertices_length);
+	//Log("Armature %.*s has %llu vertices\n", S8VArg(armature_name), to_return.vertices_length);
 
 	assert(!ser.cur_error.failed);
-	MD_ReleaseScratch(scratch);
+	ReleaseScratch(scratch);
 
 	to_return.loaded_buffer = sg_make_buffer(&(sg_buffer_desc)
 			{
 			.usage = SG_USAGE_IMMUTABLE,
 			.data = (sg_range){.ptr = to_return.vertices, .size = to_return.vertices_length * sizeof(ArmatureVertex)},
-			.label = (const char*)nullterm(arena, MD_S8Fmt(arena, "%.*s-vertices", MD_S8VArg(armature_name))).str,
+			.label = (const char*)nullterm(arena, S8Fmt(arena, "%.*s-vertices", S8VArg(armature_name))).str,
 			});
 
 	to_return.bones_texture_width = 16;
 	to_return.bones_texture_height = (int)to_return.bones_length;
 
-	//Log("Armature %.*s has bones texture size (%d, %d)\n", MD_S8VArg(armature_name), to_return.bones_texture_width, to_return.bones_texture_height);
+	//Log("Armature %.*s has bones texture size (%d, %d)\n", S8VArg(armature_name), to_return.bones_texture_width, to_return.bones_texture_height);
 	to_return.bones_texture = sg_make_image(&(sg_image_desc) {
 		.width = to_return.bones_texture_width,
 		.height = to_return.bones_texture_height,
@@ -1259,7 +1251,7 @@ typedef struct Room
 {
 	struct Room *next;
 
-	MD_String8 name;
+	String8 name;
 	PlacedMesh *placed_mesh_list;
 	CollisionCylinder *collision_list;
 	PlacedEntity *placed_entity_list;
@@ -1276,7 +1268,7 @@ Room *get_cur_room(GameState *gs, ThreeDeeLevel *level)
 	Room *in_room = 0;
 	for(Room *cur = level->room_list; cur; cur = cur->next)
 	{
-		if(MD_S8Match(cur->name, gs->player->current_room_name, 0))
+		if(S8Match(cur->name, gs->player->current_room_name, 0))
 		{
 			in_room = cur;
 			break;
@@ -1314,9 +1306,9 @@ Transform blender_to_game_transform(BlenderTransform blender_transform)
 	return to_return;
 }
 
-ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
+ThreeDeeLevel load_level(Arena *arena, String8 binary_file)
 {
-	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
+	ArenaTemp scratch = GetScratch(&arena, 1);
 	SerState ser = {
 		.data = binary_file.str,
 		.max = binary_file.size,
@@ -1326,40 +1318,40 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 	};
 	ThreeDeeLevel out = {0};
 
-	MD_u64 num_rooms = 0;
-	ser_MD_u64(&ser, &num_rooms);
+	u64 num_rooms = 0;
+	ser_u64(&ser, &num_rooms);
 
-	for(MD_u64 i = 0; i < num_rooms; i++)
+	for(u64 i = 0; i < num_rooms; i++)
 	{
-		Room *new_room = MD_PushArray(arena, Room, 1);
-		ser_MD_String8(&ser, &new_room->name, arena);
+		Room *new_room = PushArray(arena, Room, 1);
+		ser_String8(&ser, &new_room->name, arena);
 
 		// placed meshes
 		{
-			MD_u64 num_placed = 0;
-			ser_MD_u64(&ser, &num_placed);
+			u64 num_placed = 0;
+			ser_u64(&ser, &num_placed);
 			arena->align = 16; // SSE requires quaternions are 16 byte aligned
-			for (MD_u64 i = 0; i < num_placed; i++)
+			for (u64 i = 0; i < num_placed; i++)
 			{
-				PlacedMesh *new_placed = MD_PushArray(arena, PlacedMesh, 1);
+				PlacedMesh *new_placed = PushArray(arena, PlacedMesh, 1);
 				// PlacedMesh *new_placed = calloc(sizeof(PlacedMesh), 1);
 
-				ser_MD_String8(&ser, &new_placed->name, arena);
+				ser_String8(&ser, &new_placed->name, arena);
 
 				BlenderTransform blender_transform = {0};
 				ser_BlenderTransform(&ser, &blender_transform);
 
 				new_placed->t = blender_to_game_transform(blender_transform);
 
-				MD_StackPush(new_room->placed_mesh_list, new_placed);
+				StackPush(new_room->placed_mesh_list, new_placed);
 
-				// Log("Placed mesh '%.*s' pos %f %f %f rotation %f %f %f %f scale %f %f %f\n", MD_S8VArg(placed_mesh_name), v3varg(new_placed->t.offset), qvarg(new_placed->t.rotation), v3varg(new_placed->t.scale));
+				// Log("Placed mesh '%.*s' pos %f %f %f rotation %f %f %f %f scale %f %f %f\n", S8VArg(placed_mesh_name), v3varg(new_placed->t.offset), qvarg(new_placed->t.rotation), v3varg(new_placed->t.scale));
 
 				// load the mesh if we haven't already
 				bool mesh_found = false;
 				for (Mesh *cur = out.mesh_list; cur; cur = cur->next)
 				{
-					if (MD_S8Match(cur->name, new_placed->name, 0))
+					if (S8Match(cur->name, new_placed->name, 0))
 					{
 						mesh_found = true;
 						new_placed->draw_with = cur;
@@ -1370,53 +1362,53 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 
 				if (!mesh_found)
 				{
-					MD_String8 to_load_filepath = MD_S8Fmt(scratch.arena, "assets/exported_3d/%.*s.bin", MD_S8VArg(new_placed->name));
-					// Log("Loading mesh '%.*s'...\n", MD_S8VArg(to_load_filepath));
-					MD_String8 binary_mesh_file = MD_LoadEntireFile(scratch.arena, to_load_filepath);
+					String8 to_load_filepath = S8Fmt(scratch.arena, "assets/exported_3d/%.*s.bin", S8VArg(new_placed->name));
+					// Log("Loading mesh '%.*s'...\n", S8VArg(to_load_filepath));
+					String8 binary_mesh_file = LoadEntireFile(scratch.arena, to_load_filepath);
 					if (!binary_mesh_file.str)
 					{
-						ser.cur_error = (SerError){.failed = true, .why = MD_S8Fmt(ser.error_arena, "Couldn't load file '%.*s'", to_load_filepath)};
+						ser.cur_error = (SerError){.failed = true, .why = S8Fmt(ser.error_arena, "Couldn't load file '%.*s'", to_load_filepath)};
 					}
 					else
 					{
-						Mesh *new_mesh = MD_PushArray(arena, Mesh, 1);
+						Mesh *new_mesh = PushArray(arena, Mesh, 1);
 						*new_mesh = load_mesh(arena, binary_mesh_file, new_placed->name);
-						MD_StackPush(out.mesh_list, new_mesh);
+						StackPush(out.mesh_list, new_mesh);
 						new_placed->draw_with = new_mesh;
 					}
 				}
 			}
 		}
 
-		MD_u64 num_collision_cubes;
-		ser_MD_u64(&ser, &num_collision_cubes);
-		for (MD_u64 i = 0; i < num_collision_cubes; i++)
+		u64 num_collision_cubes;
+		ser_u64(&ser, &num_collision_cubes);
+		for (u64 i = 0; i < num_collision_cubes; i++)
 		{
-			CollisionCylinder *new_cylinder = MD_PushArray(arena, CollisionCylinder, 1);
+			CollisionCylinder *new_cylinder = PushArray(arena, CollisionCylinder, 1);
 			Vec2 twodee_pos;
 			Vec2 size;
 			ser_Vec2(&ser, &twodee_pos);
 			ser_Vec2(&ser, &size);
 			new_cylinder->bounds.center = twodee_pos;
 			new_cylinder->bounds.radius = (size.x + size.y) * 0.5f; // @TODO(Phillip): @Temporary
-			MD_StackPush(new_room->collision_list, new_cylinder);
+			StackPush(new_room->collision_list, new_cylinder);
 		}
 
 		// placed entities
 		{
-			MD_u64 num_placed = 0;
-			ser_MD_u64(&ser, &num_placed);
+			u64 num_placed = 0;
+			ser_u64(&ser, &num_placed);
 			arena->align = 16; // SSE requires quaternions are 16 byte aligned
-			for (MD_u64 i = 0; i < num_placed; i++)
+			for (u64 i = 0; i < num_placed; i++)
 			{
-				PlacedEntity *new_placed = MD_PushArray(arena, PlacedEntity, 1);
-				MD_String8 placed_entity_name = {0};
-				ser_MD_String8(&ser, &placed_entity_name, scratch.arena);
+				PlacedEntity *new_placed = PushArray(arena, PlacedEntity, 1);
+				String8 placed_entity_name = {0};
+				ser_String8(&ser, &placed_entity_name, scratch.arena);
 
 				bool found = false;
 				ARR_ITER_I(CharacterGen, characters, kind)
 				{
-					if (MD_S8Match(MD_S8CString(it->enum_name), placed_entity_name, 0))
+					if (S8Match(S8CString(it->enum_name), placed_entity_name, 0))
 					{
 						found = true;
 						new_placed->npc_kind = kind;
@@ -1427,22 +1419,22 @@ ThreeDeeLevel load_level(MD_Arena *arena, MD_String8 binary_file)
 				if (found)
 				{
 					new_placed->t = blender_to_game_transform(blender_transform);
-					MD_StackPush(new_room->placed_entity_list, new_placed);
+					StackPush(new_room->placed_entity_list, new_placed);
 				}
 				else
 				{
-					ser.cur_error = (SerError){.failed = true, .why = MD_S8Fmt(arena, "Couldn't find placed npc kind '%.*s'...\n", MD_S8VArg(placed_entity_name))};
+					ser.cur_error = (SerError){.failed = true, .why = S8Fmt(arena, "Couldn't find placed npc kind '%.*s'...\n", S8VArg(placed_entity_name))};
 				}
 
-				// Log("Loaded placed entity '%.*s' at %f %f %f\n", MD_S8VArg(placed_entity_name), v3varg(new_placed->t.offset));
+				// Log("Loaded placed entity '%.*s' at %f %f %f\n", S8VArg(placed_entity_name), v3varg(new_placed->t.offset));
 			}
 		}
 
-		MD_StackPush(out.room_list, new_room);
+		StackPush(out.room_list, new_room);
 	}
 
 	assert(!ser.cur_error.failed);
-	MD_ReleaseScratch(scratch);
+	ReleaseScratch(scratch);
 
 	return out;
 }
@@ -1528,9 +1520,9 @@ Mat4 flycam_matrix()
 	return to_return;
 }
 
-# define MD_S8LitConst(s)        {(MD_u8 *)(s), sizeof(s)-1}
+# define S8LitConst(s)        {(u8 *)(s), sizeof(s)-1}
 
-MD_String8 showing_secret_str = MD_S8LitConst("");
+String8 showing_secret_str = S8LitConst("");
 float showing_secret_alpha = 0.0f;
 
 PathCache cached_paths[32] = { 0 };
@@ -1636,11 +1628,11 @@ void push_memory(GameState *gs, Entity *e, Memory new_memory)
 	if(memories_free_list)
 	{
 		memory_allocated = memories_free_list;
-		MD_StackPop(memories_free_list);
+		StackPop(memories_free_list);
 	}
 	else
 	{
-		memory_allocated = MD_PushArray(persistent_arena, Memory, 1);
+		memory_allocated = PushArray(persistent_arena, Memory, 1);
 	}
 	*memory_allocated = new_memory;
 	
@@ -1663,14 +1655,14 @@ void push_memory(GameState *gs, Entity *e, Memory new_memory)
 			}
 			to_remove = to_remove->next;
 		}
-		MD_DblRemove(e->memories_first, e->memories_last, to_remove);
-		MD_StackPush(memories_free_list, to_remove);
+		DblRemove(e->memories_first, e->memories_last, to_remove);
+		StackPush(memories_free_list, to_remove);
 		count -= 1;
 	}
 	if(gs->stopped_time)
-		MD_StackPush(e->memories_added_while_time_stopped, memory_allocated);
+		StackPush(e->memories_added_while_time_stopped, memory_allocated);
 	else
-		MD_DblPushBack(e->memories_first, e->memories_last, memory_allocated);
+		DblPushBack(e->memories_first, e->memories_last, memory_allocated);
 
 	if(!new_memory.context.i_said_this)
 	{
@@ -1732,13 +1724,13 @@ void remember_action(GameState *gs, Entity *to_modify, Action a, MemoryContext c
 
 // returns reason why allocated on arena if invalid
 // to might be null here, from can't be null
-MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
+String8 is_action_valid(Arena *arena, Entity *from, Action a)
 {
 	assert(a.speech.text_length <= MAX_SENTENCE_LENGTH && a.speech.text_length >= 0);
 	assert(a.kind >= 0 && a.kind < ARRLEN(actions));
 	assert(from);
 
-	MD_String8 error_message = (MD_String8){0};
+	String8 error_message = (String8){0};
 
 	CanTalkTo talk = get_can_talk_to(from);
 	if(error_message.size == 0 && a.talking_to_kind)
@@ -1760,7 +1752,7 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 
 	if(error_message.size == 0 && a.kind == ACT_leave && gete(from->joined) == 0)
 	{
-		error_message = MD_S8Lit("You can't leave somebody unless you joined them.");
+		error_message = S8Lit("You can't leave somebody unless you joined them.");
 	}
 	if(error_message.size == 0 && a.kind == ACT_join && gete(from->joined) != 0)
 	{
@@ -1768,11 +1760,11 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 	}
 	if(error_message.size == 0 && a.kind == ACT_fire_shotgun && gete(from->aiming_shotgun_at) == 0)
 	{
-		error_message = MD_S8Lit("You can't fire your shotgun without aiming it first");
+		error_message = S8Lit("You can't fire your shotgun without aiming it first");
 	}
 	if(error_message.size == 0 && a.kind == ACT_put_shotgun_away && gete(from->aiming_shotgun_at) == 0)
 	{
-		error_message = MD_S8Lit("You can't put your shotgun away without aiming it first");
+		error_message = S8Lit("You can't put your shotgun away without aiming it first");
 	}
 
 	bool target_is_character = a.kind == ACT_join || a.kind == ACT_aim_shotgun;
@@ -1795,16 +1787,16 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 		AvailableActions available = {0};
 		fill_available_actions(&gs, from, &available);
 		bool found = false;
-		MD_String8List action_strings_list = {0};
+		String8List action_strings_list = {0};
 		BUFF_ITER(ActionKind, &available)
 		{
-			MD_S8ListPush(arena, &action_strings_list, MD_S8CString(actions[*it].name));
+			S8ListPush(arena, &action_strings_list, S8CString(actions[*it].name));
 			if(*it == a.kind) found = true;
 		}
 		if(!found)
 		{
-			MD_String8 action_strings = MD_S8ListJoin(arena, action_strings_list, &(MD_StringJoin){.mid = MD_S8Lit(", ")});
-			error_message = FmtWithLint(arena, "You cannot perform action %s right now, you can only perform these actions: [%.*s]", actions[a.kind].name, MD_S8VArg(action_strings));
+			String8 action_strings = S8ListJoin(arena, action_strings_list, &(StringJoin){.mid = S8Lit(", ")});
+			error_message = FmtWithLint(arena, "You cannot perform action %s right now, you can only perform these actions: [%.*s]", actions[a.kind].name, S8VArg(action_strings));
 		}
 	}
 
@@ -1818,12 +1810,12 @@ MD_String8 is_action_valid(MD_Arena *arena, Entity *from, Action a)
 void cause_action_side_effects(Entity *from, Action a)
 {
 	assert(from);
-	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+	ArenaTemp scratch = GetScratch(0, 0);
 
-	MD_String8 failure_reason = is_action_valid(scratch.arena, from, a);
+	String8 failure_reason = is_action_valid(scratch.arena, from, a);
 	if(failure_reason.size > 0)
 	{
-		Log("Failed to process action, invalid action: `%.*s`\n", MD_S8VArg(failure_reason));
+		Log("Failed to process action, invalid action: `%.*s`\n", S8VArg(failure_reason));
 		assert(false);
 	}
 
@@ -1866,7 +1858,7 @@ void cause_action_side_effects(Entity *from, Action a)
 		gs.objective = a.argument.objective;
 	}
 
-	MD_ReleaseScratch(scratch);
+	ReleaseScratch(scratch);
 }
 
 typedef struct PropagatingAction
@@ -1909,9 +1901,9 @@ void push_propagating(PropagatingAction to_push)
 
 	if(!found)
 	{
-		PropagatingAction *cur = MD_PushArray(persistent_arena, PropagatingAction, 1);
+		PropagatingAction *cur = PushArray(persistent_arena, PropagatingAction, 1);
 		*cur = to_push;
-		MD_StackPush(propagating, cur);
+		StackPush(propagating, cur);
 	}
 }
 
@@ -1927,7 +1919,7 @@ float propagating_radius(PropagatingAction *p)
 // Returns if the action was valid or not
 bool perform_action(GameState *gs, Entity *from, Action a)
 {
-	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+	ArenaTemp scratch = GetScratch(0, 0);
 
 	MemoryContext context = {0};
 	context.author_npc_kind = from->npc_kind;
@@ -1937,7 +1929,7 @@ bool perform_action(GameState *gs, Entity *from, Action a)
 
 	context.talking_to_kind = a.talking_to_kind;
 
-	MD_String8 is_valid = is_action_valid(scratch.arena, from, a);
+	String8 is_valid = is_action_valid(scratch.arena, from, a);
 	bool proceed_propagating = true;
 	if(is_valid.size > 0)
 	{
@@ -1953,7 +1945,7 @@ bool perform_action(GameState *gs, Entity *from, Action a)
 	{
 		targeted = get_targeted(from, a.talking_to_kind);
 		if(from->errorlist_first)
-			MD_StackPush(remembered_error_free_list, from->errorlist_first);
+			StackPush(remembered_error_free_list, from->errorlist_first);
 		from->errorlist_first = 0;
 		from->errorlist_last = 0;
 
@@ -1998,14 +1990,14 @@ bool perform_action(GameState *gs, Entity *from, Action a)
 	}
 
 	// the angel knows all
-	if(!MD_S8Match(gs->player->current_room_name, MD_S8Lit("StartingRoom"), 0) && !angel_heard_action)
+	if(!S8Match(gs->player->current_room_name, S8Lit("StartingRoom"), 0) && !angel_heard_action)
 	{
 		MemoryContext angel_context = context;
 		angel_context.i_said_this = false;
 		remember_action(gs, gs->angel, a, angel_context);
 	}
 
-	MD_ReleaseScratch(scratch);
+	ReleaseScratch(scratch);
 	return proceed_propagating;
 }
 
@@ -2035,11 +2027,11 @@ Entity *new_entity(GameState *gs)
 typedef struct ToVisit {
 	struct ToVisit *next;
 	struct ToVisit *prev;
-	MD_Node *ptr;
+	Node *ptr;
 	int depth;
 } ToVisit ;
 
-bool in_arr(ToVisit *arr, MD_Node *n)
+bool in_arr(ToVisit *arr, Node *n)
 {
 	for(ToVisit *cur = arr; cur; cur = cur->next)
 	{
@@ -2048,66 +2040,66 @@ bool in_arr(ToVisit *arr, MD_Node *n)
 	return false;
 }
 
-void dump_nodes(MD_Node *node)
+void dump_nodes(Node *node)
 {
-	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+	ArenaTemp scratch = GetScratch(0, 0);
 	ToVisit *horizon_first = 0;
 	ToVisit *horizon_last = 0;
 
 	ToVisit *visited = 0;
 
-	ToVisit *first = MD_PushArrayZero(scratch.arena, ToVisit, 1);
+	ToVisit *first = PushArrayZero(scratch.arena, ToVisit, 1);
 	first->ptr = node;
-	MD_DblPushBack(horizon_first, horizon_last, first);
+	DblPushBack(horizon_first, horizon_last, first);
 
 	while(horizon_first)
 	{
 		ToVisit *cur_tovisit = horizon_first;
-		MD_DblRemove(horizon_first, horizon_last, cur_tovisit);
-		MD_StackPush(visited, cur_tovisit);
+		DblRemove(horizon_first, horizon_last, cur_tovisit);
+		StackPush(visited, cur_tovisit);
 		char *tagstr = "   ";
-		if(cur_tovisit->ptr->kind == MD_NodeKind_Tag) tagstr = "TAG";
+		if(cur_tovisit->ptr->kind == NodeKind_Tag) tagstr = "TAG";
 		printf("%s", tagstr);
 
 		for(int i = 0; i < cur_tovisit->depth; i++) printf(" |");
 
-		printf(" `%.*s`\n", MD_S8VArg(cur_tovisit->ptr->string));
+		printf(" `%.*s`\n", S8VArg(cur_tovisit->ptr->string));
 
-		for(MD_Node *cur = cur_tovisit->ptr->first_child; !MD_NodeIsNil(cur); cur = cur->next)
+		for(Node *cur = cur_tovisit->ptr->first_child; !NodeIsNil(cur); cur = cur->next)
 		{
 			if(!in_arr(visited, cur))
 			{
-				ToVisit *new = MD_PushArrayZero(scratch.arena, ToVisit, 1);
+				ToVisit *new = PushArrayZero(scratch.arena, ToVisit, 1);
 				new->depth = cur_tovisit->depth + 1;
 				new->ptr = cur;
-				MD_DblPushFront(horizon_first, horizon_last, new);
+				DblPushFront(horizon_first, horizon_last, new);
 			}
 		}
-		for(MD_Node *cur = cur_tovisit->ptr->first_tag; !MD_NodeIsNil(cur); cur = cur->next)
+		for(Node *cur = cur_tovisit->ptr->first_tag; !NodeIsNil(cur); cur = cur->next)
 		{
 			if(!in_arr(visited, cur))
 			{
-				ToVisit *new = MD_PushArrayZero(scratch.arena, ToVisit, 1);
+				ToVisit *new = PushArrayZero(scratch.arena, ToVisit, 1);
 				new->depth = cur_tovisit->depth + 1;
 				new->ptr = cur;
-				MD_DblPushFront(horizon_first, horizon_last, new);
+				DblPushFront(horizon_first, horizon_last, new);
 			}
 		}
 	}
 
-	MD_ReleaseScratch(scratch);
+	ReleaseScratch(scratch);
 }
 
 // allocates the error on the arena
-MD_Node *expect_childnode(MD_Arena *arena, MD_Node *parent, MD_String8 string, MD_String8List *errors)
+Node *expect_childnode(Arena *arena, Node *parent, String8 string, String8List *errors)
 {
-	MD_Node *to_return = MD_NilNode();
+	Node *to_return = NilNode();
 	if(errors->node_count == 0)
 	{
-		MD_Node *child_node = MD_ChildFromString(parent, string, 0);
-		if(MD_NodeIsNil(child_node))
+		Node *child_node = MD_ChildFromString(parent, string, 0);
+		if(NodeIsNil(child_node))
 		{
-			PushWithLint(arena, errors, "Couldn't find expected field %.*s", MD_S8VArg(string));
+			PushWithLint(arena, errors, "Couldn't find expected field %.*s", S8VArg(string));
 		}
 		else
 		{
@@ -2117,13 +2109,13 @@ MD_Node *expect_childnode(MD_Arena *arena, MD_Node *parent, MD_String8 string, M
 	return to_return;
 }
 
-int parse_enumstr_impl(MD_Arena *arena, MD_String8 enum_str, char **enumstr_array, int enumstr_array_length, MD_String8List *errors, char *enum_kind_name, char *prefix)
+int parse_enumstr_impl(Arena *arena, String8 enum_str, char **enumstr_array, int enumstr_array_length, String8List *errors, char *enum_kind_name, char *prefix)
 {
-	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
+	ArenaTemp scratch = GetScratch(&arena, 1);
 	int to_return = -1;
 	if(errors->node_count == 0)
 	{
-		MD_String8 enum_name_looking_for = enum_str;
+		String8 enum_name_looking_for = enum_str;
 		if(enum_name_looking_for.size == 0)
 		{
 			PushWithLint(arena, errors, "`%s` string must be of size greater than 0", enum_kind_name);
@@ -2132,7 +2124,7 @@ int parse_enumstr_impl(MD_Arena *arena, MD_String8 enum_str, char **enumstr_arra
 		{
 			for(int i = 0; i < enumstr_array_length; i++)
 			{
-				if(MD_S8Match(FmtWithLint(scratch.arena, "%s%s", prefix, enumstr_array[i]), enum_name_looking_for, 0))
+				if(S8Match(FmtWithLint(scratch.arena, "%s%s", prefix, enumstr_array[i]), enum_name_looking_for, 0))
 				{
 					to_return = i;
 					break;
@@ -2143,10 +2135,10 @@ int parse_enumstr_impl(MD_Arena *arena, MD_String8 enum_str, char **enumstr_arra
 
 	if(to_return == -1)
 	{
-		PushWithLint(arena, errors, "The %s `%.*s` could not be recognized in the game", enum_kind_name, MD_S8VArg(enum_str));
+		PushWithLint(arena, errors, "The %s `%.*s` could not be recognized in the game", enum_kind_name, S8VArg(enum_str));
 	}
 
-	MD_ReleaseScratch(scratch);
+	ReleaseScratch(scratch);
 
 	return to_return;
 }
@@ -2165,15 +2157,15 @@ Vec2 point_plane(Vec3 p)
 
 ThreeDeeLevel level_threedee = {0};
 
-void transition_to_room(GameState *gs, ThreeDeeLevel *level, MD_String8 new_room_name)
+void transition_to_room(GameState *gs, ThreeDeeLevel *level, String8 new_room_name)
 {
-	Log("Transitioning to %.*s...\n", MD_S8VArg(new_room_name));
+	Log("Transitioning to %.*s...\n", S8VArg(new_room_name));
 	assert(gs);
 	(void)level;
 
 	gs->player->current_room_name = new_room_name;
 
-	if(MD_S8Match(new_room_name, MD_S8Lit("StartingRoom"), 0))
+	if(S8Match(new_room_name, S8Lit("StartingRoom"), 0))
 	{
 		gs->angel->perceptions_dirty = true;
 	}
@@ -2220,24 +2212,24 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 		it->target_rotation = it->rotation;
 	}
 
-	transition_to_room(gs, &level_threedee, MD_S8Lit("Forest")); // hack to disable cold opening angel sequence right now
+	transition_to_room(gs, &level_threedee, S8Lit("Forest")); // hack to disable cold opening angel sequence right now
 
 	// @Place(parse and enact the drama document parse drama)
 	if(1)
 	{
-		MD_String8List drama_errors = {0};
+		String8List drama_errors = {0};
 
-		MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-		MD_String8 filename = MD_S8Lit("assets/drama.mdesk");
-		MD_String8 drama_document = MD_LoadEntireFile(scratch.arena, filename);
+		ArenaTemp scratch = GetScratch(0, 0);
+		String8 filename = S8Lit("assets/drama.mdesk");
+		String8 drama_document = LoadEntireFile(scratch.arena, filename);
 		assert(drama_document.size != 0);
-		MD_ParseResult parse = MD_ParseWholeString(scratch.arena, filename, drama_document);
+		ParseResult parse = ParseWholeString(scratch.arena, filename, drama_document);
 		if(parse.errors.first)
 		{
-			for(MD_Message *cur = parse.errors.first; cur; cur = cur->next)
+			for(Message *cur = parse.errors.first; cur; cur = cur->next)
 			{
-				MD_String8 to_print = MD_FormatMessage(scratch.arena, MD_CodeLocFromNode(cur->node), cur->kind, cur->string);
-				PushWithLint(scratch.arena, &drama_errors, "Failed to parse: `%.*s`\n", MD_S8VArg(to_print));
+				String8 to_print = MD_FormatMessage(scratch.arena, CodeLocFromNode(cur->node), cur->kind, cur->string);
+				PushWithLint(scratch.arena, &drama_errors, "Failed to parse: `%.*s`\n", S8VArg(to_print));
 			}
 		}
 		
@@ -2246,13 +2238,13 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 		{
 			// used
 
-			MD_Node *can_hear = MD_NilNode();
-			for(MD_Node *cur = parse.node->first_child->first_child; !MD_NodeIsNil(cur) && drama_errors.node_count == 0; cur = cur->next)
+			Node *can_hear = NilNode();
+			for(Node *cur = parse.node->first_child->first_child; !NodeIsNil(cur) && drama_errors.node_count == 0; cur = cur->next)
 			{
-				MD_Node *cur_can_hear = MD_ChildFromString(cur, MD_S8Lit("can_hear"), 0);
-				if(!MD_NodeIsNil(cur_can_hear))
+				Node *cur_can_hear = MD_ChildFromString(cur, S8Lit("can_hear"), 0);
+				if(!NodeIsNil(cur_can_hear))
 				{
-					if(MD_NodeIsNil(cur_can_hear->first_child))
+					if(NodeIsNil(cur_can_hear->first_child))
 					{
 						PushWithLint(scratch.arena, &drama_errors, "`can_hear` must be followed by a valid array of NPC kinds who can hear the following conversation");
 					}
@@ -2263,7 +2255,7 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 				}
 				else
 				{
-					if(MD_NodeIsNil(can_hear))
+					if(NodeIsNil(can_hear))
 					{
 						PushWithLint(scratch.arena, &drama_errors, "Expected a statement with `can_hear` before any speech that says who can hear the current speech");
 					}
@@ -2273,18 +2265,18 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 					current_context.drama_memory = true;
 					if(drama_errors.node_count == 0)
 					{
-						MD_String8 enum_str = expect_childnode(scratch.arena, cur, MD_S8Lit("enum"), &drama_errors)->first_child->string;
-						MD_String8 dialog = expect_childnode(scratch.arena, cur, MD_S8Lit("dialog"), &drama_errors)->first_child->string;
-						MD_String8 action_str = MD_ChildFromString(cur, MD_S8Lit("action"), 0)->first_child->string; 
-						MD_String8 action_argument_str = MD_ChildFromString(cur, MD_S8Lit("action_argument"), 0)->first_child->string; 
-						MD_String8 to_str = MD_ChildFromString(cur, MD_S8Lit("to"), 0)->first_child->string;
+						String8 enum_str = expect_childnode(scratch.arena, cur, S8Lit("enum"), &drama_errors)->first_child->string;
+						String8 dialog = expect_childnode(scratch.arena, cur, S8Lit("dialog"), &drama_errors)->first_child->string;
+						String8 action_str = MD_ChildFromString(cur, S8Lit("action"), 0)->first_child->string; 
+						String8 action_argument_str = MD_ChildFromString(cur, S8Lit("action_argument"), 0)->first_child->string; 
+						String8 to_str = MD_ChildFromString(cur, S8Lit("to"), 0)->first_child->string;
 
 						if(to_str.size > 0)
 						{
 							NpcKind talking_to = parse_enumstr(scratch.arena, to_str, &drama_errors, NpcKind_enum_names, "NpcKind", "");
 							if (talking_to == NPC_nobody)
 							{
-								PushWithLint(scratch.arena, &drama_errors, "The string provided for the 'to' field, intended to be who the NPC is directing their speech and action at, is invalid and is '%.*s'", MD_S8VArg(to_str));
+								PushWithLint(scratch.arena, &drama_errors, "The string provided for the 'to' field, intended to be who the NPC is directing their speech and action at, is invalid and is '%.*s'", S8VArg(to_str));
 							}
 							else
 							{
@@ -2300,11 +2292,11 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 						}
 						if(action_argument_str.size > 0)
 						{
-							MD_String8 error = {0};
+							String8 error = {0};
 							parse_action_argument(scratch.arena, &error, current_action.kind, action_argument_str, &current_action.argument);
 							if(error.size > 0)
 							{
-								PushWithLint(scratch.arena, &drama_errors, "Error parsing argument: '%.*s'", MD_S8VArg(error));
+								PushWithLint(scratch.arena, &drama_errors, "Error parsing argument: '%.*s'", S8VArg(error));
 							}
 						}
 
@@ -2322,7 +2314,7 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 
 					if(drama_errors.node_count == 0)
 					{
-						for(MD_Node *cur_kind_node = can_hear; !MD_NodeIsNil(cur_kind_node); cur_kind_node = cur_kind_node->next)
+						for(Node *cur_kind_node = can_hear; !NodeIsNil(cur_kind_node); cur_kind_node = cur_kind_node->next)
 						{
 							NpcKind want = parse_enumstr(scratch.arena, cur_kind_node->string, &drama_errors, NpcKind_enum_names, "NpcKind", "");
 							if(drama_errors.node_count == 0)
@@ -2399,9 +2391,9 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 
 		if(drama_errors.node_count > 0)
 		{
-			for(MD_String8Node *cur = drama_errors.first; cur; cur = cur->next)
+			for(String8Node *cur = drama_errors.first; cur; cur = cur->next)
 			{
-				fprintf(stderr, "Error: %.*s\n", MD_S8VArg(cur->string));
+				fprintf(stderr, "Error: %.*s\n", S8VArg(cur->string));
 			}
 			assert(false);
 		}
@@ -2436,7 +2428,7 @@ enum
 #define SER_BUFF(ser, BuffElemType, buff_ptr) {ser_int(ser, &((buff_ptr)->cur_index));\
 	if((buff_ptr)->cur_index > ARRLEN((buff_ptr)->data))\
 	{\
-		ser->cur_error = (SerError){.failed = true, .why = MD_S8Fmt(ser->error_arena, "Current index %d is more than the buffer %s's maximum, %d", (buff_ptr)->cur_index, #buff_ptr, ARRLEN((buff_ptr)->data))};\
+		ser->cur_error = (SerError){.failed = true, .why = S8Fmt(ser->error_arena, "Current index %d is more than the buffer %s's maximum, %d", (buff_ptr)->cur_index, #buff_ptr, ARRLEN((buff_ptr)->data))};\
 	}\
 	BUFF_ITER(BuffElemType, buff_ptr)\
 	{\
@@ -2449,9 +2441,9 @@ void ser_TextChunk(SerState *ser, TextChunk *t)
 	ser_int(ser, &t->text_length);
 	if(t->text_length >= ARRLEN(t->text))
 	{
-		ser->cur_error = (SerError){.failed = true, .why = MD_S8Fmt(ser->error_arena, "In text chunk, length %d is too big to fit into %d", t->text_length, ARRLEN(t->text))};
+		ser->cur_error = (SerError){.failed = true, .why = S8Fmt(ser->error_arena, "In text chunk, length %d is too big to fit into %d", t->text_length, ARRLEN(t->text))};
 	}
-	ser_bytes(ser, (MD_u8*)t->text, t->text_length);
+	ser_bytes(ser, (u8*)t->text, t->text_length);
 }
 
 void ser_entity(SerState *ser, Entity *e)
@@ -2493,9 +2485,9 @@ void ser_entity(SerState *ser, Entity *e)
 		ser_bool(ser, &more_errors);
 		while(more_errors)
 		{
-			TextChunkList *new_chunk = MD_PushArray(ser->arena, TextChunkList, 1);
+			TextChunkList *new_chunk = PushArray(ser->arena, TextChunkList, 1);
 			ser_TextChunk(ser, &new_chunk->text);
-			MD_DblPushBack(e->errorlist_first, e->errorlist_last, new_chunk);
+			DblPushBack(e->errorlist_first, e->errorlist_last, new_chunk);
 			ser_bool(ser, &more_errors);
 		}
 	}
@@ -2520,9 +2512,9 @@ void ser_entity(SerState *ser, Entity *e)
 		ser_bool(ser, &more_memories);
 		while(more_memories)
 		{
-			Memory *new_chunk = MD_PushArray(ser->arena, Memory, 1);
+			Memory *new_chunk = PushArray(ser->arena, Memory, 1);
 			ser_Memory(ser, new_chunk);
-			MD_DblPushBack(e->memories_first, e->memories_last, new_chunk);
+			DblPushBack(e->memories_first, e->memories_last, new_chunk);
 			ser_bool(ser, &more_memories);
 		}
 	}
@@ -2549,7 +2541,7 @@ void ser_GameState(SerState *ser, GameState *gs)
 	ser_int(ser, &ser->version);
 	if(ser->version >= VMax)
 	{
-		ser->cur_error = (SerError){.failed = true, .why = MD_S8Fmt(ser->error_arena, "Version %d is beyond the current version, %d", ser->version, VMax - 1)};
+		ser->cur_error = (SerError){.failed = true, .why = S8Fmt(ser->error_arena, "Version %d is beyond the current version, %d", ser->version, VMax - 1)};
 	}
 
 	ser_uint64_t(ser, &gs->tick);
@@ -2587,20 +2579,20 @@ void ser_GameState(SerState *ser, GameState *gs)
 
 		if(gs->player == 0)
 		{
-			ser->cur_error = (SerError){.failed = true, .why = MD_S8Lit("No player entity found in deserialized entities")};
+			ser->cur_error = (SerError){.failed = true, .why = S8Lit("No player entity found in deserialized entities")};
 		}
 		if(gs->world_entity == 0)
 		{
-			ser->cur_error = (SerError){.failed = true, .why = MD_S8Lit("No world entity found in deserialized entities")};
+			ser->cur_error = (SerError){.failed = true, .why = S8Lit("No world entity found in deserialized entities")};
 		}
 	}
 }
 
 // error_out is allocated onto arena if it fails
-MD_String8 save_to_string(MD_Arena *output_bytes_arena, MD_Arena *error_arena, MD_String8 *error_out, GameState *gs)
+String8 save_to_string(Arena *output_bytes_arena, Arena *error_arena, String8 *error_out, GameState *gs)
 {
-	MD_u8 *serialized_data = 0;
-	MD_u64 serialized_length = 0;
+	u8 *serialized_data = 0;
+	u64 serialized_length = 0;
 	{
 		SerState ser = {
 			.version = VMax - 1,
@@ -2619,16 +2611,16 @@ MD_String8 save_to_string(MD_Arena *output_bytes_arena, MD_Arena *error_arena, M
 			ser.max = ser.cur;
 			ser.cur = 0;
 			ser.version = VMax - 1;
-			MD_ArenaTemp temp = MD_ArenaBeginTemp(output_bytes_arena);
-			serialized_data = MD_ArenaPush(temp.arena, ser.max);
+			ArenaTemp temp = ArenaBeginTemp(output_bytes_arena);
+			serialized_data = ArenaPush(temp.arena, ser.max);
 			ser.data = serialized_data;
 
 			ser_GameState(&ser, gs);
 			if(ser.cur_error.failed)
 			{
 				Log("Very weird that serialization fails a second time...\n");
-				*error_out = MD_S8Fmt(error_arena, "VERY BAD Serialization failed after it already had no error: %.*s", ser.cur_error.why);
-				MD_ArenaEndTemp(temp);
+				*error_out = S8Fmt(error_arena, "VERY BAD Serialization failed after it already had no error: %.*s", ser.cur_error.why);
+				ArenaEndTemp(temp);
 				serialized_data = 0;
 			}
 			else
@@ -2637,16 +2629,16 @@ MD_String8 save_to_string(MD_Arena *output_bytes_arena, MD_Arena *error_arena, M
 			}
 		}
 	}
-	return MD_S8(serialized_data, serialized_length);
+	return S8(serialized_data, serialized_length);
 }
 
 
 // error strings are allocated on error_arena, probably scratch for that. If serialization fails,
 // nothing is allocated onto arena, the allocations are rewound
 // If there was an error, the gamestate returned might be partially constructed and bad. Don't use it
-GameState load_from_string(MD_Arena *arena, MD_Arena *error_arena, MD_String8 data, MD_String8 *error_out)
+GameState load_from_string(Arena *arena, Arena *error_arena, String8 data, String8 *error_out)
 {
-	MD_ArenaTemp temp = MD_ArenaBeginTemp(arena);
+	ArenaTemp temp = ArenaBeginTemp(arena);
 
 	SerState ser = {
 		.serializing = false,
@@ -2659,7 +2651,7 @@ GameState load_from_string(MD_Arena *arena, MD_Arena *error_arena, MD_String8 da
 	ser_GameState(&ser, &to_return);
 	if(ser.cur_error.failed)
 	{
-		MD_ArenaEndTemp(temp); // no allocations if it fails
+		ArenaEndTemp(temp); // no allocations if it fails
 		*error_out = ser.cur_error.why;
 	}
 	return to_return;
@@ -2669,14 +2661,14 @@ GameState load_from_string(MD_Arena *arena, MD_Arena *error_arena, MD_String8 da
 EMSCRIPTEN_KEEPALIVE
 void dump_save_data()
 {
-	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+	ArenaTemp scratch = GetScratch(0, 0);
 
-	MD_String8 error = {0};
-	MD_String8 saved = save_to_string(scratch.arena, scratch.arena, &error, &gs);
+	String8 error = {0};
+	String8 saved = save_to_string(scratch.arena, scratch.arena, &error, &gs);
 
 	if(error.size > 0)
 	{
-		Log("Failed to save game: %.*s\n", MD_S8VArg(error));
+		Log("Failed to save game: %.*s\n", S8VArg(error));
 	}
 	else
 	{
@@ -2685,35 +2677,35 @@ void dump_save_data()
 		}, (char*)(saved.str), saved.size);
 	}
 
-	MD_ReleaseScratch(scratch);
+	ReleaseScratch(scratch);
 }
 
 EMSCRIPTEN_KEEPALIVE
 void read_from_save_data(char *data, size_t length)
 {
-	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-	MD_String8 data_str = MD_S8((MD_u8*)data, length);
+	ArenaTemp scratch = GetScratch(0, 0);
+	String8 data_str = S8((u8*)data, length);
 
-	MD_String8 error = {0};
+	String8 error = {0};
 	GameState new_gs = load_from_string(persistent_arena, scratch.arena, data_str, &error);
 
 	if(error.size > 0)
 	{
-		Log("Failed to load from size %lu: %.*s\n", length, MD_S8VArg(error));
+		Log("Failed to load from size %lu: %.*s\n", length, S8VArg(error));
 	}
 	else
 	{
 		gs = new_gs;
 	}
 
-	MD_ReleaseScratch(scratch);
+	ReleaseScratch(scratch);
 }
 #endif
 
 // a callback, when 'text backend' has finished making text. End dialog
 void end_text_input(char *what_player_said_cstr)
 {
-	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+	ArenaTemp scratch = GetScratch(0, 0);
 	// avoid double ending text input
 	if (!receiving_text_input)
 	{
@@ -2730,11 +2722,11 @@ void end_text_input(char *what_player_said_cstr)
 	}
 	else
 	{
-		MD_String8 what_player_said = MD_S8CString(what_player_said_cstr);
-		what_player_said = MD_S8ListJoin(scratch.arena, MD_S8Split(scratch.arena, what_player_said, 1, &MD_S8Lit("\n")), &(MD_StringJoin){0});
+		String8 what_player_said = S8CString(what_player_said_cstr);
+		what_player_said = S8ListJoin(scratch.arena, S8Split(scratch.arena, what_player_said, 1, &S8Lit("\n")), &(StringJoin){0});
 
 		Action to_perform = {0};
-		what_player_said = MD_S8Substring(what_player_said, 0, ARRLEN(to_perform.speech.text));
+		what_player_said = S8Substring(what_player_said, 0, ARRLEN(to_perform.speech.text));
 
 		chunk_from_s8(&to_perform.speech, what_player_said);
 
@@ -2756,7 +2748,7 @@ void end_text_input(char *what_player_said_cstr)
 			perform_action(&gs, gs.player, to_perform);
 		}
 	}
-	MD_ReleaseScratch(scratch);
+	ReleaseScratch(scratch);
 }
 /*
 	 AnimatedSprite moose_idle = 
@@ -2951,13 +2943,13 @@ int num_vertices = 0;
 
 
 // if it's an invalid anim name, it just returns the idle animation
-Animation *get_anim_by_name(Armature *armature, MD_String8 anim_name)
+Animation *get_anim_by_name(Armature *armature, String8 anim_name)
 {
-	MD_String8List anims = {0};
-	for(MD_u64 i = 0; i < armature->animations_length; i++)
+	String8List anims = {0};
+	for(u64 i = 0; i < armature->animations_length; i++)
 	{
-		MD_S8ListPush(frame_arena, &anims, armature->animations[i].name);
-		if(MD_S8Match(armature->animations[i].name, anim_name, 0))
+		S8ListPush(frame_arena, &anims, armature->animations[i].name);
+		if(S8Match(armature->animations[i].name, anim_name, 0))
 		{
 			return &armature->animations[i];
 		}
@@ -2965,13 +2957,13 @@ Animation *get_anim_by_name(Armature *armature, MD_String8 anim_name)
 
 	if(anim_name.size > 0)
 	{
-		MD_String8 anims_str = MD_S8ListJoin(frame_arena, anims, &(MD_StringJoin){.mid = MD_S8Lit(", ")});
-		Log("No animation found '%.*s', the animations: [%.*s]\n", MD_S8VArg(anim_name), MD_S8VArg(anims_str));
+		String8 anims_str = S8ListJoin(frame_arena, anims, &(StringJoin){.mid = S8Lit(", ")});
+		Log("No animation found '%.*s', the animations: [%.*s]\n", S8VArg(anim_name), S8VArg(anims_str));
 	}
 
-	for(MD_u64 i = 0; i < armature->animations_length; i++)
+	for(u64 i = 0; i < armature->animations_length; i++)
 	{
-		if(MD_S8Match(armature->animations[i].name, MD_S8Lit("Idle"), 0))
+		if(S8Match(armature->animations[i].name, S8Lit("Idle"), 0))
 		{
 			return &armature->animations[i];
 		}
@@ -2995,7 +2987,7 @@ Transform get_animated_bone_transform(AnimationTrack *track, float time, bool do
 	{
 		time = fmodf(time, total_anim_time);
 	}
-	for(MD_u64 i = 0; i < track->poses_length - 1; i++)
+	for(u64 i = 0; i < track->poses_length - 1; i++)
 	{
 		if(track->poses[i].time <= time && time <= track->poses[i + 1].time)
 		{
@@ -3014,7 +3006,7 @@ Transform get_animated_bone_transform(AnimationTrack *track, float time, bool do
 
 typedef struct
 {
-	MD_u8 rgba[4];
+	u8 rgba[4];
 } PixelData;
 
 PixelData encode_normalized_float32(float to_encode)
@@ -3042,7 +3034,7 @@ PixelData encode_normalized_float32(float to_encode)
 	for(int i = 0; i < 4; i++)
 	{
 		assert(0.0f <= to_return_vector.Elements[i] && to_return_vector.Elements[i] <= 1.0f);
-		to_return.rgba[i] = (MD_u8)(to_return_vector.Elements[i] * 255.0f);
+		to_return.rgba[i] = (u8)(to_return_vector.Elements[i] * 255.0f);
 	}
 
 	return to_return;
@@ -3165,16 +3157,16 @@ Vec2 img_size(sg_image img)
 void do_metadesk_tests()
 {
 	Log("Testing metadesk library...\n");
-	MD_Arena *arena = MD_ArenaAlloc();
-	MD_String8 s = MD_S8Lit("This is a testing|string");
+	Arena *arena = ArenaAlloc();
+	String8 s = S8Lit("This is a testing|string");
 
-	MD_String8List split_up = MD_S8Split(arena, s, 1, &MD_S8Lit("|"));
+	String8List split_up = S8Split(arena, s, 1, &S8Lit("|"));
 
 	assert(split_up.node_count == 2);
-	assert(MD_S8Match(split_up.first->string, MD_S8Lit("This is a testing"), 0));
-	assert(MD_S8Match(split_up.last->string, MD_S8Lit("string"), 0));
+	assert(S8Match(split_up.first->string, S8Lit("This is a testing"), 0));
+	assert(S8Match(split_up.last->string, S8Lit("string"), 0));
 
-	MD_ArenaRelease(arena);
+	ArenaRelease(arena);
 
 	Log("Testing passed!\n");
 }
@@ -3182,8 +3174,8 @@ void do_parsing_tests()
 {
 	Log("(UNIMPLEMENTED) Testing chatgpt parsing...\n");
 
-	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-	MD_ReleaseScratch(scratch);
+	ArenaTemp scratch = GetScratch(0, 0);
+	ReleaseScratch(scratch);
 }
 
 // these tests rely on the base level having been loaded
@@ -3191,15 +3183,15 @@ void do_serialization_tests()
 {
 	Log("Testing serialization...\n");
 
-	MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+	ArenaTemp scratch = GetScratch(0, 0);
 	
 	GameState gs = {0};
 	initialize_gamestate_from_threedee_level(&gs, &level_threedee);
 
 	gs.player->pos = V2(50.0f, 0.0);
 
-	MD_String8 error = {0};
-	MD_String8 saved = save_to_string(scratch.arena, scratch.arena, &error, &gs);
+	String8 error = {0};
+	String8 saved = save_to_string(scratch.arena, scratch.arena, &error, &gs);
 
 	assert(error.size == 0);
 	assert(saved.size > 0);
@@ -3212,7 +3204,7 @@ void do_serialization_tests()
 
 	Log("Default save data size is %lld bytes\n", saved.size);
 
-	MD_ReleaseScratch(scratch);
+	ReleaseScratch(scratch);
 }
 
 void do_float_encoding_tests()
@@ -3236,7 +3228,7 @@ typedef struct {
 	float font_size;
 	float font_line_advance;
 	float font_scale;
-	MD_String8 font_buffer;
+	String8 font_buffer;
 	stbtt_bakedchar cdata[96]; // ascii characters?
 	stbtt_fontinfo font;
 
@@ -3247,20 +3239,20 @@ typedef struct {
 LoadedFont default_font;
 LoadedFont font_for_text_input; // is bigger
 
-LoadedFont load_font(MD_Arena *arena, MD_String8 font_filepath, float font_size)
+LoadedFont load_font(Arena *arena, String8 font_filepath, float font_size)
 {
 	LoadedFont to_return = {0};
 
-	to_return.font_buffer = MD_LoadEntireFile(arena, font_filepath);
+	to_return.font_buffer = LoadEntireFile(arena, font_filepath);
 	to_return.font_size = font_size;
 
-	unsigned char *font_bitmap = MD_ArenaPush(arena, 512*512);
+	unsigned char *font_bitmap = ArenaPush(arena, 512*512);
 
 	const int font_bitmap_width = 512;
 
 	stbtt_BakeFontBitmap(to_return.font_buffer.str, 0, to_return.font_size, font_bitmap, font_bitmap_width, font_bitmap_width, 32, 96, to_return.cdata);
 
-	unsigned char *font_bitmap_rgba = MD_ArenaPush(frame_arena, 4 * font_bitmap_width * font_bitmap_width);
+	unsigned char *font_bitmap_rgba = ArenaPush(frame_arena, 4 * font_bitmap_width * font_bitmap_width);
 
 	// also flip the image, because I think opengl or something I'm too tired
 	for(int row = 0; row < 512; row++)
@@ -3327,10 +3319,10 @@ void stbi_flip_into_correct_direction(bool do_it)
 	if(do_it) stbi_set_flip_vertically_on_load(true);
 }
 
-MD_String8 make_devtools_help(MD_Arena *arena)
+String8 make_devtools_help(Arena *arena)
 {
-	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
-	MD_String8List list = {0};
+	ArenaTemp scratch = GetScratch(&arena, 1);
+	String8List list = {0};
 
 	#define P(...) PushWithLint(scratch.arena, &list, __VA_ARGS__)
 	
@@ -3350,8 +3342,8 @@ MD_String8 make_devtools_help(MD_Arena *arena)
 	P("P - immediately kills %s\n", characters[NPC_Raphael].name);
 
 	#undef P
-	MD_String8 to_return = MD_S8ListJoin(arena, list, &(MD_StringJoin){0});
-	MD_ReleaseScratch(scratch);
+	String8 to_return = S8ListJoin(arena, list, &(StringJoin){0});
+	ReleaseScratch(scratch);
 	return to_return;
 }
 
@@ -3365,16 +3357,16 @@ void init(void)
 			}, SERVER_DOMAIN );
 #endif
 
-	frame_arena = MD_ArenaAlloc();
+	frame_arena = ArenaAlloc();
 #ifdef WEB
 	next_arena_big  = true;
 #endif
-	persistent_arena = MD_ArenaAlloc();
+	persistent_arena = ArenaAlloc();
 
 #ifdef DEVTOOLS
 	Log("Devtools is on!\n");
-	MD_String8 devtools_help = make_devtools_help(frame_arena);
-	printf("%.*s\n", MD_S8VArg(devtools_help));
+	String8 devtools_help = make_devtools_help(frame_arena);
+	printf("%.*s\n", S8VArg(devtools_help));
 #else
 	Log("Devtools is off!\n");
 #endif
@@ -3401,35 +3393,35 @@ void init(void)
 
 	Log("Loading 3D assets...\n");
 
-	MD_String8 binary_file;
+	String8 binary_file;
 
-	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/rooms.bin"));
+	binary_file = LoadEntireFile(frame_arena, S8Lit("assets/exported_3d/rooms.bin"));
 	level_threedee = load_level(persistent_arena, binary_file);
 
-	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/Shotgun.bin"));
-	mesh_shotgun = load_mesh(persistent_arena, binary_file, MD_S8Lit("Shotgun.bin"));
+	binary_file = LoadEntireFile(frame_arena, S8Lit("assets/exported_3d/Shotgun.bin"));
+	mesh_shotgun = load_mesh(persistent_arena, binary_file, S8Lit("Shotgun.bin"));
 
-	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/AngelTotem.bin"));
-	mesh_angel_totem = load_mesh(persistent_arena, binary_file, MD_S8Lit("AngelTotem.bin"));
+	binary_file = LoadEntireFile(frame_arena, S8Lit("assets/exported_3d/AngelTotem.bin"));
+	mesh_angel_totem = load_mesh(persistent_arena, binary_file, S8Lit("AngelTotem.bin"));
 
-	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/NormalGuyArmature.bin"));
-	player_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("NormalGuyArmature.bin"));
+	binary_file = LoadEntireFile(frame_arena, S8Lit("assets/exported_3d/NormalGuyArmature.bin"));
+	player_armature = load_armature(persistent_arena, binary_file, S8Lit("NormalGuyArmature.bin"));
 
-	man_in_black_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Man In Black"));
+	man_in_black_armature = load_armature(persistent_arena, binary_file, S8Lit("Man In Black"));
 	man_in_black_armature.image = image_man_in_black;
 
-	angel_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Angel"));
+	angel_armature = load_armature(persistent_arena, binary_file, S8Lit("Angel"));
 	angel_armature.image = image_angel;
 
-	binary_file = MD_LoadEntireFile(frame_arena, MD_S8Lit("assets/exported_3d/FarmerArmature.bin"));
-	farmer_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("FarmerArmature.bin"));
+	binary_file = LoadEntireFile(frame_arena, S8Lit("assets/exported_3d/FarmerArmature.bin"));
+	farmer_armature = load_armature(persistent_arena, binary_file, S8Lit("FarmerArmature.bin"));
 
-	shifted_farmer_armature = load_armature(persistent_arena, binary_file, MD_S8Lit("Farmer.bin"));
+	shifted_farmer_armature = load_armature(persistent_arena, binary_file, S8Lit("Farmer.bin"));
 	shifted_farmer_armature.image = image_shifted_farmer;
 
 	Log("Done. Used %f of the frame arena, %llu kB\n", (double) frame_arena->pos / (double)frame_arena->cap, (frame_arena->pos/1024));
 
-	MD_ArenaClear(frame_arena);
+	ArenaClear(frame_arena);
 
 	reset_level();
 
@@ -3446,8 +3438,8 @@ void init(void)
 			});
 #endif
 
-	default_font = load_font(persistent_arena, MD_S8Lit("assets/PalanquinDark-Regular.ttf"), 35.0f);
-	font_for_text_input = load_font(persistent_arena, MD_S8Lit("assets/PalanquinDark-Regular.ttf"), 64.0f);
+	default_font = load_font(persistent_arena, S8Lit("assets/PalanquinDark-Regular.ttf"), 35.0f);
+	font_for_text_input = load_font(persistent_arena, S8Lit("assets/PalanquinDark-Regular.ttf"), 64.0f);
 	
 
 	state.bind.vertex_buffers[0] = sg_make_buffer(&(sg_buffer_desc)
@@ -4447,7 +4439,7 @@ void draw_thing(DrawnThing params)
 typedef struct TextParams
 {
 	bool dry_run;
-	MD_String8 text;
+	String8 text;
 	Vec2 pos;
 	Color color;
 	float scale;
@@ -4689,7 +4681,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 	{
 		ENTITIES_ITER(gs.entities)
 		{
-			if (it != p.from && !(it->is_npc && it->dead) && !it->is_world && MD_S8Match(it->current_room_name, p.from->current_room_name, 0))
+			if (it != p.from && !(it->is_npc && it->dead) && !it->is_world && S8Match(it->current_room_name, p.from->current_room_name, 0))
 			{
 				BUFF_APPEND(&to_check, ((CollisionObj){.circle.center = it->pos, .circle.radius = entity_radius(it), it}));
 			}
@@ -4815,17 +4807,17 @@ float character_width(LoadedFont for_font, int ascii_letter, float text_scale)
 
 // they're always joined by spaces anyways, so even if you add more delims
 // spaces will be added between them inshallah.
-MD_String8List split_by_word(MD_Arena *arena, MD_String8 string)
+String8List split_by_word(Arena *arena, String8 string)
 {
-	MD_String8 word_delimeters[] = { MD_S8Lit(" ") };
-	return MD_S8Split(arena, string, ARRLEN(word_delimeters), word_delimeters);
+	String8 word_delimeters[] = { S8Lit(" ") };
+	return S8Split(arena, string, ARRLEN(word_delimeters), word_delimeters);
 }
 
 typedef struct PlacedWord
 {
 	struct PlacedWord *next;
 	struct PlacedWord *prev;
-	MD_String8 text;
+	String8 text;
 	Vec2 lower_left_corner;
 	Vec2 size;
 	int line_index;
@@ -4844,10 +4836,10 @@ typedef enum
 	JUST_CENTER,
 } TextJustification;
 
-PlacedWordList place_wrapped_words(MD_Arena *arena, MD_String8List words, float text_scale, float maximum_width, LoadedFont for_font, TextJustification just)
+PlacedWordList place_wrapped_words(Arena *arena, String8List words, float text_scale, float maximum_width, LoadedFont for_font, TextJustification just)
 {
 	PlacedWordList to_return = {0};
-	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
+	ArenaTemp scratch = GetScratch(&arena, 1);
 
 	int current_line_index = 0;
 	{
@@ -4855,7 +4847,7 @@ PlacedWordList place_wrapped_words(MD_Arena *arena, MD_String8List words, float 
 		Vec2 cur = at_position;
 		float space_size = character_width(for_font, (int)' ', text_scale);
 		float current_vertical_offset = 0.0f; // goes negative
-		for (MD_String8Node *next_word = words.first; next_word; next_word = next_word->next)
+		for (String8Node *next_word = words.first; next_word; next_word = next_word->next)
 		{
 			if (next_word->string.size == 0)
 			{
@@ -4873,13 +4865,13 @@ PlacedWordList place_wrapped_words(MD_Arena *arena, MD_String8List words, float 
 					next_x_position = cur.x + aabb_size(word_bounds).x;
 				}
 
-				PlacedWord *new_placed = MD_PushArray(arena, PlacedWord, 1);
+				PlacedWord *new_placed = PushArray(arena, PlacedWord, 1);
 				new_placed->text = next_word->string;
 				new_placed->lower_left_corner = cur;
 				new_placed->size = aabb_size(word_bounds);
 				new_placed->line_index = current_line_index;
 
-				MD_DblPushBack(to_return.first, to_return.last, new_placed);
+				DblPushBack(to_return.first, to_return.last, new_placed);
 
 				cur.x = next_x_position;
 			}
@@ -4892,7 +4884,7 @@ PlacedWordList place_wrapped_words(MD_Arena *arena, MD_String8List words, float 
 		break;
 		case JUST_CENTER:
 		{
-			//PlacedWord **by_line_index = MD_PushArray(scratch.arena, PlacedWord*, current_line_index);
+			//PlacedWord **by_line_index = PushArray(scratch.arena, PlacedWord*, current_line_index);
 			for(int i = to_return.first->line_index; i <= to_return.last->line_index; i++)
 			{
 				PlacedWord *first_on_line = 0;
@@ -4930,7 +4922,7 @@ PlacedWordList place_wrapped_words(MD_Arena *arena, MD_String8List words, float 
 		break;
 	}
 
-	MD_ReleaseScratch(scratch);
+	ReleaseScratch(scratch);
 	return to_return;
 }
 
@@ -4942,11 +4934,11 @@ void translate_words_by(PlacedWordList words, Vec2 translation)
 	}
 }
 
-MD_String8 last_said_sentence(Entity *npc)
+String8 last_said_sentence(Entity *npc)
 {
 	assert(npc->is_npc);
 
-	MD_String8 to_return = (MD_String8){0};
+	String8 to_return = (String8){0};
 
 	for(Memory *cur = npc->memories_last; cur; cur = cur->prev)
 	{
@@ -4969,7 +4961,7 @@ typedef enum
 
 typedef struct
 {
-	MD_u8 speech[MAX_SENTENCE_LENGTH];
+	u8 speech[MAX_SENTENCE_LENGTH];
 	int speech_length;
 	DialogElementKind kind;
 	NpcKind who_said_it;
@@ -5060,7 +5052,7 @@ typedef struct
 {
 	AABB button_aabb;
 	float text_scale;
-	MD_String8 text;
+	String8 text;
 	int key;
 	float dt;
 	bool force_down;
@@ -5512,12 +5504,12 @@ void flush_all_drawn_things(Vec3 light_dir, Vec3 cam_pos, Vec3 cam_facing, Vec3 
 			{
 				if(it->armature)
 				{
-					MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+					ArenaTemp scratch = GetScratch(0, 0);
 					Armature *armature = it->armature;
 					int bones_tex_size = 4 * armature->bones_texture_width * armature->bones_texture_height;
-					MD_u8 *bones_tex = MD_ArenaPush(scratch.arena, bones_tex_size);
+					u8 *bones_tex = ArenaPush(scratch.arena, bones_tex_size);
 
-					for(MD_u64 i = 0; i < armature->bones_length; i++)
+					for(u64 i = 0; i < armature->bones_length; i++)
 					{
 						Bone *cur = &armature->bones[i];
 
@@ -5577,7 +5569,7 @@ void flush_all_drawn_things(Vec3 light_dir, Vec3 cam_pos, Vec3 cam_facing, Vec3 
 							.subimage[0][0] = (sg_range){bones_tex, bones_tex_size},
 							});
 
-					MD_ReleaseScratch(scratch);
+					ReleaseScratch(scratch);
 				}
 			}
 		}
@@ -5735,16 +5727,16 @@ TextPlacementSettings speech_bubble = {
 };
 
 // Unsaid words are still there, so you gotta handle the animation homie
-MD_String8List words_on_current_page(Entity *it, TextPlacementSettings *settings)
+String8List words_on_current_page(Entity *it, TextPlacementSettings *settings)
 {
-	MD_String8 last = last_said_sentence(it);
+	String8 last = last_said_sentence(it);
 	PlacedWordList placed = place_wrapped_words(frame_arena, split_by_word(frame_arena, last), settings->text_scale, settings->width_in_pixels, *settings->font, JUST_LEFT);
 
-	MD_String8List on_current_page = {0};
+	String8List on_current_page = {0};
 	for(PlacedWord *cur = placed.first; cur; cur = cur->next)
 	{
 		if(cur->line_index / settings->lines_per_page == it->cur_page_index)
-			MD_S8ListPush(frame_arena, &on_current_page, cur->text);	
+			S8ListPush(frame_arena, &on_current_page, cur->text);	
 	}
 
 	return on_current_page;
@@ -5752,16 +5744,16 @@ MD_String8List words_on_current_page(Entity *it, TextPlacementSettings *settings
 	//return place_wrapped_words(frame_arena, on_current_page, text_scale, aabb_size(placing_text_in).x, default_font);
 }
 
-MD_String8List words_on_current_page_without_unsaid(Entity *it, TextPlacementSettings *settings)
+String8List words_on_current_page_without_unsaid(Entity *it, TextPlacementSettings *settings)
 {
-	MD_String8List all_words = words_on_current_page(it, settings);
+	String8List all_words = words_on_current_page(it, settings);
 	int index = 0;
-	MD_String8List to_return = {0};
-	for(MD_String8Node *cur = all_words.first; cur; cur = cur->next)
+	String8List to_return = {0};
+	for(String8Node *cur = all_words.first; cur; cur = cur->next)
 	{
 		if(index > it->words_said_on_page)
 			break;
-		MD_S8ListPush(frame_arena, &to_return, cur->string);
+		S8ListPush(frame_arena, &to_return, cur->string);
 		index += 1;
 	}
 	return to_return;
@@ -5891,28 +5883,28 @@ void frame(void)
 			float seed = (float)((int64_t)cur % 1024);
 
 			DrawnThing call = (DrawnThing){.mesh = cur->draw_with, .t = cur->t};
-			if(MD_S8Match(cur->name, MD_S8Lit("Ground"), 0))
+			if(S8Match(cur->name, S8Lit("Ground"), 0))
 				call.no_dust = true;
 
 			call.no_dust = true;
 			float helicopter_offset = (float)sin(elapsed_time*0.5f)*0.5f;
-			if(MD_S8Match(cur->name, MD_S8Lit("HelicopterBlade"), 0))
+			if(S8Match(cur->name, S8Lit("HelicopterBlade"), 0))
 			{
 				call.t.offset.y += helicopter_offset;
 				call.t.rotation = QFromAxisAngle_RH(V3(0,1,0), (float)elapsed_time * 15.0f);
 			}
-			if(MD_S8Match(cur->name, MD_S8Lit("BlurryBlade"), 0))
+			if(S8Match(cur->name, S8Lit("BlurryBlade"), 0))
 			{
 				call.t.rotation = QFromAxisAngle_RH(V3(0,1,0), (float)elapsed_time * 15.0f);
 				call.t.offset.y += helicopter_offset;
 				call.alpha_blend = true;
 				call.dont_cast_shadows = true;
 			}
-			if(MD_S8Match(cur->name, MD_S8Lit("HelicopterBody"), 0))
+			if(S8Match(cur->name, S8Lit("HelicopterBody"), 0))
 			{
 				call.t.offset.y += helicopter_offset;
 			}
-			if(MD_S8FindSubstring(cur->name, MD_S8Lit("Bush"), 0, 0) == 0)
+			if(S8FindSubstring(cur->name, S8Lit("Bush"), 0, 0) == 0)
 			{
 				call.wobble_factor = 1.0f;
 				call.seed = seed;
@@ -5922,7 +5914,7 @@ void frame(void)
 
 		ENTITIES_ITER(gs.entities)
 		{
-			if(it->is_npc && MD_S8Match(it->current_room_name, gs.player->current_room_name, 0))
+			if(it->is_npc && S8Match(it->current_room_name, gs.player->current_room_name, 0))
 			{
 				assert(it->is_npc);
 				Transform draw_with = entity_transform(it);
@@ -5963,16 +5955,16 @@ void frame(void)
 					}
 					if (it->killed)
 					{
-						to_use->go_to_animation = MD_S8Lit("Die Backwards");
+						to_use->go_to_animation = S8Lit("Die Backwards");
 						to_use->next_animation_isnt_looping = true;
 					}
 					else if (LenV2(it->vel) > 0.5f)
 					{
-						to_use->go_to_animation = MD_S8Lit("Running");
+						to_use->go_to_animation = S8Lit("Running");
 					}
 					else
 					{
-						to_use->go_to_animation = MD_S8Lit("Idle");
+						to_use->go_to_animation = S8Lit("Idle");
 					}
 
 					draw_thing((DrawnThing){.armature = to_use, .t = draw_with, .outline = gete(gs.player->interacting_with) == it});
@@ -6008,7 +6000,7 @@ void frame(void)
 
 			if(cur->go_to_animation.size > 0)
 			{
-				if(MD_S8Match(cur->go_to_animation, cur->currently_playing_animation, 0))
+				if(S8Match(cur->go_to_animation, cur->currently_playing_animation, 0))
 				{
 				}
 				else
@@ -6016,7 +6008,7 @@ void frame(void)
 					memcpy(cur->current_poses, cur->anim_blended_poses, cur->bones_length * sizeof(*cur->current_poses));
 					cur->currently_playing_animation = cur->go_to_animation;
 					cur->animation_blend_t = 0.0f;
-					cur->go_to_animation = (MD_String8){0};
+					cur->go_to_animation = (String8){0};
 					if(cur->next_animation_isnt_looping)
 					{
 						cur->cur_animation_time = 0.0;
@@ -6037,7 +6029,7 @@ void frame(void)
 				Animation *to_anim = get_anim_by_name(cur, cur->currently_playing_animation);
 				assert(to_anim);
 
-				for(MD_u64 i = 0; i < cur->bones_length; i++)
+				for(u64 i = 0; i < cur->bones_length; i++)
 				{
 					Transform *output_transform = &cur->anim_blended_poses[i];
 					Transform from_transform = cur->current_poses[i];
@@ -6049,7 +6041,7 @@ void frame(void)
 			else
 			{
 				Animation *cur_anim = get_anim_by_name(cur, cur->currently_playing_animation);
-				for(MD_u64 i = 0; i < cur->bones_length; i++)
+				for(u64 i = 0; i < cur->bones_length; i++)
 				{
 					cur->anim_blended_poses[i] = get_animated_bone_transform(&cur_anim->tracks[i], along_current_animation, cur->currently_playing_isnt_looping);
 				}
@@ -6073,7 +6065,7 @@ void frame(void)
 			Entity *angel_entity = 0;
 			ENTITIES_ITER(gs.entities)
 			{
-				if (it->is_npc && it->npc_kind == NPC_Angel && MD_S8Match(it->current_room_name, gs.player->current_room_name, 0))
+				if (it->is_npc && it->npc_kind == NPC_Angel && S8Match(it->current_room_name, gs.player->current_room_name, 0))
 				{
 					assert(!angel_entity);
 					angel_entity = it;
@@ -6095,7 +6087,7 @@ void frame(void)
 			if(should_be_visible)
 			{
 				assert(angel_entity);
-				MD_String8 new_to_say = {0};
+				String8 new_to_say = {0};
 				if(angel_entity->undismissed_action)
 				{
 					new_to_say = last_said_sentence(angel_entity);
@@ -6106,17 +6098,17 @@ void frame(void)
 				{
 					if(to_say_chunk == 0)
 					{
-						to_say_chunk = MD_PushArray(persistent_arena, TextChunk, 1);
+						to_say_chunk = PushArray(persistent_arena, TextChunk, 1);
 					}
 					chunk_from_s8(to_say_chunk, new_to_say);
 				}
 			}
-			MD_String8List to_say = {0};
+			String8List to_say = {0};
 			if(to_say_chunk != 0) to_say = split_by_word(frame_arena, TextChunkString8(*to_say_chunk));
-			MD_String8 cur_word = {0};
-			MD_String8Node *cur_word_node = 0;
+			String8 cur_word = {0};
+			String8Node *cur_word_node = 0;
 			double chars_said = cur_characters;
-			for(MD_String8Node *cur = to_say.first; cur; cur = cur->next)
+			for(String8Node *cur = to_say.first; cur; cur = cur->next)
 			{
 				if((int)chars_said < cur->string.size)
 				{
@@ -6142,9 +6134,9 @@ void frame(void)
 				}
 
 				assert(cur_word_node);
-				MD_String8Node *prev_next = cur_word_node->next;
+				String8Node *prev_next = cur_word_node->next;
 				cur_word_node->next = 0;
-				//MD_String8 without_unsaid = MD_S8ListJoin(frame_arena, to_say, &(MD_StringJoin){.mid = MD_S8Lit(" ")});
+				//String8 without_unsaid = S8ListJoin(frame_arena, to_say, &(StringJoin){.mid = S8Lit(" ")});
 
 				PlacedWordList placed = place_wrapped_words(frame_arena, to_say, 1.0f, screen_size().x*0.8f, font_for_text_input, JUST_CENTER);
 				translate_words_by(placed, V2(screen_size().x*0.1f, screen_size().y*0.75f));
@@ -6159,18 +6151,18 @@ void frame(void)
 			if(gs.assigned_objective)
 			{
 				float mission_font_scale = 1.0f;
-				MD_String8 mission_text = FmtWithLint(frame_arena, "Your mission: %.*s", MD_S8VArg(TextChunkString8(gs.objective.description)));
+				String8 mission_text = FmtWithLint(frame_arena, "Your mission: %.*s", S8VArg(TextChunkString8(gs.objective.description)));
 				float button_height = 100.0f;
 				float vert = button_height*0.5f;
 				draw_centered_text((TextParams){false, mission_text, V2(screen_size().x * 0.5f, screen_size().y * 0.25f + vert), blendalpha(WHITE, visible), mission_font_scale, .use_font = &font_for_text_input, .layer = LAYER_ANGEL_SCREEN});
-				if(imbutton(aabb_centered(V2(screen_size().x/2.0f, screen_size().y*0.25f - vert), MulV2F(V2(170.0f, button_height), visible)), visible, MD_S8Lit("Accept"), .layer = LAYER_ANGEL_SCREEN, .font = &font_for_text_input))
+				if(imbutton(aabb_centered(V2(screen_size().x/2.0f, screen_size().y*0.25f - vert), MulV2F(V2(170.0f, button_height), visible)), visible, S8Lit("Accept"), .layer = LAYER_ANGEL_SCREEN, .font = &font_for_text_input))
 				{
-					transition_to_room(&gs, &level_threedee, MD_S8Lit("Forest"));
+					transition_to_room(&gs, &level_threedee, S8Lit("Forest"));
 				}
 			}
 			else
 			{
-				draw_centered_text((TextParams){false, MD_S8Lit("(Press E to speak)"), V2(screen_size().x * 0.5f, screen_size().y * 0.25f), blendalpha(WHITE, visible * 0.5f), 0.8f, .use_font = &font_for_text_input, .layer = LAYER_ANGEL_SCREEN});
+				draw_centered_text((TextParams){false, S8Lit("(Press E to speak)"), V2(screen_size().x * 0.5f, screen_size().y * 0.25f), blendalpha(WHITE, visible * 0.5f), 0.8f, .use_font = &font_for_text_input, .layer = LAYER_ANGEL_SCREEN});
 			}
 
 			if(should_be_visible && pressed.interact && !gs.assigned_objective)
@@ -6192,7 +6184,7 @@ void frame(void)
 		float text_scale = 1.0f;
 		if(text_input_buffer_length > 0)
 		{
-			AABB bounds = draw_centered_text((TextParams){false, MD_S8(text_input_buffer, text_input_buffer_length), MulV2F(screen_size(), 0.5f), blendalpha(WHITE, text_input_fade), text_scale, .use_font = &font_for_text_input, .layer = LAYER_UI_TEXTINPUT});
+			AABB bounds = draw_centered_text((TextParams){false, S8(text_input_buffer, text_input_buffer_length), MulV2F(screen_size(), 0.5f), blendalpha(WHITE, text_input_fade), text_scale, .use_font = &font_for_text_input, .layer = LAYER_UI_TEXTINPUT});
 			edge_of_text = bounds.lower_right;
 		}
 		Vec2 cursor_center = V2(edge_of_text.x,screen_size().y/2.0f);
@@ -6216,7 +6208,7 @@ void frame(void)
 		{
 			ENTITIES_ITER(gs.entities)
 			{
-				if (it->is_npc && it->npc_kind != NPC_Player && MD_S8Match(it->current_room_name, gs.player->current_room_name, 0))
+				if (it->is_npc && it->npc_kind != NPC_Player && S8Match(it->current_room_name, gs.player->current_room_name, 0))
 				{
 					if(it->undismissed_action)
 					{
@@ -6246,7 +6238,7 @@ void frame(void)
 							blendalpha(WHITE, dialog_alpha),
 							.layer = LAYER_UI_FG,
 					});
-					MD_String8List words_to_say = words_on_current_page(it, &speech_bubble);
+					String8List words_to_say = words_on_current_page(it, &speech_bubble);
 					if (unread)
 					{
 						draw_quad((DrawParams){
@@ -6292,7 +6284,7 @@ void frame(void)
 					AABB placing_text_in = aabb_centered(AddV2(bubble_center, V2(0, 10.0f)), V2(speech_bubble.text_width_in_pixels, size.y * 0.15f));
 					dbgrect(placing_text_in);
 
-					MD_String8List to_draw = words_on_current_page_without_unsaid(it, &speech_bubble);
+					String8List to_draw = words_on_current_page_without_unsaid(it, &speech_bubble);
 					if(to_draw.node_count != 0)
 					{
 						PlacedWordList placed = place_wrapped_words(frame_arena, to_draw, text_scale, aabb_size(placing_text_in).x, default_font, JUST_LEFT);  
@@ -6361,7 +6353,7 @@ void frame(void)
 								bool should_propagate = true
 								&& it->is_npc 
 								&& LenV2(SubV2(it->pos, cur->from)) < effective_radius
-								&& MD_S8Match(TextChunkString8(cur->in_room_name), it->current_room_name, 0)
+								&& S8Match(TextChunkString8(cur->in_room_name), it->current_room_name, 0)
 								&& it->npc_kind != NPC_Angel // angels already hear everything, this would duplicate the hearing of the action
 								;
 								if(should_propagate)
@@ -6445,14 +6437,14 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 										memcpy(sentence_cstr, get_by_id(it->gen_request_id)->generated.text, get_by_id(it->gen_request_id)->generated.text_length);
 #endif
 
-										MD_String8 sentence_str = MD_S8CString(sentence_cstr);
+										String8 sentence_str = S8CString(sentence_cstr);
 
 										// parse out from the sentence NPC action and dialog
 										Action out = {0};
 
-										MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-										Log("Parsing `%.*s`...\n", MD_S8VArg(sentence_str));
-										MD_String8 parse_response = parse_chatgpt_response(scratch.arena, it, sentence_str, &out);
+										ArenaTemp scratch = GetScratch(0, 0);
+										Log("Parsing `%.*s`...\n", S8VArg(sentence_str));
+										String8 parse_response = parse_chatgpt_response(scratch.arena, it, sentence_str, &out);
 
 										// check that it wraps in below two lines
 										TextPlacementSettings *to_wrap_to = &speech_bubble;
@@ -6468,7 +6460,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 
 										if(words_over_limit > 0)
 										{
-											MD_String8 new_err = FmtWithLint(frame_arena, "Your speech is %d words over the maximum limit, you must be more succinct and remove at least that many words", words_over_limit);
+											String8 new_err = FmtWithLint(frame_arena, "Your speech is %d words over the maximum limit, you must be more succinct and remove at least that many words", words_over_limit);
 											append_to_errors(it, make_memory(out, (MemoryContext){.i_said_this = true, .author_npc_kind = it->npc_kind, .talking_to_kind = out.talking_to_kind}), new_err);
 										}
 										else
@@ -6482,7 +6474,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 											}
 											else
 											{
-												Log("There was a parse error: `%.*s`\n", MD_S8VArg(parse_response));
+												Log("There was a parse error: `%.*s`\n", S8VArg(parse_response));
 												append_to_errors(it, (Memory){0}, parse_response);
 											}
 										}
@@ -6490,7 +6482,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 
 
 
-										MD_ReleaseScratch(scratch);
+										ReleaseScratch(scratch);
 
 #ifdef WEB
 										EM_ASM( {
@@ -6508,7 +6500,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 
 										/*
 										Action to_perform = {0};
-										MD_String8 speech_mdstring = MD_S8Lit("I'm not sure...");
+										String8 speech_mdstring = S8Lit("I'm not sure...");
 										memcpy(to_perform.speech, speech_mdstring.str, speech_mdstring.size);
 										to_perform.speech_length = (int)speech_mdstring.size;
 										perform_action(&gs, it, to_perform);
@@ -6534,10 +6526,10 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 							// character speech animation text input
 							if (it->npc_kind != NPC_Angel)
 							{
-								MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+								ArenaTemp scratch = GetScratch(0, 0);
 
-								MD_String8List to_say = words_on_current_page(it, &speech_bubble);
-								MD_String8List to_say_without_unsaid = words_on_current_page_without_unsaid(it, &speech_bubble);
+								String8List to_say = words_on_current_page(it, &speech_bubble);
+								String8List to_say_without_unsaid = words_on_current_page_without_unsaid(it, &speech_bubble);
 								if(to_say.node_count > 0 && it->words_said_on_page < to_say.node_count)
 								{
 									if(cur_unread_entity == it)
@@ -6562,7 +6554,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 									}
 								}
 
-								MD_ReleaseScratch(scratch);
+								ReleaseScratch(scratch);
 							}
 
 
@@ -6908,7 +6900,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 							{
 								Memory *prev = cur;
 								cur = cur->next;
-								MD_StackPush(memories_free_list, prev);
+								StackPush(memories_free_list, prev);
 							}
 							it->memories_first = 0;
 							it->memories_last = 0;
@@ -6926,7 +6918,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 						|| it->npc_kind == NPC_Player
 						|| (it->npc_kind == NPC_Angel && gs.no_angel_screen)
 						|| !npc_does_dialog(it) // not sure what's up with this actually, potentially remove
-						|| !MD_S8Match(it->current_room_name, gs.player->current_room_name, 0)
+						|| !S8Match(it->current_room_name, gs.player->current_room_name, 0)
 						|| it->npc_kind == NPC_AngelTotem
 						;
 						if (it->perceptions_dirty && doesnt_prompt_on_dirty_perceptions)
@@ -6938,30 +6930,30 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 							if (!gs.stopped_time)
 							{
 								it->perceptions_dirty = false; // needs to be in beginning because they might be redirtied by the new perception
-								MD_String8 prompt_str = {0};
+								String8 prompt_str = {0};
 #ifdef DO_CHATGPT_PARSING
 								prompt_str = generate_chatgpt_prompt(frame_arena, &gs, it, get_can_talk_to(it));
 #else
 								generate_prompt(it, &prompt);
 #endif
-								Log("Sending request with prompt `%.*s`\n", MD_S8VArg(prompt_str));
+								Log("Sending request with prompt `%.*s`\n", S8VArg(prompt_str));
 
 #ifdef WEB
 								// fire off generation request, save id
-								MD_ArenaTemp scratch = MD_GetScratch(0, 0);
-								MD_String8 terminated_completion_url = nullterm(scratch.arena, FmtWithLint(scratch.arena, "%s://%s:%d/completion", IS_SERVER_SECURE ? "https" : "http", SERVER_DOMAIN, SERVER_PORT));
+								ArenaTemp scratch = GetScratch(0, 0);
+								String8 terminated_completion_url = nullterm(scratch.arena, FmtWithLint(scratch.arena, "%s://%s:%d/completion", IS_SERVER_SECURE ? "https" : "http", SERVER_DOMAIN, SERVER_PORT));
 								int req_id = EM_ASM_INT({
 									return make_generation_request(UTF8ToString($0, $1), UTF8ToString($2, $3));
 								},
 																				prompt_str.str, (int)prompt_str.size, terminated_completion_url.str, (int)terminated_completion_url.size);
 								it->gen_request_id = req_id;
-								MD_ReleaseScratch(scratch);
+								ReleaseScratch(scratch);
 #endif
 
 #ifdef DESKTOP
-								MD_ArenaTemp scratch = MD_GetScratch(0, 0);
+								ArenaTemp scratch = GetScratch(0, 0);
 
-								MD_String8 ai_response = {0};
+								String8 ai_response = {0};
 								bool mocking_the_ai_response = false;
 #ifdef DEVTOOLS
 #ifdef MOCK_AI_RESPONSE
@@ -7003,7 +6995,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 									}
 									else
 									{
-										ai_response = MD_S8Lit("{\"target\": \"nobody\", \"action\": \"none\", \"speech\": \"\"}");
+										ai_response = S8Lit("{\"target\": \"nobody\", \"action\": \"none\", \"speech\": \"\"}");
 									}
 
 									// something to mock
@@ -7011,7 +7003,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 									{
 										Log("Mocking...\n");
 										Action a = {0};
-										MD_String8 error_message = MD_S8Lit("Something really bad happened bro. File " STRINGIZE(__FILE__) " Line " STRINGIZE(__LINE__));
+										String8 error_message = S8Lit("Something really bad happened bro. File " STRINGIZE(__FILE__) " Line " STRINGIZE(__LINE__));
 										if (succeeded)
 										{
 											error_message = parse_chatgpt_response(scratch.arena, it, ai_response, &a);
@@ -7020,19 +7012,19 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 										assert(succeeded);
 										assert(error_message.size == 0);
 
-										MD_String8 valid_str = is_action_valid(frame_arena, it, a);
+										String8 valid_str = is_action_valid(frame_arena, it, a);
 										assert(valid_str.size == 0);
 										perform_action(&gs, it, a);
 									}
 								}
 								else
 								{
-									MD_String8 post_request_body = FmtWithLint(scratch.arena, "|%.*s", MD_S8VArg(prompt_str));
+									String8 post_request_body = FmtWithLint(scratch.arena, "|%.*s", S8VArg(prompt_str));
 									it->gen_request_id = make_generation_request(post_request_body);
 								}
 
 
-							MD_ReleaseScratch(scratch);
+							ReleaseScratch(scratch);
 #undef SAY
 #endif	// desktop endif
 							}
@@ -7088,7 +7080,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 							{
 								if(closest_interact_with->npc_kind == NPC_AngelTotem)
 								{
-									transition_to_room(&gs, &level_threedee, MD_S8Lit("StartingRoom"));
+									transition_to_room(&gs, &level_threedee, S8Lit("StartingRoom"));
 								}
 								// begin dialog with closest npc
 								gs.player->talking_to = frome(closest_interact_with);
@@ -7252,7 +7244,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 		{
 			Vec2 text_center = V2(screen_size().x / 2.0f, screen_size().y*0.8f);
 			draw_quad((DrawParams){centered_quad(text_center, V2(screen_size().x*0.8f, screen_size().y*0.1f)), IMG(image_white_square), blendalpha(BLACK, 0.5f), .layer = LAYER_ULTRA_IMPORTANT_NOTIFICATIONS});
-			draw_centered_text((TextParams){false, MD_S8Lit("The AI server is having technical difficulties..."), text_center, WHITE, 1.0f, .layer = LAYER_ULTRA_IMPORTANT_NOTIFICATIONS });
+			draw_centered_text((TextParams){false, S8Lit("The AI server is having technical difficulties..."), text_center, WHITE, 1.0f, .layer = LAYER_ULTRA_IMPORTANT_NOTIFICATIONS });
 		}
 
 
@@ -7270,9 +7262,9 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 			float shake_speed = 9.0f;
 			Vec2 win_offset = V2(sinf((float)unwarped_elapsed_time * shake_speed * 1.5f + 0.1f), sinf((float)unwarped_elapsed_time * shake_speed + 0.3f));
 			win_offset = MulV2F(win_offset, 10.0f);
-			draw_centered_text((TextParams){false, MD_S8Lit("YOU WON"), AddV2(MulV2F(screen_size(), 0.5f), win_offset), WHITE, 9.0f*visible});
+			draw_centered_text((TextParams){false, S8Lit("YOU WON"), AddV2(MulV2F(screen_size(), 0.5f), win_offset), WHITE, 9.0f*visible});
 
-			if(imbutton(aabb_centered(V2(screen_size().x/2.0f, screen_size().y*0.25f), MulV2F(V2(170.0f, 60.0f), visible)), 1.5f*visible, MD_S8Lit("Restart")))
+			if(imbutton(aabb_centered(V2(screen_size().x/2.0f, screen_size().y*0.25f), MulV2F(V2(170.0f, 60.0f), visible)), 1.5f*visible, S8Lit("Restart")))
 			{
 				reset_level();
 			}
@@ -7298,12 +7290,12 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 			float shake_speed = 9.0f;
 			Vec2 win_offset = V2(sinf((float)unwarped_elapsed_time * shake_speed * 1.5f + 0.1f), sinf((float)unwarped_elapsed_time * shake_speed + 0.3f));
 			win_offset = MulV2F(win_offset, 10.0f);
-			draw_centered_text((TextParams){false, MD_S8Lit("YOU WERE KILLED"), AddV2(MulV2F(screen_size(), 0.5f), win_offset), WHITE, 3.0f*visible}); // YOU DIED
+			draw_centered_text((TextParams){false, S8Lit("YOU WERE KILLED"), AddV2(MulV2F(screen_size(), 0.5f), win_offset), WHITE, 3.0f*visible}); // YOU DIED
 
-			if(imbutton(aabb_centered(V2(screen_size().x/2.0f, screen_size().y*0.25f), MulV2F(V2(170.0f, 60.0f), visible)), 1.5f*visible, MD_S8Lit("Continue")))
+			if(imbutton(aabb_centered(V2(screen_size().x/2.0f, screen_size().y*0.25f), MulV2F(V2(170.0f, 60.0f), visible)), 1.5f*visible, S8Lit("Continue")))
 			{
 				gs.player->killed = false;
-				transition_to_room(&gs, &level_threedee, MD_S8Lit("StartingRoom"));
+				transition_to_room(&gs, &level_threedee, S8Lit("StartingRoom"));
 				reset_level();
 			}
 		}
@@ -7372,14 +7364,14 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 							Vec2 start_at = V2(0,300);
 							Vec2 cur_pos = start_at;
 
-							AABB bounds = draw_text((TextParams){false, MD_S8Fmt(frame_arena, "--Memories for %s--", characters[to_view->npc_kind].name), cur_pos, WHITE, 1.0});
+							AABB bounds = draw_text((TextParams){false, S8Fmt(frame_arena, "--Memories for %s--", characters[to_view->npc_kind].name), cur_pos, WHITE, 1.0});
 							cur_pos.y -= aabb_size(bounds).y;
 
 							for(Memory *cur = to_view->memories_first; cur; cur = cur->next)
 								if(cur->speech.text_length > 0)
 								{
-									MD_String8 to_text = cur->context.talking_to_kind != NPC_nobody ? MD_S8Fmt(frame_arena, " to %s ", characters[cur->context.talking_to_kind].name) : MD_S8Lit("");
-									MD_String8 text = MD_S8Fmt(frame_arena, "%s%s%.*s: %.*s", to_view->npc_kind == cur->context.author_npc_kind ? "(Me) " : "", characters[cur->context.author_npc_kind].name, MD_S8VArg(to_text), cur->speech.text_length, cur->speech);
+									String8 to_text = cur->context.talking_to_kind != NPC_nobody ? S8Fmt(frame_arena, " to %s ", characters[cur->context.talking_to_kind].name) : S8Lit("");
+									String8 text = S8Fmt(frame_arena, "%s%s%.*s: %.*s", to_view->npc_kind == cur->context.author_npc_kind ? "(Me) " : "", characters[cur->context.author_npc_kind].name, S8VArg(to_text), cur->speech.text_length, cur->speech);
 									AABB bounds = draw_text((TextParams){false, text, cur_pos, WHITE, 1.0});
 									cur_pos.y -= aabb_size(bounds).y;
 								}
@@ -7391,16 +7383,16 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 								int mem_idx = 0;
 								for(Memory *cur = to_view->memories_first; cur; cur = cur->next)
 								{
-									MD_String8 to_text = cur->context.talking_to_kind != NPC_nobody ? MD_S8Fmt(frame_arena, " to %s ", characters[cur->context.talking_to_kind].name) : MD_S8Lit("");
-									MD_String8 speech = TextChunkString8(cur->speech);
-									if(speech.size == 0) speech = MD_S8Lit("<said nothing>");
-									MD_String8 text = MD_S8Fmt(frame_arena, "%s%s%.*s: %.*s", to_view->npc_kind == cur->context.author_npc_kind ? "(Me) " : "", characters[cur->context.author_npc_kind].name, MD_S8VArg(to_text), MD_S8VArg(speech));
-									printf("Memory %d: %.*s\n", mem_idx, MD_S8VArg(text));
+									String8 to_text = cur->context.talking_to_kind != NPC_nobody ? S8Fmt(frame_arena, " to %s ", characters[cur->context.talking_to_kind].name) : S8Lit("");
+									String8 speech = TextChunkString8(cur->speech);
+									if(speech.size == 0) speech = S8Lit("<said nothing>");
+									String8 text = S8Fmt(frame_arena, "%s%s%.*s: %.*s", to_view->npc_kind == cur->context.author_npc_kind ? "(Me) " : "", characters[cur->context.author_npc_kind].name, S8VArg(to_text), S8VArg(speech));
+									printf("Memory %d: %.*s\n", mem_idx, S8VArg(text));
 									mem_idx++;
 								}
 								Log("\nPrompt-----------------------------\n");
-								MD_String8 prompt  = generate_chatgpt_prompt(frame_arena, &gs, to_view, get_can_talk_to(to_view));
-								printf("%.*s\n", MD_S8VArg(prompt));
+								String8 prompt  = generate_chatgpt_prompt(frame_arena, &gs, to_view, get_can_talk_to(to_view));
+								printf("%.*s\n", S8VArg(prompt));
 							}
 						}
 					}
@@ -7409,7 +7401,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 				Vec2 pos = V2(0.0, screen_size().Y);
 				int num_entities = 0;
 				ENTITIES_ITER(gs.entities) num_entities++;
-				MD_String8 stats =
+				String8 stats =
 					tprint("Frametime: %.1f ms\n"
 					       "Processing: %.1f ms\n"
 					       "Gameplay processing: %.1f ms\n"
@@ -7573,7 +7565,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 
 		last_frame_processing_time = stm_sec(stm_diff(stm_now(), time_start_frame));
 
-		MD_ArenaClear(frame_arena);
+		ArenaClear(frame_arena);
 
 		memset(keypressed, 0, sizeof(keypressed));
 		pressed = (PressedState) { 0 };
@@ -7589,11 +7581,11 @@ void cleanup(void)
 	}
 #endif
 
-	MD_ArenaRelease(frame_arena);
+	ArenaRelease(frame_arena);
 	
 	// Don't free the persistent arena because threads still access their ChatRequest should_close fieldon shutdown,
 	// and ChatRequest is allocated on the persistent arena. We just shamelessly leak this memory. Cowabunga!
-	//MD_ArenaRelease(persistent_arena);
+	//ArenaRelease(persistent_arena);
 	sg_shutdown();
 	hmfree(imui_state);
 	Log("Cleaning up\n");

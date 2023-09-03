@@ -2,7 +2,6 @@ Urgent:
 - angel doesn't have characters near you
 
 
-- Remove (MD_) prefix from project
 - Furcate functionality in npc entity into feature flags, streamline creation of entities/things from blender -> game, things. Make rock thing.
 - Fix camera angle on forest map, probably introduce custom camera angles per map
 - In debugtools show number of arenas allocated, and total megabytes allocated in arenas

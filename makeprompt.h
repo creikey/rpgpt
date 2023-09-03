@@ -16,8 +16,8 @@
 
 // Never expected such a stupid stuff from such a great director. If there is 0 stari can give that or -200 to this movie. Its worst to see and unnecessary loss of money
 
-#define PushWithLint(arena, list,  ...) { MD_S8ListPushFmt(arena, list,  __VA_ARGS__); if(false) printf( __VA_ARGS__); }
-#define FmtWithLint(arena, ...) (0 ? printf(__VA_ARGS__) : (void)0, MD_S8Fmt(arena, __VA_ARGS__))
+#define PushWithLint(arena, list,  ...) { S8ListPushFmt(arena, list,  __VA_ARGS__); if(false) printf( __VA_ARGS__); }
+#define FmtWithLint(arena, ...) (0 ? printf(__VA_ARGS__) : (void)0, S8Fmt(arena, __VA_ARGS__))
 
 typedef BUFF(char, 1024 * 10) Escaped;
 
@@ -26,9 +26,9 @@ bool character_valid(char c)
 	return c <= 126 && c >= 32;
 }
 
-MD_String8 escape_for_json(MD_Arena *arena, MD_String8 from)
+String8 escape_for_json(Arena *arena, String8 from)
 {
-	MD_u64 output_size = 0;
+	u64 output_size = 0;
 #define SHOULD_ESCAPE(c) (c == '"' || c == '\n' || c == '\\')
 	for (int i = 0; i < from.size; i++)
 	{
@@ -48,13 +48,13 @@ MD_String8 escape_for_json(MD_Arena *arena, MD_String8 from)
 		}
 	}
 
-	MD_String8 output = {
-		.str = MD_PushArray(arena, MD_u8, output_size),
+	String8 output = {
+		.str = PushArray(arena, u8, output_size),
 		.size = output_size,
 	};
-	MD_u64 output_cursor = 0;
+	u64 output_cursor = 0;
 
-	for(MD_u64 i = 0; i < from.size; i++)
+	for(u64 i = 0; i < from.size; i++)
 	{
 #define APPEND(elem) APPEND_TO_NAME(output.str, output_cursor, output.size, elem);
 		assert(output_cursor < output.size);
@@ -195,10 +195,10 @@ typedef struct
 
 // text chunk must be a literal, not a pointer
 // and this returns a s8 that points at the text chunk memory
-#define TextChunkString8(t) MD_S8((MD_u8*)(t).text, (t).text_length)
-#define TextChunkVArg(t) MD_S8VArg(TextChunkString8(t))
+#define TextChunkString8(t) S8((u8*)(t).text, (t).text_length)
+#define TextChunkVArg(t) S8VArg(TextChunkString8(t))
 
-void chunk_from_s8(TextChunk *into, MD_String8 from)
+void chunk_from_s8(TextChunk *into, String8 from)
 {
 	assert(from.size < ARRLEN(into->text));
 	memset(into->text, 0, ARRLEN(into->text));
@@ -207,7 +207,7 @@ void chunk_from_s8(TextChunk *into, MD_String8 from)
 }
 
 // returns ai understandable, human readable name, on the arena, so not the enum name
-MD_String8 action_argument_string(MD_Arena *arena, ActionArgument arg)
+String8 action_argument_string(Arena *arena, ActionArgument arg)
 {
 	switch(arg.kind)
 	{
@@ -215,9 +215,9 @@ MD_String8 action_argument_string(MD_Arena *arena, ActionArgument arg)
 		return FmtWithLint(arena, "%s", characters[arg.targeting].name);
 		break;
 		case ARG_OBJECTIVE:
-		return FmtWithLint(arena, "%.*s", MD_S8VArg(TextChunkString8(arg.objective.description)));
+		return FmtWithLint(arena, "%.*s", S8VArg(TextChunkString8(arg.objective.description)));
 	}
-	return (MD_String8){0};
+	return (String8){0};
 }
 
 
@@ -248,7 +248,7 @@ typedef struct Entity
 	Vec2 vel; // only used sometimes, like in old man and bullet
 	float damage; // at 1.0, dead! zero initialized
 	bool dead;
-	MD_String8 current_room_name;
+	String8 current_room_name;
 
 	// npcs
 	EntityRef joined;
@@ -384,9 +384,9 @@ bool npc_does_dialog(Entity *it)
 }
 
 // for no trailing comma just trim the last character
-MD_String8 make_json_node(MD_Arena *arena, MessageType type, MD_String8 content)
+String8 make_json_node(Arena *arena, MessageType type, String8 content)
 {
-	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
+	ArenaTemp scratch = GetScratch(&arena, 1);
 
 	const char *type_str = 0;
 	if (type == MSG_SYSTEM)
@@ -397,75 +397,75 @@ MD_String8 make_json_node(MD_Arena *arena, MessageType type, MD_String8 content)
 		type_str = "assistant";
 	assert(type_str);
 
-	MD_String8 escaped = escape_for_json(scratch.arena, content);
-	MD_String8 to_return = FmtWithLint(arena, "{\"type\": \"%s\", \"content\": \"%.*s\"},", type_str, MD_S8VArg(escaped));
-	MD_ReleaseScratch(scratch);
+	String8 escaped = escape_for_json(scratch.arena, content);
+	String8 to_return = FmtWithLint(arena, "{\"type\": \"%s\", \"content\": \"%.*s\"},", type_str, S8VArg(escaped));
+	ReleaseScratch(scratch);
 
 	return to_return;
 }
 
-MD_String8 npc_to_human_readable(Entity *me, NpcKind kind)
+String8 npc_to_human_readable(Entity *me, NpcKind kind)
 {
 	if(me->npc_kind == kind)
 	{
-		return MD_S8Lit("You");
+		return S8Lit("You");
 	}
 	else
 	{
-		return MD_S8CString(characters[kind].name);
+		return S8CString(characters[kind].name);
 	}
 }
 
 
-MD_String8List dump_memory_as_json(MD_Arena *arena, Memory *it)
+String8List dump_memory_as_json(Arena *arena, Memory *it)
 {
-	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
-	MD_String8List current_list = {0};
+	ArenaTemp scratch = GetScratch(&arena, 1);
+	String8List current_list = {0};
 	#define AddFmt(...) PushWithLint(arena, &current_list, __VA_ARGS__)
 
 	AddFmt("{");
 	AddFmt("\"speech\":\"%.*s\",", TextChunkVArg(it->speech));
 	AddFmt("\"action\":\"%s\",", actions[it->action_taken].name);
-	MD_String8 arg_str = action_argument_string(scratch.arena, it->action_argument);
-	AddFmt("\"action_argument\":\"%.*s\",", MD_S8VArg(arg_str));
+	String8 arg_str = action_argument_string(scratch.arena, it->action_argument);
+	AddFmt("\"action_argument\":\"%.*s\",", S8VArg(arg_str));
 	AddFmt("\"target\":\"%s\"}", characters[it->context.talking_to_kind].name);
 
  #undef AddFmt
-	MD_ReleaseScratch(scratch);
+	ReleaseScratch(scratch);
 	return current_list;
 }
 
 // outputs json which is parsed by the server
-MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, CanTalkTo can_talk_to)
+String8 generate_chatgpt_prompt(Arena *arena, GameState *gs, Entity *e, CanTalkTo can_talk_to)
 {
 	assert(e->is_npc);
 	assert(e->npc_kind < ARRLEN(characters));
 
-	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
+	ArenaTemp scratch = GetScratch(&arena, 1);
 
-	MD_String8List list = {0};
+	String8List list = {0};
 
 	PushWithLint(scratch.arena, &list, "[");
 
 	#define AddFmt(...) PushWithLint(scratch.arena, &current_list, __VA_ARGS__)
-	#define AddNewNode(node_type) { MD_S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, node_type, MD_S8ListJoin(scratch.arena, current_list, &(MD_StringJoin){0}))); current_list = (MD_String8List){0}; }
+	#define AddNewNode(node_type) { S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, node_type, S8ListJoin(scratch.arena, current_list, &(StringJoin){0}))); current_list = (String8List){0}; }
 	
 
 	// make first system node
 	{
-		MD_String8List current_list = {0};
+		String8List current_list = {0};
 		AddFmt("%s\n\n", global_prompt);
 		AddFmt("%s\n\n", characters[e->npc_kind].prompt);
 		AddFmt("The characters who are near you, that you can target:\n");
 		BUFF_ITER(Entity*, &can_talk_to)
 		{
 			assert((*it)->is_npc);
-			MD_String8 info = MD_S8Lit("");
+			String8 info = S8Lit("");
 			if((*it)->killed)
 			{
-				info = MD_S8Lit(" - they're currently dead, they were murdered");
+				info = S8Lit(" - they're currently dead, they were murdered");
 			}
-			AddFmt("%s%.*s\n", characters[(*it)->npc_kind].name, MD_S8VArg(info));
+			AddFmt("%s%.*s\n", characters[(*it)->npc_kind].name, S8VArg(info));
 		}
 		AddFmt("\n");
 
@@ -485,7 +485,7 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 		AddNewNode(MSG_SYSTEM);
 	}
 
-	MD_String8List current_list = {0};
+	String8List current_list = {0};
 	bool in_drama_memories = true;
 	assert(e->memories_first->context.drama_memory);
 	for(Memory *it = e->memories_first; it; it = it->next)
@@ -506,7 +506,7 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 			{
 				switch(it->action_taken)
 				{
-				#define HUMAN(kind) MD_S8VArg(npc_to_human_readable(e, kind))
+				#define HUMAN(kind) S8VArg(npc_to_human_readable(e, kind))
 				case ACT_none:
 					break;
 				case ACT_join:
@@ -540,22 +540,22 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 			}
 			if(it->speech.text_length > 0)
 			{
-				MD_String8 target_string = MD_S8Lit("the world");
+				String8 target_string = S8Lit("the world");
 				if(it->context.talking_to_kind != NPC_nobody)
 				{
 					if(it->context.talking_to_kind == e->npc_kind)
-						target_string = MD_S8Lit("you");
+						target_string = S8Lit("you");
 					else
-						target_string = MD_S8CString(characters[it->context.talking_to_kind].name);
+						target_string = S8CString(characters[it->context.talking_to_kind].name);
 				}
 
-				MD_String8 speaking_to_you_helper = MD_S8Lit("(Speaking directly you) ");
+				String8 speaking_to_you_helper = S8Lit("(Speaking directly you) ");
 				if(it->context.talking_to_kind != e->npc_kind)
 				{
-					speaking_to_you_helper = MD_S8Lit("(Overheard conversation, they aren't speaking directly to you) ");
+					speaking_to_you_helper = S8Lit("(Overheard conversation, they aren't speaking directly to you) ");
 				}
 
-				AddFmt("%.*s%s said \"%.*s\" to %.*s (you are %s)\n", MD_S8VArg(speaking_to_you_helper), characters[it->context.author_npc_kind].name, TextChunkVArg(it->speech), MD_S8VArg(target_string), characters[e->npc_kind].name);
+				AddFmt("%.*s%s said \"%.*s\" to %.*s (you are %s)\n", S8VArg(speaking_to_you_helper), characters[it->context.author_npc_kind].name, TextChunkVArg(it->speech), S8VArg(target_string), characters[e->npc_kind].name);
 			}
 
 			if(no_longer_wants_to_converse)
@@ -582,8 +582,8 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 				{
 					if(cur->offending_self_output.speech.text_length > 0 || cur->offending_self_output.action_taken != ACT_none)
 					{
-						MD_String8 offending_json_output = MD_S8ListJoin(scratch.arena, dump_memory_as_json(scratch.arena, &cur->offending_self_output), &(MD_StringJoin){0});
-						AddFmt("When you output, `%.*s`, ", MD_S8VArg(offending_json_output));
+						String8 offending_json_output = S8ListJoin(scratch.arena, dump_memory_as_json(scratch.arena, &cur->offending_self_output), &(StringJoin){0});
+						AddFmt("When you output, `%.*s`, ", S8VArg(offending_json_output));
 					}
 					AddFmt("%.*s\n", TextChunkVArg(cur->reason_why_its_bad));
 				}
@@ -594,34 +594,34 @@ MD_String8 generate_chatgpt_prompt(MD_Arena *arena, GameState *gs, Entity *e, Ca
 
 		if(it->context.i_said_this)
 		{
-			MD_String8List current_list = {0}; // shadow the list of human understandable sentences to quickly flush 
+			String8List current_list = {0}; // shadow the list of human understandable sentences to quickly flush 
 			current_list = dump_memory_as_json(scratch.arena, it);
 			AddNewNode(MSG_ASSISTANT);
 		}
 	}
-	MD_String8 with_trailing_comma = MD_S8ListJoin(scratch.arena, list, &(MD_StringJoin){MD_S8Lit(""),MD_S8Lit(""),MD_S8Lit(""),});
-	MD_String8 no_trailing_comma = MD_S8Chop(with_trailing_comma, 1);
+	String8 with_trailing_comma = S8ListJoin(scratch.arena, list, &(StringJoin){S8Lit(""),S8Lit(""),S8Lit(""),});
+	String8 no_trailing_comma = S8Chop(with_trailing_comma, 1);
 
-	MD_String8 to_return = MD_S8Fmt(arena, "%.*s]", MD_S8VArg(no_trailing_comma));
+	String8 to_return = S8Fmt(arena, "%.*s]", S8VArg(no_trailing_comma));
 
-	MD_ReleaseScratch(scratch);
+	ReleaseScratch(scratch);
 
  #undef AddFmt
 	return to_return;
 }
 
 
-MD_String8 get_field(MD_Node *parent, MD_String8 name)
+String8 get_field(Node *parent, String8 name)
 {
 	return MD_ChildFromString(parent, name, 0)->first_child->string;
 }
 
-void parse_action_argument(MD_Arena *error_arena, MD_String8 *cur_error_message, ActionKind action, MD_String8 action_argument_str, ActionArgument *out)
+void parse_action_argument(Arena *error_arena, String8 *cur_error_message, ActionKind action, String8 action_argument_str, ActionArgument *out)
 {
 	assert(cur_error_message);
 	if(cur_error_message->size > 0) return;
-	MD_ArenaTemp scratch = MD_GetScratch(&error_arena, 1);
-	MD_String8 action_str = MD_S8CString(actions[action].name);
+	ArenaTemp scratch = GetScratch(&error_arena, 1);
+	String8 action_str = S8CString(actions[action].name);
 	// @TODO refactor into, action argument kinds and they parse into different action argument types
 	bool arg_is_character = action == ACT_join || action == ACT_aim_shotgun || action == ACT_end_conversation;
 	bool arg_is_gameplay_objective = action == ACT_assign_gameplay_objective;
@@ -632,7 +632,7 @@ void parse_action_argument(MD_Arena *error_arena, MD_String8 *cur_error_message,
 		bool found_npc = false;
 		for (int i = 0; i < ARRLEN(characters); i++)
 		{
-			if (MD_S8Match(MD_S8CString(characters[i].name), action_argument_str, 0))
+			if (S8Match(S8CString(characters[i].name), action_argument_str, 0))
 			{
 				found_npc = true;
 				(*out).targeting = i;
@@ -640,7 +640,7 @@ void parse_action_argument(MD_Arena *error_arena, MD_String8 *cur_error_message,
 		}
 		if (!found_npc)
 		{
-			*cur_error_message = FmtWithLint(error_arena, "Argument for action `%.*s` you gave is `%.*s`, which doesn't exist in the game so is invalid", MD_S8VArg(action_str), MD_S8VArg(action_argument_str));
+			*cur_error_message = FmtWithLint(error_arena, "Argument for action `%.*s` you gave is `%.*s`, which doesn't exist in the game so is invalid", S8VArg(action_str), S8VArg(action_argument_str));
 		}
 	}
 	else if (arg_is_gameplay_objective)
@@ -648,8 +648,8 @@ void parse_action_argument(MD_Arena *error_arena, MD_String8 *cur_error_message,
 		out->kind = ARG_OBJECTIVE;
 		if(action_argument_str.size >= MAX_SENTENCE_LENGTH)
 		{
-			MD_String8 trimmed = MD_S8Substring(action_argument_str, action_argument_str.size - MAX_SENTENCE_LENGTH/2, action_argument_str.size);
-			*cur_error_message = FmtWithLint(error_arena, "What you said for your action argument, '%.*s...' is WAY too big for the game to handle, it can be a maximum of %d characters, but you output %d!.", MD_S8VArg(trimmed), MAX_SENTENCE_LENGTH, (int)action_argument_str.size);
+			String8 trimmed = S8Substring(action_argument_str, action_argument_str.size - MAX_SENTENCE_LENGTH/2, action_argument_str.size);
+			*cur_error_message = FmtWithLint(error_arena, "What you said for your action argument, '%.*s...' is WAY too big for the game to handle, it can be a maximum of %d characters, but you output %d!.", S8VArg(trimmed), MAX_SENTENCE_LENGTH, (int)action_argument_str.size);
 		}
 		if(cur_error_message->size == 0)
 		{
@@ -660,47 +660,47 @@ void parse_action_argument(MD_Arena *error_arena, MD_String8 *cur_error_message,
 	{
 		assert(false); // don't know how to parse the argument string for this kind of action...
 	}
-	MD_ReleaseScratch(scratch);
+	ReleaseScratch(scratch);
 }
 
 // if returned string has size greater than 0, it's the error message. Allocated
 // on arena passed into it or in constant memory
-MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 action_in_json, Action *out)
+String8 parse_chatgpt_response(Arena *arena, Entity *e, String8 action_in_json, Action *out)
 {
-	MD_ArenaTemp scratch = MD_GetScratch(&arena, 1);
+	ArenaTemp scratch = GetScratch(&arena, 1);
 
-	MD_String8 error_message = {0};
+	String8 error_message = {0};
 
 	*out = (Action) { 0 };
 
-	MD_ParseResult result = MD_ParseWholeString(scratch.arena, MD_S8Lit("chat_message"), action_in_json);
+	ParseResult result = ParseWholeString(scratch.arena, S8Lit("chat_message"), action_in_json);
 	if(result.errors.node_count > 0)
 	{
-		MD_Message *cur = result.errors.first;
-		MD_CodeLoc loc = MD_CodeLocFromNode(cur->node);
-		error_message = FmtWithLint(arena, "Parse Error on column %d: %.*s", loc.column, MD_S8VArg(cur->string));
+		Message *cur = result.errors.first;
+		CodeLoc loc = CodeLocFromNode(cur->node);
+		error_message = FmtWithLint(arena, "Parse Error on column %d: %.*s", loc.column, S8VArg(cur->string));
 	}
 
-	MD_Node *message_obj = result.node->first_child;
+	Node *message_obj = result.node->first_child;
 
-	MD_String8 speech_str = {0};
-	MD_String8 action_str = {0};
-	MD_String8 action_argument_str = {0};
-	MD_String8 target_str = {0};
+	String8 speech_str = {0};
+	String8 action_str = {0};
+	String8 action_argument_str = {0};
+	String8 target_str = {0};
 	if(error_message.size == 0)
 	{
-		speech_str = get_field(message_obj, MD_S8Lit("speech"));
-		action_str = get_field(message_obj, MD_S8Lit("action"));
-		action_argument_str = get_field(message_obj, MD_S8Lit("action_argument"));
-		target_str = get_field(message_obj, MD_S8Lit("target"));
+		speech_str = get_field(message_obj, S8Lit("speech"));
+		action_str = get_field(message_obj, S8Lit("action"));
+		action_argument_str = get_field(message_obj, S8Lit("action_argument"));
+		target_str = get_field(message_obj, S8Lit("target"));
 	}
 	if(error_message.size == 0 && action_str.size == 0)
 	{
-		error_message = MD_S8Lit("The field `action` must be of nonzero length, if you don't want to do anything it should be `none`");
+		error_message = S8Lit("The field `action` must be of nonzero length, if you don't want to do anything it should be `none`");
 	}
 	if(error_message.size == 0 && action_str.size == 0)
 	{
-		error_message = MD_S8Lit("The field `target` must be of nonzero length, if you don't want to target anybody it should be `nobody`");
+		error_message = S8Lit("The field `target` must be of nonzero length, if you don't want to target anybody it should be `nobody`");
 	}	if(error_message.size == 0 && speech_str.size >= MAX_SENTENCE_LENGTH)
 	{
 		error_message = FmtWithLint(arena, "Speech string provided is too big, maximum bytes is %d", MAX_SENTENCE_LENGTH);
@@ -709,7 +709,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 action_
 
 	if(error_message.size == 0)
 	{
-		if(MD_S8Match(target_str, MD_S8Lit("nobody"), 0))
+		if(S8Match(target_str, S8Lit("nobody"), 0))
 		{
 			out->talking_to_kind = NPC_nobody;
 		}
@@ -718,7 +718,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 action_
 			bool found = false;
 			for(int i = 0; i < ARRLEN(characters); i++)
 			{
-				if(MD_S8Match(target_str, MD_S8CString(characters[i].name), 0))
+				if(S8Match(target_str, S8CString(characters[i].name), 0))
 				{
 					found = true;
                     out->talking_to_kind = i;
@@ -726,7 +726,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 action_
 			}
 			if(!found)
 			{
-				error_message = FmtWithLint(arena, "Unrecognized character provided in field 'target': `%.*s`", MD_S8VArg(target_str));
+				error_message = FmtWithLint(arena, "Unrecognized character provided in field 'target': `%.*s`", S8VArg(target_str));
 			}
 		}
 	}
@@ -742,7 +742,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 action_
 		bool found_action = false;
 		for(int i = 0; i < ARRLEN(actions); i++)
 		{
-			if(MD_S8Match(MD_S8CString(actions[i].name), action_str, 0))
+			if(S8Match(S8CString(actions[i].name), action_str, 0))
 			{
 				assert(!found_action);
 				found_action = true;
@@ -751,7 +751,7 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 action_
 		}
 		if(!found_action)
 		{
-			error_message = FmtWithLint(arena, "Action `%.*s` is invalid, doesn't exist in the game", MD_S8VArg(action_str));
+			error_message = FmtWithLint(arena, "Action `%.*s` is invalid, doesn't exist in the game", S8VArg(action_str));
 		}
 
 		if(error_message.size == 0)
@@ -763,6 +763,6 @@ MD_String8 parse_chatgpt_response(MD_Arena *arena, Entity *e, MD_String8 action_
 		}
 	}
 
-	MD_ReleaseScratch(scratch);
+	ReleaseScratch(scratch);
 	return error_message;
 }

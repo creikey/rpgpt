@@ -582,12 +582,12 @@ cl = lg;                                 \
             // copy the string in
             goto scopy;
             
-            //~ rjf: METADESK ADDITION: %S for MD_String8's
+            //~ rjf: METADESK ADDITION: %S for String8's
             
-            case 'S': // MD_String8
+            case 'S': // String8
             {
                 //- rjf: pull out string
-                MD_String8 str = va_arg(va, MD_String8);
+                String8 str = va_arg(va, String8);
                 
                 //- rjf: get string length
                 s = (char *)str.str;

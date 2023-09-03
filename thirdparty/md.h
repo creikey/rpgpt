@@ -52,37 +52,37 @@
 #ifndef MD_H
 #define MD_H
 
-#define MD_VERSION_MAJ 1
-#define MD_VERSION_MIN 0
+#define VERSION_MAJ 1
+#define VERSION_MIN 0
 
 //~ Set default values for controls
-#if !defined(MD_DEFAULT_BASIC_TYPES)
-# define MD_DEFAULT_BASIC_TYPES 1
+#if !defined(DEFAULT_BASIC_TYPES)
+# define DEFAULT_BASIC_TYPES 1
 #endif
-#if !defined(MD_DEFAULT_MEMSET)
-# define MD_DEFAULT_MEMSET 1
+#if !defined(DEFAULT_MEMSET)
+# define DEFAULT_MEMSET 1
 #endif
-#if !defined(MD_DEFAULT_FILE_LOAD)
-# define MD_DEFAULT_FILE_LOAD 1
+#if !defined(DEFAULT_FILE_LOAD)
+# define DEFAULT_FILE_LOAD 1
 #endif
-#if !defined(MD_DEFAULT_FILE_ITER)
-# define MD_DEFAULT_FILE_ITER 1
+#if !defined(DEFAULT_FILE_ITER)
+# define DEFAULT_FILE_ITER 1
 #endif
-#if !defined(MD_DEFAULT_MEMORY)
-# define MD_DEFAULT_MEMORY 1
+#if !defined(DEFAULT_MEMORY)
+# define DEFAULT_MEMORY 1
 #endif
-#if !defined(MD_DEFAULT_ARENA)
-# define MD_DEFAULT_ARENA 1
+#if !defined(DEFAULT_ARENA)
+# define DEFAULT_ARENA 1
 #endif
-#if !defined(MD_DEFAULT_SCRATCH)
-# define MD_DEFAULT_SCRATCH 1
+#if !defined(DEFAULT_SCRATCH)
+# define DEFAULT_SCRATCH 1
 #endif
-#if !defined(MD_DEFAULT_SPRINTF)
-# define MD_DEFAULT_SPRINTF 1
+#if !defined(DEFAULT_SPRINTF)
+# define DEFAULT_SPRINTF 1
 #endif
 
-#if !defined(MD_DISABLE_PRINT_HELPERS)
-# define MD_DISABLE_PRINT_HELPERS 0
+#if !defined(DISABLE_PRINT_HELPERS)
+# define DISABLE_PRINT_HELPERS 0
 #endif
 
 
@@ -92,90 +92,90 @@
 
 #if defined(__clang__)
 
-# define MD_COMPILER_CLANG 1
+# define COMPILER_CLANG 1
 
 # if defined(__APPLE__) && defined(__MACH__)
-#  define MD_OS_MAC 1
+#  define OS_MAC 1
 # elif defined(__gnu_linux__)
-#  define MD_OS_LINUX 1
+#  define OS_LINUX 1
 # elif defined(_WIN32)
-#  define MD_OS_WINDOWS 1
+#  define OS_WINDOWS 1
 # else
 #  error This compiler/platform combo is not supported yet
 # endif
 
 # if defined(__amd64__) || defined(__amd64) || defined(__x86_64__) || defined(__x86_64)
-#  define MD_ARCH_X64 1
+#  define ARCH_X64 1
 # elif defined(i386) || defined(__i386) || defined(__i386__)
-#  define MD_ARCH_X86 1
+#  define ARCH_X86 1
 # elif defined(__aarch64__)
-#  define MD_ARCH_ARM64 1
+#  define ARCH_ARM64 1
 # elif defined(__arm__)
-#  define MD_ARCH_ARM32 1
+#  define ARCH_ARM32 1
 # else
 #  error architecture not supported yet
 # endif
 
 #elif defined(_MSC_VER)
 
-# define MD_COMPILER_CL 1
+# define COMPILER_CL 1
 
 # if defined(_WIN32)
-#  define MD_OS_WINDOWS 1
+#  define OS_WINDOWS 1
 # else
 #  error This compiler/platform combo is not supported yet
 # endif
 
 # if defined(_M_AMD64)
-#  define MD_ARCH_X64 1
+#  define ARCH_X64 1
 # elif defined(_M_IX86)
-#  define MD_ARCH_X86 1
+#  define ARCH_X86 1
 # elif defined(_M_ARM64)
-#  define MD_ARCH_ARM64 1
+#  define ARCH_ARM64 1
 # elif defined(_M_ARM)
-#  define MD_ARCH_ARM32 1
+#  define ARCH_ARM32 1
 # else
 #  error architecture not supported yet
 # endif
 
 # if _MSC_VER >= 1920
-#  define MD_COMPILER_CL_YEAR 2019
+#  define COMPILER_CL_YEAR 2019
 # elif _MSC_VER >= 1910
-#  define MD_COMPILER_CL_YEAR 2017
+#  define COMPILER_CL_YEAR 2017
 # elif _MSC_VER >= 1900
-#  define MD_COMPILER_CL_YEAR 2015
+#  define COMPILER_CL_YEAR 2015
 # elif _MSC_VER >= 1800
-#  define MD_COMPILER_CL_YEAR 2013
+#  define COMPILER_CL_YEAR 2013
 # elif _MSC_VER >= 1700
-#  define MD_COMPILER_CL_YEAR 2012
+#  define COMPILER_CL_YEAR 2012
 # elif _MSC_VER >= 1600
-#  define MD_COMPILER_CL_YEAR 2010
+#  define COMPILER_CL_YEAR 2010
 # elif _MSC_VER >= 1500
-#  define MD_COMPILER_CL_YEAR 2008
+#  define COMPILER_CL_YEAR 2008
 # elif _MSC_VER >= 1400
-#  define MD_COMPILER_CL_YEAR 2005
+#  define COMPILER_CL_YEAR 2005
 # else
-#  define MD_COMPILER_CL_YEAR 0
+#  define COMPILER_CL_YEAR 0
 # endif
 
 #elif defined(__GNUC__) || defined(__GNUG__)
 
-# define MD_COMPILER_GCC 1
+# define COMPILER_GCC 1
 
 # if defined(__gnu_linux__)
-#  define MD_OS_LINUX 1
+#  define OS_LINUX 1
 # else
 #  error This compiler/platform combo is not supported yet
 # endif
 
 # if defined(__amd64__) || defined(__amd64) || defined(__x86_64__) || defined(__x86_64)
-#  define MD_ARCH_X64 1
+#  define ARCH_X64 1
 # elif defined(i386) || defined(__i386) || defined(__i386__)
-#  define MD_ARCH_X86 1
+#  define ARCH_X86 1
 # elif defined(__aarch64__)
-#  define MD_ARCH_ARM64 1
+#  define ARCH_ARM64 1
 # elif defined(__arm__)
-#  define MD_ARCH_ARM32 1
+#  define ARCH_ARM32 1
 # else
 #  error architecture not supported yet
 # endif
@@ -184,133 +184,133 @@
 # error This compiler is not supported yet
 #endif
 
-#if defined(MD_ARCH_X64)
-# define MD_ARCH_64BIT 1
-#elif defined(MD_ARCH_X86)
-# define MD_ARCH_32BIT 1
+#if defined(ARCH_X64)
+# define ARCH_64BIT 1
+#elif defined(ARCH_X86)
+# define ARCH_32BIT 1
 #endif
 
 #if defined(__cplusplus)
-# define MD_LANG_CPP 1
+# define LANG_CPP 1
 
 // We can't get this 100% correct thanks to Microsoft's compiler.
-// So this check lets us pre-define MD_CPP_VERSION if we have to.
-# if !defined(MD_CPP_VERSION)
-#  if defined(MD_COMPILER_CL)
+// So this check lets us pre-define CPP_VERSION if we have to.
+# if !defined(CPP_VERSION)
+#  if defined(COMPILER_CL)
 // CL is annoying and didn't update __cplusplus over time
 // If it is available _MSVC_LANG serves the same role
 #   if defined(_MSVC_LANG)
 #    if _MSVC_LANG <= 199711L
-#     define MD_CPP_VERSION 98
+#     define CPP_VERSION 98
 #    elif _MSVC_LANG <= 201103L
-#     define MD_CPP_VERSION 11
+#     define CPP_VERSION 11
 #    elif _MSVC_LANG <= 201402L
-#     define MD_CPP_VERSION 14
+#     define CPP_VERSION 14
 #    elif _MSVC_LANG <= 201703L
-#     define MD_CPP_VERSION 17
+#     define CPP_VERSION 17
 #    elif _MSVC_LANG <= 202002L
-#     define MD_CPP_VERSION 20
+#     define CPP_VERSION 20
 #    else
-#     define MD_CPP_VERSION 23
+#     define CPP_VERSION 23
 #    endif
 // If we don't have _MSVC_LANG we can guess from the compiler version
 #   else
-#    if MD_COMPILER_CL_YEAR <= 2010
-#     define MD_CPP_VERSION 98
-#    elif MD_COMPILER_CL_YEAR <= 2015
-#     define MD_CPP_VERSION 11
+#    if COMPILER_CL_YEAR <= 2010
+#     define CPP_VERSION 98
+#    elif COMPILER_CL_YEAR <= 2015
+#     define CPP_VERSION 11
 #    else
-#     define MD_CPP_VERSION 17
+#     define CPP_VERSION 17
 #    endif
 #   endif
 #  else
 // Other compilers use __cplusplus correctly
 #   if __cplusplus <= 199711L
-#    define MD_CPP_VERSION 98
+#    define CPP_VERSION 98
 #   elif __cplusplus <= 201103L
-#    define MD_CPP_VERSION 11
+#    define CPP_VERSION 11
 #   elif __cplusplus <= 201402L
-#    define MD_CPP_VERSION 14
+#    define CPP_VERSION 14
 #   elif __cplusplus <= 201703L
-#    define MD_CPP_VERSION 17
+#    define CPP_VERSION 17
 #   elif __cplusplus <= 202002L
-#    define MD_CPP_VERSION 20
+#    define CPP_VERSION 20
 #   else
-#    define MD_CPP_VERSION 23
+#    define CPP_VERSION 23
 #   endif
 #  endif
 # endif
 
 #else
-# define MD_LANG_C 1
+# define LANG_C 1
 #endif
 
 // zeroify
 
-#if !defined(MD_ARCH_32BIT)
-# define MD_ARCH_32BIT 0
+#if !defined(ARCH_32BIT)
+# define ARCH_32BIT 0
 #endif
-#if !defined(MD_ARCH_64BIT)
-# define MD_ARCH_64BIT 0
+#if !defined(ARCH_64BIT)
+# define ARCH_64BIT 0
 #endif
-#if !defined(MD_ARCH_X64)
-# define MD_ARCH_X64 0
+#if !defined(ARCH_X64)
+# define ARCH_X64 0
 #endif
-#if !defined(MD_ARCH_X86)
-# define MD_ARCH_X86 0
+#if !defined(ARCH_X86)
+# define ARCH_X86 0
 #endif
-#if !defined(MD_ARCH_ARM64)
-# define MD_ARCH_ARM64 0
+#if !defined(ARCH_ARM64)
+# define ARCH_ARM64 0
 #endif
-#if !defined(MD_ARCH_ARM32)
-# define MD_ARCH_ARM32 0
+#if !defined(ARCH_ARM32)
+# define ARCH_ARM32 0
 #endif
-#if !defined(MD_COMPILER_CL)
-# define MD_COMPILER_CL 0
+#if !defined(COMPILER_CL)
+# define COMPILER_CL 0
 #endif
-#if !defined(MD_COMPILER_GCC)
-# define MD_COMPILER_GCC 0
+#if !defined(COMPILER_GCC)
+# define COMPILER_GCC 0
 #endif
-#if !defined(MD_COMPILER_CLANG)
-# define MD_COMPILER_CLANG 0
+#if !defined(COMPILER_CLANG)
+# define COMPILER_CLANG 0
 #endif
-#if !defined(MD_OS_WINDOWS)
-# define MD_OS_WINDOWS 0
+#if !defined(OS_WINDOWS)
+# define OS_WINDOWS 0
 #endif
-#if !defined(MD_OS_LINUX)
-# define MD_OS_LINUX 0
+#if !defined(OS_LINUX)
+# define OS_LINUX 0
 #endif
-#if !defined(MD_OS_MAC)
-# define MD_OS_MAC 0
+#if !defined(OS_MAC)
+# define OS_MAC 0
 #endif
-#if !defined(MD_LANG_C)
-# define MD_LANG_C 0
+#if !defined(LANG_C)
+# define LANG_C 0
 #endif
-#if !defined(MD_LANG_CPP)
-# define MD_LANG_CPP 0
+#if !defined(LANG_CPP)
+# define LANG_CPP 0
 #endif
-#if !defined(MD_CPP_VERSION)
-# define MD_CPP_VERSION 0
+#if !defined(CPP_VERSION)
+# define CPP_VERSION 0
 #endif
 
-#if MD_LANG_CPP
-# define MD_ZERO_STRUCT {}
+#if LANG_CPP
+# define ZERO_STRUCT {}
 #else
-# define MD_ZERO_STRUCT {0}
+# define ZERO_STRUCT {0}
 #endif
 
-#if MD_LANG_C
-# define MD_C_LINKAGE_BEGIN
-# define MD_C_LINKAGE_END
+#if LANG_C
+# define C_LINKAGE_BEGIN
+# define C_LINKAGE_END
 #else
-# define MD_C_LINKAGE_BEGIN extern "C"{
-# define MD_C_LINKAGE_END }
+# define C_LINKAGE_BEGIN extern "C"{
+# define C_LINKAGE_END }
 #endif
 
-#if MD_COMPILER_CL
-# define MD_THREAD_LOCAL __declspec(thread)
-#elif MD_COMPILER_GCC || MD_COMPILER_CLANG
-# define MD_THREAD_LOCAL __thread
+#if COMPILER_CL
+# define THREAD_LOCAL __declspec(thread)
+#elif COMPILER_GCC || COMPILER_CLANG
+# define THREAD_LOCAL __thread
 #endif
 
 //~/////////////////////////////////////////////////////////////////////////////
@@ -319,50 +319,50 @@
 
 //~ Linkage Wrappers
 
-#if !defined(MD_FUNCTION)
-# define MD_FUNCTION
+#if !defined(FUNCTION)
+# define FUNCTION
 #endif
 
-#if !defined(MD_GLOBAL)
-# define MD_GLOBAL static
+#if !defined(GLOBAL)
+# define GLOBAL static
 #endif
 
 //~ Basic Utilities
 
-#define MD_Assert(c) if (!(c)) { *(volatile MD_u64 *)0 = 0; }
-#define MD_StaticAssert(c,label) MD_u8 MD_static_assert_##label[(c)?(1):(-1)]
-#define MD_ArrayCount(a) (sizeof(a) / sizeof((a)[0]))
+#define Assert(c) if (!(c)) { *(volatile u64 *)0 = 0; }
+#define StaticAssert(c,label) u8 static_assert_##label[(c)?(1):(-1)]
+#define ArrayCount(a) (sizeof(a) / sizeof((a)[0]))
 
-#define MD_Min(a,b) (((a)<(b))?(a):(b))
-#define MD_Max(a,b) (((a)>(b))?(a):(b))
-#define MD_ClampBot(a,b) MD_Max(a,b)
-#define MD_ClampTop(a,b) MD_Min(a,b)
+#define Min(a,b) (((a)<(b))?(a):(b))
+#define Max(a,b) (((a)>(b))?(a):(b))
+#define ClampBot(a,b) Max(a,b)
+#define ClampTop(a,b) Min(a,b)
 
-#define MD_AlignPow2(x,b) (((x)+((b)-1))&(~((b)-1)))
+#define AlignPow2(x,b) (((x)+((b)-1))&(~((b)-1)))
 
 //~ Linked List Macros
 
 // terminator modes
-#define MD_CheckNull(p) ((p)==0)
-#define MD_SetNull(p) ((p)=0)
-#define MD_CheckNil(p) (MD_NodeIsNil(p))
-#define MD_SetNil(p) ((p)=MD_NilNode())
+#define CheckNull(p) ((p)==0)
+#define SetNull(p) ((p)=0)
+#define CheckNil(p) (NodeIsNil(p))
+#define SetNil(p) ((p)=NilNode())
 
 // implementations
-#define MD_QueuePush_NZ(f,l,n,next,zchk,zset) (zchk(f)?\
+#define QueuePush_NZ(f,l,n,next,zchk,zset) (zchk(f)?\
 (f)=(l)=(n):\
 ((l)->next=(n),(l)=(n),zset((n)->next)))
-#define MD_QueuePop_NZ(f,l,next,zset) ((f)==(l)?\
+#define QueuePop_NZ(f,l,next,zset) ((f)==(l)?\
 (zset(f),zset(l)):\
 ((f)=(f)->next))
-#define MD_StackPush_N(f,n,next) ((n)->next=(f),(f)=(n))
-#define MD_StackPop_NZ(f,next,zchk) (zchk(f)?0:((f)=(f)->next))
+#define StackPush_N(f,n,next) ((n)->next=(f),(f)=(n))
+#define StackPop_NZ(f,next,zchk) (zchk(f)?0:((f)=(f)->next))
 
-#define MD_DblPushBack_NPZ(f,l,n,next,prev,zchk,zset) \
+#define DblPushBack_NPZ(f,l,n,next,prev,zchk,zset) \
 (zchk(f)?\
 ((f)=(l)=(n),zset((n)->next),zset((n)->prev)):\
 ((n)->prev=(l),(l)->next=(n),(l)=(n),zset((n)->next)))
-#define MD_DblRemove_NPZ(f,l,n,next,prev,zchk,zset) (((f)==(n))?\
+#define DblRemove_NPZ(f,l,n,next,prev,zchk,zset) (((f)==(n))?\
 ((f)=(f)->next, (zchk(f) ? (zset(l)) : zset((f)->prev))):\
 ((l)==(n))?\
 ((l)=(l)->prev, (zchk(l) ? (zset(f)) : zset((l)->next))):\
@@ -371,30 +371,30 @@
 
 
 // compositions
-#define MD_QueuePush(f,l,n) MD_QueuePush_NZ(f,l,n,next,MD_CheckNull,MD_SetNull)
-#define MD_QueuePop(f,l)    MD_QueuePop_NZ(f,l,next,MD_SetNull)
-#define MD_StackPush(f,n)   MD_StackPush_N(f,n,next)
-#define MD_StackPop(f)      MD_StackPop_NZ(f,next,MD_CheckNull)
-#define MD_DblPushBack(f,l,n)  MD_DblPushBack_NPZ(f,l,n,next,prev,MD_CheckNull,MD_SetNull)
-#define MD_DblPushFront(f,l,n) MD_DblPushBack_NPZ(l,f,n,prev,next,MD_CheckNull,MD_SetNull)
-#define MD_DblRemove(f,l,n)    MD_DblRemove_NPZ(f,l,n,next,prev,MD_CheckNull,MD_SetNull)
+#define QueuePush(f,l,n) QueuePush_NZ(f,l,n,next,CheckNull,SetNull)
+#define QueuePop(f,l)    QueuePop_NZ(f,l,next,SetNull)
+#define StackPush(f,n)   StackPush_N(f,n,next)
+#define StackPop(f)      StackPop_NZ(f,next,CheckNull)
+#define DblPushBack(f,l,n)  DblPushBack_NPZ(f,l,n,next,prev,CheckNull,SetNull)
+#define DblPushFront(f,l,n) DblPushBack_NPZ(l,f,n,prev,next,CheckNull,SetNull)
+#define DblRemove(f,l,n)    DblRemove_NPZ(f,l,n,next,prev,CheckNull,SetNull)
 
-#define MD_NodeDblPushBack(f,l,n)  MD_DblPushBack_NPZ(f,l,n,next,prev,MD_CheckNil,MD_SetNil)
-#define MD_NodeDblPushFront(f,l,n) MD_DblPushBack_NPZ(l,f,n,prev,next,MD_CheckNil,MD_SetNil)
-#define MD_NodeDblRemove(f,l,n)    MD_DblRemove_NPZ(f,l,n,next,prev,MD_CheckNil,MD_SetNil)
+#define NodeDblPushBack(f,l,n)  DblPushBack_NPZ(f,l,n,next,prev,CheckNil,SetNil)
+#define NodeDblPushFront(f,l,n) DblPushBack_NPZ(l,f,n,prev,next,CheckNil,SetNil)
+#define NodeDblRemove(f,l,n)    DblRemove_NPZ(f,l,n,next,prev,CheckNil,SetNil)
 
 
 //~ Memory Operations
 
-#define MD_MemorySet(p,v,z)    (MD_IMPL_Memset(p,v,z))
-#define MD_MemoryZero(p,z)     (MD_IMPL_Memset(p,0,z))
-#define MD_MemoryZeroStruct(p) (MD_IMPL_Memset(p,0,sizeof(*(p))))
-#define MD_MemoryCopy(d,s,z)   (MD_IMPL_Memmove(d,s,z))
+#define MemorySet(p,v,z)    (IMPL_Memset(p,v,z))
+#define MemoryZero(p,z)     (IMPL_Memset(p,0,z))
+#define MemoryZeroStruct(p) (IMPL_Memset(p,0,sizeof(*(p))))
+#define MemoryCopy(d,s,z)   (IMPL_Memmove(d,s,z))
 
 //~ sprintf
-#if MD_DEFAULT_SPRINTF
+#if DEFAULT_SPRINTF
 #define STB_SPRINTF_DECORATE(name) md_stbsp_##name
-#define MD_IMPL_Vsnprintf md_stbsp_vsnprintf
+#define IMPL_Vsnprintf md_stbsp_vsnprintf
 #include "md_stb_sprintf.h"
 #endif
 
@@ -406,520 +406,520 @@
 
 #include <stdarg.h>
 
-#if defined(MD_DEFAULT_BASIC_TYPES)
+#if defined(DEFAULT_BASIC_TYPES)
 
 #include <stdint.h>
-typedef int8_t   MD_i8;
-typedef int16_t  MD_i16;
-typedef int32_t  MD_i32;
-typedef int64_t  MD_i64;
-typedef uint8_t  MD_u8;
-typedef uint16_t MD_u16;
-typedef uint32_t MD_u32;
-typedef uint64_t MD_u64;
-typedef float    MD_f32;
-typedef double   MD_f64;
+typedef int8_t   i8;
+typedef int16_t  i16;
+typedef int32_t  i32;
+typedef int64_t  i64;
+typedef uint8_t  u8;
+typedef uint16_t u16;
+typedef uint32_t u32;
+typedef uint64_t u64;
+typedef float    f32;
+typedef double   f64;
 
 #endif
 
-typedef MD_i8  MD_b8;
-typedef MD_i16 MD_b16;
-typedef MD_i32 MD_b32;
-typedef MD_i64 MD_b64;
+typedef i8  b8;
+typedef i16 b16;
+typedef i32 b32;
+typedef i64 b64;
 
 //~ Default Arena
 
-#if MD_DEFAULT_ARENA
+#if DEFAULT_ARENA
 
-typedef struct MD_ArenaDefault MD_ArenaDefault;
-struct MD_ArenaDefault
+typedef struct ArenaDefault ArenaDefault;
+struct ArenaDefault
 {
-    MD_ArenaDefault *prev;
-    MD_ArenaDefault *current;
-    MD_u64 base_pos;
-    MD_u64 pos;
-    MD_u64 cmt;
-    MD_u64 cap;
-    MD_u64 align;
+    ArenaDefault *prev;
+    ArenaDefault *current;
+    u64 base_pos;
+    u64 pos;
+    u64 cmt;
+    u64 cap;
+    u64 align;
 };
-#define MD_IMPL_Arena MD_ArenaDefault
+#define IMPL_Arena ArenaDefault
 
 #endif
 
 //~ Abstract Arena
 
-#if !defined(MD_IMPL_Arena)
-# error Missing implementation for MD_IMPL_Arena
+#if !defined(IMPL_Arena)
+# error Missing implementation for IMPL_Arena
 #endif
 
-typedef MD_IMPL_Arena MD_Arena;
+typedef IMPL_Arena Arena;
 
 //~ Arena Helpers
 
-typedef struct MD_ArenaTemp MD_ArenaTemp;
-struct MD_ArenaTemp
+typedef struct ArenaTemp ArenaTemp;
+struct ArenaTemp
 {
-    MD_Arena *arena;
-    MD_u64 pos;
+    Arena *arena;
+    u64 pos;
 };
 
 //~ Basic Unicode string types.
 
-typedef struct MD_String8 MD_String8;
-struct MD_String8
+typedef struct String8 String8;
+struct String8
 {
-    MD_u8 *str;
-    MD_u64 size;
+    u8 *str;
+    u64 size;
 };
 
-typedef struct MD_String16 MD_String16;
-struct MD_String16
+typedef struct String16 String16;
+struct String16
 {
-    MD_u16 *str;
-    MD_u64 size;
+    u16 *str;
+    u64 size;
 };
 
-typedef struct MD_String32 MD_String32;
-struct MD_String32
+typedef struct String32 String32;
+struct String32
 {
-    MD_u32 *str;
-    MD_u64 size;
+    u32 *str;
+    u64 size;
 };
 
-typedef struct MD_String8Node MD_String8Node;
-struct MD_String8Node
+typedef struct String8Node String8Node;
+struct String8Node
 {
-    MD_String8Node *next;
-    MD_String8 string;
+    String8Node *next;
+    String8 string;
 };
 
-typedef struct MD_String8List MD_String8List;
-struct MD_String8List
+typedef struct String8List String8List;
+struct String8List
 {
-    MD_u64 node_count;
-    MD_u64 total_size;
-    MD_String8Node *first;
-    MD_String8Node *last;
+    u64 node_count;
+    u64 total_size;
+    String8Node *first;
+    String8Node *last;
 };
 
-typedef struct MD_StringJoin MD_StringJoin;
-struct MD_StringJoin
+typedef struct StringJoin StringJoin;
+struct StringJoin
 {
-    MD_String8 pre;
-    MD_String8 mid;
-    MD_String8 post;
+    String8 pre;
+    String8 mid;
+    String8 post;
 };
 
 // NOTE(rjf): @maintenance These three flag types must not overlap.
-typedef MD_u32 MD_MatchFlags;
-typedef MD_u32 MD_StringMatchFlags;
-typedef MD_u32 MD_NodeMatchFlags;
+typedef u32 MatchFlags;
+typedef u32 StringMatchFlags;
+typedef u32 NodeMatchFlags;
 enum
 {
-    MD_MatchFlag_FindLast = (1<<0),
+    MatchFlag_FindLast = (1<<0),
 };
 enum
 {
-    MD_StringMatchFlag_CaseInsensitive  = (1<<4),
-    MD_StringMatchFlag_RightSideSloppy  = (1<<5),
-    MD_StringMatchFlag_SlashInsensitive = (1<<6),
+    StringMatchFlag_CaseInsensitive  = (1<<4),
+    StringMatchFlag_RightSideSloppy  = (1<<5),
+    StringMatchFlag_SlashInsensitive = (1<<6),
 };
 enum
 {
-    MD_NodeMatchFlag_Tags             = (1<<16),
-    MD_NodeMatchFlag_TagArguments     = (1<<17),
-    MD_NodeMatchFlag_NodeFlags        = (1<<18),
+    NodeMatchFlag_Tags             = (1<<16),
+    NodeMatchFlag_TagArguments     = (1<<17),
+    NodeMatchFlag_NodeFlags        = (1<<18),
 };
 
-typedef struct MD_DecodedCodepoint MD_DecodedCodepoint;
-struct MD_DecodedCodepoint
+typedef struct DecodedCodepoint DecodedCodepoint;
+struct DecodedCodepoint
 {
-    MD_u32 codepoint;
-    MD_u32 advance;
+    u32 codepoint;
+    u32 advance;
 };
 
-typedef enum MD_IdentifierStyle
+typedef enum IdentifierStyle
 {
-    MD_IdentifierStyle_UpperCamelCase,
-    MD_IdentifierStyle_LowerCamelCase,
-    MD_IdentifierStyle_UpperCase,
-    MD_IdentifierStyle_LowerCase,
+    IdentifierStyle_UpperCamelCase,
+    IdentifierStyle_LowerCamelCase,
+    IdentifierStyle_UpperCase,
+    IdentifierStyle_LowerCase,
 }
-MD_IdentifierStyle;
+IdentifierStyle;
 
 //~ Node types that are used to build all ASTs.
 
-typedef enum MD_NodeKind
+typedef enum NodeKind
 {
-    // NOTE(rjf): @maintenance Must be kept in sync with MD_StringFromNodeKind.
+    // NOTE(rjf): @maintenance Must be kept in sync with StringFromNodeKind.
     
-    MD_NodeKind_Nil,
+    NodeKind_Nil,
     
     // NOTE(rjf): Generated by parser
-    MD_NodeKind_File,
-    MD_NodeKind_ErrorMarker,
+    NodeKind_File,
+    NodeKind_ErrorMarker,
     
     // NOTE(rjf): Parsed from user Metadesk code
-    MD_NodeKind_Main,
-    MD_NodeKind_Tag,
+    NodeKind_Main,
+    NodeKind_Tag,
     
     // NOTE(rjf): User-created data structures
-    MD_NodeKind_List,
-    MD_NodeKind_Reference,
+    NodeKind_List,
+    NodeKind_Reference,
     
-    MD_NodeKind_COUNT,
+    NodeKind_COUNT,
 }
-MD_NodeKind;
+NodeKind;
 
-typedef MD_u64 MD_NodeFlags;
-#define MD_NodeFlag_AfterFromBefore(f) ((f) << 1)
+typedef u64 NodeFlags;
+#define NodeFlag_AfterFromBefore(f) ((f) << 1)
 enum
 {
-    // NOTE(rjf): @maintenance Must be kept in sync with MD_StringListFromNodeFlags.
+    // NOTE(rjf): @maintenance Must be kept in sync with StringListFromNodeFlags.
     
-    // NOTE(rjf): @maintenance Because of MD_NodeFlag_AfterFromBefore, it is
+    // NOTE(rjf): @maintenance Because of NodeFlag_AfterFromBefore, it is
     // *required* that every single pair of "Before*" or "After*" flags be in
     // the correct order which is that the Before* flag comes first, and the
     // After* flag comes immediately after (After* being the more significant
     // bit).
     
-    MD_NodeFlag_HasParenLeft               = (1<<0),
-    MD_NodeFlag_HasParenRight              = (1<<1),
-    MD_NodeFlag_HasBracketLeft             = (1<<2),
-    MD_NodeFlag_HasBracketRight            = (1<<3),
-    MD_NodeFlag_HasBraceLeft               = (1<<4),
-    MD_NodeFlag_HasBraceRight              = (1<<5),
+    NodeFlag_HasParenLeft               = (1<<0),
+    NodeFlag_HasParenRight              = (1<<1),
+    NodeFlag_HasBracketLeft             = (1<<2),
+    NodeFlag_HasBracketRight            = (1<<3),
+    NodeFlag_HasBraceLeft               = (1<<4),
+    NodeFlag_HasBraceRight              = (1<<5),
     
-    MD_NodeFlag_MaskSetDelimiters          = (0x3F<<0),
+    NodeFlag_MaskSetDelimiters          = (0x3F<<0),
     
-    MD_NodeFlag_IsBeforeSemicolon          = (1<<6),
-    MD_NodeFlag_IsAfterSemicolon           = (1<<7),
-    MD_NodeFlag_IsBeforeComma              = (1<<8),
-    MD_NodeFlag_IsAfterComma               = (1<<9),
+    NodeFlag_IsBeforeSemicolon          = (1<<6),
+    NodeFlag_IsAfterSemicolon           = (1<<7),
+    NodeFlag_IsBeforeComma              = (1<<8),
+    NodeFlag_IsAfterComma               = (1<<9),
     
-    MD_NodeFlag_MaskSeperators             = (0xF<<6),
+    NodeFlag_MaskSeperators             = (0xF<<6),
     
-    MD_NodeFlag_StringSingleQuote       = (1<<10),
-    MD_NodeFlag_StringDoubleQuote       = (1<<11),
-    MD_NodeFlag_StringTick              = (1<<12),
-    MD_NodeFlag_StringTriplet           = (1<<13),
+    NodeFlag_StringSingleQuote       = (1<<10),
+    NodeFlag_StringDoubleQuote       = (1<<11),
+    NodeFlag_StringTick              = (1<<12),
+    NodeFlag_StringTriplet           = (1<<13),
     
-    MD_NodeFlag_MaskStringDelimiters    = (0xF<<10),
+    NodeFlag_MaskStringDelimiters    = (0xF<<10),
     
-    MD_NodeFlag_Numeric                 = (1<<14),
-    MD_NodeFlag_Identifier              = (1<<15),
-    MD_NodeFlag_StringLiteral           = (1<<16),
-    MD_NodeFlag_Symbol                  = (1<<17),
+    NodeFlag_Numeric                 = (1<<14),
+    NodeFlag_Identifier              = (1<<15),
+    NodeFlag_StringLiteral           = (1<<16),
+    NodeFlag_Symbol                  = (1<<17),
     
-    MD_NodeFlag_MaskLabelKind           = (0xF<<14),
+    NodeFlag_MaskLabelKind           = (0xF<<14),
 };
 
-typedef struct MD_Node MD_Node;
-struct MD_Node
+typedef struct Node Node;
+struct Node
 {
     // Tree relationship data.
-    MD_Node *next;
-    MD_Node *prev;
-    MD_Node *parent;
-    MD_Node *first_child;
-    MD_Node *last_child;
+    Node *next;
+    Node *prev;
+    Node *parent;
+    Node *first_child;
+    Node *last_child;
     
     // Tag list.
-    MD_Node *first_tag;
-    MD_Node *last_tag;
+    Node *first_tag;
+    Node *last_tag;
     
     // Node info.
-    MD_NodeKind kind;
-    MD_NodeFlags flags;
-    MD_String8 string;
-    MD_String8 raw_string;
+    NodeKind kind;
+    NodeFlags flags;
+    String8 string;
+    String8 raw_string;
     
     // Source code location information.
-    MD_u64 offset;
+    u64 offset;
     
     // Reference.
-    MD_Node *ref_target;
+    Node *ref_target;
     
     // Comments.
     // @usage prev_comment/next_comment should be considered "hidden". Rely on
-    // the functions MD_PrevCommentFromNode/MD_NextCommentFromNode to access
+    // the functions PrevCommentFromNode/NextCommentFromNode to access
     // these. Directly access to these is likely to break in a future version.
-    MD_String8 prev_comment;
-    MD_String8 next_comment;
+    String8 prev_comment;
+    String8 next_comment;
 };
 
 //~ Code Location Info.
 
-typedef struct MD_CodeLoc MD_CodeLoc;
-struct MD_CodeLoc
+typedef struct CodeLoc CodeLoc;
+struct CodeLoc
 {
-    MD_String8 filename;
-    MD_u32 line;
-    MD_u32 column;
+    String8 filename;
+    u32 line;
+    u32 column;
 };
 
 //~ String-To-Ptr and Ptr-To-Ptr tables
 
-typedef struct MD_MapKey MD_MapKey;
-struct MD_MapKey
+typedef struct MapKey MapKey;
+struct MapKey
 {
-    MD_u64 hash;
-    MD_u64 size;
+    u64 hash;
+    u64 size;
     void *ptr;
 };
 
-typedef struct MD_MapSlot MD_MapSlot;
-struct MD_MapSlot
+typedef struct MapSlot MapSlot;
+struct MapSlot
 {
-    MD_MapSlot *next;
-    MD_MapKey key;
+    MapSlot *next;
+    MapKey key;
     void *val;
 };
 
-typedef struct MD_MapBucket MD_MapBucket;
-struct MD_MapBucket
+typedef struct MapBucket MapBucket;
+struct MapBucket
 {
-    MD_MapSlot *first;
-    MD_MapSlot *last;
+    MapSlot *first;
+    MapSlot *last;
 };
 
-typedef struct MD_Map MD_Map;
-struct MD_Map
+typedef struct Map Map;
+struct Map
 {
-    MD_MapBucket *buckets;
-    MD_u64 bucket_count;
+    MapBucket *buckets;
+    u64 bucket_count;
 };
 
 //~ Tokens
 
-typedef MD_u32 MD_TokenKind;
+typedef u32 TokenKind;
 enum
 {
-    MD_TokenKind_Identifier          = (1<<0),
-    MD_TokenKind_Numeric             = (1<<1),
-    MD_TokenKind_StringLiteral       = (1<<2),
-    MD_TokenKind_Symbol              = (1<<3),
-    MD_TokenKind_Reserved            = (1<<4),
-    MD_TokenKind_Comment             = (1<<5),
-    MD_TokenKind_Whitespace          = (1<<6),
-    MD_TokenKind_Newline             = (1<<7),
-    MD_TokenKind_BrokenComment       = (1<<8),
-    MD_TokenKind_BrokenStringLiteral = (1<<9),
-    MD_TokenKind_BadCharacter        = (1<<10),
+    TokenKind_Identifier          = (1<<0),
+    TokenKind_Numeric             = (1<<1),
+    TokenKind_StringLiteral       = (1<<2),
+    TokenKind_Symbol              = (1<<3),
+    TokenKind_Reserved            = (1<<4),
+    TokenKind_Comment             = (1<<5),
+    TokenKind_Whitespace          = (1<<6),
+    TokenKind_Newline             = (1<<7),
+    TokenKind_BrokenComment       = (1<<8),
+    TokenKind_BrokenStringLiteral = (1<<9),
+    TokenKind_BadCharacter        = (1<<10),
 };
 
-typedef MD_u32 MD_TokenGroups;
+typedef u32 MD_TokenGroups;
 enum
 {
-    MD_TokenGroup_Comment = MD_TokenKind_Comment,
-    MD_TokenGroup_Whitespace = (MD_TokenKind_Whitespace|
-                                MD_TokenKind_Newline),
-    MD_TokenGroup_Irregular = (MD_TokenGroup_Comment|
-                               MD_TokenGroup_Whitespace),
-    MD_TokenGroup_Regular = ~MD_TokenGroup_Irregular,
-    MD_TokenGroup_Label   = (MD_TokenKind_Identifier|
-                             MD_TokenKind_Numeric|
-                             MD_TokenKind_StringLiteral|
-                             MD_TokenKind_Symbol),
-    MD_TokenGroup_Error   = (MD_TokenKind_BrokenComment|
-                             MD_TokenKind_BrokenStringLiteral|
-                             MD_TokenKind_BadCharacter),
+    TokenGroup_Comment = TokenKind_Comment,
+    TokenGroup_Whitespace = (TokenKind_Whitespace|
+                                TokenKind_Newline),
+    TokenGroup_Irregular = (TokenGroup_Comment|
+                               TokenGroup_Whitespace),
+    TokenGroup_Regular = ~TokenGroup_Irregular,
+    TokenGroup_Label   = (TokenKind_Identifier|
+                             TokenKind_Numeric|
+                             TokenKind_StringLiteral|
+                             TokenKind_Symbol),
+    TokenGroup_Error   = (TokenKind_BrokenComment|
+                             TokenKind_BrokenStringLiteral|
+                             TokenKind_BadCharacter),
 };
 
-typedef struct MD_Token MD_Token;
-struct MD_Token
+typedef struct Token Token;
+struct Token
 {
-    MD_TokenKind kind;
-    MD_NodeFlags node_flags;
-    MD_String8 string;
-    MD_String8 raw_string;
+    TokenKind kind;
+    NodeFlags node_flags;
+    String8 string;
+    String8 raw_string;
 };
 
 //~ Parsing State
 
-typedef enum MD_MessageKind
+typedef enum MessageKind
 {
     // NOTE(rjf): @maintenance This enum needs to be sorted in order of
     // severity.
-    MD_MessageKind_Null,
-    MD_MessageKind_Note,
-    MD_MessageKind_Warning,
-    MD_MessageKind_Error,
-    MD_MessageKind_FatalError,
+    MessageKind_Null,
+    MessageKind_Note,
+    MessageKind_Warning,
+    MessageKind_Error,
+    MessageKind_FatalError,
 }
-MD_MessageKind;
+MessageKind;
 
-typedef struct MD_Message MD_Message;
-struct MD_Message
+typedef struct Message Message;
+struct Message
 {
-    MD_Message *next;
-    MD_Node *node;
-    MD_MessageKind kind;
-    MD_String8 string;
+    Message *next;
+    Node *node;
+    MessageKind kind;
+    String8 string;
     void *user_ptr;
 };
 
-typedef struct MD_MessageList MD_MessageList;
-struct MD_MessageList
+typedef struct MessageList MessageList;
+struct MessageList
 {
-    MD_MessageKind max_message_kind;
+    MessageKind max_message_kind;
     // TODO(allen): rename
-    MD_u64 node_count;
-    MD_Message *first;
-    MD_Message *last;
+    u64 node_count;
+    Message *first;
+    Message *last;
 };
 
-typedef enum MD_ParseSetRule
+typedef enum ParseSetRule
 {
-    MD_ParseSetRule_EndOnDelimiter,
-    MD_ParseSetRule_Global,
-} MD_ParseSetRule;
+    ParseSetRule_EndOnDelimiter,
+    ParseSetRule_Global,
+} ParseSetRule;
 
-typedef struct MD_ParseResult MD_ParseResult;
-struct MD_ParseResult
+typedef struct ParseResult ParseResult;
+struct ParseResult
 {
-    MD_Node *node;
-    MD_u64 string_advance;
-    MD_MessageList errors;
+    Node *node;
+    u64 string_advance;
+    MessageList errors;
 };
 
 //~ Expression Parsing
 
-typedef enum MD_ExprOprKind
+typedef enum ExprOprKind
 {
-    MD_ExprOprKind_Null,
-    MD_ExprOprKind_Prefix,
-    MD_ExprOprKind_Postfix,
-    MD_ExprOprKind_Binary,
-    MD_ExprOprKind_BinaryRightAssociative,
-    MD_ExprOprKind_COUNT,
-} MD_ExprOprKind;
+    ExprOprKind_Null,
+    ExprOprKind_Prefix,
+    ExprOprKind_Postfix,
+    ExprOprKind_Binary,
+    ExprOprKind_BinaryRightAssociative,
+    ExprOprKind_COUNT,
+} ExprOprKind;
 
-typedef struct MD_ExprOpr MD_ExprOpr;
-struct MD_ExprOpr
+typedef struct ExprOpr ExprOpr;
+struct ExprOpr
 {
-    struct MD_ExprOpr *next;
-    MD_u32 op_id;
-    MD_ExprOprKind kind;
-    MD_u32 precedence;
-    MD_String8 string;
+    struct ExprOpr *next;
+    u32 op_id;
+    ExprOprKind kind;
+    u32 precedence;
+    String8 string;
     void *op_ptr;
 };
 
-typedef struct MD_ExprOprList MD_ExprOprList;
-struct MD_ExprOprList
+typedef struct ExprOprList ExprOprList;
+struct ExprOprList
 {
-    MD_ExprOpr *first;
-    MD_ExprOpr *last;
-    MD_u64 count;
+    ExprOpr *first;
+    ExprOpr *last;
+    u64 count;
 };
 
-typedef struct MD_ExprOprTable MD_ExprOprTable;
-struct MD_ExprOprTable
+typedef struct ExprOprTable ExprOprTable;
+struct ExprOprTable
 {
     // TODO(mal): @upgrade_potential Hash?
-    MD_ExprOprList table[MD_ExprOprKind_COUNT];
+    ExprOprList table[ExprOprKind_COUNT];
 };
 
-typedef struct MD_Expr MD_Expr;
-struct MD_Expr
+typedef struct Expr Expr;
+struct Expr
 {
-    struct MD_Expr *parent;
+    struct Expr *parent;
     union
     {
-        struct MD_Expr *left;
-        struct MD_Expr *unary_operand;
+        struct Expr *left;
+        struct Expr *unary_operand;
     };
-    struct MD_Expr *right;
-    MD_ExprOpr *op;
-    MD_Node *md_node;
+    struct Expr *right;
+    ExprOpr *op;
+    Node *md_node;
 };
 
-typedef struct MD_ExprParseResult MD_ExprParseResult;
-struct MD_ExprParseResult
+typedef struct ExprParseResult ExprParseResult;
+struct ExprParseResult
 {
-    MD_Expr *expr;
-    MD_MessageList errors;
+    Expr *expr;
+    MessageList errors;
 };
 
-// TODO(allen): nil MD_Expr
+// TODO(allen): nil Expr
 
-typedef struct MD_ExprParseCtx MD_ExprParseCtx;
-struct MD_ExprParseCtx
+typedef struct ExprParseCtx ExprParseCtx;
+struct ExprParseCtx
 {
-    MD_ExprOprTable *op_table;
+    ExprOprTable *op_table;
     
-#define MD_POSTFIX_SETLIKE_OP_COUNT 5   // (), [], {}, [), (]
+#define POSTFIX_SETLIKE_OP_COUNT 5   // (), [], {}, [), (]
     struct
     {
-        MD_ExprOpr *postfix_set_ops[MD_POSTFIX_SETLIKE_OP_COUNT];
-        MD_NodeFlags postfix_set_flags[MD_POSTFIX_SETLIKE_OP_COUNT];
+        ExprOpr *postfix_set_ops[POSTFIX_SETLIKE_OP_COUNT];
+        NodeFlags postfix_set_flags[POSTFIX_SETLIKE_OP_COUNT];
     } accel;
-#undef MD_POSTFIX_SETLIKE_OP_COUNT
+#undef POSTFIX_SETLIKE_OP_COUNT
     
-    MD_MessageList errors;
+    MessageList errors;
 };
 
-typedef void (*MD_BakeOperatorErrorHandler)(MD_MessageKind kind, MD_String8 s);
+typedef void (*BakeOperatorErrorHandler)(MessageKind kind, String8 s);
 
 //~ String Generation Types
 
-typedef MD_u32 MD_GenerateFlags;
+typedef u32 GenerateFlags;
 enum
 {
-    MD_GenerateFlag_Tags         = (1<<0),
-    MD_GenerateFlag_TagArguments = (1<<1),
-    MD_GenerateFlag_Children     = (1<<2),
-    MD_GenerateFlag_Comments     = (1<<3),
-    MD_GenerateFlag_NodeKind     = (1<<4),
-    MD_GenerateFlag_NodeFlags    = (1<<5),
-    MD_GenerateFlag_Location     = (1<<6),
+    GenerateFlag_Tags         = (1<<0),
+    GenerateFlag_TagArguments = (1<<1),
+    GenerateFlag_Children     = (1<<2),
+    GenerateFlag_Comments     = (1<<3),
+    GenerateFlag_NodeKind     = (1<<4),
+    GenerateFlag_NodeFlags    = (1<<5),
+    GenerateFlag_Location     = (1<<6),
     
-    MD_GenerateFlags_Tree = (MD_GenerateFlag_Tags |
-                             MD_GenerateFlag_TagArguments |
-                             MD_GenerateFlag_Children),
-    MD_GenerateFlags_All  = 0xffffffff,
+    GenerateFlags_Tree = (GenerateFlag_Tags |
+                             GenerateFlag_TagArguments |
+                             GenerateFlag_Children),
+    GenerateFlags_All  = 0xffffffff,
 };
 
 //~ Command line parsing helper types.
 
-typedef struct MD_CmdLineOption MD_CmdLineOption;
-struct MD_CmdLineOption
+typedef struct CmdLineOption CmdLineOption;
+struct CmdLineOption
 {
-    MD_CmdLineOption *next;
-    MD_String8 name;
-    MD_String8List values;
+    CmdLineOption *next;
+    String8 name;
+    String8List values;
 };
 
-typedef struct MD_CmdLine MD_CmdLine;
-struct MD_CmdLine
+typedef struct CmdLine CmdLine;
+struct CmdLine
 {
-    MD_String8List inputs;
-    MD_CmdLineOption *first_option;
-    MD_CmdLineOption *last_option;
+    String8List inputs;
+    CmdLineOption *first_option;
+    CmdLineOption *last_option;
 };
 
 //~ File system access types.
 
-typedef MD_u32 MD_FileFlags;
+typedef u32 FileFlags;
 enum
 {
-    MD_FileFlag_Directory = (1<<0),
+    FileFlag_Directory = (1<<0),
 };
 
-typedef struct MD_FileInfo MD_FileInfo;
-struct MD_FileInfo
+typedef struct FileInfo FileInfo;
+struct FileInfo
 {
-    MD_FileFlags flags;
-    MD_String8 filename;
-    MD_u64 file_size;
+    FileFlags flags;
+    String8 filename;
+    u64 file_size;
 };
 
-typedef struct MD_FileIter MD_FileIter;
-struct MD_FileIter
+typedef struct FileIter FileIter;
+struct FileIter
 {
     // This is opaque state to store OS-specific file-system iteration data.
-    MD_u8 opaque[640];
+    u8 opaque[640];
 };
 
 //~/////////////////////////////////////////////////////////////////////////////
@@ -928,313 +928,313 @@ struct MD_FileIter
 
 //~ Arena
 
-MD_FUNCTION MD_Arena*    MD_ArenaAlloc(void);
-MD_FUNCTION void         MD_ArenaRelease(MD_Arena *arena);
+FUNCTION Arena*    ArenaAlloc(void);
+FUNCTION void         ArenaRelease(Arena *arena);
 
-MD_FUNCTION void*        MD_ArenaPush(MD_Arena *arena, MD_u64 size);
-MD_FUNCTION void         MD_ArenaPutBack(MD_Arena *arena, MD_u64 size);
-MD_FUNCTION void         MD_ArenaSetAlign(MD_Arena *arena, MD_u64 boundary);
-MD_FUNCTION void         MD_ArenaPushAlign(MD_Arena *arena, MD_u64 boundary);
-MD_FUNCTION void         MD_ArenaClear(MD_Arena *arena);
+FUNCTION void*        ArenaPush(Arena *arena, u64 size);
+FUNCTION void         ArenaPutBack(Arena *arena, u64 size);
+FUNCTION void         ArenaSetAlign(Arena *arena, u64 boundary);
+FUNCTION void         ArenaPushAlign(Arena *arena, u64 boundary);
+FUNCTION void         ArenaClear(Arena *arena);
 
-#define MD_PushArray(a,T,c) (T*)(MD_ArenaPush((a), sizeof(T)*(c)))
-#define MD_PushArrayZero(a,T,c) (T*)(MD_MemoryZero(MD_PushArray(a,T,c), sizeof(T)*(c)))
+#define PushArray(a,T,c) (T*)(ArenaPush((a), sizeof(T)*(c)))
+#define PushArrayZero(a,T,c) (T*)(MemoryZero(PushArray(a,T,c), sizeof(T)*(c)))
 
-MD_FUNCTION MD_ArenaTemp MD_ArenaBeginTemp(MD_Arena *arena);
-MD_FUNCTION void         MD_ArenaEndTemp(MD_ArenaTemp temp);
+FUNCTION ArenaTemp ArenaBeginTemp(Arena *arena);
+FUNCTION void         ArenaEndTemp(ArenaTemp temp);
 
 //~ Arena Scratch Pool
 
-MD_FUNCTION MD_ArenaTemp MD_GetScratch(MD_Arena **conflicts, MD_u64 count);
+FUNCTION ArenaTemp GetScratch(Arena **conflicts, u64 count);
 
-#define MD_ReleaseScratch(scratch) MD_ArenaEndTemp(scratch)
+#define ReleaseScratch(scratch) ArenaEndTemp(scratch)
 
 //~ Characters
 
-MD_FUNCTION MD_b32 MD_CharIsAlpha(MD_u8 c);
-MD_FUNCTION MD_b32 MD_CharIsAlphaUpper(MD_u8 c);
-MD_FUNCTION MD_b32 MD_CharIsAlphaLower(MD_u8 c);
-MD_FUNCTION MD_b32 MD_CharIsDigit(MD_u8 c);
-MD_FUNCTION MD_b32 MD_CharIsUnreservedSymbol(MD_u8 c);
-MD_FUNCTION MD_b32 MD_CharIsReservedSymbol(MD_u8 c);
-MD_FUNCTION MD_b32 MD_CharIsSpace(MD_u8 c);
-MD_FUNCTION MD_u8  MD_CharToUpper(MD_u8 c);
-MD_FUNCTION MD_u8  MD_CharToLower(MD_u8 c);
-MD_FUNCTION MD_u8  MD_CharToForwardSlash(MD_u8 c);
+FUNCTION b32 CharIsAlpha(u8 c);
+FUNCTION b32 CharIsAlphaUpper(u8 c);
+FUNCTION b32 CharIsAlphaLower(u8 c);
+FUNCTION b32 CharIsDigit(u8 c);
+FUNCTION b32 CharIsUnreservedSymbol(u8 c);
+FUNCTION b32 CharIsReservedSymbol(u8 c);
+FUNCTION b32 CharIsSpace(u8 c);
+FUNCTION u8  CharToUpper(u8 c);
+FUNCTION u8  CharToLower(u8 c);
+FUNCTION u8  CharToForwardSlash(u8 c);
 
 //~ Strings
 
-MD_FUNCTION MD_u64         MD_CalculateCStringLength(char *cstr);
+FUNCTION u64         CalculateCStringLength(char *cstr);
 
-MD_FUNCTION MD_String8     MD_S8(MD_u8 *str, MD_u64 size);
-#define MD_S8CString(s)    MD_S8((MD_u8 *)(s), MD_CalculateCStringLength(s))
+FUNCTION String8     S8(u8 *str, u64 size);
+#define S8CString(s)    S8((u8 *)(s), CalculateCStringLength(s))
 
-#if MD_LANG_C
-# define MD_S8Lit(s)        (MD_String8){(MD_u8 *)(s), sizeof(s)-1}
-#elif MD_LANG_CPP
-# define MD_S8Lit(s)        MD_S8((MD_u8*)(s), sizeof(s) - 1)
+#if LANG_C
+# define S8Lit(s)        (String8){(u8 *)(s), sizeof(s)-1}
+#elif LANG_CPP
+# define S8Lit(s)        S8((u8*)(s), sizeof(s) - 1)
 #endif
-#define MD_S8LitComp(s)     {(MD_u8 *)(s), sizeof(s)-1}
+#define S8LitComp(s)     {(u8 *)(s), sizeof(s)-1}
 
-#if MD_CPP_VERSION >= 11
-static inline MD_String8
+#if CPP_VERSION >= 11
+static inline String8
 operator "" _md(const char *s, size_t size)
 {
-    MD_String8 str = MD_S8((MD_u8 *)s, (MD_u64)size);
+    String8 str = S8((u8 *)s, (u64)size);
     return str;
 }
 #endif
 
-MD_FUNCTION MD_String8     MD_S8Range(MD_u8 *first, MD_u8 *opl);
+FUNCTION String8     S8Range(u8 *first, u8 *opl);
 
-MD_FUNCTION MD_String8     MD_S8Substring(MD_String8 str, MD_u64 min, MD_u64 max);
-MD_FUNCTION MD_String8     MD_S8Skip(MD_String8 str, MD_u64 min);
-MD_FUNCTION MD_String8     MD_S8Chop(MD_String8 str, MD_u64 nmax);
-MD_FUNCTION MD_String8     MD_S8Prefix(MD_String8 str, MD_u64 size);
-MD_FUNCTION MD_String8     MD_S8Suffix(MD_String8 str, MD_u64 size);
+FUNCTION String8     S8Substring(String8 str, u64 min, u64 max);
+FUNCTION String8     S8Skip(String8 str, u64 min);
+FUNCTION String8     S8Chop(String8 str, u64 nmax);
+FUNCTION String8     S8Prefix(String8 str, u64 size);
+FUNCTION String8     S8Suffix(String8 str, u64 size);
 
-MD_FUNCTION MD_b32         MD_S8Match(MD_String8 a, MD_String8 b, MD_MatchFlags flags);
-MD_FUNCTION MD_u64         MD_S8FindSubstring(MD_String8 str, MD_String8 substring,
-                                              MD_u64 start_pos, MD_MatchFlags flags);
+FUNCTION b32         S8Match(String8 a, String8 b, MatchFlags flags);
+FUNCTION u64         S8FindSubstring(String8 str, String8 substring,
+                                              u64 start_pos, MatchFlags flags);
 
-MD_FUNCTION MD_String8     MD_S8Copy(MD_Arena *arena, MD_String8 string);
-MD_FUNCTION MD_String8     MD_S8FmtV(MD_Arena *arena, char *fmt, va_list args);
+FUNCTION String8     S8Copy(Arena *arena, String8 string);
+FUNCTION String8     S8FmtV(Arena *arena, char *fmt, va_list args);
 
-MD_FUNCTION MD_String8     MD_S8Fmt(MD_Arena *arena, char *fmt, ...);
+FUNCTION String8     S8Fmt(Arena *arena, char *fmt, ...);
 
-#define MD_S8VArg(s) (int)(s).size, (s).str
+#define S8VArg(s) (int)(s).size, (s).str
 
-MD_FUNCTION void           MD_S8ListPush(MD_Arena *arena, MD_String8List *list,
-                                         MD_String8 string);
-MD_FUNCTION void           MD_S8ListPushFmt(MD_Arena *arena, MD_String8List *list,
+FUNCTION void           S8ListPush(Arena *arena, String8List *list,
+                                         String8 string);
+FUNCTION void           S8ListPushFmt(Arena *arena, String8List *list,
                                             char *fmt, ...);
 
-MD_FUNCTION void           MD_S8ListConcat(MD_String8List *list, MD_String8List *to_push);
-MD_FUNCTION MD_String8List MD_S8Split(MD_Arena *arena, MD_String8 string, int split_count,
-                                      MD_String8 *splits);
-MD_FUNCTION MD_String8     MD_S8ListJoin(MD_Arena *arena, MD_String8List list,
-                                         MD_StringJoin *join);
+FUNCTION void           S8ListConcat(String8List *list, String8List *to_push);
+FUNCTION String8List S8Split(Arena *arena, String8 string, int split_count,
+                                      String8 *splits);
+FUNCTION String8     S8ListJoin(Arena *arena, String8List list,
+                                         StringJoin *join);
 
-MD_FUNCTION MD_String8     MD_S8Stylize(MD_Arena *arena, MD_String8 string,
-                                        MD_IdentifierStyle style, MD_String8 separator);
+FUNCTION String8     S8Stylize(Arena *arena, String8 string,
+                                        IdentifierStyle style, String8 separator);
 
 //~ Unicode Conversions
 
-MD_FUNCTION MD_DecodedCodepoint MD_DecodeCodepointFromUtf8(MD_u8 *str, MD_u64 max);
-MD_FUNCTION MD_DecodedCodepoint MD_DecodeCodepointFromUtf16(MD_u16 *str, MD_u64 max);
-MD_FUNCTION MD_u32         MD_Utf8FromCodepoint(MD_u8 *out, MD_u32 codepoint);
-MD_FUNCTION MD_u32         MD_Utf16FromCodepoint(MD_u16 *out, MD_u32 codepoint);
-MD_FUNCTION MD_String8     MD_S8FromS16(MD_Arena *arena, MD_String16 str);
-MD_FUNCTION MD_String16    MD_S16FromS8(MD_Arena *arena, MD_String8 str);
-MD_FUNCTION MD_String8     MD_S8FromS32(MD_Arena *arena, MD_String32 str);
-MD_FUNCTION MD_String32    MD_S32FromS8(MD_Arena *arena, MD_String8 str);
+FUNCTION DecodedCodepoint DecodeCodepointFromUtf8(u8 *str, u64 max);
+FUNCTION DecodedCodepoint DecodeCodepointFromUtf16(u16 *str, u64 max);
+FUNCTION u32         Utf8FromCodepoint(u8 *out, u32 codepoint);
+FUNCTION u32         Utf16FromCodepoint(u16 *out, u32 codepoint);
+FUNCTION String8     S8FromS16(Arena *arena, String16 str);
+FUNCTION String16    S16FromS8(Arena *arena, String8 str);
+FUNCTION String8     S8FromS32(Arena *arena, String32 str);
+FUNCTION String32    S32FromS8(Arena *arena, String8 str);
 
 //~ String Skipping/Chopping Helpers
 
 // This is intended for removing extensions.
-MD_FUNCTION MD_String8 MD_PathChopLastPeriod(MD_String8 string);
+FUNCTION String8 PathChopLastPeriod(String8 string);
 
 // This is intended for removing everything but the filename.
-MD_FUNCTION MD_String8 MD_PathSkipLastSlash(MD_String8 string);
+FUNCTION String8 PathSkipLastSlash(String8 string);
 
 // This is intended for getting an extension from a filename.
-MD_FUNCTION MD_String8 MD_PathSkipLastPeriod(MD_String8 string);
+FUNCTION String8 PathSkipLastPeriod(String8 string);
 
 // This is intended for getting the folder string from a full path.
-MD_FUNCTION MD_String8 MD_PathChopLastSlash(MD_String8 string);
+FUNCTION String8 PathChopLastSlash(String8 string);
 
-MD_FUNCTION MD_String8 MD_S8SkipWhitespace(MD_String8 string);
-MD_FUNCTION MD_String8 MD_S8ChopWhitespace(MD_String8 string);
+FUNCTION String8 S8SkipWhitespace(String8 string);
+FUNCTION String8 S8ChopWhitespace(String8 string);
 
 //~ Numeric Strings
 
-MD_FUNCTION MD_b32     MD_StringIsU64(MD_String8 string, MD_u32 radix);
-MD_FUNCTION MD_b32     MD_StringIsCStyleInt(MD_String8 string);
+FUNCTION b32     StringIsU64(String8 string, u32 radix);
+FUNCTION b32     StringIsCStyleInt(String8 string);
 
-MD_FUNCTION MD_u64     MD_U64FromString(MD_String8 string, MD_u32 radix);
-MD_FUNCTION MD_i64     MD_CStyleIntFromString(MD_String8 string);
-MD_FUNCTION MD_f64     MD_F64FromString(MD_String8 string);
+FUNCTION u64     U64FromString(String8 string, u32 radix);
+FUNCTION i64     CStyleIntFromString(String8 string);
+FUNCTION f64     F64FromString(String8 string);
 
-MD_FUNCTION MD_String8 MD_CStyleHexStringFromU64(MD_Arena *arena, MD_u64 x, MD_b32 caps);
+FUNCTION String8 CStyleHexStringFromU64(Arena *arena, u64 x, b32 caps);
 
 //~ Enum/Flag Strings
 
-MD_FUNCTION MD_String8     MD_StringFromNodeKind(MD_NodeKind kind);
-MD_FUNCTION MD_String8List MD_StringListFromNodeFlags(MD_Arena *arena, MD_NodeFlags flags);
+FUNCTION String8     StringFromNodeKind(NodeKind kind);
+FUNCTION String8List StringListFromNodeFlags(Arena *arena, NodeFlags flags);
 
 //~ Map Table Data Structure
 
-MD_FUNCTION MD_u64 MD_HashStr(MD_String8 string);
-MD_FUNCTION MD_u64 MD_HashPtr(void *p);
+FUNCTION u64 HashStr(String8 string);
+FUNCTION u64 HashPtr(void *p);
 
-MD_FUNCTION MD_Map      MD_MapMakeBucketCount(MD_Arena *arena, MD_u64 bucket_count);
-MD_FUNCTION MD_Map      MD_MapMake(MD_Arena *arena);
-MD_FUNCTION MD_MapKey   MD_MapKeyStr(MD_String8 string);
-MD_FUNCTION MD_MapKey   MD_MapKeyPtr(void *ptr);
-MD_FUNCTION MD_MapSlot* MD_MapLookup(MD_Map *map, MD_MapKey key);
-MD_FUNCTION MD_MapSlot* MD_MapScan(MD_MapSlot *first_slot, MD_MapKey key);
-MD_FUNCTION MD_MapSlot* MD_MapInsert(MD_Arena *arena, MD_Map *map, MD_MapKey key, void *val);
-MD_FUNCTION MD_MapSlot* MD_MapOverwrite(MD_Arena *arena, MD_Map *map, MD_MapKey key,
+FUNCTION Map      MapMakeBucketCount(Arena *arena, u64 bucket_count);
+FUNCTION Map      MapMake(Arena *arena);
+FUNCTION MapKey   MapKeyStr(String8 string);
+FUNCTION MapKey   MapKeyPtr(void *ptr);
+FUNCTION MapSlot* MapLookup(Map *map, MapKey key);
+FUNCTION MapSlot* MapScan(MapSlot *first_slot, MapKey key);
+FUNCTION MapSlot* MapInsert(Arena *arena, Map *map, MapKey key, void *val);
+FUNCTION MapSlot* MapOverwrite(Arena *arena, Map *map, MapKey key,
                                         void *val);
 
 //~ Parsing
 
-MD_FUNCTION MD_Token       MD_TokenFromString(MD_String8 string);
-MD_FUNCTION MD_u64         MD_LexAdvanceFromSkips(MD_String8 string, MD_TokenKind skip_kinds);
-MD_FUNCTION MD_ParseResult MD_ParseResultZero(void);
-MD_FUNCTION MD_ParseResult MD_ParseNodeSet(MD_Arena *arena, MD_String8 string, MD_u64 offset, MD_Node *parent,
-                                           MD_ParseSetRule rule);
-MD_FUNCTION MD_ParseResult MD_ParseOneNode(MD_Arena *arena, MD_String8 string, MD_u64 offset);
-MD_FUNCTION MD_ParseResult MD_ParseWholeString(MD_Arena *arena, MD_String8 filename, MD_String8 contents);
+FUNCTION Token       TokenFromString(String8 string);
+FUNCTION u64         LexAdvanceFromSkips(String8 string, TokenKind skip_kinds);
+FUNCTION ParseResult ParseResultZero(void);
+FUNCTION ParseResult ParseNodeSet(Arena *arena, String8 string, u64 offset, Node *parent,
+                                           ParseSetRule rule);
+FUNCTION ParseResult ParseOneNode(Arena *arena, String8 string, u64 offset);
+FUNCTION ParseResult ParseWholeString(Arena *arena, String8 filename, String8 contents);
 
-MD_FUNCTION MD_ParseResult MD_ParseWholeFile(MD_Arena *arena, MD_String8 filename);
+FUNCTION ParseResult ParseWholeFile(Arena *arena, String8 filename);
 
 //~ Messages (Errors/Warnings)
 
-MD_FUNCTION MD_Node*   MD_MakeErrorMarkerNode(MD_Arena *arena, MD_String8 parse_contents,
-                                              MD_u64 offset);
+FUNCTION Node*   MakeErrorMarkerNode(Arena *arena, String8 parse_contents,
+                                              u64 offset);
 
-MD_FUNCTION MD_Message*MD_MakeNodeError(MD_Arena *arena, MD_Node *node,
-                                        MD_MessageKind kind, MD_String8 str);
-MD_FUNCTION MD_Message*MD_MakeDetachedError(MD_Arena *arena, MD_MessageKind kind,
-                                            MD_String8 str, void *ptr);
-MD_FUNCTION MD_Message*MD_MakeTokenError(MD_Arena *arena, MD_String8 parse_contents,
-                                         MD_Token token, MD_MessageKind kind,
-                                         MD_String8 str);
+FUNCTION Message*MakeNodeError(Arena *arena, Node *node,
+                                        MessageKind kind, String8 str);
+FUNCTION Message*MakeDetachedError(Arena *arena, MessageKind kind,
+                                            String8 str, void *ptr);
+FUNCTION Message*MakeTokenError(Arena *arena, String8 parse_contents,
+                                         Token token, MessageKind kind,
+                                         String8 str);
 
-MD_FUNCTION void       MD_MessageListPush(MD_MessageList *list, MD_Message *message);
-MD_FUNCTION void       MD_MessageListConcat(MD_MessageList *list, MD_MessageList *to_push);
+FUNCTION void       MessageListPush(MessageList *list, Message *message);
+FUNCTION void       MessageListConcat(MessageList *list, MessageList *to_push);
 
 //~ Location Conversion
 
-MD_FUNCTION MD_CodeLoc MD_CodeLocFromFileOffset(MD_String8 filename, MD_u8 *base, MD_u64 offset);
-MD_FUNCTION MD_CodeLoc MD_CodeLocFromNode(MD_Node *node);
+FUNCTION CodeLoc CodeLocFromFileOffset(String8 filename, u8 *base, u64 offset);
+FUNCTION CodeLoc CodeLocFromNode(Node *node);
 
 //~ Tree/List Building
 
-MD_FUNCTION MD_b32   MD_NodeIsNil(MD_Node *node);
-MD_FUNCTION MD_Node *MD_NilNode(void);
-MD_FUNCTION MD_Node *MD_MakeNode(MD_Arena *arena, MD_NodeKind kind, MD_String8 string,
-                                 MD_String8 raw_string, MD_u64 offset);
-MD_FUNCTION void     MD_PushChild(MD_Node *parent, MD_Node *new_child);
-MD_FUNCTION void     MD_PushTag(MD_Node *node, MD_Node *tag);
+FUNCTION b32   NodeIsNil(Node *node);
+FUNCTION Node *NilNode(void);
+FUNCTION Node *MakeNode(Arena *arena, NodeKind kind, String8 string,
+                                 String8 raw_string, u64 offset);
+FUNCTION void     PushChild(Node *parent, Node *new_child);
+FUNCTION void     PushTag(Node *node, Node *tag);
 
-MD_FUNCTION MD_Node *MD_MakeList(MD_Arena *arena);
-MD_FUNCTION void     MD_ListConcatInPlace(MD_Node *list, MD_Node *to_push);
-MD_FUNCTION MD_Node *MD_PushNewReference(MD_Arena *arena, MD_Node *list, MD_Node *target);
+FUNCTION Node *MakeList(Arena *arena);
+FUNCTION void     ListConcatInPlace(Node *list, Node *to_push);
+FUNCTION Node *PushNewReference(Arena *arena, Node *list, Node *target);
 
 //~ Introspection Helpers
 
 // These calls are for getting info from nodes, and introspecting
 // on trees that are returned to you by the parser.
 
-MD_FUNCTION MD_Node *  MD_FirstNodeWithString(MD_Node *first, MD_String8 string, MD_MatchFlags flags);
-MD_FUNCTION MD_Node *  MD_NodeAtIndex(MD_Node *first, int n);
-MD_FUNCTION MD_Node *  MD_FirstNodeWithFlags(MD_Node *first, MD_NodeFlags flags);
-MD_FUNCTION int        MD_IndexFromNode(MD_Node *node);
-MD_FUNCTION MD_Node *  MD_RootFromNode(MD_Node *node);
-MD_FUNCTION MD_Node *  MD_ChildFromString(MD_Node *node, MD_String8 child_string, MD_MatchFlags flags);
-MD_FUNCTION MD_Node *  MD_TagFromString(MD_Node *node, MD_String8 tag_string, MD_MatchFlags flags);
-MD_FUNCTION MD_Node *  MD_ChildFromIndex(MD_Node *node, int n);
-MD_FUNCTION MD_Node *  MD_TagFromIndex(MD_Node *node, int n);
-MD_FUNCTION MD_Node *  MD_TagArgFromIndex(MD_Node *node, MD_String8 tag_string, MD_MatchFlags flags, int n);
-MD_FUNCTION MD_Node *  MD_TagArgFromString(MD_Node *node, MD_String8 tag_string, MD_MatchFlags tag_str_flags, MD_String8 arg_string, MD_MatchFlags arg_str_flags);
-MD_FUNCTION MD_b32     MD_NodeHasChild(MD_Node *node, MD_String8 string, MD_MatchFlags flags);
-MD_FUNCTION MD_b32     MD_NodeHasTag(MD_Node *node, MD_String8 string, MD_MatchFlags flags);
-MD_FUNCTION MD_i64     MD_ChildCountFromNode(MD_Node *node);
-MD_FUNCTION MD_i64     MD_TagCountFromNode(MD_Node *node);
-MD_FUNCTION MD_Node *  MD_ResolveNodeFromReference(MD_Node *node);
-MD_FUNCTION MD_Node*   MD_NodeNextWithLimit(MD_Node *node, MD_Node *opl);
+FUNCTION Node *  FirstNodeWithString(Node *first, String8 string, MatchFlags flags);
+FUNCTION Node *  NodeAtIndex(Node *first, int n);
+FUNCTION Node *  FirstNodeWithFlags(Node *first, NodeFlags flags);
+FUNCTION int        IndexFromNode(Node *node);
+FUNCTION Node *  RootFromNode(Node *node);
+FUNCTION Node *  MD_ChildFromString(Node *node, String8 child_string, MatchFlags flags);
+FUNCTION Node *  TagFromString(Node *node, String8 tag_string, MatchFlags flags);
+FUNCTION Node *  ChildFromIndex(Node *node, int n);
+FUNCTION Node *  TagFromIndex(Node *node, int n);
+FUNCTION Node *  TagArgFromIndex(Node *node, String8 tag_string, MatchFlags flags, int n);
+FUNCTION Node *  TagArgFromString(Node *node, String8 tag_string, MatchFlags tag_str_flags, String8 arg_string, MatchFlags arg_str_flags);
+FUNCTION b32     NodeHasChild(Node *node, String8 string, MatchFlags flags);
+FUNCTION b32     NodeHasTag(Node *node, String8 string, MatchFlags flags);
+FUNCTION i64     ChildCountFromNode(Node *node);
+FUNCTION i64     TagCountFromNode(Node *node);
+FUNCTION Node *  ResolveNodeFromReference(Node *node);
+FUNCTION Node*   NodeNextWithLimit(Node *node, Node *opl);
 
-MD_FUNCTION MD_String8 MD_PrevCommentFromNode(MD_Node *node);
-MD_FUNCTION MD_String8 MD_NextCommentFromNode(MD_Node *node);
+FUNCTION String8 PrevCommentFromNode(Node *node);
+FUNCTION String8 NextCommentFromNode(Node *node);
 
 // NOTE(rjf): For-Loop Helpers
-#define MD_EachNode(it, first) MD_Node *it = (first); !MD_NodeIsNil(it); it = it->next
+#define EachNode(it, first) Node *it = (first); !NodeIsNil(it); it = it->next
 
 //~ Error/Warning Helpers
 
-MD_FUNCTION MD_String8 MD_StringFromMessageKind(MD_MessageKind kind);
+FUNCTION String8 StringFromMessageKind(MessageKind kind);
 
-#define MD_FmtCodeLoc "%.*s:%i:%i:"
-#define MD_CodeLocVArg(loc) MD_S8VArg((loc).filename), (loc).line, (loc).column
+#define FmtCodeLoc "%.*s:%i:%i:"
+#define CodeLocVArg(loc) S8VArg((loc).filename), (loc).line, (loc).column
 
-MD_FUNCTION MD_String8 MD_FormatMessage(MD_Arena *arena, MD_CodeLoc loc, MD_MessageKind kind,
-                                        MD_String8 string);
+FUNCTION String8 MD_FormatMessage(Arena *arena, CodeLoc loc, MessageKind kind,
+                                        String8 string);
 
-#if !MD_DISABLE_PRINT_HELPERS
+#if !DISABLE_PRINT_HELPERS
 #include <stdio.h>
-MD_FUNCTION void MD_PrintMessage(FILE *file, MD_CodeLoc loc, MD_MessageKind kind,
-                                 MD_String8 string);
-MD_FUNCTION void MD_PrintMessageFmt(FILE *file, MD_CodeLoc code_loc, MD_MessageKind kind,
+FUNCTION void PrintMessage(FILE *file, CodeLoc loc, MessageKind kind,
+                                 String8 string);
+FUNCTION void PrintMessageFmt(FILE *file, CodeLoc code_loc, MessageKind kind,
                                     char *fmt, ...);
 
-#define MD_PrintGenNoteCComment(f) fprintf((f), "// generated by %s:%d\n", __FILE__, __LINE__)
+#define PrintGenNoteCComment(f) fprintf((f), "// generated by %s:%d\n", __FILE__, __LINE__)
 #endif
 
 //~ Tree Comparison/Verification
 
-MD_FUNCTION MD_b32 MD_NodeMatch(MD_Node *a, MD_Node *b, MD_MatchFlags flags);
-MD_FUNCTION MD_b32 MD_NodeDeepMatch(MD_Node *a, MD_Node *b, MD_MatchFlags flags);
+FUNCTION b32 NodeMatch(Node *a, Node *b, MatchFlags flags);
+FUNCTION b32 NodeDeepMatch(Node *a, Node *b, MatchFlags flags);
 
 //~ Expression Parsing
 
-MD_FUNCTION void               MD_ExprOprPush(MD_Arena *arena, MD_ExprOprList *list,
-                                              MD_ExprOprKind kind, MD_u64 precedence,
-                                              MD_String8 op_string,
-                                              MD_u32 op_id, void *op_ptr);
+FUNCTION void               ExprOprPush(Arena *arena, ExprOprList *list,
+                                              ExprOprKind kind, u64 precedence,
+                                              String8 op_string,
+                                              u32 op_id, void *op_ptr);
 
-MD_FUNCTION MD_ExprOprTable    MD_ExprBakeOprTableFromList(MD_Arena *arena,
-                                                           MD_ExprOprList *list);
-MD_FUNCTION MD_ExprOpr*        MD_ExprOprFromKindString(MD_ExprOprTable *table,
-                                                        MD_ExprOprKind kind, MD_String8 s);
+FUNCTION ExprOprTable    ExprBakeOprTableFromList(Arena *arena,
+                                                           ExprOprList *list);
+FUNCTION ExprOpr*        ExprOprFromKindString(ExprOprTable *table,
+                                                        ExprOprKind kind, String8 s);
 
-MD_FUNCTION MD_ExprParseResult MD_ExprParse(MD_Arena *arena, MD_ExprOprTable *op_table,
-                                            MD_Node *first, MD_Node *one_past_last);
+FUNCTION ExprParseResult ExprParse(Arena *arena, ExprOprTable *op_table,
+                                            Node *first, Node *one_past_last);
 
-MD_FUNCTION MD_Expr* MD_Expr_NewLeaf(MD_Arena *arena, MD_Node *node);
-MD_FUNCTION MD_Expr* MD_Expr_NewOpr(MD_Arena *arena, MD_ExprOpr *op, MD_Node *op_node,
-                                    MD_Expr *left, MD_Expr *right);
+FUNCTION Expr* Expr_NewLeaf(Arena *arena, Node *node);
+FUNCTION Expr* Expr_NewOpr(Arena *arena, ExprOpr *op, Node *op_node,
+                                    Expr *left, Expr *right);
 
-MD_FUNCTION MD_ExprParseCtx MD_ExprParse_MakeContext(MD_ExprOprTable *table);
+FUNCTION ExprParseCtx ExprParse_MakeContext(ExprOprTable *table);
 
-MD_FUNCTION MD_Expr* MD_ExprParse_TopLevel(MD_Arena *arena, MD_ExprParseCtx *ctx,
-                                           MD_Node *first, MD_Node *opl);
-MD_FUNCTION MD_b32   MD_ExprParse_OprConsume(MD_ExprParseCtx *ctx,
-                                             MD_Node **iter, MD_Node *opl,
-                                             MD_ExprOprKind kind,
-                                             MD_u32 min_precedence,
-                                             MD_ExprOpr **op_out);
-MD_FUNCTION MD_Expr* MD_ExprParse_Atom(MD_Arena *arena, MD_ExprParseCtx *ctx,
-                                       MD_Node **iter, MD_Node *first, MD_Node *opl);
-MD_FUNCTION MD_Expr* MD_ExprParse_MinPrecedence(MD_Arena *arena, MD_ExprParseCtx *ctx,
-                                                MD_Node **iter, MD_Node *first, MD_Node *opl,
-                                                MD_u32 min_precedence);
+FUNCTION Expr* ExprParse_TopLevel(Arena *arena, ExprParseCtx *ctx,
+                                           Node *first, Node *opl);
+FUNCTION b32   ExprParse_OprConsume(ExprParseCtx *ctx,
+                                             Node **iter, Node *opl,
+                                             ExprOprKind kind,
+                                             u32 min_precedence,
+                                             ExprOpr **op_out);
+FUNCTION Expr* ExprParse_Atom(Arena *arena, ExprParseCtx *ctx,
+                                       Node **iter, Node *first, Node *opl);
+FUNCTION Expr* ExprParse_MinPrecedence(Arena *arena, ExprParseCtx *ctx,
+                                                Node **iter, Node *first, Node *opl,
+                                                u32 min_precedence);
 
 
 //~ String Generation
 
-MD_FUNCTION void MD_DebugDumpFromNode(MD_Arena *arena, MD_String8List *out, MD_Node *node,
-                                      int indent, MD_String8 indent_string,
-                                      MD_GenerateFlags flags);
-MD_FUNCTION void MD_ReconstructionFromNode(MD_Arena *arena, MD_String8List *out, MD_Node *node,
-                                           int indent, MD_String8 indent_string);
+FUNCTION void DebugDumpFromNode(Arena *arena, String8List *out, Node *node,
+                                      int indent, String8 indent_string,
+                                      GenerateFlags flags);
+FUNCTION void ReconstructionFromNode(Arena *arena, String8List *out, Node *node,
+                                           int indent, String8 indent_string);
 
 //~ Command Line Argument Helper
 
-MD_FUNCTION MD_String8List MD_StringListFromArgCV(MD_Arena *arena, int argument_count,
+FUNCTION String8List StringListFromArgCV(Arena *arena, int argument_count,
                                                   char **arguments);
-MD_FUNCTION MD_CmdLine MD_MakeCmdLineFromOptions(MD_Arena *arena, MD_String8List options);
-MD_FUNCTION MD_String8List MD_CmdLineValuesFromString(MD_CmdLine cmdln, MD_String8 name);
-MD_FUNCTION MD_b32 MD_CmdLineB32FromString(MD_CmdLine cmdln, MD_String8 name);
-MD_FUNCTION MD_i64 MD_CmdLineI64FromString(MD_CmdLine cmdln, MD_String8 name);
+FUNCTION CmdLine MakeCmdLineFromOptions(Arena *arena, String8List options);
+FUNCTION String8List CmdLineValuesFromString(CmdLine cmdln, String8 name);
+FUNCTION b32 CmdLineB32FromString(CmdLine cmdln, String8 name);
+FUNCTION i64 CmdLineI64FromString(CmdLine cmdln, String8 name);
 
 //~ File System
 
-MD_FUNCTION MD_String8  MD_LoadEntireFile(MD_Arena *arena, MD_String8 filename);
-MD_FUNCTION MD_b32      MD_FileIterBegin(MD_FileIter *it, MD_String8 path);
-MD_FUNCTION MD_FileInfo MD_FileIterNext(MD_Arena *arena, MD_FileIter *it);
-MD_FUNCTION void        MD_FileIterEnd(MD_FileIter *it);
+FUNCTION String8  LoadEntireFile(Arena *arena, String8 filename);
+FUNCTION b32      FileIterBegin(FileIter *it, String8 path);
+FUNCTION FileInfo FileIterNext(Arena *arena, FileIter *it);
+FUNCTION void        FileIterEnd(FileIter *it);
 
 #endif // MD_H
 
