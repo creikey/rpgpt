@@ -298,6 +298,7 @@ typedef BUFF(ActionKind, 8) AvailableActions;
 
 
 typedef struct GameState {
+	Arena *arena;
 	uint64_t tick;
 	bool won;
 	
@@ -305,6 +306,10 @@ typedef struct GameState {
 	bool no_angel_screen;
 	bool assigned_objective;
 	GameplayObjective objective;
+
+	Memory *judgement_memories;
+	double time; // in seconds, fraction of length of day
+	int judgement_gen_request;
 
 	// processing may still occur after time has stopped on the gamestate, 
 	bool stopped_time;

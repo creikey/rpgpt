@@ -460,6 +460,14 @@ LPCWSTR windows_string(String8 s)
 }
 #endif
 
+typedef enum
+{
+	GEN_Deleted = -1,
+	GEN_NotDoneYet = 0,
+	GEN_Success = 1,
+	GEN_Failed = 2,
+} GenRequestStatus;
+
 #ifdef DESKTOP
 #ifdef WINDOWS
 #pragma warning(push, 3)
@@ -549,7 +557,7 @@ void generation_thread(void* my_request_voidptr)
 				WinAssertWithErrorCode(WinHttpReadData(hRequest, (LPVOID)out_buffer, dwSize, &dwDownloaded));
 				out_buffer[dwDownloaded - 1] = '\0';
 				Log("Got this from http, size %lu: %s\n", dwDownloaded, out_buffer);
-				S8ListPush(my_request->arena, &received_data_list, S8(out_buffer, dwDownloaded)); 
+				S8ListPush(my_request->arena, &received_data_list, S8(out_buffer, dwDownloaded - 1));  // the string shouldn't include a null terminator in its length, and WinHttpReadData has a null terminator here
 			}
 		} while (dwSize > 0);
 		String8 received_data = S8ListJoin(my_request->arena, received_data_list, &(StringJoin){0});
@@ -566,8 +574,10 @@ void generation_thread(void* my_request_voidptr)
 	}
 }
 
-int make_generation_request(String8 post_req_body)
+int make_generation_request(String8 prompt)
 {
+	ArenaTemp scratch = GetScratch(0,0);
+	String8 post_req_body = FmtWithLint(scratch.arena, "|%.*s", S8VArg(prompt));
 	// checking for taken characters, pipe should only occur at the beginning
 	for(u64 i = 1; i < post_req_body.size; i++)
 	{
@@ -599,6 +609,7 @@ int make_generation_request(String8 post_req_body)
 
 	DblPushBack(requests_first, requests_last, to_return);
 
+	ReleaseScratch(scratch);
 	return to_return->id;
 }
 
@@ -625,11 +636,67 @@ void done_with_request(int id)
 	DblRemove(requests_first, requests_last, req);
 	StackPush(requests_free_list, req);
 }
+GenRequestStatus gen_request_status(int id)
+{
+	ChatRequest *req = get_by_id(id);
+	if(!req)
+		return GEN_Deleted;
+	else
+		return req->status;
+}
+TextChunk gen_request_content(int id)
+{
+	assert(get_by_id(id));
+	return get_by_id(id)->generated;
+}
 
 #else
 ISANERROR("Only know how to do desktop http requests on windows")
 #endif // WINDOWS
 #endif // DESKTOP
+
+#ifdef WEB
+int make_generation_request(String8 prompt)
+{
+	ArenaTemp scratch = GetScratch(0, 0);
+	String8 terminated_completion_url = nullterm(scratch.arena, FmtWithLint(scratch.arena, "%s://%s:%d/completion", IS_SERVER_SECURE ? "https" : "http", SERVER_DOMAIN, SERVER_PORT));
+	int req_id = EM_ASM_INT({
+		return make_generation_request(UTF8ToString($0, $1), UTF8ToString($2, $3));
+	},
+							prompt_str.str, (int)prompt_str.size, terminated_completion_url.str, (int)terminated_completion_url.size);
+	ReleaseScratch(scratch);
+	return req_id;
+}
+GenRequestStatus gen_request_status(int id)
+{
+	int status = EM_ASM_INT({
+		return get_generation_request_status($0);
+	}, id);
+
+	return status;
+}
+TextChunk gen_request_content(int id)
+{
+	char sentence_cstr[MAX_SENTENCE_LENGTH] = {0};
+	EM_ASM({
+		let generation = get_generation_request_content($0);
+		stringToUTF8(generation, $1, $2);
+	},
+		   id, sentence_cstr, ARRLEN(sentence_cstr) - 1); // I think minus one for null terminator...
+
+	TextChunk to_return = {0};
+	memcpy(to_return.text, sentence_cstr, MAX_SENTENCE_LENGTH);
+	to_return.text_length = strlen(sentence_cstr);
+	return to_return;
+}
+void done_with_request(int id)
+{
+	EM_ASM({
+		done_with_generation_request($0);
+	},
+		   id);
+}
+#endif // WEB
 
 Memory *memories_free_list = 0;
 RememberedError *remembered_error_free_list = 0;
@@ -1740,6 +1807,14 @@ String8 is_action_valid(Arena *arena, Entity *from, Action a)
 
 	String8 error_message = (String8){0};
 
+	if(error_message.size == 0 && a.speech.text_length > 0)
+	{
+		if(S8FindSubstring(TextChunkString8(a.speech), S8Lit("assist"), 0, StringMatchFlag_CaseInsensitive) != a.speech.text_length)
+		{
+			error_message = S8Lit("You cannot use the word 'assist' in any form, you are not an assistant, do not act overtly helpful");
+		}
+	}
+
 	CanTalkTo talk = get_can_talk_to(from);
 	if(error_message.size == 0 && a.talking_to_kind)
 	{
@@ -1945,6 +2020,13 @@ bool perform_action(GameState *gs, Entity *from, Action a)
 		assert(from->npc_kind != NPC_Player);
 		append_to_errors(from, make_memory(a, context), is_valid);
 		proceed_propagating = false;
+	}
+
+	if(from->npc_kind == NPC_Daniel || a.talking_to_kind == NPC_Daniel)
+	{
+		Memory *new_forever = PushArray(gs->arena, Memory, 1);
+		*new_forever = make_memory(a, (MemoryContext){.author_npc_kind = from->npc_kind, .talking_to_kind = a.talking_to_kind});
+		StackPush(gs->judgement_memories, new_forever);
 	}
 
 	bool angel_heard_action = false;
@@ -2183,7 +2265,12 @@ void transition_to_room(GameState *gs, ThreeDeeLevel *level, String8 new_room_na
 
 void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *level)
 {
+	if(gs->arena)
+	{
+		ArenaRelease(gs->arena);
+	}
 	memset(gs, 0, sizeof(GameState));
+	gs->arena = ArenaAlloc();
 	rnd_gamerand_seed(&gs->random, RANDOM_SEED);
 
 	// make entities for all rooms
@@ -3350,6 +3437,7 @@ String8 make_devtools_help(Arena *arena)
 	P("P - toggles spall profiling on/off, don't leave on for very long as it consumes a lot of storage if you do that. The resulting spall trace is saved to the file '%s'\n", PROFILING_SAVE_FILENAME);
 	P("If you hover over somebody it will display some parts of their memories, can be somewhat helpful\n");
 	P("P - immediately kills %s\n", characters[NPC_Raphael].name);
+	P("J - judges the player and outputs their verdict to the console\n");
 
 	#undef P
 	String8 to_return = S8ListJoin(arena, list, &(StringJoin){0});
@@ -5591,7 +5679,7 @@ TextPlacementSettings speech_bubble = {
 String8List words_on_current_page(Entity *it, TextPlacementSettings *settings)
 {
 	String8 last = last_said_sentence(it);
-	PlacedWordList placed = place_wrapped_words(frame_arena, split_by_word(frame_arena, last), settings->text_scale, settings->width_in_pixels, *settings->font, JUST_LEFT);
+	PlacedWordList placed = place_wrapped_words(frame_arena, split_by_word(frame_arena, last), settings->text_scale, settings->text_width_in_pixels, *settings->font, JUST_LEFT);
 
 	String8List on_current_page = {0};
 	for(PlacedWord *cur = placed.first; cur; cur = cur->next)
@@ -5669,6 +5757,8 @@ void frame(void)
 	{
 		uint64_t time_start_frame = stm_now();
 
+		gs.time += dt_double;
+
 		text_input_fade = Lerp(text_input_fade, unwarped_dt * 8.0f, receiving_text_input ? 1.0f : 0.0f);
 
 		Vec3 player_pos = V3(gs.player->pos.x, 0.0, gs.player->pos.y);
@@ -5713,7 +5803,7 @@ void frame(void)
 
 		Vec3 light_dir;
 		{
-			float t = (float)(elapsed_time/3.0f - floor(elapsed_time/3.0f));
+			float t = clamp01((float)(gs.time / LENGTH_OF_DAY));
 			Vec3 sun_vector = V3(2.0f*t - 1.0f, sinf(t*PI32), 0.8f); // where the sun is pointing from
 			light_dir = NormV3(MulV3F(sun_vector, -1.0f));
 		}
@@ -6304,61 +6394,40 @@ void frame(void)
 							{
 								assert(it->gen_request_id > 0);
 
-#ifdef DESKTOP
-								int status = get_by_id(it->gen_request_id)->status;
-#else
-#ifdef WEB
-								int status = EM_ASM_INT( {
-									return get_generation_request_status($0);
-								}, it->gen_request_id);
-#else
-ISANERROR("Don't know how to do this stuff on this platform.")
-#endif // WEB
-#endif // DESKTOP
-								if (status == 0)
+								GenRequestStatus status = gen_request_status(it->gen_request_id);
+								switch(status)
 								{
-									// simply not done yet
-								}
-								else
-								{
-									if (status == 1)
+									case GEN_Deleted:
+									it->gen_request_id = 0;
+									break;
+									case GEN_NotDoneYet:
+									break;
+									case GEN_Success:
 									{
 										having_errors = false;
 										// done! we can get the string
-										char sentence_cstr[MAX_SENTENCE_LENGTH] = { 0 };
-#ifdef WEB
-										EM_ASM( {
-											let generation = get_generation_request_content($0);
-											stringToUTF8(generation, $1, $2);
-										}, it->gen_request_id, sentence_cstr, ARRLEN(sentence_cstr) - 1); // I think minus one for null terminator...
-#endif
-
-#ifdef DESKTOP
-										memcpy(sentence_cstr, get_by_id(it->gen_request_id)->generated.text, get_by_id(it->gen_request_id)->generated.text_length);
-#endif
-
-										String8 sentence_str = S8CString(sentence_cstr);
+										TextChunk sentence_chunk = gen_request_content(it->gen_request_id);
+										String8 sentence_str = TextChunkString8(sentence_chunk);
 
 										// parse out from the sentence NPC action and dialog
 										Action out = {0};
 
-										ArenaTemp scratch = GetScratch(0, 0);
 										Log("Parsing `%.*s`...\n", S8VArg(sentence_str));
-										String8 parse_response = parse_chatgpt_response(scratch.arena, it, sentence_str, &out);
+										String8 parse_response = parse_chatgpt_response(frame_arena, it, sentence_str, &out);
 
 										// check that it wraps in below two lines
 										TextPlacementSettings *to_wrap_to = &speech_bubble;
 										PlacedWordList placed = place_wrapped_words(frame_arena, split_by_word(frame_arena, TextChunkString8(out.speech)), to_wrap_to->text_scale, to_wrap_to->text_width_in_pixels, *to_wrap_to->font, JUST_LEFT);
 										int words_over_limit = 0;
-										for(PlacedWord *cur = placed.first; cur; cur = cur->next)
+										for (PlacedWord *cur = placed.first; cur; cur = cur->next)
 										{
-											if(cur->line_index >= to_wrap_to->lines_per_page*to_wrap_to->maximum_pages_from_ai) // the max number of lines of text on a bubble
+											if (cur->line_index >= to_wrap_to->lines_per_page * to_wrap_to->maximum_pages_from_ai) // the max number of lines of text on a bubble
 											{
 												words_over_limit += 1;
 											}
 										}
 
-										if(words_over_limit > 0)
+										if (words_over_limit > 0)
 										{
 											String8 new_err = FmtWithLint(frame_arena, "Your speech is %d words over the maximum limit, you must be more succinct and remove at least that many words", words_over_limit);
 											append_to_errors(it, make_memory(out, (MemoryContext){.i_said_this = true, .author_npc_kind = it->npc_kind, .talking_to_kind = out.talking_to_kind}), new_err);
@@ -6369,8 +6438,6 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 											{
 												Log("Performing action %s!\n", actions[out.kind].name);
 												perform_action(&gs, it, out);
-
-
 											}
 											else
 											{
@@ -6379,42 +6446,19 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 											}
 										}
 
-
-
-
-										ReleaseScratch(scratch);
-
-#ifdef WEB
-										EM_ASM( {
-											done_with_generation_request($0);
-										}, it->gen_request_id);
-#endif
-#ifdef DESKTOP
 										done_with_request(it->gen_request_id);
-#endif
+										it->gen_request_id = 0;
 									}
-									else if (status == 2)
-									{
-										Log("Failed to generate dialog! Fuck!\n");
-										having_errors = true;
-
-										/*
-										Action to_perform = {0};
-										String8 speech_mdstring = S8Lit("I'm not sure...");
-										memcpy(to_perform.speech, speech_mdstring.str, speech_mdstring.size);
-										to_perform.speech_length = (int)speech_mdstring.size;
-										perform_action(&gs, it, to_perform);
-										*/
-									}
-									else if (status == -1)
-									{
-										Log("Generation request doesn't exist anymore, that's fine...\n");
-									}
-									else
-									{
-										Log("Unknown generation request status: %d\n", status);
-									}
+									break;
+									case GEN_Failed:
+									Log("Failed to generate dialog! Fuck!\n");
+									having_errors = true;
 									it->gen_request_id = 0;
+									break;
+									default:
+									Log("Unknown generation request status: %d\n", status);
+									it->gen_request_id = 0;
+									break;
 								}
 							}
 						}
@@ -6831,38 +6875,19 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 							{
 								it->perceptions_dirty = false; // needs to be in beginning because they might be redirtied by the new perception
 								String8 prompt_str = {0};
-#ifdef DO_CHATGPT_PARSING
 								prompt_str = generate_chatgpt_prompt(frame_arena, &gs, it, get_can_talk_to(it));
-#else
-								generate_prompt(it, &prompt);
-#endif
-								Log("Sending request with prompt `%.*s`\n", S8VArg(prompt_str));
+								Log("Want to make request with prompt `%.*s`\n", S8VArg(prompt_str));
 
-#ifdef WEB
-								// fire off generation request, save id
-								ArenaTemp scratch = GetScratch(0, 0);
-								String8 terminated_completion_url = nullterm(scratch.arena, FmtWithLint(scratch.arena, "%s://%s:%d/completion", IS_SERVER_SECURE ? "https" : "http", SERVER_DOMAIN, SERVER_PORT));
-								int req_id = EM_ASM_INT({
-									return make_generation_request(UTF8ToString($0, $1), UTF8ToString($2, $3));
-								},
-																				prompt_str.str, (int)prompt_str.size, terminated_completion_url.str, (int)terminated_completion_url.size);
-								it->gen_request_id = req_id;
-								ReleaseScratch(scratch);
-#endif
-
-#ifdef DESKTOP
-								ArenaTemp scratch = GetScratch(0, 0);
-
-								String8 ai_response = {0};
 								bool mocking_the_ai_response = false;
 #ifdef DEVTOOLS
 #ifdef MOCK_AI_RESPONSE
 								mocking_the_ai_response = true;
-#endif
-#endif
+#endif // mock
+#endif // devtools
 								bool succeeded = true; // couldn't get AI response if false
 								if (mocking_the_ai_response)
 								{
+									String8 ai_response = {0};
 									if (it->memories_last->context.talking_to_kind == it->npc_kind)
 									//if (it->memories_last->context.author_npc_kind != it->npc_kind)
 									{
@@ -6899,34 +6924,27 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 									}
 
 									// something to mock
-									if (ai_response.size > 0)
+									assert(ai_response.size > 0);
+									Log("Mocking...\n");
+									Action a = {0};
+									String8 error_message = S8Lit("Something really bad happened bro. File " STRINGIZE(__FILE__) " Line " STRINGIZE(__LINE__));
+									if (succeeded)
 									{
-										Log("Mocking...\n");
-										Action a = {0};
-										String8 error_message = S8Lit("Something really bad happened bro. File " STRINGIZE(__FILE__) " Line " STRINGIZE(__LINE__));
-										if (succeeded)
-										{
-											error_message = parse_chatgpt_response(scratch.arena, it, ai_response, &a);
-										}
-
-										assert(succeeded);
-										assert(error_message.size == 0);
-
-										String8 valid_str = is_action_valid(frame_arena, it, a);
-										assert(valid_str.size == 0);
-										perform_action(&gs, it, a);
+										error_message = parse_chatgpt_response(frame_arena, it, ai_response, &a);
 									}
+
+									assert(succeeded);
+									assert(error_message.size == 0);
+
+									String8 valid_str = is_action_valid(frame_arena, it, a);
+									assert(valid_str.size == 0);
+									perform_action(&gs, it, a);
 								}
 								else
 								{
-									String8 post_request_body = FmtWithLint(scratch.arena, "|%.*s", S8VArg(prompt_str));
-									it->gen_request_id = make_generation_request(post_request_body);
+									it->gen_request_id = make_generation_request(prompt_str);
 								}
-
-
-							ReleaseScratch(scratch);
 #undef SAY
-#endif	// desktop endif
 							}
 						}
 					}
@@ -7203,7 +7221,6 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 #define HELPER_SIZE 250.0f
 
 
-
 		// keyboard tutorial icons
 		if(false)
 		if (!mobile_controls)
@@ -7235,6 +7252,11 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 		}
 
 #ifdef DEVTOOLS
+
+		if(keypressed[SAPP_KEYCODE_J])
+		{
+			Log("Judgement Day!\n");
+		}
 
 		// statistics @Place(devtools drawing developer menu drawing)
 		if (show_devtools)
