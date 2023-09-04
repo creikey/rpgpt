@@ -6,6 +6,8 @@ A fantasy western RPG with an immersive and natural dynamic dialogue system powe
 # Important Building Steps and Contribution Notes
 If you add new devtools functionality like a new keyboard button binding that prints stuff to help with debugging, or flycam features, or anything, MAKE SURE you add a description of that functionality and how to access it in the function make_devtools_help() so it's just clear what debugging tools there are. Document it please.
 
+In order for exporting to work, the "exclude from view layer" tick to the left of the eyeball on each object has to be unticked, or else all animations will be frozen. @TODO fix this in the future
+
 Every time you checkin/clone the project, make sure to call `blender_export.bat` at least once! This will auto-extract `art\art.blend` and run `art\Exporter.py`, thereby baking, validating, and exporting all the assets and the level.
 
 When editing Exporter.py in either the blender editor, or in a text editor in the repo, you  have to continually make sure blender's internal version of the script doesn't go out of date with the actual script on disk, by either saving consistently from blender to disk if you're editing from blender, or by reloading from disk in the blend file before each commit.
