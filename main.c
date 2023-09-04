@@ -5849,6 +5849,7 @@ void frame(void)
 					case NPC_Devil:
 					case NPC_PreviousPlayer1:
 					case NPC_PreviousPlayer2:
+					case NPC_PreviousPlayer3:
 						assert(false);
 						break;
 					}

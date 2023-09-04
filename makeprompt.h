@@ -441,6 +441,84 @@ String8List dump_memory_as_json(Arena *arena, Memory *it)
 	return current_list;
 }
 
+String8List memory_description(Arena *arena, Entity *e, Memory *it)
+{
+	String8List current_list = {0};
+	#define AddFmt(...) PushWithLint(arena, &current_list, __VA_ARGS__)
+	// dump a human understandable sentence description of what happened in this memory
+	bool no_longer_wants_to_converse = false; // add the no longer wants to converse text after any speech, it makes more sense reading it
+	if (it->action_taken != ACT_none)
+	{
+		switch (it->action_taken)
+		{
+#define HUMAN(kind) S8VArg(npc_to_human_readable(e, kind))
+		case ACT_none:
+			break;
+		case ACT_join:
+			AddFmt("%.*s joined %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action_argument.targeting));
+			break;
+		case ACT_leave:
+			AddFmt("%.*s left their party\n", HUMAN(it->context.author_npc_kind));
+			break;
+		case ACT_aim_shotgun:
+			AddFmt("%.*s aimed their shotgun at %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action_argument.targeting));
+			break;
+		case ACT_fire_shotgun:
+			AddFmt("%.*s fired their shotgun at %.*s, brutally murdering them.\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action_argument.targeting));
+			break;
+		case ACT_put_shotgun_away:
+			AddFmt("%.*s holstered their shotgun, no longer threatening anybody\n", HUMAN(it->context.author_npc_kind));
+			break;
+		case ACT_approach:
+			AddFmt("%.*s approached %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action_argument.targeting));
+			break;
+		case ACT_end_conversation:
+			no_longer_wants_to_converse = true;
+			break;
+		case ACT_assign_gameplay_objective:
+			AddFmt("%.*s assigned a definitive game objective to %.*s", HUMAN(it->context.author_npc_kind), HUMAN(it->context.talking_to_kind));
+			break;
+		case ACT_award_victory:
+			AddFmt("%.*s awarded victory to %.*s", HUMAN(it->context.author_npc_kind), HUMAN(it->context.talking_to_kind));
+			break;
+		}
+	}
+	if (it->speech.text_length > 0)
+	{
+		String8 target_string = S8Lit("the world");
+		if (it->context.talking_to_kind != NPC_nobody)
+		{
+			if (it->context.talking_to_kind == e->npc_kind)
+				target_string = S8Lit("you");
+			else
+				target_string = S8CString(characters[it->context.talking_to_kind].name);
+		}
+
+		String8 speaking_to_you_helper = S8Lit("(Speaking directly you) ");
+		if (it->context.talking_to_kind != e->npc_kind)
+		{
+			speaking_to_you_helper = S8Lit("(Overheard conversation, they aren't speaking directly to you) ");
+		}
+
+		AddFmt("%.*s%s said \"%.*s\" to %.*s (you are %s)\n", S8VArg(speaking_to_you_helper), characters[it->context.author_npc_kind].name, TextChunkVArg(it->speech), S8VArg(target_string), characters[e->npc_kind].name);
+	}
+
+	if (no_longer_wants_to_converse)
+	{
+		if (it->action_argument.targeting == NPC_nobody)
+		{
+			AddFmt("%.*s no longer wants to converse with everybody\n", HUMAN(it->context.author_npc_kind));
+		}
+		else
+		{
+			AddFmt("%.*s no longer wants to converse with %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action_argument.targeting));
+		}
+	}
+#undef HUMAN
+#undef AddFmt
+	return current_list;
+}
+
 // outputs json which is parsed by the server
 String8 generate_chatgpt_prompt(Arena *arena, GameState *gs, Entity *e, CanTalkTo can_talk_to)
 {
@@ -507,76 +585,8 @@ String8 generate_chatgpt_prompt(Arena *arena, GameState *gs, Entity *e, CanTalkT
 				in_drama_memories = false;
 				AddFmt("Some time passed...\n");
 			}
-			// dump a human understandable sentence description of what happened in this memory
-			bool no_longer_wants_to_converse = false; // add the no longer wants to converse text after any speech, it makes more sense reading it
-			if(it->action_taken != ACT_none)
-			{
-				switch(it->action_taken)
-				{
-				#define HUMAN(kind) S8VArg(npc_to_human_readable(e, kind))
-				case ACT_none:
-					break;
-				case ACT_join:
-					AddFmt("%.*s joined %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action_argument.targeting));
-					break;
-				case ACT_leave:
-					AddFmt("%.*s left their party\n",  HUMAN(it->context.author_npc_kind));
-					break;
-				case ACT_aim_shotgun:
-					AddFmt("%.*s aimed their shotgun at %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action_argument.targeting));
-					break;
-				case ACT_fire_shotgun:
-					AddFmt("%.*s fired their shotgun at %.*s, brutally murdering them.\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action_argument.targeting));
-					break;
-				case ACT_put_shotgun_away:
-					AddFmt("%.*s holstered their shotgun, no longer threatening anybody\n", HUMAN(it->context.author_npc_kind));
-					break;
-				case ACT_approach:
-					AddFmt("%.*s approached %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action_argument.targeting));
-					break;
-				case ACT_end_conversation:
-				  	no_longer_wants_to_converse = true;
-					break;
-				case ACT_assign_gameplay_objective:
-				 	AddFmt("%.*s assigned a definitive game objective to %.*s", HUMAN(it->context.author_npc_kind), HUMAN(it->context.talking_to_kind));
-					break;
-				case ACT_award_victory:
-					AddFmt("%.*s awarded victory to %.*s", HUMAN(it->context.author_npc_kind), HUMAN(it->context.talking_to_kind));
-					break;
-				}
-			}
-			if(it->speech.text_length > 0)
-			{
-				String8 target_string = S8Lit("the world");
-				if(it->context.talking_to_kind != NPC_nobody)
-				{
-					if(it->context.talking_to_kind == e->npc_kind)
-						target_string = S8Lit("you");
-					else
-						target_string = S8CString(characters[it->context.talking_to_kind].name);
-				}
-
-				String8 speaking_to_you_helper = S8Lit("(Speaking directly you) ");
-				if(it->context.talking_to_kind != e->npc_kind)
-				{
-					speaking_to_you_helper = S8Lit("(Overheard conversation, they aren't speaking directly to you) ");
-				}
-
-				AddFmt("%.*s%s said \"%.*s\" to %.*s (you are %s)\n", S8VArg(speaking_to_you_helper), characters[it->context.author_npc_kind].name, TextChunkVArg(it->speech), S8VArg(target_string), characters[e->npc_kind].name);
-			}
-
-			if(no_longer_wants_to_converse)
-			{
-				if (it->action_argument.targeting == NPC_nobody)
-				{
-					AddFmt("%.*s no longer wants to converse with everybody\n", HUMAN(it->context.author_npc_kind));
-				}
-				else
-				{
-					AddFmt("%.*s no longer wants to converse with %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action_argument.targeting));
-				}
-			}
-				#undef HUMAN
+			String8List desc_list = memory_description(scratch.arena, e, it);
+			S8ListConcat(&current_list, &desc_list);
 		}
 
 		// if I said this, or it's the last memory, flush the current list as a user node

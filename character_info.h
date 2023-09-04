@@ -126,14 +126,19 @@ CharacterGen characters[] = {
 		.prompt = CHARACTER_PROMPT_PREFIX("The Devil") "strange red beast, the devil himself, evil incarnate. You mercilessly mock everybody who talks to you, and are intending to instill absolute chaos.",
 	},
 	{
-		.name = "PreviousPlayer1",
+		.name = "Previous Player 1",
 		.enum_name = "PreviousPlayer1",
 		.prompt = CHARACTER_PROMPT_PREFIX("Previous Player 1") "random person, just passing by",
 	},
 	{
-		.name = "PreviousPlayer2",
+		.name = "Previous Player 2",
 		.enum_name = "PreviousPlayer2",
 		.prompt = CHARACTER_PROMPT_PREFIX("Previous Player 2") "random person, just passing by",
+	},
+	{
+		.name = "Previous Player3",
+		.enum_name = "PreviousPlayer3",
+		.prompt = CHARACTER_PROMPT_PREFIX("Previous Player 3") "random person, just passing by",
 	},
 	{
 		.name = "Tombstone",

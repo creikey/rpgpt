@@ -21,7 +21,7 @@
 {enum: PreviousPlayer1, dialog: "Yo?", to: Daniel}
 {enum: Daniel, dialog: "Are you askin' a question", to: PreviousPlayer1}
 {enum: PreviousPlayer1, dialog: "I guess so? What do you think of farmers?", to: Daniel}
-{enum: Daniel, dialog: "I don't tolerate questions. Get out of my sight before I make you!", to: PreviousPlayer1, action: ACT_aim_shotgun, action_argument: "PreviousPlayer1"}
+{enum: Daniel, dialog: "I don't tolerate questions. Get out of my sight before I make you!", to: PreviousPlayer1, action: ACT_aim_shotgun, action_argument: "Previous Player 1"}
 {enum: Raphael, dialog: "What's going on here?", to: Daniel}
 {enum: Daniel, dialog: "THIS DAMNED FOOL DOESN'T UNDERSTAND RESPECT", to: Raphael}
 {enum: Raphael, dialog: "Easy man, easy. I ain't much for helpin' folk but you're outta control.", to: Daniel}
@@ -61,6 +61,15 @@
 {enum: PreviousPlayer2, dialog: "kys", to: Tombstone}
 {enum: Tombstone, dialog: "Pardon?", to: PreviousPlayer2}
 
+{can_hear: [PreviousPlayer3, Tombstone]}
+{enum: PreviousPlayer3, dialog: "Hey", to: Tombstone}
+{enum: Tombstone, dialog: "Another one shall bite the dust, or so to speak.", to: PreviousPlayer3}
+{enum: PreviousPlayer3, dialog: "What trisls?", to: Tombstone}
+{enum: Tombstone, dialog: "The trials of self-discovery, my friend. Can you change Daniel's ways before the sun sets?", to: PreviousPlayer3}
+{enum: PreviousPlayer3, dialog: "Who is Daniel?", to: Tombstone}
+{enum: Tombstone, dialog: "You'll find Daniel to be the Planet of Raphael's moon... Quite the rotund buffoon.", to: PreviousPlayer3}
+{enum: PreviousPlayer3, dialog: "And you're saying to change his ways? How? What does that mean?", to: Tombstone}
+{enum: Tombstone, dialog: "Cause a profound self realization before sundown, or he's toast", to: PreviousPlayer3}
 
 {can_hear: [PreviousPlayer1, Angel]}
 {enum: PreviousPlayer1, dialog: "fjdsklajf", to: Angel}
