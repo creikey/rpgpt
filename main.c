@@ -4072,7 +4072,7 @@ Vec4 inverse_perspective_divide(Vec4 divided_point, float what_was_w)
 
 	return V4(divided_point.x * what_was_w, divided_point.y * what_was_w, divided_point.z * what_was_w, what_was_w);
 }
-Vec3 screenspace_point_to_camera_point(Vec2 screenspace)
+Vec3 screenspace_point_to_camera_point(Vec2 screenspace, Mat4 view)
 {
 	/*
 	gl_Position = perspective_divide(projection * view * world_space_point);
@@ -5218,15 +5218,6 @@ Shadow_State init_shadow_state() {
 	return shadows;
 }
 
-typedef struct {
-	float l; 
-	float r; 
-	float t; 
-	float b; 
-	float n;
-	float f;
-} Shadow_Volume_Params;
-
 float round_to_nearest(float input, float round_target)
 {
     float result = 0.0f;
@@ -5245,114 +5236,6 @@ typedef struct
 	Vec3 vertices[5];
 } FrustumVertices;
 
-FrustumVertices get_frustum_vertices(Vec3 cam_pos, Vec3 cam_forward, Vec3 cam_right) {
-	FrustumVertices result = {0};
-
-	float aspect_ratio = (float)sapp_width() / (float)sapp_height();
-
-
-	const float cascade_distance = FAR_PLANE_DISTANCE;
-
-	Vec2 far_plane_half_dims;
-	far_plane_half_dims.y = cascade_distance * tanf(FIELD_OF_VIEW * 0.5f);
-	far_plane_half_dims.x = far_plane_half_dims.y * aspect_ratio;
-
-	Vec3 cam_up = Cross(cam_right, cam_forward); 
-
-	Vec3 far_plane_centre = AddV3(cam_pos, MulV3F(cam_forward, cascade_distance));
-	Vec3 far_plane_offset_to_right_side  = MulV3F(cam_right, far_plane_half_dims.x);
-	Vec3 far_plane_offset_to_top_side    = MulV3F(cam_up   , far_plane_half_dims.y);
-	Vec3 far_plane_offset_to_left_side   = MulV3F(far_plane_offset_to_right_side, -1.0); 
-	Vec3 far_plane_offset_to_bot_side    = MulV3F(far_plane_offset_to_top_side  , -1.0);   
-
-	result.vertices[0] = cam_pos;
-	result.vertices[1] = AddV3(far_plane_centre, AddV3(far_plane_offset_to_bot_side, far_plane_offset_to_left_side ));
-	result.vertices[2] = AddV3(far_plane_centre, AddV3(far_plane_offset_to_bot_side, far_plane_offset_to_right_side));
-	result.vertices[3] = AddV3(far_plane_centre, AddV3(far_plane_offset_to_top_side, far_plane_offset_to_right_side));
-	result.vertices[4] = AddV3(far_plane_centre, AddV3(far_plane_offset_to_top_side, far_plane_offset_to_left_side ));
-
-
-	return result;
-}
-
-Shadow_Volume_Params calculate_shadow_volume_params(Vec3 light_dir, Vec3 cam_pos, Vec3 cam_forward, Vec3 cam_right) 
-{
-	Shadow_Volume_Params result = {0};
-
-
-	//first, we calculate the scene bound
-	//NOTE: Once we are moved to a pre-pass queue making type deal, this could be moved into that 
-	//      loop.
-
-	//For simplicity and speed, at the moment we consider only entity positions, not their extents when constructing the scene bounds.
-	//To make up for this, we add an extra padding-skirt to the bounds.
-	Mat4 light_space_matrix = LookAt_RH((Vec3){0}, light_dir, V3(0, 1, 0));
-
-	Vec3 frustum_min = V3( INFINITY,  INFINITY,  INFINITY);
-	Vec3 frustum_max = V3(-INFINITY, -INFINITY, -INFINITY);
-
-	FrustumVertices frustum_vertices_worldspace = get_frustum_vertices(cam_pos, cam_forward, cam_right);
-	const int num_frustum_vertices = sizeof(frustum_vertices_worldspace.vertices)/sizeof(frustum_vertices_worldspace.vertices[0]);
-
-	for (int i = 0; i < num_frustum_vertices; ++i) {
-		Vec3 p = frustum_vertices_worldspace.vertices[i];
-
-		p = MulM4V3(light_space_matrix, p);
-
-		frustum_min.x = fminf(frustum_min.x, p.x);
-		frustum_max.x = fmaxf(frustum_max.x, p.x);
-
-		frustum_min.y = fminf(frustum_min.y, p.y);
-		frustum_max.y = fmaxf(frustum_max.y, p.y);
-		
-		frustum_min.z = fminf(frustum_min.z, p.z);
-		frustum_max.z = fmaxf(frustum_max.z, p.z);	
-	}
-
-
-
-	result.l = frustum_min.x;
-	result.r = frustum_max.x;
-
-	result.b = frustum_min.y;
-	result.t = frustum_max.y;
-
-	float w = result.r - result.l;
-	float h = result.t - result.b;
-	float actual_size = fmaxf(w, h);
-
-	{//Make sure it is square
-		float diff = actual_size - h;
-		if (diff > 0) {
-			float half_diff = diff * 0.5f;
-			result.t += half_diff;
-			result.b -= half_diff;
-		}
-		diff = actual_size - w;
-		if (diff > 0) {
-			float half_diff = diff * 0.5f;
-			result.r += half_diff;
-			result.l -= half_diff;
-		}
-	}
-
-
-	{//Snap the light position to shadow_map texel grid, to reduce shimmering when moving
-		float texel_size = actual_size / (float)SHADOW_MAP_DIMENSION;
-		result.l = round_to_nearest(result.l, texel_size);
-		result.r = round_to_nearest(result.r, texel_size);
-		result.b = round_to_nearest(result.b, texel_size);
-		result.t = round_to_nearest(result.t, texel_size);
-	}
-
-	result.n = -100.0;
-	result.f = 200.0;
-
-
-	return result;
-}
-
-
 void debug_draw_img(sg_image img, int index) {
     draw_quad((DrawParams){quad_at(V2(512.0f*index, 512.0), V2(512.0, 512.0)), IMG(img), WHITE, .layer=LAYER_UI});
 }
@@ -5360,43 +5243,6 @@ void debug_draw_img(sg_image img, int index) {
 void debug_draw_img_with_border(sg_image img, int index) {
     float bs = 50.0;
     draw_quad((DrawParams){quad_at(V2(512.0f*index, 512.0), V2(512.0, 512.0)), img, (AABB){V2(-bs, -bs), AddV2(img_size(img), V2(bs, bs))}, WHITE, .layer=LAYER_UI});
-}
-
-void debug_draw_shadow_info(Vec3 frustum_tip, Vec3 cam_forward, Vec3 cam_right, Mat4 light_space_matrix) {
-		debug_draw_img(state.shadows.color_img, 0);
-		FrustumVertices fv = get_frustum_vertices(frustum_tip, cam_forward, cam_right);
-
-		Vec2 projs[5];
-		for (int i = 0; i < 5; ++i) {
-			Vec3 v = fv.vertices[i];
-			Vec4 p = V4(v.x, v.y, v.z, 1.0);
-			Vec4 proj = MulM4V4(light_space_matrix, p);
-			proj.x /= proj.w;
-			proj.y /= proj.w;
-			proj.z /= proj.w;
-
-			proj.x *= 0.5f;
-			proj.x += 0.5f;
-			proj.y *= 0.5f;
-			proj.y += 0.5f;
-			proj.z *= 0.5f;
-			proj.z += 0.5f;
-
-			proj.x *= 512.0f;
-			proj.y *= 512.0f;
-
-			projs[i] = proj.XY;
-			dbgsquare(proj.XY);
-		}
-
-		dbgline(projs[0], projs[1]);
-		dbgline(projs[0], projs[2]);
-		dbgline(projs[0], projs[3]);
-		dbgline(projs[0], projs[4]);
-		dbgline(projs[1], projs[2]);
-		dbgline(projs[2], projs[3]);
-		dbgline(projs[3], projs[4]);
-		dbgline(projs[4], projs[1]);
 }
 
 void actually_draw_thing(DrawnThing *it, Mat4 light_space_matrix, bool for_outline)
@@ -5496,11 +5342,17 @@ void actually_draw_thing(DrawnThing *it, Mat4 light_space_matrix, bool for_outli
 	sg_draw(0, num_vertices_to_draw, 1);
 }
 
+typedef struct
+{
+	Mat4 view;
+	Mat4 projection;
+} ShadowMats;
+
 // I moved this out into its own separate function so that you could
 // define helper functions to be used multiple times in it, and those functions
 // would be near the actual 3d drawing in the file
 // @Place(the actual 3d rendering)
-void flush_all_drawn_things(Vec3 light_dir, Vec3 cam_pos, Vec3 cam_facing, Vec3 cam_right)
+void flush_all_drawn_things(ShadowMats shadow)
 {
 	// Draw all the 3D drawn things. Draw the shadows, then draw the things with the shadows.
 	// Process armatures and upload their skeleton textures
@@ -5585,11 +5437,7 @@ void flush_all_drawn_things(Vec3 light_dir, Vec3 cam_pos, Vec3 cam_facing, Vec3 
 		// do the shadow pass
 		Mat4 light_space_matrix;
 		{
-			Shadow_Volume_Params svp = calculate_shadow_volume_params(light_dir, cam_pos, cam_facing, cam_right);
-
-			Mat4 shadow_view       = LookAt_RH(V3(0, 0, 0), light_dir, V3(0, 1, 0));
-			Mat4 shadow_projection = Orthographic_RH_NO(svp.l, svp.r, svp.b, svp.t, svp.n, svp.f);
-			light_space_matrix = MulM4(shadow_projection, shadow_view);
+			light_space_matrix = MulM4(shadow.projection, shadow.view);
 			//debug_draw_shadow_info(cam_pos, cam_facing, cam_right, light_space_matrix);
 
 			sg_begin_pass(state.shadows.pass, &state.shadows.pass_action);
@@ -5611,8 +5459,8 @@ void flush_all_drawn_things(Vec3 light_dir, Vec3 cam_pos, Vec3 cam_facing, Vec3 
 					Mat4 model = transform_to_matrix(it->t);
 					threedee_vs_params_t vs_params = {
 						.model = model,
-						.view = shadow_view,
-						.projection = shadow_projection,
+						.view = shadow.view,
+						.projection = shadow.projection,
 						.time = (float)elapsed_time,
 					};
 					sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_vs_params, &SG_RANGE(vs_params));
@@ -5639,8 +5487,8 @@ void flush_all_drawn_things(Vec3 light_dir, Vec3 cam_pos, Vec3 cam_facing, Vec3 
 					Mat4 model = transform_to_matrix(it->t);
 					threedee_skeleton_vs_params_t params = {
 						.model = model,
-						.view = shadow_view,
-						.projection = shadow_projection,
+						.view = shadow.view,
+						.projection = shadow.projection,
 						.directional_light_space_matrix = light_space_matrix,
 						.bones_tex_size = V2((float)it->armature->bones_texture_width,(float)it->armature->bones_texture_height),
 					};
@@ -5767,6 +5615,15 @@ String8List words_on_current_page_without_unsaid(Entity *it, TextPlacementSettin
 	return to_return;
 }
 
+Vec3 point_on_plane_from_camera_point(Mat4 view, Vec2 screenspace_camera_point)
+{
+	Vec3 view_cam_pos = MulM4V4(InvGeneralM4(view), V4(0,0,0,1)).xyz;
+	Vec3 world_point = screenspace_point_to_camera_point(screenspace_camera_point, view);
+	Vec3 point_ray = NormV3(SubV3(world_point, view_cam_pos));
+	Vec3 marker = ray_intersect_plane(view_cam_pos, point_ray, V3(0,0,0), V3(0,1,0));
+	return marker;
+}
+
 void frame(void)
 {
 	static float speed_factor = 1.0f;
@@ -5867,7 +5724,7 @@ void frame(void)
 			movement = V2(0,0);
 
 		view = Translate(V3(0.0, 1.0, -5.0f));
-		//view = LookAt_RH(V3(0,1,-5
+		Mat4 normal_cam_view = LookAt_RH(cam_pos, player_pos, V3(0, 1, 0));
 		if(flycam)
 		{
 			Basis basis = flycam_basis();
@@ -5876,10 +5733,41 @@ void frame(void)
 		}
 		else
 		{
-			view = LookAt_RH(cam_pos, player_pos, V3(0, 1, 0));
+			view = normal_cam_view;
 		}
 
 		projection = Perspective_RH_NO(FIELD_OF_VIEW, screen_size().x / screen_size().y, NEAR_PLANE_DISTANCE, FAR_PLANE_DISTANCE);
+
+
+		// calculate light stuff
+		Vec3 camera_bounds[] = {
+			point_on_plane_from_camera_point(normal_cam_view, V2(0.0,0.0)),
+			point_on_plane_from_camera_point(normal_cam_view, V2(screen_size().x,0.0)),
+			point_on_plane_from_camera_point(normal_cam_view, V2(screen_size().x,screen_size().y)),
+			point_on_plane_from_camera_point(normal_cam_view, V2(0.0,screen_size().y)),
+		};
+		for(int i = 0; i < ARRLEN(camera_bounds); i++)
+			dbgcol(PINK)
+				dbg3dline(camera_bounds[i], camera_bounds[(i + 1) % ARRLEN(camera_bounds)]);
+
+		Vec3 center = V3(0,0,0);
+		ARR_ITER(Vec3, camera_bounds) center = AddV3(center, *it);
+		center = MulV3F(center, 1.0f / (float)ARRLEN(camera_bounds));
+		Vec3 shadows_focused_on = center;
+		float max_radius = 0.0f;
+		ARR_ITER(Vec3, camera_bounds)
+		{
+			float l = LenV3(SubV3(*it, shadows_focused_on));
+			if(l > max_radius)
+			{
+				max_radius = l;
+			}
+		}
+		ShadowMats shadow = {
+			.view = LookAt_RH(shadows_focused_on, AddV3(shadows_focused_on,light_dir), V3(0, 1, 0)),
+			.projection = Orthographic_RH_NO(-max_radius, max_radius, -max_radius, max_radius, -100.0f, 400.0f),
+			//.projection = Orthographic_RH_NO(svp.l, svp.r, svp.b, svp.t, svp.n, svp.f),
+		};
 
 
 		// @Place(draw 3d things)
@@ -6049,7 +5937,7 @@ void frame(void)
 			}
 		}
 
-		flush_all_drawn_things(light_dir, cam_pos, facing, right);
+		flush_all_drawn_things(shadow); 
 
 		// draw the 3d render
 		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.threedee_pass_resolve_image), WHITE, .layer = LAYER_WORLD, .custom_pipeline = state.twodee_colorcorrect_pip });
@@ -7349,7 +7237,7 @@ ISANERROR("Don't know how to do this stuff on this platform.")
 				//if(view_cam_pos.y >= 4.900f) // causes nan if not true... not good...
 				if(true)
 				{
-					Vec3 world_mouse = screenspace_point_to_camera_point(mouse_pos);
+					Vec3 world_mouse = screenspace_point_to_camera_point(mouse_pos, view);
 					Vec3 mouse_ray = NormV3(SubV3(world_mouse, view_cam_pos));
 					Vec3 marker = ray_intersect_plane(view_cam_pos, mouse_ray, V3(0,0,0), V3(0,1,0));
 					Vec2 mouse_on_floor = point_plane(marker);
