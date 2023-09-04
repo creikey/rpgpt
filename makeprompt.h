@@ -130,6 +130,7 @@ typedef struct
 	NpcKind talking_to_kind;
 	bool heard_physically; // if not physically, the source was directly
 	bool drama_memory; // drama memories arent forgotten, and once they end it's understood that a lot of time has passed.
+	bool judgement_memory; // judgement memories have special printing for when Daniel says nothing, to make sure the AI understands his attitude towards the player
 } MemoryContext;
 
 // memories are subjective to an individual NPC
@@ -307,7 +308,8 @@ typedef struct GameState {
 	bool assigned_objective;
 	GameplayObjective objective;
 
-	Memory *judgement_memories;
+	Memory *judgement_memories_first;
+	Memory *judgement_memories_last;
 	double time; // in seconds, fraction of length of day
 	int judgement_gen_request;
 
@@ -452,11 +454,19 @@ String8List memory_description(Arena *arena, Entity *e, Memory *it)
 	#define AddFmt(...) PushWithLint(arena, &current_list, __VA_ARGS__)
 	// dump a human understandable sentence description of what happened in this memory
 	bool no_longer_wants_to_converse = false; // add the no longer wants to converse text after any speech, it makes more sense reading it
+	
+#define HUMAN(kind) S8VArg(npc_to_human_readable(e, kind))
+	if(it->context.judgement_memory)
+	{
+		if((it->action_taken == ACT_none && it->speech.text_length == 0) && it->context.author_npc_kind != NPC_Player)
+		{
+			AddFmt("%.*s said and did nothing in response\n", HUMAN(it->context.author_npc_kind));
+		}
+	}
 	if (it->action_taken != ACT_none)
 	{
 		switch (it->action_taken)
 		{
-#define HUMAN(kind) S8VArg(npc_to_human_readable(e, kind))
 		case ACT_none:
 			break;
 		case ACT_join:
@@ -481,10 +491,10 @@ String8List memory_description(Arena *arena, Entity *e, Memory *it)
 			no_longer_wants_to_converse = true;
 			break;
 		case ACT_assign_gameplay_objective:
-			AddFmt("%.*s assigned a definitive game objective to %.*s", HUMAN(it->context.author_npc_kind), HUMAN(it->context.talking_to_kind));
+			AddFmt("%.*s assigned a definitive game objective to %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->context.talking_to_kind));
 			break;
 		case ACT_award_victory:
-			AddFmt("%.*s awarded victory to %.*s", HUMAN(it->context.author_npc_kind), HUMAN(it->context.talking_to_kind));
+			AddFmt("%.*s awarded victory to %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->context.talking_to_kind));
 			break;
 		}
 	}
@@ -499,13 +509,23 @@ String8List memory_description(Arena *arena, Entity *e, Memory *it)
 				target_string = S8CString(characters[it->context.talking_to_kind].name);
 		}
 
-		String8 speaking_to_you_helper = S8Lit("(Speaking directly you) ");
-		if (it->context.talking_to_kind != e->npc_kind)
+		if(!e->is_world)
 		{
-			speaking_to_you_helper = S8Lit("(Overheard conversation, they aren't speaking directly to you) ");
+			if(it->context.talking_to_kind == e->npc_kind)
+			{
+				AddFmt("(Speaking directly you) ");
+			}
+			else
+			{
+				AddFmt("(Overheard conversation, they aren't speaking directly to you) ");
+			}
 		}
-
-		AddFmt("%.*s%s said \"%.*s\" to %.*s (you are %s)\n", S8VArg(speaking_to_you_helper), characters[it->context.author_npc_kind].name, TextChunkVArg(it->speech), S8VArg(target_string), characters[e->npc_kind].name);
+		AddFmt("%s said \"%.*s\" to %.*s", characters[it->context.author_npc_kind].name, TextChunkVArg(it->speech), S8VArg(target_string));
+		if(!e->is_world)
+		{
+			AddFmt(" (you are %s)", characters[e->npc_kind].name)
+		}
+		AddFmt("\n");
 	}
 
 	if (no_longer_wants_to_converse)

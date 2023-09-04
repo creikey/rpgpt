@@ -480,6 +480,8 @@ typedef struct ChatRequest
 {
 	struct ChatRequest *next;
 	struct ChatRequest *prev;
+	bool user_is_done_with_this_request;
+	bool thread_is_done_with_this_request;
 	bool should_close;
 	int id;
 	int status;
@@ -572,6 +574,7 @@ void generation_thread(void* my_request_voidptr)
 		chunk_from_s8(&my_request->generated, ai_response);
 		my_request->status = 1;
 	}
+	my_request->thread_is_done_with_this_request = true; // @TODO Threads that finish and users who forget to mark them as done aren't collected right now, we should do that to prevent leaks
 }
 
 int make_generation_request(String8 prompt)
@@ -588,8 +591,7 @@ int make_generation_request(String8 prompt)
 	if(requests_free_list)
 	{
 		to_return = requests_free_list;
-		requests_free_list = requests_free_list->next;
-		//StackPop(requests_free_list);
+		StackPop(requests_free_list);
 		*to_return = (ChatRequest){0};
 	}
 	else
@@ -620,21 +622,31 @@ ChatRequest *get_by_id(int id)
 {
 	for(ChatRequest *cur = requests_first; cur; cur = cur->next)
 	{
-		if(cur->id == id)
+		if(cur->id == id && !cur->user_is_done_with_this_request)
 		{
 			return cur;
 		}
 	}
-	assert(false);
 	return 0;
 }
 
 void done_with_request(int id)
 {
 	ChatRequest *req = get_by_id(id);
-	ArenaRelease(req->arena);
-	DblRemove(requests_first, requests_last, req);
-	StackPush(requests_free_list, req);
+	if(req)
+	{
+		if(req->thread_is_done_with_this_request)
+		{
+			ArenaRelease(req->arena);
+			DblRemove(requests_first, requests_last, req);
+			*req = (ChatRequest){0};
+			StackPush(requests_free_list, req);
+		}
+		else
+		{
+			req->user_is_done_with_this_request = true;
+		}
+	}
 }
 GenRequestStatus gen_request_status(int id)
 {
@@ -1131,6 +1143,7 @@ typedef struct
 	u64 vertices_length;
 	sg_buffer loaded_buffer;
 
+	uint64_t last_updated_bones_frame;
 	sg_image bones_texture;
 	sg_image image;
 	int bones_texture_width;
@@ -1827,7 +1840,7 @@ String8 is_action_valid(Arena *arena, Entity *from, Action a)
 				break;
 			}
 		}
-		if(from->npc_kind == NPC_Player) found = true; // player can always speak to anybody even if it's too far
+		if(from->npc_kind == NPC_Player || a.talking_to_kind == NPC_Player) found = true; // player can always speak to anybody even if it's too far
 		if(!found)
 		{
 			error_message = FmtWithLint(arena, "Character you're talking to, %s, isn't close enough to be talked to", characters[a.talking_to_kind].enum_name);
@@ -2013,6 +2026,7 @@ bool perform_action(GameState *gs, Entity *from, Action a)
 
 	context.talking_to_kind = a.talking_to_kind;
 
+
 	String8 is_valid = is_action_valid(scratch.arena, from, a);
 	bool proceed_propagating = true;
 	if(is_valid.size > 0)
@@ -2022,12 +2036,7 @@ bool perform_action(GameState *gs, Entity *from, Action a)
 		proceed_propagating = false;
 	}
 
-	if(from->npc_kind == NPC_Daniel || a.talking_to_kind == NPC_Daniel)
-	{
-		Memory *new_forever = PushArray(gs->arena, Memory, 1);
-		*new_forever = make_memory(a, (MemoryContext){.author_npc_kind = from->npc_kind, .talking_to_kind = a.talking_to_kind});
-		StackPush(gs->judgement_memories, new_forever);
-	}
+
 
 	bool angel_heard_action = false;
 
@@ -2087,6 +2096,43 @@ bool perform_action(GameState *gs, Entity *from, Action a)
 		angel_context.i_said_this = false;
 		remember_action(gs, gs->angel, a, angel_context);
 	}
+
+	if(from->npc_kind == NPC_Daniel || a.talking_to_kind == NPC_Daniel)
+	{
+		Memory *new_forever = PushArray(gs->arena, Memory, 1);
+		*new_forever = make_memory(a, (MemoryContext){.author_npc_kind = from->npc_kind, .talking_to_kind = a.talking_to_kind, .judgement_memory = true});
+		DblPushBack(gs->judgement_memories_first, gs->judgement_memories_last, new_forever);
+	}
+
+	if(from->npc_kind == NPC_Daniel)
+	{
+		if(gs->judgement_gen_request == 0 && gs->judgement_memories_first)
+		{
+			String8List history_list = {0};
+			for(Memory *it = gs->judgement_memories_first; it; it = it->next)
+			{
+				String8List desc = memory_description(scratch.arena, gs->world_entity, it);
+				S8ListConcat(&history_list, &desc);
+			}
+			String8 current_history = S8ListJoin(scratch.arena, history_list, &(StringJoin){0});
+			Log("Submitting judgement with current history: ```\n%.*s\n```\n", S8VArg(current_history));
+
+			String8List current_list = {0};
+			S8ListPush(scratch.arena, &current_list, make_json_node(scratch.arena, MSG_SYSTEM, S8CString(judgement_system_prompt)));
+			S8ListPush(scratch.arena, &current_list, make_json_node(scratch.arena, MSG_USER, S8CString(judgement_yes_example)));
+			S8ListPush(scratch.arena, &current_list, make_json_node(scratch.arena, MSG_ASSISTANT, S8Lit("yes")));
+			S8ListPush(scratch.arena, &current_list, make_json_node(scratch.arena, MSG_USER, S8CString(judgement_no_example)));
+			S8ListPush(scratch.arena, &current_list, make_json_node(scratch.arena, MSG_ASSISTANT, S8Lit("no")));
+			S8ListPush(scratch.arena, &current_list, make_json_node(scratch.arena, MSG_USER, S8CString(judgement_no2_example)));
+			S8ListPush(scratch.arena, &current_list, make_json_node(scratch.arena, MSG_ASSISTANT, S8Lit("no")));
+			S8ListPush(scratch.arena, &current_list, make_json_node(scratch.arena, MSG_USER, current_history));
+			String8 json_array = S8ListJoin(scratch.arena, current_list, &(StringJoin){0});
+			json_array.size -= 1; // remove trailing comma. fuck json
+			String8 prompt = FmtWithLint(scratch.arena, "[%.*s]", S8VArg(json_array));
+			gs->judgement_gen_request = make_generation_request(prompt);
+		}
+	}
+
 
 	ReleaseScratch(scratch);
 	return proceed_propagating;
@@ -5123,6 +5169,7 @@ double elapsed_time = 0.0;
 double unwarped_elapsed_time = 0.0;
 double last_frame_processing_time = 0.0;
 double last_frame_gameplay_processing_time = 0.0;
+uint64_t frame_index = 0; // for rendering tick stuff, gamestate tick is used for game logic tick stuff and is serialized/deserialized/saved
 uint64_t last_frame_time;
 
 typedef struct
@@ -5199,12 +5246,15 @@ bool imbutton_key(ImbuttonArgs args)
 		draw_quad((DrawParams) { quad_aabb(args.button_aabb), IMG(image_white_square), blendalpha(WHITE, button_alpha), .layer = layer,  });
 		
 		// don't use draw centered text here because it looks funny for some reason... I think it's because the vertical line advance of the font, used in draw_centered_text, is the wrong thing for a button like this 
-		TextParams t = (TextParams) { false, args.text, aabb_center(args.button_aabb), BLACK, args.text_scale, .clip_to = args.button_aabb, .do_clipping = true, .layer = layer, .use_font = font};
+		TextParams t = (TextParams) { false, args.text, aabb_center(args.button_aabb), BLACK, args.text_scale, .clip_to = args.button_aabb, .do_clipping = true, .layer = layer, .use_font = font };
 		t.dry_run = true;
 		AABB aabb = draw_text(t);
-		t.dry_run = false;
-		t.pos = SubV2(aabb_center(args.button_aabb), MulV2F(aabb_size(aabb), 0.5f));
-		draw_text(t);
+		if(aabb_is_valid(aabb))
+		{
+			t.dry_run = false;
+			t.pos = SubV2(aabb_center(args.button_aabb), MulV2F(aabb_size(aabb), 0.5f));
+			draw_text(t);
+		}
 	}
 
 	hmput(imui_state, args.key, state);
@@ -5518,9 +5568,15 @@ void flush_all_drawn_things(ShadowMats shadow)
 						}
 					}
 
-					sg_update_image(armature->bones_texture, &(sg_image_data){
-							.subimage[0][0] = (sg_range){bones_tex, bones_tex_size},
-							});
+					// sokol prohibits updating an image more than once per frame
+					if(armature->last_updated_bones_frame != frame_index)
+					{
+						armature->last_updated_bones_frame = frame_index;
+						sg_update_image(armature->bones_texture, &(sg_image_data){
+																	 .subimage[0][0] = (sg_range){bones_tex, bones_tex_size},
+																 });
+
+					}
 
 					ReleaseScratch(scratch);
 				}
@@ -5732,6 +5788,7 @@ void frame(void)
 	double dt_double = unwarped_dt_double*speed_factor;
 	float unwarped_dt = (float)unwarped_dt_double;
 	float dt = (float)dt_double;
+	frame_index += 1;
 
 #if 0
 	{
@@ -5804,7 +5861,7 @@ void frame(void)
 		Vec3 light_dir;
 		{
 			float t = clamp01((float)(gs.time / LENGTH_OF_DAY));
-			Vec3 sun_vector = V3(2.0f*t - 1.0f, sinf(t*PI32), 0.8f); // where the sun is pointing from
+			Vec3 sun_vector = V3(2.0f*t - 1.0f, sinf(t*PI32)*0.8f + 0.2f, 0.8f); // where the sun is pointing from
 			light_dir = NormV3(MulV3F(sun_vector, -1.0f));
 		}
 
@@ -6192,6 +6249,37 @@ void frame(void)
 			}
 		}
 
+		if(gs.judgement_gen_request != 0)
+		{
+			GenRequestStatus stat = gen_request_status(gs.judgement_gen_request);
+			switch(stat)
+			{
+				case GEN_NotDoneYet:
+				break;
+				case GEN_Success:
+				TextChunk generated = gen_request_content(gs.judgement_gen_request);
+				if(generated.text_length > 0 && S8FindSubstring(TextChunkString8(generated), S8Lit("yes"), 0, StringMatchFlag_CaseInsensitive) == 0)
+				{
+					Log("Starts with yes, success!\n");
+					gs.won = true;
+				}
+				else if(S8FindSubstring(TextChunkString8(generated), S8Lit("no"), 0, StringMatchFlag_CaseInsensitive) == generated.text_length)
+				{
+					Log("WARNING: generated judgement string '%.*s', doesn't match yes or no, and so is nonsensical! AI acting up!\n", TextChunkVArg(generated));
+				}
+				break;
+				case GEN_Failed:
+				having_errors = true;
+				break;
+				case GEN_Deleted:
+				break;
+			}
+			if(stat != GEN_NotDoneYet)
+			{
+				done_with_request(gs.judgement_gen_request);
+				gs.judgement_gen_request = 0;
+			}
+		}
 
 		// @Place(UI rendering that happens before gameplay processing so can consume events before the gameplay needs them)
 		PROFILE_SCOPE("Entity UI Rendering")
@@ -7188,6 +7276,11 @@ void frame(void)
 			}
 		}
 
+		if(gs.time > LENGTH_OF_DAY)
+		{
+			gs.player->killed = true;
+		}
+
 		// killed screen
 		{
 			static float visible = 0.0f;
@@ -7208,12 +7301,12 @@ void frame(void)
 			float shake_speed = 9.0f;
 			Vec2 win_offset = V2(sinf((float)unwarped_elapsed_time * shake_speed * 1.5f + 0.1f), sinf((float)unwarped_elapsed_time * shake_speed + 0.3f));
 			win_offset = MulV2F(win_offset, 10.0f);
-			draw_centered_text((TextParams){false, S8Lit("YOU WERE KILLED"), AddV2(MulV2F(screen_size(), 0.5f), win_offset), WHITE, 3.0f*visible}); // YOU DIED
+			draw_centered_text((TextParams){false, S8Lit("YOU FAILED TO SAVE DANIEL"), AddV2(MulV2F(screen_size(), 0.5f), win_offset), WHITE, 3.0f*visible}); // YOU DIED
 
 			if(imbutton(aabb_centered(V2(screen_size().x/2.0f, screen_size().y*0.25f), MulV2F(V2(170.0f, 60.0f), visible)), 1.5f*visible, S8Lit("Continue")))
 			{
 				gs.player->killed = false;
-				transition_to_room(&gs, &level_threedee, S8Lit("StartingRoom"));
+				//transition_to_room(&gs, &level_threedee, S8Lit("StartingRoom"));
 				reset_level();
 			}
 		}
@@ -7515,6 +7608,41 @@ void cleanup(void)
 
 void event(const sapp_event *e)
 {
+	#ifdef DESKTOP
+	// the desktop text backend, for debugging purposes
+	if (receiving_text_input)
+	{
+		if (e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_code == SAPP_KEYCODE_BACKSPACE)
+		{
+			if(text_input_buffer_length > 0)
+				text_input_buffer_length -= 1;
+		}
+		else
+		{
+			if (e->type == SAPP_EVENTTYPE_CHAR)
+			{
+				if (text_input_buffer_length < ARRLEN(text_input_buffer))
+				{
+					APPEND_TO_NAME(text_input_buffer, text_input_buffer_length, ARRLEN(text_input_buffer), (char)e->char_code);
+				}
+			}
+		}
+
+		if (e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_code == SAPP_KEYCODE_ENTER)
+		{
+			// doesn't account for, if the text input buffer is completely full and doesn't have a null terminator.
+			if(text_input_buffer_length >= ARRLEN(text_input_buffer))
+			{
+				text_input_buffer_length = ARRLEN(text_input_buffer) - 1;
+			}
+			text_input_buffer[text_input_buffer_length] = '\0';
+			end_text_input((char*)text_input_buffer);
+		}
+	}
+#endif
+
+
+
 	if (e->key_repeat) return;
 
 	if (e->type == SAPP_EVENTTYPE_RESIZED)
@@ -7531,29 +7659,6 @@ void event(const sapp_event *e)
 		mobile_controls = true;
 	}
 
-#ifdef DESKTOP
-	// the desktop text backend, for debugging purposes
-	if (receiving_text_input)
-	{
-		if (e->type == SAPP_EVENTTYPE_CHAR)
-		{
-			if (text_input_buffer_length < ARRLEN(text_input_buffer))
-			{
-				APPEND_TO_NAME(text_input_buffer, text_input_buffer_length, ARRLEN(text_input_buffer), (char)e->char_code);
-			}
-		}
-		if (e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_code == SAPP_KEYCODE_ENTER)
-		{
-			// doesn't account for, if the text input buffer is completely full and doesn't have a null terminator.
-			if(text_input_buffer_length >= ARRLEN(text_input_buffer))
-			{
-				text_input_buffer_length = ARRLEN(text_input_buffer) - 1;
-			}
-			text_input_buffer[text_input_buffer_length] = '\0';
-			end_text_input((char*)text_input_buffer);
-		}
-	}
-#endif
 
 	if (e->type == SAPP_EVENTTYPE_KEY_DOWN &&
 	    (e->key_code == SAPP_KEYCODE_F11 ||

@@ -3,7 +3,7 @@
 
 #define RANDOM_SEED 42
 #define LEVEL_TILES 150 // width and height of level tiles array
-#define LENGTH_OF_DAY (120.0) // double in seconds
+#define LENGTH_OF_DAY (60.0 * 5.0) // in seconds
 #define LAYERS 3
 #define TILE_SIZE 0.5f // in pixels
 #define PLAYER_SPEED 0.15f // in meters per second
@@ -24,9 +24,9 @@
 
 #define ARENA_SIZE (1024*1024*20)
 #define BIG_ARENA_SIZE (ARENA_SIZE * 4)
+#define PROFILING_SAVE_FILENAME "rpgpt.spall"
 
 #ifdef DEVTOOLS
-#define PROFILING_SAVE_FILENAME "rpgpt.spall"
 // server url cannot have trailing slash
 //#define MOCK_AI_RESPONSE
 #define SERVER_DOMAIN "localhost"

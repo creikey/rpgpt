@@ -164,3 +164,22 @@ CharacterGen characters[] = {
 		.silence_factor = 0.0,
 	},
 };
+
+char *judgement_system_prompt = "You are to judge if, in given conversation and action history from a video game, the player has successfully caused a great transformation in Daniel. You must ONLY respond with either 'yes' or 'no', and no explanation.";
+char *judgement_yes_example =
+"The Player said \"Hey\" to Daniel\n"
+"Daniel said \"What do you want?\" to The Player\n"
+"The Player said \"Did you see what happened... All those people...\" to Daniel\n"
+"Daniel said \"What in the hell are you talking about?\" to The Player\n"
+"The Player said \"They'll never forgive you for what you did.\" to Daniel\n"
+"Daniel said \"Oh God... My greed... My isolation... I'll never forgive myself\" to The Player\n"
+;
+char *judgement_no_example = "The Player said \"fjdskfjskj\" to Daniel\n"
+"Daniel said \"Who are you to speak that gibberish at me?\" to The Player\n"
+"The Player said \"pls change kthx\" to Daniel\n"
+"Daniel said \"I'll never change for the likes of you\" to The Player\n"
+;
+char *judgement_no2_example = "The Player said \"hey\" to Daniel\n"
+"Daniel said \"What could you possibly want from me?\" to The Player\n"
+"The Player said \"I want to change you\" to Daniel\n"
+;
