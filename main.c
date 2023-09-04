@@ -1752,6 +1752,7 @@ String8 is_action_valid(Arena *arena, Entity *from, Action a)
 				break;
 			}
 		}
+		if(from->npc_kind == NPC_Player) found = true; // player can always speak to anybody even if it's too far
 		if(!found)
 		{
 			error_message = FmtWithLint(arena, "Character you're talking to, %s, isn't close enough to be talked to", characters[a.talking_to_kind].enum_name);
@@ -3321,6 +3322,7 @@ Armature *armatures[] = {
 Mesh mesh_simple_worm = {0};
 Mesh mesh_shotgun = {0};
 Mesh mesh_angel_totem = {0};
+Mesh mesh_tombstone = {0};
 
 void stbi_flip_into_correct_direction(bool do_it)
 {
@@ -3411,6 +3413,9 @@ void init(void)
 
 	binary_file = LoadEntireFile(frame_arena, S8Lit("assets/exported_3d/AngelTotem.bin"));
 	mesh_angel_totem = load_mesh(persistent_arena, binary_file, S8Lit("AngelTotem.bin"));
+
+	binary_file = LoadEntireFile(frame_arena, S8Lit("assets/exported_3d/Tombstone.bin"));
+	mesh_tombstone = load_mesh(persistent_arena, binary_file, S8Lit("Tombstone.bin"));
 
 	binary_file = LoadEntireFile(frame_arena, S8Lit("assets/exported_3d/NormalGuyArmature.bin"));
 	player_armature = load_armature(persistent_arena, binary_file, S8Lit("NormalGuyArmature.bin"));
@@ -5817,6 +5822,10 @@ void frame(void)
 				{
 					draw_thing((DrawnThing){.mesh = &mesh_angel_totem, .t = draw_with, .outline = gete(gs.player->interacting_with) == it});
 				}
+				else if(it->npc_kind == NPC_Tombstone)
+				{
+					draw_thing((DrawnThing){.mesh = &mesh_tombstone, .t = draw_with, .outline = gete(gs.player->interacting_with) == it});
+				}
 				else
 				{
 					Armature *to_use = 0;
@@ -5836,6 +5845,7 @@ void frame(void)
 						break;
 					case NPC_nobody:
 					case NPC_AngelTotem:
+					case NPC_Tombstone:
 					case NPC_Devil:
 					case NPC_PreviousPlayer1:
 					case NPC_PreviousPlayer2:

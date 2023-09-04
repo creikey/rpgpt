@@ -26,6 +26,7 @@ Urgent:
 
 Long distance:
 - nocodegen instead of codegen argument
+- Blur game on bitmap modal input mode
 - Polygon and circle collision with cutec2 probably for the player being unable to collide with the camera bounds, and non axis aligned collision rects
 - set the game in oregon (suggestion by phillip)
 - Room system where characters can go to rooms. camera constrained to room bounds, and know which rooms are near them to go to

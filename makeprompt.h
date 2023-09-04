@@ -343,6 +343,17 @@ void fill_available_actions(GameState *gs, Entity *it, AvailableActions *a)
 	*a = (AvailableActions) { 0 };
 	BUFF_APPEND(a, ACT_none);
 
+	if(it->npc_kind == NPC_Angel)
+	{
+		BUFF_APPEND(a, ACT_assign_gameplay_objective);
+		return;
+	}
+
+	if(it->npc_kind == NPC_Tombstone)
+	{
+		return;
+	}
+
 	if(gete_specified(gs, it->joined))
 	{
 		BUFF_APPEND(a, ACT_leave)
@@ -350,11 +361,6 @@ void fill_available_actions(GameState *gs, Entity *it, AvailableActions *a)
 	else
 	{
 		BUFF_APPEND(a, ACT_join)
-	}
-
-	if(it->npc_kind == NPC_Angel)
-	{
-		BUFF_APPEND(a, ACT_assign_gameplay_objective);
 	}
 
 	if(it->npc_kind != NPC_Angel)
@@ -470,7 +476,8 @@ String8 generate_chatgpt_prompt(Arena *arena, GameState *gs, Entity *e, CanTalkT
 		AddFmt("\n");
 
 		// @TODO unhardcode this, this will be a description of where the character is right now
-		AddFmt("You're currently standing in Daniel's farm's barn, a run-down structure that barely serves its purpose. Daniel's mighty protective of it though.\n");
+		//AddFmt("You're currently standing in Daniel's farm's barn, a run-down structure that barely serves its purpose. Daniel's mighty protective of it though.\n");
+		AddFmt("You and everybody you're talking to is in a small sparse forest near Daniel's farm. There are some mysterious mechanical parts strewn about on the floor that Daniel seems relunctant and fearful to talk about.\n");
 
 		AddFmt("\n");
 

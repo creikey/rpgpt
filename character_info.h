@@ -136,6 +136,11 @@ CharacterGen characters[] = {
 		.prompt = CHARACTER_PROMPT_PREFIX("Previous Player 2") "random person, just passing by",
 	},
 	{
+		.name = "Tombstone",
+		.enum_name = "Tombstone",
+		.prompt = CHARACTER_PROMPT_PREFIX("Tombstone") "unassuming melodramatic poetic tombstone that unexpectly can speak with the player. Your goal is to instruct the player that in order for Daniel to survive by nightfall, the player must change his ways. The reason why he's going to die when night comes is because 'all things die in the end, don't they?'"
+	},
+	{
 		.name = "Angel",
 		.enum_name = "Angel",
 		

@@ -45,6 +45,23 @@
 {enum: Devil, dialog: "You will fall!", to: Angel}
 {enum: Angel, dialog: "Perhaps. And then I will rise as He has, from the corpse and ashes, the sun rises.", to: Devil}
 
+{can_hear: [PreviousPlayer1, Tombstone]}
+{enum: PreviousPlayer1, dialog: "What should I be doing? And where am I?", to: Tombstone}
+{enum: Tombstone, dialog: "Daniel over there, the fat cowboy gluttonous on his own self image, must change his ways by nightfall or he'll perish.", to: PreviousPlayer1}
+{enum: PreviousPlayer1, dialog: "good. Screw that guy", to: Tombstone}
+{enum: Tombstone, dialog: "Then you shall relive this day forevermore. Yikes!", to: PreviousPlayer1}
+{enum: PreviousPlayer1, dialog: "Who are you? Where am I?", to: Tombstone}
+{enum: Tombstone, dialog: "Questions questions, answers answers.", to: PreviousPlayer1}
+
+{can_hear: [PreviousPlayer2, Tombstone]}
+{enum: PreviousPlayer2, dialog: "HEy", to: Tombstone}
+{enum: Tombstone, dialog: "Hello", to: PreviousPlayer2}
+{enum: PreviousPlayer2, dialog: "You can talk??? WTF", to: Tombstone}
+{enum: Tombstone, dialog: "Can't you?", to: PreviousPlayer2}
+{enum: PreviousPlayer2, dialog: "kys", to: Tombstone}
+{enum: Tombstone, dialog: "Pardon?", to: PreviousPlayer2}
+
+
 {can_hear: [PreviousPlayer1, Angel]}
 {enum: PreviousPlayer1, dialog: "fjdsklajf", to: Angel}
 {enum: Angel, dialog: "Cryptic gibberish upon me, is casting a stone upon God", to: PreviousPlayer1}
