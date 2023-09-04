@@ -165,7 +165,10 @@ CharacterGen characters[] = {
 	},
 };
 
-char *judgement_system_prompt = "You are to judge if, in given conversation and action history from a video game, the player has successfully caused a great transformation in Daniel. You must ONLY respond with either 'yes' or 'no', and no explanation.";
+char *judgement_system_prompt =
+"You are to judge if, in given conversation and action history from a video game, the player has successfully caused a great transformation in Daniel. You must ONLY respond with either 'yes' or 'no', and no explanation.\n"
+"Be cautious with saying yes. This causes the player to win and save Daniel's life. Only say yes if you think, based on the history, Daniel has truly changed his ways and evolved as a person.\n"
+;
 char *judgement_yes_example =
 "The Player said \"Hey\" to Daniel\n"
 "Daniel said \"What do you want?\" to The Player\n"
@@ -182,4 +185,5 @@ char *judgement_no_example = "The Player said \"fjdskfjskj\" to Daniel\n"
 char *judgement_no2_example = "The Player said \"hey\" to Daniel\n"
 "Daniel said \"What could you possibly want from me?\" to The Player\n"
 "The Player said \"I want to change you\" to Daniel\n"
+"Daniel said \"HA! You couldn't possibly change me\" to The Player\n"
 ;

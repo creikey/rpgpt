@@ -262,9 +262,7 @@ typedef struct Entity
 	float dialog_fade;
 	RememberedError *errorlist_first;
 	RememberedError *errorlist_last;
-#ifdef DESKTOP
 	int times_talked_to; // for better mocked response string
-#endif
 	float loading_anim_in;
 	Memory *memories_first;
 	Memory *memories_last;

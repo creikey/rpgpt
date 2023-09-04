@@ -668,7 +668,7 @@ ISANERROR("Only know how to do desktop http requests on windows")
 #endif // DESKTOP
 
 #ifdef WEB
-int make_generation_request(String8 prompt)
+int make_generation_request(String8 prompt_str)
 {
 	ArenaTemp scratch = GetScratch(0, 0);
 	String8 terminated_completion_url = nullterm(scratch.arena, FmtWithLint(scratch.arena, "%s://%s:%d/completion", IS_SERVER_SECURE ? "https" : "http", SERVER_DOMAIN, SERVER_PORT));
@@ -1774,10 +1774,12 @@ CanTalkTo get_can_talk_to(Entity *e)
 
 Entity *get_targeted(Entity *from, NpcKind targeted)
 {
+	bool ignore_radius = from->npc_kind == NPC_Player || targeted == NPC_Player; // player conversations can go across the map to make sure the player always sees them
 	ENTITIES_ITER(gs.entities)
 	{
-		if(it != from && (it->is_npc) && LenV2(SubV2(it->pos, from->pos)) < PROPAGATE_ACTIONS_RADIUS && it->npc_kind == targeted)
+		if(it != from && (it->is_npc) && it->npc_kind == targeted)
 		{
+			if(ignore_radius || LenV2(SubV2(it->pos, from->pos)) < PROPAGATE_ACTIONS_RADIUS)
 			return it;
 		}
 	}
@@ -3566,7 +3568,7 @@ void init(void)
 	shifted_farmer_armature = load_armature(persistent_arena, binary_file, S8Lit("Farmer.bin"));
 	shifted_farmer_armature.image = image_shifted_farmer;
 
-	Log("Done. Used %f of the frame arena, %llu kB\n", (double) frame_arena->pos / (double)frame_arena->cap, (frame_arena->pos/1024));
+	Log("Done. Used %f of the frame arena, %d kB\n", (double) frame_arena->pos / (double)frame_arena->cap, (int)(frame_arena->pos/1024));
 
 	ArenaClear(frame_arena);
 
@@ -6257,15 +6259,17 @@ void frame(void)
 				case GEN_NotDoneYet:
 				break;
 				case GEN_Success:
+				{
 				TextChunk generated = gen_request_content(gs.judgement_gen_request);
-				if(generated.text_length > 0 && S8FindSubstring(TextChunkString8(generated), S8Lit("yes"), 0, StringMatchFlag_CaseInsensitive) == 0)
+				if (generated.text_length > 0 && S8FindSubstring(TextChunkString8(generated), S8Lit("yes"), 0, StringMatchFlag_CaseInsensitive) == 0)
 				{
 					Log("Starts with yes, success!\n");
 					gs.won = true;
 				}
-				else if(S8FindSubstring(TextChunkString8(generated), S8Lit("no"), 0, StringMatchFlag_CaseInsensitive) == generated.text_length)
+				else if (S8FindSubstring(TextChunkString8(generated), S8Lit("no"), 0, StringMatchFlag_CaseInsensitive) == generated.text_length)
 				{
 					Log("WARNING: generated judgement string '%.*s', doesn't match yes or no, and so is nonsensical! AI acting up!\n", TextChunkVArg(generated));
+				}
 				}
 				break;
 				case GEN_Failed:

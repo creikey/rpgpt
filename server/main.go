@@ -508,7 +508,11 @@ func main() {
 
  logResponses = os.Getenv("LOG_RESPONSES") != ""
  doCors = os.Getenv("CORS") != ""
- if doCors { log.Println("Doing cors"); }
+ if doCors {
+  log.Println("Doing cors");
+} else {
+  log.Println("Warning: Not adding cors header to responses, you should probably be running this through a proxy like nginx that does that! To activate cors set the `CORS` environment variable to anything");
+}
  c = openai.NewClient(api_key)
 
  http.HandleFunc("/completion", completion)
