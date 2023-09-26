@@ -368,11 +368,12 @@ def export_meshes_and_levels():
             # fill out placed_entities with a tuple of (name, location, rotation, scale)
             placed_entities = []
             if True:
-                entities_collection = get_startswith(room_collection.name, room_collection.children, "Entities")
+                entities_collection = get_startswith(room_collection.name, room_collection.children, "Entities", required = False)
 
-                for o in no_hidden(entities_collection.objects):
-                    assert o.rotation_euler.order == 'XYZ', f"Invalid rotation euler order for object of name '{o.name}', it's {o.rotation_euler.order} but must be XYZ"
-                    placed_entities.append((name_despite_copied(o.name), mapping @ o.location, o.rotation_euler, o.scale))
+                if entities_collection:
+                    for o in no_hidden(entities_collection.objects):
+                        assert o.rotation_euler.order == 'XYZ', f"Invalid rotation euler order for object of name '{o.name}', it's {o.rotation_euler.order} but must be XYZ"
+                        placed_entities.append((name_despite_copied(o.name), mapping @ o.location, o.rotation_euler, o.scale))
 
             camera_override = None
             if True:
