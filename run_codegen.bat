@@ -12,7 +12,7 @@ if exist gen\ (
 thirdparty\sokol-shdc.exe --input threedee.glsl --output gen\threedee.glsl.h --slang glsl300es:hlsl5:glsl330 || goto :error
 
 @REM metadesk codegen
-cl /nologo /diagnostics:caret /Ithirdparty /W3 /Zi /WX codegen.c || goto :error
+cl /nologo /diagnostics:caret /Ithirdparty /FC /W3 /Zi /WX codegen.c || goto :error
 @REM zig cc -Ithirdparty -gfull -gcodeview codegen.c -o codegen.exe || goto error
 codegen || goto :error
 

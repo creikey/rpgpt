@@ -1487,35 +1487,7 @@ ThreeDeeLevel load_level(Arena *arena, String8 binary_file)
 			u64 num_placed = 0;
 			ser_u64(&ser, &num_placed);
 			arena->align = 16; // SSE requires quaternions are 16 byte aligned
-			for (u64 i = 0; i < num_placed; i++)
-			{
-				PlacedEntity *new_placed = PushArray(arena, PlacedEntity, 1);
-				String8 placed_entity_name = {0};
-				ser_String8(&ser, &placed_entity_name, scratch.arena);
-
-				bool found = false;
-				ARR_ITER_I(CharacterGen, characters, kind)
-				{
-					if (S8Match(S8CString(it->enum_name), placed_entity_name, 0))
-					{
-						found = true;
-						new_placed->npc_kind = kind;
-					}
-				}
-				BlenderTransform blender_transform = {0};
-				ser_BlenderTransform(&ser, &blender_transform);
-				if (found)
-				{
-					new_placed->t = blender_to_game_transform(blender_transform);
-					StackPush(new_room->placed_entity_list, new_placed);
-				}
-				else
-				{
-					ser.cur_error = (SerError){.failed = true, .why = S8Fmt(arena, "Couldn't find placed npc kind '%.*s'...\n", S8VArg(placed_entity_name))};
-				}
-
-				// Log("Loaded placed entity '%.*s' at %f %f %f\n", S8VArg(placed_entity_name), v3varg(new_placed->t.offset));
-			}
+			assert(num_placed == 0); // not thinking about how to go from name to entity kind right now, but in the future this will be for like machines or interactible things like the fishing rod
 		}
 
 		StackPush(out.room_list, new_room);
@@ -1729,20 +1701,6 @@ void push_memory(GameState *gs, Entity *e, Memory new_memory)
 	while(count >= REMEMBERED_MEMORIES)
 	{
 		Memory *to_remove = e->memories_first;
-		assert(to_remove->context.drama_memory);
-		while(true)
-		{
-			if(!to_remove->context.drama_memory)
-			{
-				break;
-			}
-			if(to_remove->next == 0)
-			{
-				Log("Error: the drama memories for the character %s are bigger than the maximum number of remembered memories %d, so they can't be permanently remembered\n", characters[e->npc_kind].name, REMEMBERED_MEMORIES);
-				assert(false);
-			}
-			to_remove = to_remove->next;
-		}
 		DblRemove(e->memories_first, e->memories_last, to_remove);
 		StackPush(memories_free_list, to_remove);
 		count -= 1;
@@ -1764,7 +1722,7 @@ CanTalkTo get_can_talk_to(Entity *e)
 	CanTalkTo to_return = {0};
 	ENTITIES_ITER(gs.entities)
 	{
-		if(it != e && (it->is_npc) && LenV2(SubV2(it->pos, e->pos)) < PROPAGATE_ACTIONS_RADIUS)
+		if(it != e && (it->is_npc) && S8Match(it->current_room_name, from->current_room_name, 0))
 		{
 			BUFF_APPEND(&to_return, it);
 		}
@@ -1774,13 +1732,14 @@ CanTalkTo get_can_talk_to(Entity *e)
 
 Entity *get_targeted(Entity *from, NpcKind targeted)
 {
-	bool ignore_radius = from->npc_kind == NPC_Player || targeted == NPC_Player; // player conversations can go across the map to make sure the player always sees them
 	ENTITIES_ITER(gs.entities)
 	{
 		if(it != from && (it->is_npc) && it->npc_kind == targeted)
 		{
-			if(ignore_radius || LenV2(SubV2(it->pos, from->pos)) < PROPAGATE_ACTIONS_RADIUS)
-			return it;
+			if(S8Match(it->current_room_name, from->current_room_name, 0))
+			{
+				return it;
+			}
 		}
 	}
 	return 0;
@@ -1810,7 +1769,21 @@ void remember_action(GameState *gs, Entity *to_modify, Action a, MemoryContext c
 		to_modify->cur_page_index = 0;
 	}
 }
+FUNCTION u8
+CharToUpper(u8 c)
+{
+    return (c >= 'a' && c <= 'z') ? ('A' + (c - 'a')) : c;
+}
 
+String8 npc_identifier(String8 name) {
+	String8 ret;
+	ret.str = PushArray(frame_arena, u8, name.size);
+	ret.size = name.size;
+	for(u64 i = 0; i < ret.size; i++) {
+		ret.str[i] = CharToUpper(name.str[i]);
+	}
+	return ret;
+}
 
 // returns reason why allocated on arena if invalid
 // to might be null here, from can't be null
@@ -1842,10 +1815,10 @@ String8 is_action_valid(Arena *arena, Entity *from, Action a)
 				break;
 			}
 		}
-		if(from->npc_kind == NPC_Player || a.talking_to_kind == NPC_Player) found = true; // player can always speak to anybody even if it's too far
+
 		if(!found)
 		{
-			error_message = FmtWithLint(arena, "Character you're talking to, %s, isn't close enough to be talked to", characters[a.talking_to_kind].enum_name);
+			error_message = FmtWithLint(arena, "Character you're talking to, %.*s, isn't in the same room and so can't be talked to", TextChunkVArg(npc_data(gs, a.talking_to_kind).enum_name));
 		}
 	}
 
@@ -1855,7 +1828,7 @@ String8 is_action_valid(Arena *arena, Entity *from, Action a)
 	}
 	if(error_message.size == 0 && a.kind == ACT_join && gete(from->joined) != 0)
 	{
-		error_message = FmtWithLint(arena, "You can't join somebody, you're already in %s's party", characters[gete(from->joined)->npc_kind].name);
+		error_message = FmtWithLint(arena, "You can't join somebody, you're already in %.*s's party", TextChunkVArg(npc_data(gs, gete(from->joined)->npc_kind)->name));
 	}
 	if(error_message.size == 0 && a.kind == ACT_fire_shotgun && gete(from->aiming_shotgun_at) == 0)
 	{
@@ -1877,7 +1850,7 @@ String8 is_action_valid(Arena *arena, Entity *from, Action a)
 		}
 		if(arg_valid == false)
 		{
-			error_message = FmtWithLint(arena, "Your action_argument for who the action `%s` be directed at, %s, is either invalid (you can't operate on nobody) or it's not an NPC that's near you right now.", actions[a.kind].name, characters[a.argument.targeting].name);
+			error_message = FmtWithLint(arena, "Your action_argument for who the action `%.*s` be directed at, %s, is either invalid (you can't operate on nobody) or it's not an NPC that's near you right now.", actions[a.kind].name, TextChunkVArg(npc_data(gs, a.argument.targeting)->name));
 		}
 	}
 
@@ -1950,11 +1923,6 @@ void cause_action_side_effects(Entity *from, Action a)
 	{
 		assert(gete(from->aiming_shotgun_at));
 		gete(from->aiming_shotgun_at)->killed = true;
-	}
-	if(a.kind == ACT_assign_gameplay_objective)
-	{
-		gs.assigned_objective = true;
-		gs.objective = a.argument.objective;
 	}
 
 	ReleaseScratch(scratch);
@@ -2090,51 +2058,6 @@ bool perform_action(GameState *gs, Entity *from, Action a)
 		}
 		push_propagating(to_propagate);
 	}
-
-	// the angel knows all
-	if(!S8Match(gs->player->current_room_name, S8Lit("StartingRoom"), 0) && !angel_heard_action)
-	{
-		MemoryContext angel_context = context;
-		angel_context.i_said_this = false;
-		remember_action(gs, gs->angel, a, angel_context);
-	}
-
-	if(from->npc_kind == NPC_Daniel || a.talking_to_kind == NPC_Daniel)
-	{
-		Memory *new_forever = PushArray(gs->arena, Memory, 1);
-		*new_forever = make_memory(a, (MemoryContext){.author_npc_kind = from->npc_kind, .talking_to_kind = a.talking_to_kind, .judgement_memory = true});
-		DblPushBack(gs->judgement_memories_first, gs->judgement_memories_last, new_forever);
-	}
-
-	if(from->npc_kind == NPC_Daniel)
-	{
-		if(gs->judgement_gen_request == 0 && gs->judgement_memories_first)
-		{
-			String8List history_list = {0};
-			for(Memory *it = gs->judgement_memories_first; it; it = it->next)
-			{
-				String8List desc = memory_description(scratch.arena, gs->world_entity, it);
-				S8ListConcat(&history_list, &desc);
-			}
-			String8 current_history = S8ListJoin(scratch.arena, history_list, &(StringJoin){0});
-			Log("Submitting judgement with current history: ```\n%.*s\n```\n", S8VArg(current_history));
-
-			String8List current_list = {0};
-			S8ListPush(scratch.arena, &current_list, make_json_node(scratch.arena, MSG_SYSTEM, S8CString(judgement_system_prompt)));
-			S8ListPush(scratch.arena, &current_list, make_json_node(scratch.arena, MSG_USER, S8CString(judgement_yes_example)));
-			S8ListPush(scratch.arena, &current_list, make_json_node(scratch.arena, MSG_ASSISTANT, S8Lit("yes")));
-			S8ListPush(scratch.arena, &current_list, make_json_node(scratch.arena, MSG_USER, S8CString(judgement_no_example)));
-			S8ListPush(scratch.arena, &current_list, make_json_node(scratch.arena, MSG_ASSISTANT, S8Lit("no")));
-			S8ListPush(scratch.arena, &current_list, make_json_node(scratch.arena, MSG_USER, S8CString(judgement_no2_example)));
-			S8ListPush(scratch.arena, &current_list, make_json_node(scratch.arena, MSG_ASSISTANT, S8Lit("no")));
-			S8ListPush(scratch.arena, &current_list, make_json_node(scratch.arena, MSG_USER, current_history));
-			String8 json_array = S8ListJoin(scratch.arena, current_list, &(StringJoin){0});
-			json_array.size -= 1; // remove trailing comma. fuck json
-			String8 prompt = FmtWithLint(scratch.arena, "[%.*s]", S8VArg(json_array));
-			gs->judgement_gen_request = make_generation_request(prompt);
-		}
-	}
-
 
 	ReleaseScratch(scratch);
 	return proceed_propagating;
@@ -2303,11 +2226,6 @@ void transition_to_room(GameState *gs, ThreeDeeLevel *level, String8 new_room_na
 	(void)level;
 
 	gs->player->current_room_name = new_room_name;
-
-	if(S8Match(new_room_name, S8Lit("StartingRoom"), 0))
-	{
-		gs->angel->perceptions_dirty = true;
-	}
 }
 
 
@@ -2336,27 +2254,11 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 				assert(!gs->player);
 				gs->player = cur_entity;
 			}
-			if (cur_entity->npc_kind == NPC_Angel)
-			{
-				assert(!gs->angel);
-				gs->angel = cur_entity;
-			}
 		}
 	}
 
-	assert(gs->player);
-	assert(gs->angel);
-
 	gs->world_entity = new_entity(gs);
 	gs->world_entity->is_world = true;
-
-	ENTITIES_ITER(gs->entities)
-	{
-		it->rotation = PI32;
-		it->target_rotation = it->rotation;
-	}
-
-	transition_to_room(gs, &level_threedee, S8Lit("Forest")); // hack to disable cold opening angel sequence right now
 
 	// @Place(parse and enact the drama document parse drama)
 	if(1)
@@ -2508,7 +2410,6 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 									}
 								}
 							}
-							//Log("Propagated to %d name '%s'...\n", want, characters[want].name);
 						}
 					}
 				
@@ -2874,23 +2775,14 @@ void end_text_input(char *what_player_said_cstr)
 
 		chunk_from_s8(&to_perform.speech, what_player_said);
 
-		if(!gs.no_angel_screen)
-		{
-			Entity *angel = 0;
-			ENTITIES_ITER(gs.entities) if(it->npc_kind == NPC_Angel) angel = it;
-			to_perform.talking_to_kind = NPC_Angel;
-			perform_action(&gs, gs.player, to_perform);
-		}
-		else
-		{
-			if (gete(gs.player->talking_to))
-			{
-				assert(gete(gs.player->talking_to)->is_npc);
-				to_perform.talking_to_kind = gete(gs.player->talking_to)->npc_kind;
-			}
 
-			perform_action(&gs, gs.player, to_perform);
+		if (gete(gs.player->talking_to))
+		{
+			assert(gete(gs.player->talking_to)->is_npc);
+			to_perform.talking_to_kind = gete(gs.player->talking_to)->npc_kind;
 		}
+
+		perform_action(&gs, gs.player, to_perform);
 	}
 	ReleaseScratch(scratch);
 }
@@ -3484,7 +3376,6 @@ String8 make_devtools_help(Arena *arena)
 	P("9 - instantly wins the game\n");
 	P("P - toggles spall profiling on/off, don't leave on for very long as it consumes a lot of storage if you do that. The resulting spall trace is saved to the file '%s'\n", PROFILING_SAVE_FILENAME);
 	P("If you hover over somebody it will display some parts of their memories, can be somewhat helpful\n");
-	P("P - immediately kills %s\n", characters[NPC_Raphael].name);
 	P("J - judges the player and outputs their verdict to the console\n");
 
 	#undef P
@@ -6107,124 +5998,7 @@ void frame(void)
 		sg_begin_default_pass(&state.clear_depth_buffer_pass_action, sapp_width(), sapp_height());
 		sg_apply_pipeline(state.twodee_pip);
 
-		// @Place(high priority UI rendering, like angel screen)
-
-		// angel screen
-		{
-			Entity *angel_entity = 0;
-			ENTITIES_ITER(gs.entities)
-			{
-				if (it->is_npc && it->npc_kind == NPC_Angel && S8Match(it->current_room_name, gs.player->current_room_name, 0))
-				{
-					assert(!angel_entity);
-					angel_entity = it;
-				}
-			}
-			gs.no_angel_screen = angel_entity == 0;
-
-			static float visible = 1.0f;
-			bool should_be_visible = !gs.no_angel_screen;
-			visible = Lerp(visible, unwarped_dt*2.0f, should_be_visible ? 1.0f : 0.0f);
-
-
-			if(should_be_visible) gs.player->talking_to = frome(angel_entity);
-
-			draw_quad((DrawParams) {quad_at(V2(0,screen_size().y), screen_size()), IMG(image_white_square), blendalpha(BLACK, visible), .layer = LAYER_ANGEL_SCREEN});
-
-			static TextChunk *to_say_chunk = {0};
-			static double cur_characters = 0;
-			if(should_be_visible)
-			{
-				assert(angel_entity);
-				String8 new_to_say = {0};
-				if(angel_entity->undismissed_action)
-				{
-					new_to_say = last_said_sentence(angel_entity);
-					cur_characters = 0;
-					angel_entity->undismissed_action = false;
-				}
-				if(new_to_say.str != 0)
-				{
-					if(to_say_chunk == 0)
-					{
-						to_say_chunk = PushArray(persistent_arena, TextChunk, 1);
-					}
-					chunk_from_s8(to_say_chunk, new_to_say);
-				}
-			}
-			String8List to_say = {0};
-			if(to_say_chunk != 0) to_say = split_by_word(frame_arena, TextChunkString8(*to_say_chunk));
-			String8 cur_word = {0};
-			String8Node *cur_word_node = 0;
-			double chars_said = cur_characters;
-			for(String8Node *cur = to_say.first; cur; cur = cur->next)
-			{
-				if((int)chars_said < cur->string.size)
-				{
-					cur_word = cur->string;
-					cur_word_node = cur;
-					break;
-				}
-				chars_said -= (double)cur->string.size;
-			}
-			if(!cur_word.str && to_say.last)
-			{
-				cur_word = to_say.last->string;
-				cur_word_node = to_say.last;
-			}
-
-			if(cur_word_node)
-			{
-				cur_characters += unwarped_dt * ANGEL_CHARACTERS_PER_SEC;
-				chars_said += unwarped_dt * ANGEL_CHARACTERS_PER_SEC;
-				if (chars_said > cur_word.size && cur_word_node->next)
-				{
-					play_audio(&sound_angel_grunt_0, 1.0f);
-				}
-
-				assert(cur_word_node);
-				String8Node *prev_next = cur_word_node->next;
-				cur_word_node->next = 0;
-				//String8 without_unsaid = S8ListJoin(frame_arena, to_say, &(StringJoin){.mid = S8Lit(" ")});
-
-				PlacedWordList placed = place_wrapped_words(frame_arena, to_say, 1.0f, screen_size().x*0.8f, font_for_text_input, JUST_CENTER);
-				translate_words_by(placed, V2(screen_size().x*0.1f, screen_size().y*0.75f));
-				for(PlacedWord *cur = placed.first; cur; cur = cur->next)
-				{
-					draw_text((TextParams){false, cur->text, cur->lower_left_corner, blendalpha(WHITE, visible), 1.0f, .use_font = &font_for_text_input, .layer = LAYER_ANGEL_SCREEN});
-				}
-				//draw_centered_text((TextParams){false, without_unsaid, V2(screen_size().x * 0.5f, screen_size().y * 0.75f), blendalpha(WHITE, visible), 1.0f, .use_font = &font_for_text_input, .layer = LAYER_ANGEL_SCREEN});
-
-				cur_word_node->next = prev_next;
-			}
-			if(gs.assigned_objective)
-			{
-				float mission_font_scale = 1.0f;
-				String8 mission_text = FmtWithLint(frame_arena, "Your mission: %.*s", S8VArg(TextChunkString8(gs.objective.description)));
-				float button_height = 100.0f;
-				float vert = button_height*0.5f;
-				draw_centered_text((TextParams){false, mission_text, V2(screen_size().x * 0.5f, screen_size().y * 0.25f + vert), blendalpha(WHITE, visible), mission_font_scale, .use_font = &font_for_text_input, .layer = LAYER_ANGEL_SCREEN});
-				if(imbutton(aabb_centered(V2(screen_size().x/2.0f, screen_size().y*0.25f - vert), MulV2F(V2(170.0f, button_height), visible)), visible, S8Lit("Accept"), .layer = LAYER_ANGEL_SCREEN, .font = &font_for_text_input))
-				{
-					transition_to_room(&gs, &level_threedee, S8Lit("Forest"));
-				}
-			}
-			else
-			{
-				draw_centered_text((TextParams){false, S8Lit("(Press E to speak)"), V2(screen_size().x * 0.5f, screen_size().y * 0.25f), blendalpha(WHITE, visible * 0.5f), 0.8f, .use_font = &font_for_text_input, .layer = LAYER_ANGEL_SCREEN});
-			}
-
-			if(should_be_visible && pressed.interact && !gs.assigned_objective)
-			{
-				begin_text_input();
-				pressed.interact = false;
-			}
-		
-			if(!gs.no_angel_screen)
-			{
-				pressed = (PressedState){0};
-			}
-		}
+		// @Place(high priority UI rendering)
 
 		// @Place(text input drawing)
 #ifdef DESKTOP
@@ -6952,7 +6726,6 @@ void frame(void)
 					{
 						bool doesnt_prompt_on_dirty_perceptions = false
 						|| it->npc_kind == NPC_Player
-						|| (it->npc_kind == NPC_Angel && gs.no_angel_screen)
 						|| !npc_does_dialog(it) // not sure what's up with this actually, potentially remove
 						|| !S8Match(it->current_room_name, gs.player->current_room_name, 0)
 						|| it->npc_kind == NPC_AngelTotem
@@ -7005,8 +6778,7 @@ void frame(void)
 											"Repeated amounts of testing dialog overwhelmingly in support of the mulaney brothers",
 										};
 										char *next_dialog = rigged_dialog[it->times_talked_to % ARRLEN(rigged_dialog)];
-										char *target = characters[it->memories_last->context.author_npc_kind].name;
-										target = characters[NPC_Player].name;
+										String8 target = TextChunkString8(npc_data(gs, it->memories_last->context.author_npc_kind)->name);
 										ai_response = FmtWithLint(frame_arena, "{\"target\": \"%s\", \"action\": \"%s\", \"action_argument\": \"%s\", \"speech\": \"%s\"}", target, action, action_argument, next_dialog);
 										it->times_talked_to += 1;
 									}
@@ -7105,7 +6877,6 @@ void frame(void)
 
 					float speed = 0.0f;
 					if(!gs.player->killed) speed = PLAYER_SPEED;
-					if(!gs.no_angel_screen) speed = 0.0;
 					// velocity processing for player player movement
 					{
 						gs.player->last_moved = NormV2(movement);
@@ -7383,29 +7154,29 @@ void frame(void)
 							Vec2 start_at = V2(0,300);
 							Vec2 cur_pos = start_at;
 
-							AABB bounds = draw_text((TextParams){false, S8Fmt(frame_arena, "--Memories for %s--", characters[to_view->npc_kind].name), cur_pos, WHITE, 1.0});
+							AABB bounds = draw_text((TextParams){false, S8Fmt(frame_arena, "--Memories for %.*s--", TextChunkVArg(npc_data(gs, to_view->npc_kind)->name)), cur_pos, WHITE, 1.0});
 							cur_pos.y -= aabb_size(bounds).y;
 
 							for(Memory *cur = to_view->memories_first; cur; cur = cur->next)
 								if(cur->speech.text_length > 0)
 								{
-									String8 to_text = cur->context.talking_to_kind != NPC_nobody ? S8Fmt(frame_arena, " to %s ", characters[cur->context.talking_to_kind].name) : S8Lit("");
-									String8 text = S8Fmt(frame_arena, "%s%s%.*s: %.*s", to_view->npc_kind == cur->context.author_npc_kind ? "(Me) " : "", characters[cur->context.author_npc_kind].name, S8VArg(to_text), cur->speech.text_length, cur->speech);
+									String8 to_text = cur->context.talking_to_kind != NPC_nobody ? S8Fmt(frame_arena, " to %.*s ", TextChunkVArg(npc_data(gs, cur->context.talking_to_kind)->name)) : S8Lit("");
+									String8 text = S8Fmt(frame_arena, "%s%.*s%.*s: %.*s", to_view->npc_kind == cur->context.author_npc_kind ? "(Me) " : "", TextChunkVArg(npc_data(gs, cur->context.author_npc_kind)->name), S8VArg(to_text), cur->speech.text_length, cur->speech);
 									AABB bounds = draw_text((TextParams){false, text, cur_pos, WHITE, 1.0});
 									cur_pos.y -= aabb_size(bounds).y;
 								}
 
 							if(keypressed[SAPP_KEYCODE_Q] && !receiving_text_input)
 							{
-								Log("\n\n==========------- Printing debugging information for %s -------==========\n", characters[to_view->npc_kind].name);
+								Log("\n\n==========------- Printing debugging information for %.*s -------==========\n", TextChunkVArg(npc_data(gs, to_view->npc_kind)->name));
 								Log("\nMemories-----------------------------\n");
 								int mem_idx = 0;
 								for(Memory *cur = to_view->memories_first; cur; cur = cur->next)
 								{
-									String8 to_text = cur->context.talking_to_kind != NPC_nobody ? S8Fmt(frame_arena, " to %s ", characters[cur->context.talking_to_kind].name) : S8Lit("");
+									String8 to_text = cur->context.talking_to_kind != NPC_nobody ? S8Fmt(frame_arena, " to %.*s ", TextChunkVArg(npc_data(gs, cur->context.talking_to_kind)->name)) : S8Lit("");
 									String8 speech = TextChunkString8(cur->speech);
 									if(speech.size == 0) speech = S8Lit("<said nothing>");
-									String8 text = S8Fmt(frame_arena, "%s%s%.*s: %.*s", to_view->npc_kind == cur->context.author_npc_kind ? "(Me) " : "", characters[cur->context.author_npc_kind].name, S8VArg(to_text), S8VArg(speech));
+									String8 text = S8Fmt(frame_arena, "%s%.*s%.*s: %.*s", to_view->npc_kind == cur->context.author_npc_kind ? "(Me) " : "", TextChunkVArg(npc_data(gs, cur->context.author_npc_kind)->name), S8VArg(to_text), S8VArg(speech));
 									printf("Memory %d: %.*s\n", mem_idx, S8VArg(text));
 									mem_idx++;
 								}

@@ -94,22 +94,20 @@ typedef struct TextChunkList
 	TextChunk text;
 } TextChunkList;
 
-typedef struct GameplayObjective
-{
-	TextChunk description;
-} GameplayObjective;
 
 typedef enum
 {
 	ARG_CHARACTER,
-	ARG_OBJECTIVE,
 } ActionArgumentKind;
+
+// A value of 0 means no npc. So is invalid if you're referring to somebody.
+typedef int NpcKind;
+#define NPC_nobody 0
 
 typedef struct
 {
 	ActionArgumentKind kind;
 	NpcKind targeting;
-	GameplayObjective objective;
 } ActionArgument;
 
 
@@ -129,8 +127,6 @@ typedef struct
 	NpcKind author_npc_kind;
 	NpcKind talking_to_kind;
 	bool heard_physically; // if not physically, the source was directly
-	bool drama_memory; // drama memories arent forgotten, and once they end it's understood that a lot of time has passed.
-	bool judgement_memory; // judgement memories have special printing for when Daniel says nothing, to make sure the AI understands his attitude towards the player
 } MemoryContext;
 
 // memories are subjective to an individual NPC
@@ -147,6 +143,20 @@ typedef struct Memory
 	TextChunk speech;
 } Memory;
 
+// text chunk must be a literal, not a pointer
+// and this returns a s8 that points at the text chunk memory
+#define TextChunkString8(t) S8((u8*)(t).text, (t).text_length)
+#define TextChunkVArg(t) S8VArg(TextChunkString8(t))
+#define TextChunkLitC(s) {.text = s, .text_length = sizeof(s)}
+#define TextChunkLit(s) (TextChunk) TextChunkLitC(s)
+
+void chunk_from_s8(TextChunk *into, String8 from)
+{
+	assert(from.size < ARRLEN(into->text));
+	memset(into->text, 0, ARRLEN(into->text));
+	memcpy(into->text, from.str, from.size);
+	into->text_length = (int)from.size;
+}
 typedef enum PropKind
 {
 	TREE0,
@@ -154,6 +164,7 @@ typedef enum PropKind
 	TREE2,
 	ROCK0,
 } PropKind;
+
 
 typedef struct EntityRef
 {
@@ -192,34 +203,6 @@ typedef struct
 	EntityRef ref;
 	Vec2 pos;
 } Target;
-
-
-// text chunk must be a literal, not a pointer
-// and this returns a s8 that points at the text chunk memory
-#define TextChunkString8(t) S8((u8*)(t).text, (t).text_length)
-#define TextChunkVArg(t) S8VArg(TextChunkString8(t))
-
-void chunk_from_s8(TextChunk *into, String8 from)
-{
-	assert(from.size < ARRLEN(into->text));
-	memset(into->text, 0, ARRLEN(into->text));
-	memcpy(into->text, from.str, from.size);
-	into->text_length = (int)from.size;
-}
-
-// returns ai understandable, human readable name, on the arena, so not the enum name
-String8 action_argument_string(Arena *arena, ActionArgument arg)
-{
-	switch(arg.kind)
-	{
-		case ARG_CHARACTER:
-		return FmtWithLint(arena, "%s", characters[arg.targeting].name);
-		break;
-		case ARG_OBJECTIVE:
-		return FmtWithLint(arena, "%.*s", S8VArg(TextChunkString8(arg.objective.description)));
-	}
-	return (String8){0};
-}
 
 
 typedef struct RememberedError
@@ -295,34 +278,84 @@ float entity_max_damage(Entity *e)
 
 typedef BUFF(ActionKind, 8) AvailableActions;
 
+typedef struct Npc {
+	TextChunk name;
+	NpcKind kind; // must not be 0, that's nobody!
+	TextChunk prompt;
+} Npc;
 
 typedef struct GameState {
-	Arena *arena;
+	Arena *arena; // all allocations done with the lifecycle of a gamestate (loading/reloading entire levels essentially) must be allocated on this arena.
 	uint64_t tick;
 	bool won;
 	
 	bool finished_reading_dying_dialog;
-	bool no_angel_screen;
-	bool assigned_objective;
-	GameplayObjective objective;
 
-	Memory *judgement_memories_first;
-	Memory *judgement_memories_last;
 	double time; // in seconds, fraction of length of day
-	int judgement_gen_request;
 
 	// processing may still occur after time has stopped on the gamestate, 
 	bool stopped_time;
+	BUFF(Npc, 10) characters;
 
 	// these must point entities in its own array.
 	Entity *player;
-	Entity *angel;
 	Entity *world_entity;
 	Entity entities[MAX_ENTITIES];
 	rnd_gamerand_t random;
 } GameState;
 
 #define ENTITIES_ITER(ents) for (Entity *it = ents; it < ents + ARRLEN(ents); it++) if (it->exists && !it->destroy && it->generation > 0)
+
+
+
+Npc nobody_data = { 
+	.name = TextChunkLitC("Nobody"),
+	.kind = NPC_nobody,
+};
+Npc *npc_data_by_name(GameState *gs, String8 name) {
+	BUFF_ITER(Npc, &gs->characters) {
+		if(S8Match(TextChunkString8(it->name), name, 0)) {
+			return it;
+		}
+	}
+	return 0;
+}
+Npc *npc_data(GameState *gs, NpcKind kind) {
+	if(kind == NPC_nobody) return &nobody_data;
+	BUFF_ITER(Npc, &gs->characters) {
+		if(it->kind == kind) {
+			return it;
+		}
+	}
+	Log("Unknown npc kind '%d'\n", kind);
+	assert(false);
+	return 0;
+}
+
+String8 npc_to_human_readable(GameState *gs, Entity *me, NpcKind kind)
+{
+	if(me->npc_kind == kind)
+	{
+		return S8Lit("You");
+	}
+	else
+	{
+		return TextChunkString8(npc_data(gs, kind)->name);
+	}
+}
+
+// returns ai understandable, human readable name, on the arena, so not the enum name
+String8 action_argument_string(Arena *arena, GameState *gs, ActionArgument arg)
+{
+	switch(arg.kind)
+	{
+		case ARG_CHARACTER:
+		return FmtWithLint(arena, "%.*s", TextChunkVArg(npc_data(gs, arg.targeting)->name));
+		break;
+	}
+	return (String8){0};
+}
+
 
 float g_randf(GameState *gs)
 {
@@ -348,17 +381,6 @@ void fill_available_actions(GameState *gs, Entity *it, AvailableActions *a)
 	*a = (AvailableActions) { 0 };
 	BUFF_APPEND(a, ACT_none);
 
-	if(it->npc_kind == NPC_Angel)
-	{
-		BUFF_APPEND(a, ACT_assign_gameplay_objective);
-		return;
-	}
-
-	if(it->npc_kind == NPC_Tombstone)
-	{
-		return;
-	}
-
 	if(gete_specified(gs, it->joined))
 	{
 		BUFF_APPEND(a, ACT_leave)
@@ -367,13 +389,7 @@ void fill_available_actions(GameState *gs, Entity *it, AvailableActions *a)
 	{
 		BUFF_APPEND(a, ACT_join)
 	}
-
-	if(it->npc_kind != NPC_Angel)
-	{
-		BUFF_APPEND(a, ACT_end_conversation);
-	}
-
-	bool has_shotgun = it->npc_kind == NPC_Daniel;
+	bool has_shotgun = false;
 	if(has_shotgun)
 	{
 		if(gete_specified(gs, it->aiming_shotgun_at))
@@ -388,11 +404,12 @@ void fill_available_actions(GameState *gs, Entity *it, AvailableActions *a)
 	}
 }
 
-
-bool npc_does_dialog(Entity *it)
+typedef enum
 {
-	return it->npc_kind < ARRLEN(characters);
-}
+	MSG_SYSTEM,
+	MSG_USER,
+	MSG_ASSISTANT,
+} MessageType;
 
 // for no trailing comma just trim the last character
 String8 make_json_node(Arena *arena, MessageType type, String8 content)
@@ -415,20 +432,8 @@ String8 make_json_node(Arena *arena, MessageType type, String8 content)
 	return to_return;
 }
 
-String8 npc_to_human_readable(Entity *me, NpcKind kind)
-{
-	if(me->npc_kind == kind)
-	{
-		return S8Lit("You");
-	}
-	else
-	{
-		return S8CString(characters[kind].name);
-	}
-}
 
-
-String8List dump_memory_as_json(Arena *arena, Memory *it)
+String8List dump_memory_as_json(Arena *arena, GameState *gs, Memory *it)
 {
 	ArenaTemp scratch = GetScratch(&arena, 1);
 	String8List current_list = {0};
@@ -439,28 +444,21 @@ String8List dump_memory_as_json(Arena *arena, Memory *it)
 	AddFmt("\"action\":\"%s\",", actions[it->action_taken].name);
 	String8 arg_str = action_argument_string(scratch.arena, it->action_argument);
 	AddFmt("\"action_argument\":\"%.*s\",", S8VArg(arg_str));
-	AddFmt("\"target\":\"%s\"}", characters[it->context.talking_to_kind].name);
+	AddFmt("\"target\":\"%.*s\"}", TextChunkVArg(npc_data(gs, it->context.talking_to_kind)->name));
 
  #undef AddFmt
 	ReleaseScratch(scratch);
 	return current_list;
 }
 
-String8List memory_description(Arena *arena, Entity *e, Memory *it)
+String8List memory_description(Arena *arena, GameState *gs, Entity *e, Memory *it)
 {
 	String8List current_list = {0};
 	#define AddFmt(...) PushWithLint(arena, &current_list, __VA_ARGS__)
 	// dump a human understandable sentence description of what happened in this memory
 	bool no_longer_wants_to_converse = false; // add the no longer wants to converse text after any speech, it makes more sense reading it
 	
-#define HUMAN(kind) S8VArg(npc_to_human_readable(e, kind))
-	if(it->context.judgement_memory)
-	{
-		if((it->action_taken == ACT_none && it->speech.text_length == 0) && it->context.author_npc_kind != NPC_Player)
-		{
-			AddFmt("%.*s said and did nothing in response\n", HUMAN(it->context.author_npc_kind));
-		}
-	}
+#define HUMAN(kind) S8VArg(npc_to_human_readable(gs, e, kind))
 	if (it->action_taken != ACT_none)
 	{
 		switch (it->action_taken)
@@ -504,7 +502,7 @@ String8List memory_description(Arena *arena, Entity *e, Memory *it)
 			if (it->context.talking_to_kind == e->npc_kind)
 				target_string = S8Lit("you");
 			else
-				target_string = S8CString(characters[it->context.talking_to_kind].name);
+				target_string = TextChunkString8(npc_data(gs, it->context.talking_to_kind)->name);
 		}
 
 		if(!e->is_world)
@@ -518,10 +516,10 @@ String8List memory_description(Arena *arena, Entity *e, Memory *it)
 				AddFmt("(Overheard conversation, they aren't speaking directly to you) ");
 			}
 		}
-		AddFmt("%s said \"%.*s\" to %.*s", characters[it->context.author_npc_kind].name, TextChunkVArg(it->speech), S8VArg(target_string));
+		AddFmt("%.*s said \"%.*s\" to %.*s", TextChunkVArg(npc_data(gs, it->context.author_npc_kind)->name), TextChunkVArg(it->speech), S8VArg(target_string));
 		if(!e->is_world)
 		{
-			AddFmt(" (you are %s)", characters[e->npc_kind].name)
+			AddFmt(" (you are %.*s)", TextChunkVArg(npc_data(gs, e->npc_kind)->name));
 		}
 		AddFmt("\n");
 	}
@@ -546,7 +544,7 @@ String8List memory_description(Arena *arena, Entity *e, Memory *it)
 String8 generate_chatgpt_prompt(Arena *arena, GameState *gs, Entity *e, CanTalkTo can_talk_to)
 {
 	assert(e->is_npc);
-	assert(e->npc_kind < ARRLEN(characters));
+	assert(npc_data(gs, e->npc_kind) != 0);
 
 	ArenaTemp scratch = GetScratch(&arena, 1);
 
@@ -562,7 +560,7 @@ String8 generate_chatgpt_prompt(Arena *arena, GameState *gs, Entity *e, CanTalkT
 	{
 		String8List current_list = {0};
 		AddFmt("%s\n\n", global_prompt);
-		AddFmt("%s\n\n", characters[e->npc_kind].prompt);
+		AddFmt("%.*s\n\n", TextChunkVArg(npc_data(gs, e->npc_kind)->prompt));
 		AddFmt("The characters who are near you, that you can target:\n");
 		BUFF_ITER(Entity*, &can_talk_to)
 		{
@@ -572,7 +570,7 @@ String8 generate_chatgpt_prompt(Arena *arena, GameState *gs, Entity *e, CanTalkT
 			{
 				info = S8Lit(" - they're currently dead, they were murdered");
 			}
-			AddFmt("%s%.*s\n", characters[(*it)->npc_kind].name, S8VArg(info));
+			AddFmt("%.*s%.*s\n", TextChunkVArg(npc_data(gs, (*it)->npc_kind)->name), S8VArg(info));
 		}
 		AddFmt("\n");
 
@@ -608,7 +606,7 @@ String8 generate_chatgpt_prompt(Arena *arena, GameState *gs, Entity *e, CanTalkT
 				in_drama_memories = false;
 				AddFmt("Some time passed...\n");
 			}
-			String8List desc_list = memory_description(scratch.arena, e, it);
+			String8List desc_list = memory_description(scratch.arena, gs, e, it);
 			S8ListConcat(&current_list, &desc_list);
 		}
 
@@ -622,7 +620,7 @@ String8 generate_chatgpt_prompt(Arena *arena, GameState *gs, Entity *e, CanTalkT
 				{
 					if(cur->offending_self_output.speech.text_length > 0 || cur->offending_self_output.action_taken != ACT_none)
 					{
-						String8 offending_json_output = S8ListJoin(scratch.arena, dump_memory_as_json(scratch.arena, &cur->offending_self_output), &(StringJoin){0});
+						String8 offending_json_output = S8ListJoin(scratch.arena, dump_memory_as_json(scratch.arena, gs, &cur->offending_self_output), &(StringJoin){0});
 						AddFmt("When you output, `%.*s`, ", S8VArg(offending_json_output));
 					}
 					AddFmt("%.*s\n", TextChunkVArg(cur->reason_why_its_bad));
@@ -635,7 +633,7 @@ String8 generate_chatgpt_prompt(Arena *arena, GameState *gs, Entity *e, CanTalkT
 		if(it->context.i_said_this)
 		{
 			String8List current_list = {0}; // shadow the list of human understandable sentences to quickly flush 
-			current_list = dump_memory_as_json(scratch.arena, it);
+			current_list = dump_memory_as_json(scratch.arena, gs, it);
 			AddNewNode(MSG_ASSISTANT);
 		}
 	}
@@ -656,7 +654,7 @@ String8 get_field(Node *parent, String8 name)
 	return MD_ChildFromString(parent, name, 0)->first_child->string;
 }
 
-void parse_action_argument(Arena *error_arena, String8 *cur_error_message, ActionKind action, String8 action_argument_str, ActionArgument *out)
+void parse_action_argument(Arena *error_arena, GameState *gs, String8 *cur_error_message, ActionKind action, String8 action_argument_str, ActionArgument *out)
 {
 	assert(cur_error_message);
 	if(cur_error_message->size > 0) return;
@@ -664,36 +662,19 @@ void parse_action_argument(Arena *error_arena, String8 *cur_error_message, Actio
 	String8 action_str = S8CString(actions[action].name);
 	// @TODO refactor into, action argument kinds and they parse into different action argument types
 	bool arg_is_character = action == ACT_join || action == ACT_aim_shotgun || action == ACT_end_conversation;
-	bool arg_is_gameplay_objective = action == ACT_assign_gameplay_objective;
 
 	if (arg_is_character)
 	{
 		out->kind = ARG_CHARACTER;
 		bool found_npc = false;
-		for (int i = 0; i < ARRLEN(characters); i++)
-		{
-			if (S8Match(S8CString(characters[i].name), action_argument_str, 0))
-			{
-				found_npc = true;
-				(*out).targeting = i;
-			}
+		Npc * npc = npc_data_by_name(gs, action_argument_str);
+		found_npc = npc != 0;
+		if(npc) {
+			out->targeting = npc->kind;
 		}
 		if (!found_npc)
 		{
 			*cur_error_message = FmtWithLint(error_arena, "Argument for action `%.*s` you gave is `%.*s`, which doesn't exist in the game so is invalid", S8VArg(action_str), S8VArg(action_argument_str));
-		}
-	}
-	else if (arg_is_gameplay_objective)
-	{
-		out->kind = ARG_OBJECTIVE;
-		if(action_argument_str.size >= MAX_SENTENCE_LENGTH)
-		{
-			String8 trimmed = S8Substring(action_argument_str, action_argument_str.size - MAX_SENTENCE_LENGTH/2, action_argument_str.size);
-			*cur_error_message = FmtWithLint(error_arena, "What you said for your action argument, '%.*s...' is WAY too big for the game to handle, it can be a maximum of %d characters, but you output %d!.", S8VArg(trimmed), MAX_SENTENCE_LENGTH, (int)action_argument_str.size);
-		}
-		if(cur_error_message->size == 0)
-		{
-			chunk_from_s8(&out->objective.description, action_argument_str);
 		}
 	}
 	else
@@ -755,14 +736,20 @@ String8 parse_chatgpt_response(Arena *arena, Entity *e, String8 action_in_json, 
 		}
 		else
 		{
+Npc *npc_data_by_name(GameState *gs, String8 name) {
+	BUFF_ITER(Npc, &gs->characters) {
+		if(S8Match(TextChunkString8(it->name), name, 0)) {
+			return it;
+		}
+	}
+	return 0;
+}
+
+			Npc * npc = ncp_data_by_name(gs, target_str);
 			bool found = false;
-			for(int i = 0; i < ARRLEN(characters); i++)
-			{
-				if(S8Match(target_str, S8CString(characters[i].name), 0))
-				{
-					found = true;
-                    out->talking_to_kind = i;
-				}
+			if(npc) {
+				found = true;
+				out->talking_to_kind = npc->kind;
 			}
 			if(!found)
 			{
