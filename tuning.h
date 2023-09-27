@@ -3,7 +3,6 @@
 
 #define RANDOM_SEED 42
 #define LEVEL_TILES 150 // width and height of level tiles array
-#define LENGTH_OF_DAY (60.0 * 5.0) // in seconds
 #define LAYERS 3
 #define TILE_SIZE 0.5f // in pixels
 #define PLAYER_SPEED 0.15f // in meters per second

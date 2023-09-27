@@ -235,6 +235,7 @@ typedef struct Entity
 	String8 current_room_name;
 
 	// npcs
+	bool is_player;
 	EntityRef joined;
 	EntityRef aiming_shotgun_at;
 	EntityRef looking_at; // aiming shotgun at takes facing priority over this
@@ -298,6 +299,7 @@ typedef struct GameState {
 	BUFF(Npc, 10) characters;
 
 	// these must point entities in its own array.
+	String8 current_room_name;
 	Entity *player;
 	Entity *world_entity;
 	Entity entities[MAX_ENTITIES];
@@ -442,7 +444,7 @@ String8List dump_memory_as_json(Arena *arena, GameState *gs, Memory *it)
 	AddFmt("{");
 	AddFmt("\"speech\":\"%.*s\",", TextChunkVArg(it->speech));
 	AddFmt("\"action\":\"%s\",", actions[it->action_taken].name);
-	String8 arg_str = action_argument_string(scratch.arena, it->action_argument);
+	String8 arg_str = action_argument_string(scratch.arena, gs, it->action_argument);
 	AddFmt("\"action_argument\":\"%.*s\",", S8VArg(arg_str));
 	AddFmt("\"target\":\"%.*s\"}", TextChunkVArg(npc_data(gs, it->context.talking_to_kind)->name));
 
@@ -592,8 +594,6 @@ String8 generate_chatgpt_prompt(Arena *arena, GameState *gs, Entity *e, CanTalkT
 	}
 
 	String8List current_list = {0};
-	bool in_drama_memories = true;
-	assert(e->memories_first->context.drama_memory);
 	for(Memory *it = e->memories_first; it; it = it->next)
 	{
 		// going through memories, I'm going to accumulate human understandable sentences for what happened in current_list.
@@ -601,11 +601,6 @@ String8 generate_chatgpt_prompt(Arena *arena, GameState *gs, Entity *e, CanTalkT
 
 		// write a new human understandable sentence or two to current_list
 		if (!it->context.i_said_this) {
-			if(in_drama_memories && !it->context.drama_memory)
-			{
-				in_drama_memories = false;
-				AddFmt("Some time passed...\n");
-			}
 			String8List desc_list = memory_description(scratch.arena, gs, e, it);
 			S8ListConcat(&current_list, &desc_list);
 		}
@@ -686,7 +681,7 @@ void parse_action_argument(Arena *error_arena, GameState *gs, String8 *cur_error
 
 // if returned string has size greater than 0, it's the error message. Allocated
 // on arena passed into it or in constant memory
-String8 parse_chatgpt_response(Arena *arena, Entity *e, String8 action_in_json, Action *out)
+String8 parse_chatgpt_response(Arena *arena, GameState *gs, Entity *e, String8 action_in_json, Action *out)
 {
 	ArenaTemp scratch = GetScratch(&arena, 1);
 
@@ -726,7 +721,7 @@ String8 parse_chatgpt_response(Arena *arena, Entity *e, String8 action_in_json, 
 	{
 		error_message = FmtWithLint(arena, "Speech string provided is too big, maximum bytes is %d", MAX_SENTENCE_LENGTH);
 	}
-	assert(e->npc_kind != NPC_Player); // player can't perform AI actions?
+	assert(!e->is_player); // player can't perform AI actions?
 
 	if(error_message.size == 0)
 	{
@@ -736,16 +731,7 @@ String8 parse_chatgpt_response(Arena *arena, Entity *e, String8 action_in_json, 
 		}
 		else
 		{
-Npc *npc_data_by_name(GameState *gs, String8 name) {
-	BUFF_ITER(Npc, &gs->characters) {
-		if(S8Match(TextChunkString8(it->name), name, 0)) {
-			return it;
-		}
-	}
-	return 0;
-}
-
-			Npc * npc = ncp_data_by_name(gs, target_str);
+			Npc * npc = npc_data_by_name(gs, target_str);
 			bool found = false;
 			if(npc) {
 				found = true;
@@ -785,7 +771,7 @@ Npc *npc_data_by_name(GameState *gs, String8 name) {
 		{
 			if(actions[out->kind].takes_argument)
 			{
-				parse_action_argument(arena,&error_message, out->kind, action_argument_str, &out->argument);
+				parse_action_argument(arena, gs, &error_message, out->kind, action_argument_str, &out->argument);
 			}
 		}
 	}
