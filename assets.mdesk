@@ -122,6 +122,10 @@
 {
  filepath: "Move.png",
 }
+@image add:
+{
+    filepath: "Add.png",
+}
 @image select:
 {
  filepath: "Select.png",

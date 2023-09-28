@@ -147,7 +147,7 @@ typedef struct Memory
 // and this returns a s8 that points at the text chunk memory
 #define TextChunkString8(t) S8((u8*)(t).text, (t).text_length)
 #define TextChunkVArg(t) S8VArg(TextChunkString8(t))
-#define TextChunkLitC(s) {.text = s, .text_length = sizeof(s)}
+#define TextChunkLitC(s) {.text = s, .text_length = sizeof(s) - 1} // sizeof includes the null terminator. Not good.
 #define TextChunkLit(s) (TextChunk) TextChunkLitC(s)
 
 void chunk_from_s8(TextChunk *into, String8 from)

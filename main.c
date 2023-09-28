@@ -208,12 +208,13 @@ void web_arena_set_auto_align(WebArena *arena, size_t align)
 #endif
 #include "profiling.h"
 
+// the returned string's size doesn't include the null terminator.
 String8 nullterm(Arena *copy_onto, String8 to_nullterm)
 {
 	String8 to_return = {0};
 	to_return.str = PushArray(copy_onto, u8, to_nullterm.size + 1);
-	to_return.size = to_nullterm.size + 1;
-	to_return.str[to_return.size - 1] = '\0';
+	to_return.size = to_nullterm.size;
+	to_return.str[to_return.size] = '\0';
 	memcpy(to_return.str, to_nullterm.str, to_nullterm.size);
 	return to_return;
 }
@@ -395,8 +396,27 @@ typedef struct {
 } ItemgridState;
 ItemgridState item_grid_state = {0};
 
+struct { char *key; void *value; } *immediate_state = 0;
 
+void init_immediate_state() {
+	sh_new_strdup(immediate_state);
+}
 
+void cleanup_immediate_state() {
+	hmfree(immediate_state);
+}
+
+void *get_state_function(char *key, size_t value_size) {
+	assert(key);
+
+	if(shgeti(immediate_state, key) == -1) {
+		shput(immediate_state, key, calloc(1, value_size));
+	}
+
+	return shget(immediate_state, key);
+}
+
+#define get_state(variable_name, type, ...) type* variable_name = get_state_function((char*)tprint(__VA_ARGS__).str, sizeof(*variable_name))
 
 // set to true when should receive text input from the web input box
 // or desktop text input
@@ -410,8 +430,7 @@ bool is_receiving_text_input()
 }
 
 #ifdef DESKTOP
-u8 text_input_buffer[MAX_SENTENCE_LENGTH] = {0};
-int text_input_buffer_length = 0;
+TextChunk text_input = TextChunkLitC("");
 #else
 #ifdef WEB
 	EMSCRIPTEN_KEEPALIVE
@@ -432,11 +451,11 @@ ISANERROR("No platform defined for text input!")
 
 #endif // desktop
 
-void begin_text_input()
+void begin_text_input(String8 placeholder_text)
 {
 	receiving_text_input = true;
 #ifdef DESKTOP
-	text_input_buffer_length = 0;
+	chunk_from_s8(&text_input, placeholder_text);
 #endif
 }
 
@@ -764,7 +783,7 @@ String8 tprint(char *format, ...)
 	to_return = S8FmtV(frame_arena, format, argptr);
 
 	va_end(argptr);
-	return to_return;
+	return nullterm(frame_arena, to_return);
 }
 
 bool V2ApproxEq(Vec2 a, Vec2 b)
@@ -3168,7 +3187,7 @@ String8 make_devtools_help(Arena *arena)
 void init(void)
 {
 	stbi_flip_into_correct_direction(true);
-
+	init_immediate_state();
 #ifdef WEB
 	EM_ASM( {
 			set_server_url(UTF8ToString($0));
@@ -3639,7 +3658,7 @@ Quad quad_rotated_centered(Vec2 at, Vec2 size, float rotation)
 bool aabb_is_valid(AABB aabb)
 {
 	Vec2 size_vec = SubV2(aabb.lower_right, aabb.upper_left); // negative in vertical direction
-	return size_vec.Y < 0.0f && size_vec.X > 0.0f;
+	return size_vec.Y <= 0.0f && size_vec.X >= 0.0f;
 }
 
 // positive in both directions
@@ -4285,7 +4304,7 @@ AABB draw_text(TextParams t)
 	if(t.use_font) font = *t.use_font;
 	PROFILE_SCOPE("draw text")
 	{
-		size_t text_len = t.text.size;
+		size_t text_len = t.text.size; // CANNOT include the null terminator at the end! Check for this
 		float y = 0.0;
 		float x = 0.0;
 		for (int i = 0; i < text_len; i++)
@@ -4870,18 +4889,10 @@ bool mouse_frozen = false;
 
 typedef struct
 {
-	float pressed_amount; // for buttons, 0.0 is completely unpressed (up), 1.0 is completely depressed (down)
-	bool is_being_pressed;
-} IMState;
-
-struct { int key; IMState value; } *imui_state = 0;
-
-typedef struct
-{
 	AABB button_aabb;
 	float text_scale;
 	String8 text;
-	int key;
+	String8 key;
 	float dt;
 	bool force_down;
 	Layer layer;
@@ -4898,9 +4909,9 @@ bool imbutton_key(ImbuttonArgs args)
 	LoadedFont *font = &default_font;
 	if(args.layer != LAYER_INVALID) layer = args.layer;
 	if(args.font) font = args.font;
-	IMState state = hmget(imui_state, args.key);
+	get_state(state, struct { float pressed_amount; bool is_being_pressed; }, "%.*s", S8VArg(args.key));
 
-	float raise = Lerp(0.0f, state.pressed_amount, 5.0f);
+	float raise = Lerp(0.0f, state->pressed_amount, 5.0f);
 	args.button_aabb.upper_left.y += raise;
 	args.button_aabb.lower_right.y += raise;
 
@@ -4910,20 +4921,24 @@ bool imbutton_key(ImbuttonArgs args)
 	{
 		if (pressed.mouse_down)
 		{
-			state.is_being_pressed = true;
+			state->is_being_pressed = true;
+			pressed.mouse_down = false;
 		}
 
 		pressed_target = 1.0f; // when hovering button like pops out a bit
 
-		if (pressed.mouse_up) to_return = true; // when mouse released, and hovering over button, this is a button press - Lao Tzu
+		if (pressed.mouse_up && state->is_being_pressed)
+		{
+			to_return = true; // when mouse released, and hovering over button, this is a button press - Lao Tzu
+		}
 	}
-	if (pressed.mouse_up) state.is_being_pressed = false;
+	if (pressed.mouse_up) state->is_being_pressed = false;
 
-	if (state.is_being_pressed || args.force_down) pressed_target = 0.0f;
+	if (state->is_being_pressed || args.force_down) pressed_target = 0.0f;
 
-	state.pressed_amount = Lerp(state.pressed_amount, args.dt*20.0f, pressed_target);
+	state->pressed_amount = Lerp(state->pressed_amount, args.dt*20.0f, pressed_target);
 
-	float button_alpha = Lerp(0.5f, state.pressed_amount, 1.0f);
+	float button_alpha = Lerp(0.5f, state->pressed_amount, 1.0f);
 
 	if (aabb_is_valid(args.button_aabb))
 	{
@@ -4961,11 +4976,10 @@ bool imbutton_key(ImbuttonArgs args)
 		}
 	}
 
-	hmput(imui_state, args.key, state);
 	return to_return;
 }
 
-#define imbutton(...) imbutton_key((ImbuttonArgs){__VA_ARGS__, .key = __LINE__, .dt = unwarped_dt})
+#define imbutton(...) imbutton_key((ImbuttonArgs){__VA_ARGS__, .key = tprint("%d", __LINE__), .dt = unwarped_dt})
 
 Quat rot_on_plane_to_quat(float rot)
 {
@@ -5795,9 +5809,9 @@ void frame(void)
 		draw_quad((DrawParams){quad_at(V2(0,screen_size().y), screen_size()), IMG(image_white_square), blendalpha(BLACK, text_input_fade*0.3f), .layer = LAYER_UI_TEXTINPUT});
 		Vec2 edge_of_text = MulV2F(screen_size(), 0.5f);
 		float text_scale = 1.0f;
-		if(text_input_buffer_length > 0)
+		if(text_input.text_length > 0)
 		{
-			AABB bounds = draw_centered_text((TextParams){false, S8(text_input_buffer, text_input_buffer_length), MulV2F(screen_size(), 0.5f), blendalpha(WHITE, text_input_fade), text_scale, .use_font = &font_for_text_input, .layer = LAYER_UI_TEXTINPUT});
+			AABB bounds = draw_centered_text((TextParams){false, TextChunkString8(text_input), MulV2F(screen_size(), 0.5f), blendalpha(WHITE, text_input_fade), text_scale, .use_font = &font_for_text_input, .layer = LAYER_UI_TEXTINPUT});
 			edge_of_text = bounds.lower_right;
 		}
 		Vec2 cursor_center = V2(edge_of_text.x,screen_size().y/2.0f);
@@ -5860,6 +5874,37 @@ void frame(void)
 					Vec2 movement = V2(movement_on_plane.x, movement_on_plane.z);
 					gs.edit.camera_panning_target = AddV2(gs.edit.camera_panning_target, movement);
 				}
+
+				// characters sidebar
+				{
+					float screen_margin = 10.0f;
+					float width = 400.0f;
+					
+					float character_panel_height = 150.0f;
+					float total_height = 0.0f;
+					BUFF_ITER(Npc, &gs.characters) {
+						total_height += character_panel_height;
+					}
+					AABB sidebar = aabb_at(V2(screen_size().x - width - screen_margin, screen_size().y / 2.0f + total_height/2.0f), V2(width, total_height));
+					draw_centered_text((TextParams){false, S8Lit("Characters"), AddV2(sidebar.upper_left, V2(aabb_size(sidebar).x/2.0f, 30.0f)), WHITE, 1.0f, .use_font = &font_for_text_input});
+					float plus_size = 50.0f;
+					if(imbutton(aabb_centered(AddV2(sidebar.lower_right, V2(-aabb_size(sidebar).x/2.0f, 0.0f)),V2(plus_size, plus_size)), 1.0f, S8Lit(""), .icon = &image_add, .nobg = true)) {
+						BUFF_APPEND(&gs.characters, (Npc){.name = TextChunkLit("<Unnamed>")});
+					}
+					
+					Vec2 cur = sidebar.upper_left; // upper left corner of current
+					BUFF_ITER_I(Npc, &gs.characters, i) {
+						draw_quad((DrawParams){quad_at(cur, V2(width, character_panel_height)), IMG(image_white_square), 1.0f, .layer = LAYER_UI});
+						String8 name = TextChunkString8(it->name);
+						Log("%.*s\n", S8VArg(name));
+						bool rename = imbutton_key((ImbuttonArgs){aabb_at(cur, V2(width, 50.0f)), 1.0f, name, .key = tprint("%d %d", __LINE__, i), .dt = unwarped_dt}); // the hack here in the key is off the charts. Holy moly.
+						if(rename) {
+							begin_text_input(name);
+						}
+						cur.y -= character_panel_height;
+					}
+				}
+
 				gs.edit.camera_panning = LerpV2(gs.edit.camera_panning, unwarped_dt * 19.0f, gs.edit.camera_panning_target);
 			}
 		}
@@ -6623,7 +6668,7 @@ void frame(void)
 							{
 								// begin dialog with closest npc
 								gs.player->talking_to = frome(closest_interact_with);
-								begin_text_input();
+								begin_text_input(S8Lit(""));
 							}
 							else
 							{
@@ -7104,7 +7149,7 @@ void cleanup(void)
 	// and ChatRequest is allocated on the persistent arena. We just shamelessly leak this memory. Cowabunga!
 	//ArenaRelease(persistent_arena);
 	sg_shutdown();
-	hmfree(imui_state);
+	cleanup_immediate_state();
 	Log("Cleaning up\n");
 }
 
@@ -7116,29 +7161,24 @@ void event(const sapp_event *e)
 	{
 		if (e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_code == SAPP_KEYCODE_BACKSPACE)
 		{
-			if(text_input_buffer_length > 0)
-				text_input_buffer_length -= 1;
+			if(text_input.text_length > 0)
+				text_input.text_length -= 1;
 		}
 		else
 		{
 			if (e->type == SAPP_EVENTTYPE_CHAR)
 			{
-				if (text_input_buffer_length < ARRLEN(text_input_buffer))
+				if (text_input.text_length < ARRLEN(text_input.text))
 				{
-					APPEND_TO_NAME(text_input_buffer, text_input_buffer_length, ARRLEN(text_input_buffer), (char)e->char_code);
+					text_input.text[text_input.text_length] = (char)e->char_code;
+					text_input.text_length += 1;
 				}
 			}
 		}
 
 		if (e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_code == SAPP_KEYCODE_ENTER)
 		{
-			// doesn't account for, if the text input buffer is completely full and doesn't have a null terminator.
-			if(text_input_buffer_length >= ARRLEN(text_input_buffer))
-			{
-				text_input_buffer_length = ARRLEN(text_input_buffer) - 1;
-			}
-			text_input_buffer[text_input_buffer_length] = '\0';
-			end_text_input((char*)text_input_buffer);
+			end_text_input((char*)nullterm(frame_arena, TextChunkString8(text_input)).str);
 		}
 	}
 #endif
