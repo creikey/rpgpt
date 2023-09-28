@@ -1330,6 +1330,7 @@ typedef struct CollisionCylinder
 typedef struct Room
 {
 	struct Room *next;
+	struct Room *prev;
 
 	bool camera_offset_is_overridden;
 	Vec3 camera_offset;
@@ -1342,23 +1343,11 @@ typedef struct Room
 typedef struct
 {
 	Mesh *mesh_list;
-	Room *room_list;
+	Room *room_list_first;
+	Room *room_list_last;
 } ThreeDeeLevel;
 
-Room *get_cur_room(GameState *gs, ThreeDeeLevel *level)
-{
-	Room *in_room = 0;
-	for(Room *cur = level->room_list; cur; cur = cur->next)
-	{
-		if(S8Match(cur->name, gs->current_room_name, 0))
-		{
-			in_room = cur;
-			break;
-		}
-	}
-	assert(in_room);
-	return in_room;
-}
+
 
 void ser_BlenderTransform(SerState *ser, BlenderTransform *t)
 {
@@ -1490,7 +1479,7 @@ ThreeDeeLevel load_level(Arena *arena, String8 binary_file)
 			assert(num_placed == 0); // not thinking about how to go from name to entity kind right now, but in the future this will be for like machines or interactible things like the fishing rod
 		}
 
-		StackPush(out.room_list, new_room);
+		DblPushBack(out.room_list_first, out.room_list_last, new_room);
 	}
 
 	assert(!ser.cur_error.failed);
@@ -1503,6 +1492,7 @@ ThreeDeeLevel load_level(Arena *arena, String8 binary_file)
 #include "threedee.glsl.h"
 
 AABB level_aabb = { .upper_left = { 0.0f, 0.0f }, .lower_right = { TILE_SIZE * LEVEL_TILES, -(TILE_SIZE * LEVEL_TILES) } };
+ThreeDeeLevel level_threedee = {0};
 GameState gs = { 0 };
 bool flycam = false;
 Vec3 flycam_pos = {0};
@@ -1511,6 +1501,53 @@ float flycam_vertical_rotation = 0.0;
 float flycam_speed = 1.0f;
 Mat4 view = {0}; 
 Mat4 projection = {0};
+
+Room mystery_room = {
+	.name = S8LitC("???"),
+};
+Room *room_by_name(ThreeDeeLevel *level, String8 name) {
+	Room *ret = &mystery_room;
+	for(Room *cur = level->room_list_first; cur; cur = cur->next)
+	{
+		if(S8Match(cur->name, name, 0))
+		{
+			ret = cur;
+			break;
+		}
+	}
+	return ret;
+}
+Room *room_by_index(ThreeDeeLevel *level, int index) {
+	Room *ret = &mystery_room;
+	int i = 0;
+	for(Room *cur = level->room_list_first; cur; cur = cur->next) {
+		if(i == index) {
+			ret = cur;
+			break;
+		}
+		i += 1;
+	}
+	return ret;
+}
+Room *get_cur_room(GameState *gs, ThreeDeeLevel *level)
+{
+	Room *in_room = 0;
+	if(gs->edit.enabled) {
+		in_room = room_by_index(level, gs->edit.room_index);
+	} else {
+		in_room = room_by_name(level, gs->current_room_name);
+	}
+	assert(in_room);
+	return in_room;
+}
+int num_rooms(ThreeDeeLevel *level) {
+	int ret = 0;
+	for(Room *cur = level->room_list_first; cur; cur = cur->next) {
+		ret++;
+	}
+	return ret;
+}
+
 
 Vec4 IsPoint(Vec3 point)
 {
@@ -2161,7 +2198,6 @@ Vec2 point_plane(Vec3 p)
 
 #define parse_enumstr(arena, enum_str, errors, string_array, enum_kind_name, prefix) parse_enumstr_impl(arena, enum_str, string_array, ARRLEN(string_array), errors, enum_kind_name, prefix)
 
-ThreeDeeLevel level_threedee = {0};
 
 void transition_to_room(GameState *gs, ThreeDeeLevel *level, String8 new_room_name)
 {
@@ -2184,7 +2220,7 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 	rnd_gamerand_seed(&gs->random, RANDOM_SEED);
 
 	// make entities for all rooms
-	for(Room *cur_room = level->room_list; cur_room; cur_room = cur_room->next)
+	for(Room *cur_room = level->room_list_first; cur_room; cur_room = cur_room->next)
 	{
 		for (PlacedEntity *cur = cur_room->placed_entity_list; cur; cur = cur->next)
 		{
@@ -2199,7 +2235,11 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 	gs->world_entity = new_entity(gs);
 	gs->world_entity->is_world = true;
 
-	transition_to_room(gs, &level_threedee, level->room_list->name);
+#ifdef DEVTOOLS
+	gs->edit.enabled = true;
+#endif
+
+	transition_to_room(gs, &level_threedee, level->room_list_first->name);
 }
 
 
@@ -3926,11 +3966,17 @@ int rendering_compare(const void *a, const void *b)
 	return (int)((a_draw->sorting_key - b_draw->sorting_key));
 }
 
-void swap(Vec2 *p1, Vec2 *p2)
+void swapVec2(Vec2 *p1, Vec2 *p2)
 {
 	Vec2 tmp = *p1;
 	*p1 = *p2;
 	*p2 = tmp;
+}
+void swapfloat(float *a, float *b)
+{
+	float tmp = *a;
+	*a = *b;
+	*b = tmp;
 }
 
 Vec2 tile_id_to_coord(sg_image tileset_image, Vec2 tile_size, uint16_t tile_id)
@@ -4839,6 +4885,10 @@ typedef struct
 	bool force_down;
 	Layer layer;
 	LoadedFont *font;
+	sg_image *icon;
+	bool icon_flipped;
+	bool nobg;
+	float icon_padding; // dist between icon png's top and bottom edges and the button's top and bottom edges
 } ImbuttonArgs;
 
 bool imbutton_key(ImbuttonArgs args)
@@ -4876,7 +4926,27 @@ bool imbutton_key(ImbuttonArgs args)
 
 	if (aabb_is_valid(args.button_aabb))
 	{
-		draw_quad((DrawParams) { quad_aabb(args.button_aabb), IMG(image_white_square), blendalpha(WHITE, button_alpha), .layer = layer,  });
+		if(!args.nobg)
+			draw_quad((DrawParams) { quad_aabb(args.button_aabb), IMG(image_white_square), blendalpha(WHITE, button_alpha), .layer = layer,  });
+
+		if(args.icon) {
+			Vec2 button_size = aabb_size(args.button_aabb);
+			float icon_vertical_size = button_size.y - 2.0f*args.icon_padding;
+			Vec2 icon_size = V2(icon_vertical_size, icon_vertical_size);
+			Vec2 center = aabb_center(args.button_aabb);
+			AABB icon_aabb = aabb_centered(center, icon_size);
+			/*
+			if(args.icon_flipped) {
+				swapVec2(&quad.ul, &quad.ur);
+				swapVec2(&quad.ll, &quad.lr);
+			}
+			*/
+			AABB region = full_region(*args.icon);
+			if(args.icon_flipped) {
+				swapVec2(&region.upper_left, &region.lower_right);
+			}
+			draw_quad((DrawParams) { quad_aabb(icon_aabb), *args.icon, region, blendalpha(WHITE, button_alpha), .layer = layer, });
+		}
 		
 		// don't use draw centered text here because it looks funny for some reason... I think it's because the vertical line advance of the font, used in draw_centered_text, is the wrong thing for a button like this 
 		TextParams t = (TextParams) { false, args.text, aabb_center(args.button_aabb), BLACK, args.text_scale, .clip_to = args.button_aabb, .do_clipping = true, .layer = layer, .use_font = font };
@@ -5406,6 +5476,12 @@ Vec3 point_on_plane_from_camera_point(Mat4 view, Vec2 screenspace_camera_point)
 	return marker;
 }
 
+int mod(int a, int b)
+{
+    int r = a % b;
+    return r < 0 ? r + b : r;
+}
+
 void frame(void)
 {
 	static float speed_factor = 1.0f;
@@ -5735,6 +5811,40 @@ void frame(void)
 		}
 
 		// @Place(UI rendering that happens before gameplay processing so can consume events before the gameplay needs them)
+		PROFILE_SCOPE("Editor UI Rendering")
+		{
+			if(keypressed[SAPP_KEYCODE_TAB]) {
+				gs.edit.enabled = !gs.edit.enabled;
+			}
+			if(gs.edit.enabled) {
+				draw_text((TextParams){false, S8Lit("Editing"), V2(0,0), WHITE, .scale = 1.0f, .use_font = &font_for_text_input});
+
+				LoadedFont room_name_font = font_for_text_input;
+				float max_room_name_width = 0.0f;
+				float max_height = 0.0f;
+				for(Room *cur = level_threedee.room_list_first; cur; cur = cur->next) {
+					Vec2 bounds = aabb_size(draw_text((TextParams){true, cur->name, .use_font = &room_name_font, .scale = 1.0f}));
+					max_room_name_width = max(max_room_name_width, bounds.x);
+					max_height = max(max_height, bounds.y);
+				}
+				float padding = 10.0;
+				float whole_height = max_height + padding;
+				Vec2 left_right_buttons_size = V2(whole_height, whole_height);
+				float whole_width = left_right_buttons_size.x*2.0f + padding*2.0f + max_room_name_width;
+
+				Room *cur_room = room_by_index(&level_threedee, gs.edit.room_index);
+				bool left = imbutton(aabb_at(V2(screen_size().x/2.0f - whole_width/2.0f, screen_size().y - padding/2.0f), left_right_buttons_size), .icon = &image_right_arrow, .icon_padding = whole_height*0.1f, .nobg = true, .icon_flipped = true);
+				bool right = imbutton(aabb_at(V2(screen_size().x/2.0f + whole_width/2.0f - left_right_buttons_size.x, screen_size().y - padding/2.0f), left_right_buttons_size), .icon = &image_right_arrow, .icon_padding = whole_height*0.1f, .nobg = true);
+				// bool left = imbutton(aabb_at(mouse_pos, left_right_buttons_size), .icon = &image_left_arrow, .icon_padding = whole_height*0.1f, .nobg = true);
+				AABB drawn_bounds = draw_centered_text((TextParams){false, cur_room->name, V2(screen_size().x/2.0f, screen_size().y - padding), WHITE, 1.0f, .use_font = &room_name_font});
+				dbgline(V2(screen_size().x*0.25f, screen_size().y), V2(screen_size().x*0.25f, screen_size().y - whole_height));
+				dbgrect(drawn_bounds);
+				if(left)  gs.edit.room_index -= 1;
+				if(right) gs.edit.room_index += 1;
+				// gs.edit.room_index %= num_rooms(&level_threedee); Why the fuck doesn't this just work
+				gs.edit.room_index = mod(gs.edit.room_index, num_rooms(&level_threedee));
+			}
+		}
 		PROFILE_SCOPE("Entity UI Rendering")
 		{
 			ENTITIES_ITER(gs.entities)
@@ -6871,9 +6981,11 @@ void frame(void)
 
 						float new_vertices[ FLOATS_PER_VERTEX*4 ] = { 0 };
 						Vec2 region_size = SubV2(d.image_region.lower_right, d.image_region.upper_left);
-						assert(region_size.X > 0.0);
-						assert(region_size.Y > 0.0);
-						//Vec2 lower_left = AddV2(d.image_region.upper_left, V2(0, region_size.y));
+						
+						// the region size can be negative if the image is desired to be flipped
+						// assert(region_size.X > 0.0);
+						// assert(region_size.Y > 0.0);
+
 						Vec2 tex_coords[4] =
 						{
 							// upper left vertex, upper right vertex, lower right vertex, lower left vertex

@@ -114,6 +114,10 @@
 {
  filepath: "hovering_circle.png",
 }
+@image right_arrow:
+{
+ filepath: "RightArrow.png",
+}
 @image white_square:
 {
  filepath: "white square.png",

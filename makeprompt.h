@@ -285,10 +285,17 @@ typedef struct Npc {
 	TextChunk prompt;
 } Npc;
 
+typedef struct EditorState {
+	bool enabled;
+	int room_index;
+} EditorState;
+
 typedef struct GameState {
 	Arena *arena; // all allocations done with the lifecycle of a gamestate (loading/reloading entire levels essentially) must be allocated on this arena.
 	uint64_t tick;
 	bool won;
+	
+	EditorState edit;
 	
 	bool finished_reading_dying_dialog;
 
@@ -333,6 +340,9 @@ Npc *npc_data(GameState *gs, NpcKind kind) {
 	assert(false);
 	return 0;
 }
+
+// to fix initializer is not constant
+#define S8LitC(s)        {(u8 *)(s), sizeof(s)-1}
 
 String8 npc_to_human_readable(GameState *gs, Entity *me, NpcKind kind)
 {
