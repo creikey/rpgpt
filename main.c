@@ -387,6 +387,7 @@ void play_audio(AudioSample *sample, float volume)
 #define SAPP_KEYCODE_MAX SAPP_KEYCODE_MENU
 bool keydown[SAPP_KEYCODE_MAX] = { 0 };
 bool keypressed[SAPP_KEYCODE_MAX] = { 0 };
+Vec2 mouse_movement = { 0 };
 
 typedef struct {
 	bool open;
@@ -5528,22 +5529,26 @@ void frame(void)
 		text_input_fade = Lerp(text_input_fade, unwarped_dt * 8.0f, receiving_text_input ? 1.0f : 0.0f);
 
 		Vec3 cam_target_pos = V3(0,0,0);
+		if(gs.edit.enabled) {
+			cam_target_pos.x = gs.edit.camera_panning.x;
+			cam_target_pos.z = gs.edit.camera_panning.y;
+		}
 		//dbgline(V2(0,0), V2(500, 500));
 		const float vertical_to_horizontal_ratio = CAM_VERTICAL_TO_HORIZONTAL_RATIO;
 		const float cam_distance = CAM_DISTANCE;
-		Vec3 away_from_player;
+		Vec3 cam_offset_from_target;
 		{
 			float ratio = vertical_to_horizontal_ratio;
 			float x = sqrtf( (cam_distance * cam_distance) / (1 + (ratio*ratio)) );
 			float y = ratio * x;
-			away_from_player = V3(x, y, 0.0);
+			cam_offset_from_target = V3(x, y, 0.0);
 		}
-		away_from_player = MulM4V4(Rotate_RH(-PI32/3.0f + PI32, V3(0,1,0)), IsPoint(away_from_player)).xyz;
+		cam_offset_from_target = MulM4V4(Rotate_RH(-PI32/3.0f + PI32, V3(0,1,0)), IsPoint(cam_offset_from_target)).xyz;
 		if(get_cur_room(&gs, &level_threedee)->camera_offset_is_overridden)
 		{
-			away_from_player = get_cur_room(&gs, &level_threedee)->camera_offset;
+			cam_offset_from_target = get_cur_room(&gs, &level_threedee)->camera_offset;
 		}
-		Vec3 cam_pos = AddV3(cam_target_pos, away_from_player);
+		Vec3 cam_pos = AddV3(cam_target_pos, cam_offset_from_target);
 
 		Vec2 movement = { 0 };
 		if (mobile_controls)
@@ -5843,6 +5848,19 @@ void frame(void)
 				if(right) gs.edit.room_index += 1;
 				// gs.edit.room_index %= num_rooms(&level_threedee); Why the fuck doesn't this just work
 				gs.edit.room_index = mod(gs.edit.room_index, num_rooms(&level_threedee));
+
+				if(mouse_down) {
+					Vec2 to_pos = mouse_pos;
+					Vec2 from_pos = AddV2(mouse_pos, mouse_movement);
+					// dbgline(from_pos, to_pos);
+					Vec3 to_plane = point_on_plane_from_camera_point(view, to_pos);
+					Vec3 from_plane = point_on_plane_from_camera_point(view, from_pos);
+					Vec3 movement_on_plane = SubV3(to_plane, from_plane);
+					// dbg3dline(from_plane, to_plane);
+					Vec2 movement = V2(movement_on_plane.x, movement_on_plane.z);
+					gs.edit.camera_panning_target = AddV2(gs.edit.camera_panning_target, movement);
+				}
+				gs.edit.camera_panning = LerpV2(gs.edit.camera_panning, unwarped_dt * 19.0f, gs.edit.camera_panning_target);
 			}
 		}
 		PROFILE_SCOPE("Entity UI Rendering")
@@ -6832,12 +6850,6 @@ void frame(void)
 		}
 
 #ifdef DEVTOOLS
-
-		if(keypressed[SAPP_KEYCODE_J])
-		{
-			Log("Judgement Day!\n");
-		}
-
 		// statistics @Place(devtools drawing developer menu drawing)
 		if (show_devtools)
 			PROFILE_SCOPE("devtools drawing")
@@ -7073,6 +7085,7 @@ void frame(void)
 
 		memset(keypressed, 0, sizeof(keypressed));
 		pressed = (PressedState) { 0 };
+		mouse_movement = V2(0,0);
 	}
 }
 
@@ -7372,6 +7385,8 @@ void event(const sapp_event *e)
 	}
 	if (e->type == SAPP_EVENTTYPE_MOUSE_MOVE)
 	{
+		mouse_movement.x += e->mouse_dx;
+		mouse_movement.y -= e->mouse_dy;
 		bool ignore_movement = false;
 #ifdef DEVTOOLS
 		if (mouse_frozen) ignore_movement = true;

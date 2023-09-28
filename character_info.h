@@ -75,4 +75,3 @@ ActionInfo actions[] = {
 		NO_ARGUMENT,
 	},
 };
-

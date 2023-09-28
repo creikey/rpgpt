@@ -118,6 +118,14 @@
 {
  filepath: "RightArrow.png",
 }
+@image move:
+{
+ filepath: "Move.png",
+}
+@image select:
+{
+ filepath: "Select.png",
+}
 @image white_square:
 {
  filepath: "white square.png",

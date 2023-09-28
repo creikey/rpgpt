@@ -288,6 +288,8 @@ typedef struct Npc {
 typedef struct EditorState {
 	bool enabled;
 	int room_index;
+	Vec2 camera_panning_target;
+	Vec2 camera_panning;
 } EditorState;
 
 typedef struct GameState {
