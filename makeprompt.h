@@ -232,7 +232,7 @@ typedef struct Entity
 	Vec2 vel; // only used sometimes, like in old man and bullet
 	float damage; // at 1.0, dead! zero initialized
 	bool dead;
-	String8 current_room_name;
+	u64 current_roomid;
 
 	// npcs
 	bool is_player;
@@ -287,9 +287,10 @@ typedef struct Npc {
 
 typedef struct EditorState {
 	bool enabled;
-	int room_index;
+	u64 current_roomid;
 	Vec2 camera_panning_target;
 	Vec2 camera_panning;
+	NpcKind placing_npc;
 } EditorState;
 
 typedef struct GameState {
@@ -308,7 +309,7 @@ typedef struct GameState {
 	BUFF(Npc, 10) characters;
 
 	// these must point entities in its own array.
-	String8 current_room_name;
+	u64 current_roomid;
 	Entity *player;
 	Entity *world_entity;
 	Entity entities[MAX_ENTITIES];
@@ -341,6 +342,14 @@ Npc *npc_data(GameState *gs, NpcKind kind) {
 	Log("Unknown npc kind '%d'\n", kind);
 	assert(false);
 	return 0;
+}
+NpcKind get_next_kind(GameState *gs) {
+	NpcKind max_found = 0;
+	BUFF_ITER(Npc, &gs->characters) {
+		assert(it->kind != 0);
+		if(it->kind > max_found) max_found = it->kind;
+	}
+	return max_found + 1;
 }
 
 // to fix initializer is not constant

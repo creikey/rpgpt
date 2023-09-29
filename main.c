@@ -1370,6 +1370,7 @@ typedef struct Room
 	bool camera_offset_is_overridden;
 	Vec3 camera_offset;
 	String8 name;
+	u64 roomid;
 	PlacedMesh *placed_mesh_list;
 	CollisionCylinder *collision_list;
 	PlacedEntity *placed_entity_list;
@@ -1431,6 +1432,7 @@ ThreeDeeLevel load_level(Arena *arena, String8 binary_file)
 	{
 		Room *new_room = PushArray(arena, Room, 1);
 		ser_String8(&ser, &new_room->name, arena);
+		ser_u64(&ser, &new_room->roomid);
 
 		ser_bool(&ser, &new_room->camera_offset_is_overridden);
 		if(new_room->camera_offset_is_overridden)
@@ -1540,11 +1542,11 @@ Mat4 projection = {0};
 Room mystery_room = {
 	.name = S8LitC("???"),
 };
-Room *room_by_name(ThreeDeeLevel *level, String8 name) {
+Room *get_room(ThreeDeeLevel *level, u64 roomid) {
 	Room *ret = &mystery_room;
 	for(Room *cur = level->room_list_first; cur; cur = cur->next)
 	{
-		if(S8Match(cur->name, name, 0))
+		if(cur->roomid == roomid)
 		{
 			ret = cur;
 			break;
@@ -1552,25 +1554,13 @@ Room *room_by_name(ThreeDeeLevel *level, String8 name) {
 	}
 	return ret;
 }
-Room *room_by_index(ThreeDeeLevel *level, int index) {
-	Room *ret = &mystery_room;
-	int i = 0;
-	for(Room *cur = level->room_list_first; cur; cur = cur->next) {
-		if(i == index) {
-			ret = cur;
-			break;
-		}
-		i += 1;
-	}
-	return ret;
-}
 Room *get_cur_room(GameState *gs, ThreeDeeLevel *level)
 {
 	Room *in_room = 0;
 	if(gs->edit.enabled) {
-		in_room = room_by_index(level, gs->edit.room_index);
+		in_room = get_room(level, gs->edit.current_roomid);
 	} else {
-		in_room = room_by_name(level, gs->current_room_name);
+		in_room = get_room(level, gs->current_roomid);
 	}
 	assert(in_room);
 	return in_room;
@@ -1583,6 +1573,18 @@ int num_rooms(ThreeDeeLevel *level) {
 	return ret;
 }
 
+Entity *npcs_entity(NpcKind kind) {
+	Entity *ret = 0;
+	ENTITIES_ITER(gs.entities)
+	{
+		if (it->is_npc && it->npc_kind == kind)
+		{
+			assert(!ret); // no duplicate entities for this character. Bad juju when more than one npc
+			ret = it;
+		}
+	}
+	return ret;
+}
 
 Vec4 IsPoint(Vec3 point)
 {
@@ -1794,7 +1796,7 @@ CanTalkTo get_can_talk_to(Entity *e)
 	CanTalkTo to_return = {0};
 	ENTITIES_ITER(gs.entities)
 	{
-		if(it != e && (it->is_npc) && S8Match(it->current_room_name, e->current_room_name, 0))
+		if(it != e && (it->is_npc) && it->current_roomid == e->current_roomid)
 		{
 			BUFF_APPEND(&to_return, it);
 		}
@@ -1808,7 +1810,7 @@ Entity *get_targeted(Entity *from, NpcKind targeted)
 	{
 		if(it != from && (it->is_npc) && it->npc_kind == targeted)
 		{
-			if(S8Match(it->current_room_name, from->current_room_name, 0))
+			if(it->current_roomid == from->current_roomid)
 			{
 				return it;
 			}
@@ -2066,7 +2068,7 @@ bool perform_action(GameState *gs, Entity *from, Action a)
 		{
 			if(
 				!it->is_player
-				&& S8Match(it->current_room_name, from->current_room_name, 0)
+				&& it->current_roomid == from->current_roomid
 				&& it != from
 				&& it != targeted
 				) {
@@ -2234,13 +2236,12 @@ Vec2 point_plane(Vec3 p)
 #define parse_enumstr(arena, enum_str, errors, string_array, enum_kind_name, prefix) parse_enumstr_impl(arena, enum_str, string_array, ARRLEN(string_array), errors, enum_kind_name, prefix)
 
 
-void transition_to_room(GameState *gs, ThreeDeeLevel *level, String8 new_room_name)
+void transition_to_room(GameState *gs, ThreeDeeLevel *level, u64 new_roomid)
 {
-	Log("Transitioning to %.*s...\n", S8VArg(new_room_name));
+	Room *new_room = get_room(level, new_roomid);
+	Log("Transitioning to %.*s...\n", S8VArg(new_room->name));
 	assert(gs);
-	(void)level;
-
-	gs->current_room_name = new_room_name;
+	gs->current_roomid = new_roomid;
 }
 
 
@@ -2263,7 +2264,7 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 			Entity *cur_entity = new_entity(gs);
 			cur_entity->npc_kind = cur->npc_kind;
 			cur_entity->pos = point_plane(cur->t.offset);
-			cur_entity->current_room_name = cur_room->name;
+			cur_entity->current_roomid = cur_room->roomid;
 		}
 	}
 
@@ -2274,7 +2275,7 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 	gs->edit.enabled = true;
 #endif
 
-	transition_to_room(gs, &level_threedee, level->room_list_first->name);
+	transition_to_room(gs, &level_threedee, level->room_list_first->roomid);
 }
 
 
@@ -2401,6 +2402,12 @@ void ser_entity(SerState *ser, Entity *e)
 	ser_EntityRef(ser, &e->talking_to);
 }
 
+void ser_Npc(SerState *ser, Npc *npc) {
+	ser_TextChunk(ser, &npc->name);
+	ser_int(ser, &npc->kind);
+	ser_TextChunk(ser, &npc->prompt);
+}
+
 void ser_GameState(SerState *ser, GameState *gs)
 {
 	if(ser->serializing) ser->version = VMax - 1;
@@ -2412,6 +2419,10 @@ void ser_GameState(SerState *ser, GameState *gs)
 
 	ser_uint64_t(ser, &gs->tick);
 	ser_bool(ser, &gs->won);
+	
+	ser_double(ser, &gs->time);
+	SER_BUFF(ser, Npc, &gs->characters);
+
 	int num_entities = MAX_ENTITIES;
 	ser_int(ser, &num_entities);
 	
@@ -3167,6 +3178,7 @@ Armature *armatures[] = {
 
 Mesh mesh_simple_worm = {0};
 Mesh mesh_shotgun = {0};
+Mesh mesh_spawnring = {0};
 Mesh mesh_angel_totem = {0};
 Mesh mesh_tombstone = {0};
 
@@ -3256,6 +3268,9 @@ void init(void)
 
 	binary_file = LoadEntireFile(frame_arena, S8Lit("assets/exported_3d/Shotgun.bin"));
 	mesh_shotgun = load_mesh(persistent_arena, binary_file, S8Lit("Shotgun.bin"));
+
+	binary_file = LoadEntireFile(frame_arena, S8Lit("assets/exported_3d/SpawnRing.bin"));
+	mesh_spawnring = load_mesh(persistent_arena, binary_file, S8Lit("SpawnRing.bin"));
 
 	binary_file = LoadEntireFile(frame_arena, S8Lit("assets/exported_3d/AngelTotem.bin"));
 	mesh_angel_totem = load_mesh(persistent_arena, binary_file, S8Lit("AngelTotem.bin"));
@@ -4546,7 +4561,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 	{
 		ENTITIES_ITER(gs.entities)
 		{
-			if (it != p.from && !(it->is_npc && it->dead) && !it->is_world && S8Match(it->current_room_name, p.from->current_room_name, 0))
+			if (it != p.from && !(it->is_npc && it->dead) && !it->is_world && it->current_roomid == p.from->current_roomid)
 			{
 				BUFF_APPEND(&to_check, ((CollisionObj){.circle.center = it->pos, .circle.radius = entity_radius(it), it}));
 			}
@@ -5707,7 +5722,7 @@ void frame(void)
 
 		ENTITIES_ITER(gs.entities)
 		{
-			if(it->is_npc && S8Match(it->current_room_name, gs.current_room_name, 0))
+			if(it->is_npc && it->current_roomid == get_cur_room(&gs, &level_threedee)->roomid)
 			{
 				assert(it->is_npc);
 				Transform draw_with = entity_transform(it);
@@ -5870,28 +5885,30 @@ void frame(void)
 				Vec2 left_right_buttons_size = V2(whole_height, whole_height);
 				float whole_width = left_right_buttons_size.x*2.0f + padding*2.0f + max_room_name_width;
 
-				Room *cur_room = room_by_index(&level_threedee, gs.edit.room_index);
+				Room *cur_room = get_cur_room(&gs, &level_threedee);
 				bool left = imbutton(aabb_at(V2(screen_size().x/2.0f - whole_width/2.0f, screen_size().y - padding/2.0f), left_right_buttons_size), .icon = &image_right_arrow, .icon_padding = whole_height*0.1f, .nobg = true, .icon_flipped = true);
 				bool right = imbutton(aabb_at(V2(screen_size().x/2.0f + whole_width/2.0f - left_right_buttons_size.x, screen_size().y - padding/2.0f), left_right_buttons_size), .icon = &image_right_arrow, .icon_padding = whole_height*0.1f, .nobg = true);
 				// bool left = imbutton(aabb_at(mouse_pos, left_right_buttons_size), .icon = &image_left_arrow, .icon_padding = whole_height*0.1f, .nobg = true);
 				AABB drawn_bounds = draw_centered_text((TextParams){false, cur_room->name, V2(screen_size().x/2.0f, screen_size().y - padding), WHITE, 1.0f, .use_font = &room_name_font});
 				dbgline(V2(screen_size().x*0.25f, screen_size().y), V2(screen_size().x*0.25f, screen_size().y - whole_height));
 				dbgrect(drawn_bounds);
-				if(left)  gs.edit.room_index -= 1;
-				if(right) gs.edit.room_index += 1;
-				// gs.edit.room_index %= num_rooms(&level_threedee); Why the fuck doesn't this just work
-				gs.edit.room_index = mod(gs.edit.room_index, num_rooms(&level_threedee));
+				if(left) cur_room = cur_room->prev ? cur_room->prev : level_threedee.room_list_last;
+				if(right) cur_room = cur_room->next ? cur_room->next : level_threedee.room_list_first;
+				gs.edit.current_roomid = cur_room->roomid;
 
-				if(mouse_down) {
+				Vec3 mouse_movement_on_plane = {0};
+				{
 					Vec2 to_pos = mouse_pos;
 					Vec2 from_pos = AddV2(mouse_pos, mouse_movement);
 					// dbgline(from_pos, to_pos);
 					Vec3 to_plane = point_on_plane_from_camera_point(view, to_pos);
 					Vec3 from_plane = point_on_plane_from_camera_point(view, from_pos);
-					Vec3 movement_on_plane = SubV3(to_plane, from_plane);
+					mouse_movement_on_plane = SubV3(to_plane, from_plane);
 					// dbg3dline(from_plane, to_plane);
-					Vec2 movement = V2(movement_on_plane.x, movement_on_plane.z);
-					gs.edit.camera_panning_target = AddV2(gs.edit.camera_panning_target, movement);
+				}
+					
+				if(mouse_down) {
+					gs.edit.camera_panning_target = AddV2(gs.edit.camera_panning_target, point_plane(mouse_movement_on_plane));
 				}
 
 				// characters sidebar
@@ -5908,12 +5925,14 @@ void frame(void)
 					draw_centered_text((TextParams){false, S8Lit("Characters"), AddV2(sidebar.upper_left, V2(aabb_size(sidebar).x/2.0f, 30.0f)), WHITE, 1.0f, .use_font = &font_for_text_input});
 					float plus_size = 50.0f;
 					if(imbutton(aabb_centered(AddV2(sidebar.lower_right, V2(-aabb_size(sidebar).x/2.0f, -plus_size - screen_margin )),V2(plus_size, plus_size)), 1.0f, S8Lit(""), .icon = &image_add, .nobg = true)) {
-						BUFF_APPEND(&gs.characters, (Npc){.name = TextChunkLit("<Unnamed>")});
+						Npc new = (Npc){.name = TextChunkLit("<Unnamed>"), .kind = get_next_kind(&gs)};
+						BUFF_APPEND(&gs.characters, new);
 					}
 					
 					Vec2 cur = sidebar.upper_left; // upper left corner of current
 					BUFF_ITER_I(Npc, &gs.characters, i) {
-						draw_quad((DrawParams){quad_at(cur, V2(width, character_panel_height)), IMG(image_white_square), ((Color) { 0.7f, 0.7f, 0.7f, 1.0f }), 1.0f, .layer = LAYER_UI});
+						Quad panel = quad_at(cur, V2(width, character_panel_height));
+						draw_quad((DrawParams){panel, IMG(image_white_square), ((Color) { 0.7f, 0.7f, 0.7f, 1.0f }), 1.0f, .layer = LAYER_UI});
 						String8 name = TextChunkString8(it->name);
 						bool rename = imbutton_key((ImbuttonArgs){aabb_at(cur, V2(width, 50.0f)), 1.0f, name, .key = tprint("%d %d", __LINE__, i), .dt = unwarped_dt}); // the hack here in the key is off the charts. Holy moly.
 						get_state(state, TextInputResultKey, "%d %d", __LINE__, i);
@@ -5924,7 +5943,28 @@ void frame(void)
 						if(new.size > 0) {
 							chunk_from_s8(&it->name, new);
 						}
+
+						Vec2 button_size = V2(75.0f, 75.0f);
+						bool place = imbutton_key((ImbuttonArgs){aabb_at(AddV2(panel.lr, V2(-button_size.x, button_size.y)), button_size), 1.0f, S8Lit(""), .key = tprint("%d %d", __LINE__, i), .dt = unwarped_dt, .icon = &image_place, .nobg = true});
+						if(place) {
+							Entity *existing = npcs_entity(it->kind);
+							if(!existing) {
+								existing = new_entity(&gs);
+								existing->npc_kind = it->kind;
+								existing->is_npc = true;
+							}
+							existing->current_roomid = cur_room->roomid;
+							gs.edit.placing_npc = it->kind;
+						}
 						cur.y -= character_panel_height;
+					}
+					Entity *placing = npcs_entity(gs.edit.placing_npc);
+					if(placing) {
+						Log("%llu\n", placing->current_roomid);
+						placing->pos = point_plane(point_on_plane_from_camera_point(view, mouse_pos));
+						if(pressed.mouse_down) {
+							gs.edit.placing_npc = NPC_nobody;
+						}
 					}
 				}
 
@@ -5935,7 +5975,7 @@ void frame(void)
 		{
 			ENTITIES_ITER(gs.entities)
 			{
-				if (it->is_npc && !it->is_player && S8Match(it->current_room_name, gs.current_room_name, 0))
+				if (it->is_npc && !it->is_player && it->current_roomid == get_cur_room(&gs, &level_threedee)->roomid)
 				{
 					if(it->undismissed_action)
 					{
@@ -6564,7 +6604,7 @@ void frame(void)
 					if(it->is_npc)
 					{
 						bool doesnt_prompt_on_dirty_perceptions = false
-						|| !S8Match(it->current_room_name, gs.current_room_name, 0)
+						|| it->current_roomid != get_cur_room(&gs, &level_threedee)->roomid
 						;
 						if (it->perceptions_dirty && doesnt_prompt_on_dirty_perceptions)
 						{

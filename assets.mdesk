@@ -1,3 +1,11 @@
+@image edit_brain:
+{
+ filepath: "EditBrain.png",
+}
+@image place:
+{
+ filepath: "Place.png",
+}
 @image shifted_farmer:
 {
  filepath: "shifted_farmer.png",

@@ -14,6 +14,10 @@ D = bpy.data
 ROOMS_EXPORT_NAME = "rooms"
 EXPORT_DIRECTORY = "../assets/exported_3d"
 
+# the roomid is a unique reference to a room the gameplay code does. It's saved in the blend file and incremented as its used.
+if not "next_roomid" in C.scene:
+    C.scene["next_roomid"] = 0
+
 if os.path.exists(bpy.path.abspath(f"//{EXPORT_DIRECTORY}")):
     shutil.rmtree(bpy.path.abspath(f"//{EXPORT_DIRECTORY}"))
 os.makedirs(bpy.path.abspath(f"//{EXPORT_DIRECTORY}"))
@@ -344,6 +348,11 @@ def export_meshes_and_levels():
         write_u64(f, len(rooms.children))
         for room_collection in rooms.children:
             write_string(f, room_collection.name) # the name of the room is the name of the room collection
+
+            if not "roomid" in room_collection:
+                room_collection["roomid"] = C.scene["next_roomid"]
+                C.scene["next_roomid"] += 1
+            write_u64(f, room_collection["roomid"])
 
             # placed meshes (exported mesh name (which is the object's name), location, rotation, scale)
             placed_meshes = []
