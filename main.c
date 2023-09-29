@@ -451,14 +451,29 @@ ISANERROR("No platform defined for text input!")
 
 #endif // desktop
 
-void begin_text_input(String8 placeholder_text)
+TextChunk text_input_result = {0};
+typedef int TextInputResultKey;
+TextInputResultKey text_result_key = 1;
+bool text_ready = false;
+TextInputResultKey begin_text_input(String8 placeholder_text)
 {
-	receiving_text_input = true;
+	receiving_text_input = true; // this notifies the web layer that it should show the modal. Currently placeholder text is unimplemented on the web
 #ifdef DESKTOP
 	chunk_from_s8(&text_input, placeholder_text);
 #endif
+	text_result_key += 1;
+	text_ready = false;
+	return text_result_key;
 }
 
+// doesn't last for more than after this is called! Don't rely on it
+String8 text_ready_for_me(TextInputResultKey key) {
+	if(key == text_result_key && text_ready) {
+		text_ready = false;
+		return TextChunkString8(text_input_result);
+	}
+	return S8Lit("");
+}
 
 Vec2 FloorV2(Vec2 v)
 {
@@ -2543,8 +2558,20 @@ void read_from_save_data(char *data, size_t length)
 #endif
 
 // a callback, when 'text backend' has finished making text. End dialog
-void end_text_input(char *what_player_said_cstr)
+void end_text_input(char *what_was_entered_cstr)
 {
+	String8 gotten = S8CString(what_was_entered_cstr);
+	if(gotten.size == 0) {
+		// means cancelled, so can do nothing
+	} else {
+		String8 trimmed = S8Chop(gotten, MAX_SENTENCE_LENGTH);
+		String8 without_newlines = S8ListJoin(frame_arena, S8Split(frame_arena, trimmed, 1, &S8Lit("\n")), &(StringJoin){0});
+		text_ready = true;
+		chunk_from_s8(&text_input_result, without_newlines);
+	}
+	receiving_text_input = false;
+
+/*
 	ArenaTemp scratch = GetScratch(0, 0);
 	// avoid double ending text input
 	if (!receiving_text_input)
@@ -2571,18 +2598,10 @@ void end_text_input(char *what_player_said_cstr)
 		chunk_from_s8(&to_perform.speech, what_player_said);
 
 
-  /*
-		if (gete(gs.player->talking_to))
-		{
-			assert(gete(gs.player->talking_to)->is_npc);
-			to_perform.talking_to_kind = gete(gs.player->talking_to)->npc_kind;
-		}
-
-		perform_action(&gs, gs.player, to_perform);
-*/
 		Log("UNIMPLEMENTED!!\n");
 	}
 	ReleaseScratch(scratch);
+*/
 }
 /*
 	 AnimatedSprite moose_idle = 
@@ -5888,18 +5907,22 @@ void frame(void)
 					AABB sidebar = aabb_at(V2(screen_size().x - width - screen_margin, screen_size().y / 2.0f + total_height/2.0f), V2(width, total_height));
 					draw_centered_text((TextParams){false, S8Lit("Characters"), AddV2(sidebar.upper_left, V2(aabb_size(sidebar).x/2.0f, 30.0f)), WHITE, 1.0f, .use_font = &font_for_text_input});
 					float plus_size = 50.0f;
-					if(imbutton(aabb_centered(AddV2(sidebar.lower_right, V2(-aabb_size(sidebar).x/2.0f, 0.0f)),V2(plus_size, plus_size)), 1.0f, S8Lit(""), .icon = &image_add, .nobg = true)) {
+					if(imbutton(aabb_centered(AddV2(sidebar.lower_right, V2(-aabb_size(sidebar).x/2.0f, -plus_size - screen_margin )),V2(plus_size, plus_size)), 1.0f, S8Lit(""), .icon = &image_add, .nobg = true)) {
 						BUFF_APPEND(&gs.characters, (Npc){.name = TextChunkLit("<Unnamed>")});
 					}
 					
 					Vec2 cur = sidebar.upper_left; // upper left corner of current
 					BUFF_ITER_I(Npc, &gs.characters, i) {
-						draw_quad((DrawParams){quad_at(cur, V2(width, character_panel_height)), IMG(image_white_square), 1.0f, .layer = LAYER_UI});
+						draw_quad((DrawParams){quad_at(cur, V2(width, character_panel_height)), IMG(image_white_square), ((Color) { 0.7f, 0.7f, 0.7f, 1.0f }), 1.0f, .layer = LAYER_UI});
 						String8 name = TextChunkString8(it->name);
-						Log("%.*s\n", S8VArg(name));
 						bool rename = imbutton_key((ImbuttonArgs){aabb_at(cur, V2(width, 50.0f)), 1.0f, name, .key = tprint("%d %d", __LINE__, i), .dt = unwarped_dt}); // the hack here in the key is off the charts. Holy moly.
+						get_state(state, TextInputResultKey, "%d %d", __LINE__, i);
 						if(rename) {
-							begin_text_input(name);
+							*state = begin_text_input(name);
+						}
+						String8 new = text_ready_for_me(*state);
+						if(new.size > 0) {
+							chunk_from_s8(&it->name, new);
 						}
 						cur.y -= character_panel_height;
 					}
