@@ -811,6 +811,14 @@ float max_coord(Vec2 v)
 	return v.x > v.y ? v.x : v.y;
 }
 
+AABB grow_from_ml(Vec2 ml, Vec2 offset, Vec2 size) {
+	AABB ret;
+	ret.upper_left = AddV2(AddV2(ml, offset), V2(0.0f, size.y/2.0f));
+	ret.lower_right = AddV2(ret.upper_left, V2(size.x, -size.y)); 
+	return ret;
+}
+
+
 // aabb advice by iRadEntertainment
 Vec2 entity_aabb_size(Entity *e)
 {
@@ -1149,7 +1157,7 @@ Transform lerp_transforms(Transform from, float t, Transform to)
 }
 Transform default_transform()
 {
-	return (Transform){.rotation = Make_Q(0,0,0,1)};
+	return (Transform){.rotation = Make_Q(0,0,0,1), .scale = V3(1,1,1)};
 }
 
 typedef struct
@@ -1574,6 +1582,7 @@ int num_rooms(ThreeDeeLevel *level) {
 }
 
 Entity *npcs_entity(NpcKind kind) {
+	if(kind == NPC_nobody) return 0;
 	Entity *ret = 0;
 	ENTITIES_ITER(gs.entities)
 	{
@@ -3535,6 +3544,7 @@ Vec2 screen_size()
 	return V2((float)sapp_width(), (float)sapp_height());
 }
 
+
 typedef struct Camera
 {
 	Vec2 pos;
@@ -3641,6 +3651,10 @@ AABB aabb_at(Vec2 at, Vec2 size)
 		.upper_left = at,
 			.lower_right = AddV2(at, V2(size.x, -size.y)),
 	};
+}
+
+AABB screen_aabb() {
+	return aabb_at(V2(0.0, screen_size().y), screen_size());
 }
 
 AABB aabb_at_yplusdown(Vec2 at, Vec2 size)
@@ -4457,6 +4471,33 @@ AABB draw_centered_text(TextParams t)
 	t.pos = V2(center_pos.x - aabb_size(text_aabb).x/2.0f, center_pos.y - get_vertical_dist_between_lines(*to_use, t.scale)/2.0f); 
 	return draw_text(t);
 }
+
+typedef struct
+{
+	Vec2 ul; // upper left
+	Vec2 um; // upper middle
+	Vec2 ur; // upper right
+	Vec2 mr; // middle right
+	Vec2 lr; // lower right
+	Vec2 lm; // lower middle
+	Vec2 ll; // lower left
+	Vec2 ml; // middle left
+} AABBStats;
+
+AABBStats stats(AABB aabb) {
+	Vec2 size = aabb_size(aabb);
+	return (AABBStats) {
+		.ul = aabb.upper_left,
+		.um = AddV2(aabb.upper_left, V2(size.x/2.0f, 0.0)),
+		.ur = AddV2(aabb.upper_left, V2(size.x, 0.0)),
+		.mr = AddV2(aabb.lower_right, V2(0.0, size.y/2.0f)),
+		.lr = aabb.lower_right,
+		.lm = AddV2(aabb.lower_right, V2(-size.x/2.0f, 0.0)),
+		.ll = AddV2(aabb.lower_right, V2(-size.x, 0.0)),
+		.ml = AddV2(aabb.upper_left, V2(0.0, -size.y/2.0f)),
+	};
+}
+
 
 int sorting_key_at(Vec2 pos)
 {
@@ -5580,6 +5621,9 @@ void frame(void)
 		if(gs.edit.enabled) {
 			cam_target_pos.x = gs.edit.camera_panning.x;
 			cam_target_pos.z = gs.edit.camera_panning.y;
+		} else if(gs.player) {
+			cam_target_pos.x = gs.player->pos.x;
+			cam_target_pos.z = gs.player->pos.y;
 		}
 		//dbgline(V2(0,0), V2(500, 500));
 		const float vertical_to_horizontal_ratio = CAM_VERTICAL_TO_HORIZONTAL_RATIO;
@@ -5622,7 +5666,7 @@ void frame(void)
 
 		Vec3 light_dir;
 		{
-			float t = 0.0f;
+			float t = 0.3f;
 			Vec3 sun_vector = V3(2.0f*t - 1.0f, sinf(t*PI32)*0.8f + 0.2f, 0.8f); // where the sun is pointing from
 			light_dir = NormV3(MulV3F(sun_vector, -1.0f));
 		}
@@ -5864,13 +5908,16 @@ void frame(void)
 		}
 
 		// @Place(UI rendering that happens before gameplay processing so can consume events before the gameplay needs them)
-		PROFILE_SCOPE("Editor UI Rendering")
+		PROFILE_SCOPE("Editor Rendering")
 		{
 			if(keypressed[SAPP_KEYCODE_TAB]) {
 				gs.edit.enabled = !gs.edit.enabled;
 			}
 			if(gs.edit.enabled) {
 				draw_text((TextParams){false, S8Lit("Editing"), V2(0,0), WHITE, .scale = 1.0f, .use_font = &font_for_text_input});
+				if(get_cur_room(&gs, &level_threedee)->roomid == gs.edit.player_spawn_roomid) {
+					draw_thing((DrawnThing){&mesh_spawnring, .t = (Transform){.offset = plane_point(gs.edit.player_spawn_position), .rotation = Make_Q(0,0,0,1),.scale = V3(1,1,1)}});
+				}
 
 				LoadedFont room_name_font = font_for_text_input;
 				float max_room_name_width = 0.0f;
@@ -5909,6 +5956,18 @@ void frame(void)
 					
 				if(mouse_down) {
 					gs.edit.camera_panning_target = AddV2(gs.edit.camera_panning_target, point_plane(mouse_movement_on_plane));
+				}
+
+				if (imbutton(grow_from_ml(stats(screen_aabb()).ml, V2(10.0f,0.0f), V2(200.0f, 60.0f)), 1.0f, S8Lit("Set Player Spawn"))) {
+					gs.edit.placing_spawn = true;
+				}
+
+				if(gs.edit.placing_spawn) {
+					gs.edit.player_spawn_position = point_plane(point_on_plane_from_camera_point(view, mouse_pos));
+					gs.edit.player_spawn_roomid = get_cur_room(&gs, &level_threedee)->roomid;
+					if(pressed.mouse_down) {
+						gs.edit.placing_spawn = false;
+					}
 				}
 
 				// characters sidebar
@@ -5960,8 +6019,8 @@ void frame(void)
 					}
 					Entity *placing = npcs_entity(gs.edit.placing_npc);
 					if(placing) {
-						Log("%llu\n", placing->current_roomid);
 						placing->pos = point_plane(point_on_plane_from_camera_point(view, mouse_pos));
+						placing->current_roomid = cur_room->roomid;
 						if(pressed.mouse_down) {
 							gs.edit.placing_npc = NPC_nobody;
 						}
@@ -5971,6 +6030,7 @@ void frame(void)
 				gs.edit.camera_panning = LerpV2(gs.edit.camera_panning, unwarped_dt * 19.0f, gs.edit.camera_panning_target);
 			}
 		}
+
 		PROFILE_SCOPE("Entity UI Rendering")
 		{
 			ENTITIES_ITER(gs.entities)
@@ -6104,6 +6164,14 @@ void frame(void)
 				float dt = unwarped_dt*speed_factor;
 
 				gs.tick += 1;
+
+				if(!gs.edit.enabled && gs.player == 0) {
+					gs.player = new_entity(&gs);
+					gs.player->is_player = true;
+					gs.player->is_npc = true;
+					gs.player->current_roomid = gs.edit.player_spawn_roomid;
+					gs.player->pos = gs.edit.player_spawn_position;
+				}
 
 				// process gs.entities process entities
 				PROFILE_SCOPE("entity processing")

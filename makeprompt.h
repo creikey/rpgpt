@@ -291,6 +291,10 @@ typedef struct EditorState {
 	Vec2 camera_panning_target;
 	Vec2 camera_panning;
 	NpcKind placing_npc;
+
+	bool placing_spawn;
+	u64 player_spawn_roomid;
+	Vec2 player_spawn_position;
 } EditorState;
 
 typedef struct GameState {

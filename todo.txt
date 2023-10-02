@@ -3,6 +3,17 @@ Handmade Seattle Requirements:
 - clear objective that's physical, not metaphysical
 - music, fancy headphones
 
+Todo List 10/2/2023:
+- Working character anims with multiple npcs.
+- Saving and loading working well enough to edit levels.
+- Edit character brain UI, basic stuff at first.
+- Change AI system to the memory fewer message thing tried out in the openai platform
+- Items you can pick up, use, and throw. Add alcohol item. This makes the characters woozy optionally.
+- Characters and player walking between rooms. 
+- Build out bill, jack, and jane. Get some interactions there.
+Send this build to discord.
+My estimated time of completion for all of these, as of 10/2/2023, is 5 days. So new build on 10/7/2023
+
 Urgent:
 - angel doesn't have characters near you
 
