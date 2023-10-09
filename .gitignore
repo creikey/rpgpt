@@ -1,3 +1,6 @@
+# Mac.
+.DS_Store
+
 # Vim temporary files (apparently)
 *~
 # Visual studio stuff
