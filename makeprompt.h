@@ -111,7 +111,7 @@ typedef struct
 } ActionArgument;
 
 
-typedef struct Action
+typedef struct ActionOld
 {
 	ActionKind kind;
 	ActionArgument argument;
@@ -119,7 +119,7 @@ typedef struct Action
 	TextChunk speech;
 
 	NpcKind talking_to_kind;
-} Action;
+} ActionOld;
 
 typedef struct 
 {
@@ -279,10 +279,70 @@ float entity_max_damage(Entity *e)
 
 typedef BUFF(ActionKind, 8) AvailableActions;
 
+typedef enum HealthStatus {
+	HEALTH_ok,
+	HEALTH_decent,
+	HEALTH_dying,
+	HEALTH_verge_of_death,
+} HealthStatus;
+
+typedef struct Health {
+	HealthStatus status;
+	float drunkenness; // 1.0 is max drunkenness
+} Health;
+
+typedef enum ItemKind {
+	ITEM_none,
+	ITEM_whiskey,
+} ItemKind;
+
+typedef struct Item {
+	ItemKind kind;
+	int times_used;
+} Item;
+
+typedef enum EventKind {
+	EVENT_none,
+	EVENT_said_to,
+	EVENT_stopped_talking,
+} EventKind;
+
+typedef struct Response {
+	TextChunk text;
+	ActionKind action;
+	NpcKind target;
+	int memory_slot;
+} Response;
+
+typedef BUFF(Response, 5) FullResponse; // what the AI is allowed to output 
+
+typedef struct CharacterPerception {
+	Health health;
+} CharacterPerception;
+
+typedef struct CharacterStatus {
+	TextChunk goal;
+	u64 in_room;
+	Item held_item;
+	Health health;
+} CharacterStatus;
+
+// the situation for somebody
+typedef struct CharacterSituation {
+	TextChunk memories[4]; // explicit numbered memories
+	BUFF(TextChunk, 5) events; // events that this character has observed
+	CharacterStatus status;
+} CharacterSituation;
+
+typedef struct TrainingSample {
+	CharacterSituation situation;
+	Response response;
+} TrainingSample;
+
 typedef struct Npc {
 	TextChunk name;
 	NpcKind kind; // must not be 0, that's nobody!
-	TextChunk prompt;
+	BUFF(TrainingSample, 4) soul;
 } Npc;
 
 typedef struct EditorState {
@@ -291,6 +351,7 @@ typedef struct EditorState {
 	Vec2 camera_panning_target;
 	Vec2 camera_panning;
 	NpcKind placing_npc;
+	NpcKind editing_npc;
 
 	bool placing_spawn;
 	u64 player_spawn_roomid;
@@ -343,9 +404,7 @@ Npc *npc_data(GameState *gs, NpcKind kind) {
 			return it;
 		}
 	}
-	Log("Unknown npc kind '%d'\n", kind);
-	assert(false);
-	return 0;
+	return &nobody_data;
 }
 NpcKind get_next_kind(GameState *gs) {
 	NpcKind max_found = 0;
@@ -587,7 +646,7 @@ String8 generate_chatgpt_prompt(Arena *arena, GameState *gs, Entity *e, CanTalkT
 	{
 		String8List current_list = {0};
 		AddFmt("%s\n\n", global_prompt);
-		AddFmt("%.*s\n\n", TextChunkVArg(npc_data(gs, e->npc_kind)->prompt));
+		// AddFmt("%.*s\n\n", TextChunkVArg(npc_data(gs, e->npc_kind)->prompt));
 		AddFmt("The characters who are near you, that you can target:\n");
 		BUFF_ITER(Entity*, &can_talk_to)
 		{
@@ -706,13 +765,13 @@ void parse_action_argument(Arena *error_arena, GameState *gs, String8 *cur_error
 
 // if returned string has size greater than 0, it's the error message. Allocated
 // on arena passed into it or in constant memory
-String8 parse_chatgpt_response(Arena *arena, GameState *gs, Entity *e, String8 action_in_json, Action *out)
+String8 parse_chatgpt_response(Arena *arena, GameState *gs, Entity *e, String8 action_in_json, ActionOld *out)
 {
 	ArenaTemp scratch = GetScratch(&arena, 1);
 
 	String8 error_message = {0};
 
-	*out = (Action) { 0 };
+	*out = (ActionOld) { 0 };
 
 	ParseResult result = ParseWholeString(scratch.arena, S8Lit("chat_message"), action_in_json);
 	if(result.errors.node_count > 0)

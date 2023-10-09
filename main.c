@@ -467,6 +467,7 @@ TextInputResultKey begin_text_input(String8 placeholder_text)
 }
 
 // doesn't last for more than after this is called! Don't rely on it
+// e.g Once text is ready for you and this returns a non empty string, the next call to this will return an empty string
 String8 text_ready_for_me(TextInputResultKey key) {
 	if(key == text_result_key && text_ready) {
 		text_ready = false;
@@ -811,6 +812,13 @@ float max_coord(Vec2 v)
 	return v.x > v.y ? v.x : v.y;
 }
 
+AABB grow_from_center(AABB base, Vec2 growth)
+{
+	AABB ret;
+	ret.upper_left = AddV2(base.upper_left, V2(-growth.x, growth.y));
+	ret.lower_right = AddV2(base.lower_right, V2(growth.x, -growth.y));
+	return ret;
+}
 AABB grow_from_ml(Vec2 ml, Vec2 offset, Vec2 size) {
 	AABB ret;
 	ret.upper_left = AddV2(AddV2(ml, offset), V2(0.0f, size.y/2.0f));
@@ -1153,6 +1161,12 @@ Transform lerp_transforms(Transform from, float t, Transform to)
 			.offset = LerpV3(from.offset,  t, to.offset),
 			.rotation = SLerp(from.rotation, t, to.rotation),
 			.scale = LerpV3(from.scale,  t, to.scale),
+	};
+}
+AABB lerp_aabbs(AABB from, float t, AABB to) {
+	return (AABB) {
+		.upper_left = LerpV2(from.upper_left, t, to.upper_left),
+		.lower_right = LerpV2(from.lower_right, t, to.lower_right),
 	};
 }
 Transform default_transform()
@@ -1640,10 +1654,10 @@ Basis flycam_basis()
 	Basis to_return = {
 		.forward = V3(0,0,-1),
 		.right = V3(1,0,0),
-		.up = V3(0,1,0),
+		.up = V3(0, 1, 0),
 	};
-	Mat4 rotate_horizontal = Rotate_RH(flycam_horizontal_rotation, V3(0,1,0));
-	Mat4 rotate_vertical = Rotate_RH(flycam_vertical_rotation, V3(1,0,0));
+	Mat4 rotate_horizontal = Rotate_RH(flycam_horizontal_rotation, V3(0, 1, 0));
+	Mat4 rotate_vertical = Rotate_RH(flycam_vertical_rotation, V3(1, 0, 0));
 
 	to_return.forward = MulM4V4(rotate_horizontal, MulM4V4(rotate_vertical, IsPoint(to_return.forward))).xyz;
 	to_return.right = MulM4V4(rotate_horizontal, MulM4V4(rotate_vertical, IsPoint(to_return.right))).xyz;
@@ -1663,12 +1677,15 @@ Mat4 flycam_matrix()
 	return to_return;
 }
 
-# define S8LitConst(s)        {(u8 *)(s), sizeof(s)-1}
+#define S8LitConst(s)            \
+	{                            \
+		(u8 *)(s), sizeof(s) - 1 \
+	}
 
 String8 showing_secret_str = S8LitConst("");
 float showing_secret_alpha = 0.0f;
 
-PathCache cached_paths[32] = { 0 };
+PathCache cached_paths[32] = {0};
 
 bool is_path_cache_old(double elapsed_time, PathCache *cache)
 {
@@ -1684,7 +1701,6 @@ bool is_path_cache_old(double elapsed_time, PathCache *cache)
 	}
 }
 
-
 PathCacheHandle cache_path(double elapsed_time, AStarPath *path)
 {
 	ARR_ITER_I(PathCache, cached_paths, i)
@@ -1692,16 +1708,16 @@ PathCacheHandle cache_path(double elapsed_time, AStarPath *path)
 		if (!it->exists || is_path_cache_old(elapsed_time, it))
 		{
 			int gen = it->generation;
-			*it = (PathCache) { 0 };
+			*it = (PathCache){0};
 			it->generation = gen + 1;
 
 			it->path = *path;
 			it->elapsed_time = elapsed_time;
 			it->exists = true;
-			return (PathCacheHandle) { .generation = it->generation, .index = i };
+			return (PathCacheHandle){.generation = it->generation, .index = i};
 		}
 	}
-	return (PathCacheHandle) { 0 };
+	return (PathCacheHandle){0};
 }
 
 // passes in the time to return 0 and invalidate if too old
@@ -1735,14 +1751,12 @@ PathCache *get_path_cache(double elapsed_time, PathCacheHandle handle)
 	}
 }
 
-
-
 double unprocessed_gameplay_time = 0.0;
 #define MINIMUM_TIMESTEP (1.0 / 60.0)
 
 EntityRef frome(Entity *e)
 {
-	if(e == 0)
+	if (e == 0)
 	{
 		return (EntityRef){0};
 	}
@@ -1758,8 +1772,6 @@ EntityRef frome(Entity *e)
 	}
 }
 
-
-
 Entity *gete(EntityRef ref)
 {
 	return gete_specified(&gs, ref);
@@ -1768,7 +1780,7 @@ Entity *gete(EntityRef ref)
 void push_memory(GameState *gs, Entity *e, Memory new_memory)
 {
 	Memory *memory_allocated = 0;
-	if(memories_free_list)
+	if (memories_free_list)
 	{
 		memory_allocated = memories_free_list;
 		StackPop(memories_free_list);
@@ -1778,22 +1790,23 @@ void push_memory(GameState *gs, Entity *e, Memory new_memory)
 		memory_allocated = PushArray(persistent_arena, Memory, 1);
 	}
 	*memory_allocated = new_memory;
-	
+
 	int count = 0;
-	for(Memory *cur = e->memories_first; cur; cur = cur->next) count += 1;
-	while(count >= REMEMBERED_MEMORIES)
+	for (Memory *cur = e->memories_first; cur; cur = cur->next)
+		count += 1;
+	while (count >= REMEMBERED_MEMORIES)
 	{
 		Memory *to_remove = e->memories_first;
 		DblRemove(e->memories_first, e->memories_last, to_remove);
 		StackPush(memories_free_list, to_remove);
 		count -= 1;
 	}
-	if(gs->stopped_time)
+	if (gs->stopped_time)
 		StackPush(e->memories_added_while_time_stopped, memory_allocated);
 	else
 		DblPushBack(e->memories_first, e->memories_last, memory_allocated);
 
-	if(!new_memory.context.i_said_this)
+	if (!new_memory.context.i_said_this)
 	{
 		// self speech doesn't dirty
 		e->perceptions_dirty = true;
@@ -1805,7 +1818,7 @@ CanTalkTo get_can_talk_to(Entity *e)
 	CanTalkTo to_return = {0};
 	ENTITIES_ITER(gs.entities)
 	{
-		if(it != e && (it->is_npc) && it->current_roomid == e->current_roomid)
+		if (it != e && (it->is_npc) && it->current_roomid == e->current_roomid)
 		{
 			BUFF_APPEND(&to_return, it);
 		}
@@ -1817,9 +1830,9 @@ Entity *get_targeted(Entity *from, NpcKind targeted)
 {
 	ENTITIES_ITER(gs.entities)
 	{
-		if(it != from && (it->is_npc) && it->npc_kind == targeted)
+		if (it != from && (it->is_npc) && it->npc_kind == targeted)
 		{
-			if(it->current_roomid == from->current_roomid)
+			if (it->current_roomid == from->current_roomid)
 			{
 				return it;
 			}
@@ -1828,7 +1841,7 @@ Entity *get_targeted(Entity *from, NpcKind targeted)
 	return 0;
 }
 
-Memory make_memory(Action a, MemoryContext context)
+Memory make_memory(ActionOld a, MemoryContext context)
 {
 	Memory new_memory = {0};
 	new_memory.speech = a.speech;
@@ -1838,12 +1851,12 @@ Memory make_memory(Action a, MemoryContext context)
 	return new_memory;
 }
 
-void remember_action(GameState *gs, Entity *to_modify, Action a, MemoryContext context)
+void remember_action(GameState *gs, Entity *to_modify, ActionOld a, MemoryContext context)
 {
 	Memory new_memory = make_memory(a, context);
 	push_memory(gs, to_modify, new_memory);
 
-	if(context.i_said_this && (a.speech.text_length > 0 || a.kind != ACT_none))
+	if (context.i_said_this && (a.speech.text_length > 0 || a.kind != ACT_none))
 	{
 		to_modify->undismissed_action = true;
 		to_modify->undismissed_action_tick = gs->tick;
@@ -1854,23 +1867,26 @@ void remember_action(GameState *gs, Entity *to_modify, Action a, MemoryContext c
 }
 u8 CharToUpper(u8 c);
 
-String8 npc_identifier(String8 name) {
+String8 npc_identifier(String8 name)
+{
 	String8 ret;
 	ret.str = PushArray(frame_arena, u8, name.size);
 	ret.size = name.size;
-	for(u64 i = 0; i < ret.size; i++) {
+	for (u64 i = 0; i < ret.size; i++)
+	{
 		ret.str[i] = CharToUpper(name.str[i]);
 	}
 	return ret;
 }
 // bad helper for now.
-String8 npc_identifier_chunk(TextChunk chunk) {
+String8 npc_identifier_chunk(TextChunk chunk)
+{
 	return npc_identifier(TextChunkString8(chunk));
 }
 
 // returns reason why allocated on arena if invalid
 // to might be null here, from can't be null
-String8 is_action_valid(Arena *arena, Entity *from, Action a)
+String8 is_action_valid(Arena *arena, Entity *from, ActionOld a)
 {
 	assert(a.speech.text_length <= MAX_SENTENCE_LENGTH && a.speech.text_length >= 0);
 	assert(a.kind >= 0 && a.kind < ARRLEN(actions));
@@ -1878,66 +1894,67 @@ String8 is_action_valid(Arena *arena, Entity *from, Action a)
 
 	String8 error_message = (String8){0};
 
-	if(error_message.size == 0 && a.speech.text_length > 0)
+	if (error_message.size == 0 && a.speech.text_length > 0)
 	{
-		if(S8FindSubstring(TextChunkString8(a.speech), S8Lit("assist"), 0, StringMatchFlag_CaseInsensitive) != a.speech.text_length)
+		if (S8FindSubstring(TextChunkString8(a.speech), S8Lit("assist"), 0, StringMatchFlag_CaseInsensitive) != a.speech.text_length)
 		{
 			error_message = S8Lit("You cannot use the word 'assist' in any form, you are not an assistant, do not act overtly helpful");
 		}
 	}
 
 	CanTalkTo talk = get_can_talk_to(from);
-	if(error_message.size == 0 && a.talking_to_kind)
+	if (error_message.size == 0 && a.talking_to_kind)
 	{
 		bool found = false;
-		BUFF_ITER(Entity*, &talk)
+		BUFF_ITER(Entity *, &talk)
 		{
-			if((*it)->npc_kind == a.talking_to_kind)
+			if ((*it)->npc_kind == a.talking_to_kind)
 			{
 				found = true;
 				break;
 			}
 		}
 
-		if(!found)
+		if (!found)
 		{
 			error_message = FmtWithLint(arena, "Character you're talking to, %.*s, isn't in the same room and so can't be talked to", S8VArg(npc_identifier_chunk(npc_data(&gs, a.talking_to_kind)->name)));
 		}
 	}
 
-	if(error_message.size == 0 && a.kind == ACT_leave && gete(from->joined) == 0)
+	if (error_message.size == 0 && a.kind == ACT_leave && gete(from->joined) == 0)
 	{
 		error_message = S8Lit("You can't leave somebody unless you joined them.");
 	}
-	if(error_message.size == 0 && a.kind == ACT_join && gete(from->joined) != 0)
+	if (error_message.size == 0 && a.kind == ACT_join && gete(from->joined) != 0)
 	{
 		error_message = FmtWithLint(arena, "You can't join somebody, you're already in %.*s's party", TextChunkVArg(npc_data(&gs, gete(from->joined)->npc_kind)->name));
 	}
-	if(error_message.size == 0 && a.kind == ACT_fire_shotgun && gete(from->aiming_shotgun_at) == 0)
+	if (error_message.size == 0 && a.kind == ACT_fire_shotgun && gete(from->aiming_shotgun_at) == 0)
 	{
 		error_message = S8Lit("You can't fire your shotgun without aiming it first");
 	}
-	if(error_message.size == 0 && a.kind == ACT_put_shotgun_away && gete(from->aiming_shotgun_at) == 0)
+	if (error_message.size == 0 && a.kind == ACT_put_shotgun_away && gete(from->aiming_shotgun_at) == 0)
 	{
 		error_message = S8Lit("You can't put your shotgun away without aiming it first");
 	}
 
 	bool target_is_character = a.kind == ACT_join || a.kind == ACT_aim_shotgun;
 
-	if(error_message.size == 0 && target_is_character)
+	if (error_message.size == 0 && target_is_character)
 	{
 		bool arg_valid = false;
-		BUFF_ITER(Entity*, &talk)
+		BUFF_ITER(Entity *, &talk)
 		{
-			if((*it)->npc_kind == a.argument.targeting) arg_valid  = true;
+			if ((*it)->npc_kind == a.argument.targeting)
+				arg_valid = true;
 		}
-		if(arg_valid == false)
+		if (arg_valid == false)
 		{
 			error_message = FmtWithLint(arena, "Your action_argument for who the action `%s` be directed at, %.*s, is either invalid (you can't operate on nobody) or it's not an NPC that's near you right now.", actions[a.kind].name, TextChunkVArg(npc_data(&gs, a.argument.targeting)->name));
 		}
 	}
 
-	if(error_message.size == 0)
+	if (error_message.size == 0)
 	{
 		AvailableActions available = {0};
 		fill_available_actions(&gs, from, &available);
@@ -1946,9 +1963,10 @@ String8 is_action_valid(Arena *arena, Entity *from, Action a)
 		BUFF_ITER(ActionKind, &available)
 		{
 			S8ListPush(arena, &action_strings_list, S8CString(actions[*it].name));
-			if(*it == a.kind) found = true;
+			if (*it == a.kind)
+				found = true;
 		}
-		if(!found)
+		if (!found)
 		{
 			String8 action_strings = S8ListJoin(arena, action_strings_list, &(StringJoin){.mid = S8Lit(", ")});
 			error_message = FmtWithLint(arena, "You cannot perform action %s right now, you can only perform these actions: [%.*s]", actions[a.kind].name, S8VArg(action_strings));
@@ -1962,47 +1980,47 @@ String8 is_action_valid(Arena *arena, Entity *from, Action a)
 
 // from must not be null
 // the action must have been validated to be valid if you're calling this
-void cause_action_side_effects(Entity *from, Action a)
+void cause_action_side_effects(Entity *from, ActionOld a)
 {
 	assert(from);
 	ArenaTemp scratch = GetScratch(0, 0);
 
 	String8 failure_reason = is_action_valid(scratch.arena, from, a);
-	if(failure_reason.size > 0)
+	if (failure_reason.size > 0)
 	{
 		Log("Failed to process action, invalid action: `%.*s`\n", S8VArg(failure_reason));
 		assert(false);
 	}
 
 	Entity *to = 0;
-	if(a.talking_to_kind != NPC_nobody)
+	if (a.talking_to_kind != NPC_nobody)
 	{
 		to = get_targeted(from, a.talking_to_kind);
 		assert(to);
 	}
 
-	if(to)
+	if (to)
 	{
 		from->looking_at = frome(to);
 	}
 
-	if(a.kind == ACT_join)
+	if (a.kind == ACT_join)
 	{
 		Entity *target = get_targeted(from, a.argument.targeting);
 		assert(target); // error checked in is_action_valid
 		from->joined = frome(target);
 	}
-	if(a.kind == ACT_leave)
+	if (a.kind == ACT_leave)
 	{
 		from->joined = (EntityRef){0};
 	}
-	if(a.kind == ACT_aim_shotgun)
+	if (a.kind == ACT_aim_shotgun)
 	{
 		Entity *target = get_targeted(from, a.argument.targeting);
 		assert(target); // error checked in is_action_valid
 		from->aiming_shotgun_at = frome(target);
 	}
-	if(a.kind == ACT_fire_shotgun)
+	if (a.kind == ACT_fire_shotgun)
 	{
 		assert(gete(from->aiming_shotgun_at));
 		gete(from->aiming_shotgun_at)->killed = true;
@@ -2015,35 +2033,32 @@ void cause_action_side_effects(Entity *from, Action a)
 // of the action physically and through the party
 // If the action is invalid, remembers the error if it's an NPC, and does nothing else
 // Returns if the action was valid or not
-bool perform_action(GameState *gs, Entity *from, Action a)
+bool perform_action(GameState *gs, Entity *from, ActionOld a)
 {
 	ArenaTemp scratch = GetScratch(0, 0);
 
 	MemoryContext context = {0};
 	context.author_npc_kind = from->npc_kind;
 
-	if(a.speech.text_length > 0)
+	if (a.speech.text_length > 0)
 		from->dialog_fade = 2.5f;
 
 	context.talking_to_kind = a.talking_to_kind;
 
-
 	String8 is_valid = is_action_valid(scratch.arena, from, a);
 	bool proceed_propagating = true;
-	if(is_valid.size > 0)
+	if (is_valid.size > 0)
 	{
 		assert(!from->is_player);
 		append_to_errors(from, make_memory(a, context), is_valid);
 		proceed_propagating = false;
 	}
 
-
-
-	Entity *targeted = 0; 
-	if(proceed_propagating)
+	Entity *targeted = 0;
+	if (proceed_propagating)
 	{
 		targeted = get_targeted(from, a.talking_to_kind);
-		if(from->errorlist_first)
+		if (from->errorlist_first)
 			StackPush(remembered_error_free_list, from->errorlist_first);
 		from->errorlist_first = 0;
 		from->errorlist_last = 0;
@@ -2051,23 +2066,23 @@ bool perform_action(GameState *gs, Entity *from, Action a)
 		cause_action_side_effects(from, a);
 
 		// self memory
-		if(!from->is_player)
+		if (!from->is_player)
 		{
 			MemoryContext my_context = context;
 			my_context.i_said_this = true;
-			remember_action(gs, from, a, my_context); 
+			remember_action(gs, from, a, my_context);
 		}
 
-		if(a.speech.text_length == 0 && a.kind == ACT_none)
+		if (a.speech.text_length == 0 && a.kind == ACT_none)
 		{
 			proceed_propagating = false; // didn't say or do anything
 		}
 	}
 
-	if(proceed_propagating)
+	if (proceed_propagating)
 	{
 		// memory of target
-		if(targeted)
+		if (targeted)
 		{
 			remember_action(gs, targeted, a, context);
 		}
@@ -2075,13 +2090,10 @@ bool perform_action(GameState *gs, Entity *from, Action a)
 		// propagate to other npcs in the room
 		ENTITIES_ITER(gs->entities)
 		{
-			if(
-				!it->is_player
-				&& it->current_roomid == from->current_roomid
-				&& it != from
-				&& it != targeted
-				) {
-					remember_action(gs, it, a, context);
+			if (
+				!it->is_player && it->current_roomid == from->current_roomid && it != from && it != targeted)
+			{
+				remember_action(gs, it, a, context);
 			}
 		}
 	}
@@ -2103,7 +2115,7 @@ Entity *new_entity(GameState *gs)
 		{
 			Entity *to_return = &gs->entities[i];
 			int gen = to_return->generation;
-			*to_return = (Entity) { 0 };
+			*to_return = (Entity){0};
 			to_return->exists = true;
 			to_return->generation = gen + 1;
 			return to_return;
@@ -2113,18 +2125,20 @@ Entity *new_entity(GameState *gs)
 	return 0;
 }
 
-typedef struct ToVisit {
+typedef struct ToVisit
+{
 	struct ToVisit *next;
 	struct ToVisit *prev;
 	Node *ptr;
 	int depth;
-} ToVisit ;
+} ToVisit;
 
 bool in_arr(ToVisit *arr, Node *n)
 {
-	for(ToVisit *cur = arr; cur; cur = cur->next)
+	for (ToVisit *cur = arr; cur; cur = cur->next)
 	{
-		if(cur->ptr == n) return true;
+		if (cur->ptr == n)
+			return true;
 	}
 	return false;
 }
@@ -2141,22 +2155,24 @@ void dump_nodes(Node *node)
 	first->ptr = node;
 	DblPushBack(horizon_first, horizon_last, first);
 
-	while(horizon_first)
+	while (horizon_first)
 	{
 		ToVisit *cur_tovisit = horizon_first;
 		DblRemove(horizon_first, horizon_last, cur_tovisit);
 		StackPush(visited, cur_tovisit);
 		char *tagstr = "   ";
-		if(cur_tovisit->ptr->kind == NodeKind_Tag) tagstr = "TAG";
+		if (cur_tovisit->ptr->kind == NodeKind_Tag)
+			tagstr = "TAG";
 		printf("%s", tagstr);
 
-		for(int i = 0; i < cur_tovisit->depth; i++) printf(" |");
+		for (int i = 0; i < cur_tovisit->depth; i++)
+			printf(" |");
 
 		printf(" `%.*s`\n", S8VArg(cur_tovisit->ptr->string));
 
-		for(Node *cur = cur_tovisit->ptr->first_child; !NodeIsNil(cur); cur = cur->next)
+		for (Node *cur = cur_tovisit->ptr->first_child; !NodeIsNil(cur); cur = cur->next)
 		{
-			if(!in_arr(visited, cur))
+			if (!in_arr(visited, cur))
 			{
 				ToVisit *new = PushArrayZero(scratch.arena, ToVisit, 1);
 				new->depth = cur_tovisit->depth + 1;
@@ -2164,9 +2180,9 @@ void dump_nodes(Node *node)
 				DblPushFront(horizon_first, horizon_last, new);
 			}
 		}
-		for(Node *cur = cur_tovisit->ptr->first_tag; !NodeIsNil(cur); cur = cur->next)
+		for (Node *cur = cur_tovisit->ptr->first_tag; !NodeIsNil(cur); cur = cur->next)
 		{
-			if(!in_arr(visited, cur))
+			if (!in_arr(visited, cur))
 			{
 				ToVisit *new = PushArrayZero(scratch.arena, ToVisit, 1);
 				new->depth = cur_tovisit->depth + 1;
@@ -2183,10 +2199,10 @@ void dump_nodes(Node *node)
 Node *expect_childnode(Arena *arena, Node *parent, String8 string, String8List *errors)
 {
 	Node *to_return = NilNode();
-	if(errors->node_count == 0)
+	if (errors->node_count == 0)
 	{
 		Node *child_node = MD_ChildFromString(parent, string, 0);
-		if(NodeIsNil(child_node))
+		if (NodeIsNil(child_node))
 		{
 			PushWithLint(arena, errors, "Couldn't find expected field %.*s", S8VArg(string));
 		}
@@ -2202,18 +2218,18 @@ int parse_enumstr_impl(Arena *arena, String8 enum_str, char **enumstr_array, int
 {
 	ArenaTemp scratch = GetScratch(&arena, 1);
 	int to_return = -1;
-	if(errors->node_count == 0)
+	if (errors->node_count == 0)
 	{
 		String8 enum_name_looking_for = enum_str;
-		if(enum_name_looking_for.size == 0)
+		if (enum_name_looking_for.size == 0)
 		{
 			PushWithLint(arena, errors, "`%s` string must be of size greater than 0", enum_kind_name);
 		}
 		else
 		{
-			for(int i = 0; i < enumstr_array_length; i++)
+			for (int i = 0; i < enumstr_array_length; i++)
 			{
-				if(S8Match(FmtWithLint(scratch.arena, "%s%s", prefix, enumstr_array[i]), enum_name_looking_for, 0))
+				if (S8Match(FmtWithLint(scratch.arena, "%s%s", prefix, enumstr_array[i]), enum_name_looking_for, 0))
 				{
 					to_return = i;
 					break;
@@ -2222,7 +2238,7 @@ int parse_enumstr_impl(Arena *arena, String8 enum_str, char **enumstr_array, int
 		}
 	}
 
-	if(to_return == -1)
+	if (to_return == -1)
 	{
 		PushWithLint(arena, errors, "The %s `%.*s` could not be recognized in the game", enum_kind_name, S8VArg(enum_str));
 	}
@@ -2244,7 +2260,6 @@ Vec2 point_plane(Vec3 p)
 
 #define parse_enumstr(arena, enum_str, errors, string_array, enum_kind_name, prefix) parse_enumstr_impl(arena, enum_str, string_array, ARRLEN(string_array), errors, enum_kind_name, prefix)
 
-
 void transition_to_room(GameState *gs, ThreeDeeLevel *level, u64 new_roomid)
 {
 	Room *new_room = get_room(level, new_roomid);
@@ -2253,10 +2268,9 @@ void transition_to_room(GameState *gs, ThreeDeeLevel *level, u64 new_roomid)
 	gs->current_roomid = new_roomid;
 }
 
-
 void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *level)
 {
-	if(gs->arena)
+	if (gs->arena)
 	{
 		ArenaRelease(gs->arena);
 	}
@@ -2265,7 +2279,7 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 	rnd_gamerand_seed(&gs->random, RANDOM_SEED);
 
 	// make entities for all rooms
-	for(Room *cur_room = level->room_list_first; cur_room; cur_room = cur_room->next)
+	for (Room *cur_room = level->room_list_first; cur_room; cur_room = cur_room->next)
 	{
 		for (PlacedEntity *cur = cur_room->placed_entity_list; cur; cur = cur->next)
 		{
@@ -2287,7 +2301,6 @@ void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *leve
 	transition_to_room(gs, &level_threedee, level->room_list_first->roomid);
 }
 
-
 void reset_level()
 {
 	initialize_gamestate_from_threedee_level(&gs, &level_threedee);
@@ -2300,26 +2313,27 @@ enum
 	VMax,
 } Version;
 
-
-#define SER_BUFF(ser, BuffElemType, buff_ptr) {ser_int(ser, &((buff_ptr)->cur_index));\
-	if((buff_ptr)->cur_index > ARRLEN((buff_ptr)->data))\
-	{\
-		ser->cur_error = (SerError){.failed = true, .why = S8Fmt(ser->error_arena, "Current index %d is more than the buffer %s's maximum, %d", (buff_ptr)->cur_index, #buff_ptr, ARRLEN((buff_ptr)->data))};\
-	}\
-	BUFF_ITER(BuffElemType, buff_ptr)\
-	{\
-		ser_##BuffElemType(ser, it);\
-	}\
-}
+#define SER_BUFF(ser, BuffElemType, buff_ptr)                                                                                                                                                                     \
+	{                                                                                                                                                                                                             \
+		ser_int(ser, &((buff_ptr)->cur_index));                                                                                                                                                                   \
+		if ((buff_ptr)->cur_index > ARRLEN((buff_ptr)->data))                                                                                                                                                     \
+		{                                                                                                                                                                                                         \
+			ser->cur_error = (SerError){.failed = true, .why = S8Fmt(ser->error_arena, "Current index %d is more than the buffer %s's maximum, %d", (buff_ptr)->cur_index, #buff_ptr, ARRLEN((buff_ptr)->data))}; \
+		}                                                                                                                                                                                                         \
+		BUFF_ITER(BuffElemType, buff_ptr)                                                                                                                                                                         \
+		{                                                                                                                                                                                                         \
+			ser_##BuffElemType(ser, it);                                                                                                                                                                          \
+		}                                                                                                                                                                                                         \
+	}
 
 void ser_TextChunk(SerState *ser, TextChunk *t)
 {
 	ser_int(ser, &t->text_length);
-	if(t->text_length >= ARRLEN(t->text))
+	if (t->text_length >= ARRLEN(t->text))
 	{
 		ser->cur_error = (SerError){.failed = true, .why = S8Fmt(ser->error_arena, "In text chunk, length %d is too big to fit into %d", t->text_length, ARRLEN(t->text))};
 	}
-	ser_bytes(ser, (u8*)t->text, t->text_length);
+	ser_bytes(ser, (u8 *)t->text, t->text_length);
 }
 
 void ser_entity(SerState *ser, Entity *e)
@@ -2331,7 +2345,6 @@ void ser_entity(SerState *ser, Entity *e)
 	ser_Vec2(ser, &e->pos);
 	ser_Vec2(ser, &e->vel);
 	ser_float(ser, &e->damage);
-
 
 	ser_bool(ser, &e->is_world);
 
@@ -2369,12 +2382,12 @@ void ser_entity(SerState *ser, Entity *e)
 	}
 	*/
 
-	if(ser->serializing)
+	if (ser->serializing)
 	{
 		Memory *cur = e->memories_first;
 		bool more_memories = cur != 0;
 		ser_bool(ser, &more_memories);
-		while(more_memories)
+		while (more_memories)
 		{
 			ser_Memory(ser, cur);
 			cur = cur->next;
@@ -2386,7 +2399,7 @@ void ser_entity(SerState *ser, Entity *e)
 	{
 		bool more_memories;
 		ser_bool(ser, &more_memories);
-		while(more_memories)
+		while (more_memories)
 		{
 			Memory *new_chunk = PushArray(ser->arena, Memory, 1);
 			ser_Memory(ser, new_chunk);
@@ -2411,7 +2424,8 @@ void ser_entity(SerState *ser, Entity *e)
 	ser_EntityRef(ser, &e->talking_to);
 }
 
-void ser_Npc(SerState *ser, Npc *npc) {
+void ser_Npc(SerState *ser, Npc *npc)
+{
 	ser_TextChunk(ser, &npc->name);
 	ser_int(ser, &npc->kind);
 	ser_TextChunk(ser, &npc->prompt);
@@ -2419,44 +2433,45 @@ void ser_Npc(SerState *ser, Npc *npc) {
 
 void ser_GameState(SerState *ser, GameState *gs)
 {
-	if(ser->serializing) ser->version = VMax - 1;
+	if (ser->serializing)
+		ser->version = VMax - 1;
 	ser_int(ser, &ser->version);
-	if(ser->version >= VMax)
+	if (ser->version >= VMax)
 	{
 		ser->cur_error = (SerError){.failed = true, .why = S8Fmt(ser->error_arena, "Version %d is beyond the current version, %d", ser->version, VMax - 1)};
 	}
 
 	ser_uint64_t(ser, &gs->tick);
 	ser_bool(ser, &gs->won);
-	
+
 	ser_double(ser, &gs->time);
 	SER_BUFF(ser, Npc, &gs->characters);
 
 	int num_entities = MAX_ENTITIES;
 	ser_int(ser, &num_entities);
-	
+
 	assert(num_entities <= MAX_ENTITIES);
-	for(int i = 0; i < num_entities; i++)
+	for (int i = 0; i < num_entities; i++)
 	{
 		ser_bool(ser, &gs->entities[i].exists);
-		if(gs->entities[i].exists)
+		if (gs->entities[i].exists)
 		{
 			ser_entity(ser, &(gs->entities[i]));
 		}
 	}
 	gs->world_entity = 0;
 
-	if(!ser->cur_error.failed)
+	if (!ser->cur_error.failed)
 	{
 		ARR_ITER(Entity, gs->entities)
 		{
-			if(it->is_world)
+			if (it->is_world)
 			{
 				gs->world_entity = it;
 			}
 		}
 
-		if(gs->world_entity == 0)
+		if (gs->world_entity == 0)
 		{
 			ser->cur_error = (SerError){.failed = true, .why = S8Lit("No world entity found in deserialized entities")};
 		}
@@ -2476,7 +2491,7 @@ String8 save_to_string(Arena *output_bytes_arena, Arena *error_arena, String8 *e
 		};
 		ser_GameState(&ser, gs);
 
-		if(ser.cur_error.failed)
+		if (ser.cur_error.failed)
 		{
 			*error_out = ser.cur_error.why;
 		}
@@ -2491,7 +2506,7 @@ String8 save_to_string(Arena *output_bytes_arena, Arena *error_arena, String8 *e
 			ser.data = serialized_data;
 
 			ser_GameState(&ser, gs);
-			if(ser.cur_error.failed)
+			if (ser.cur_error.failed)
 			{
 				Log("Very weird that serialization fails a second time...\n");
 				*error_out = S8Fmt(error_arena, "VERY BAD Serialization failed after it already had no error: %.*s", ser.cur_error.why);
@@ -2507,7 +2522,6 @@ String8 save_to_string(Arena *output_bytes_arena, Arena *error_arena, String8 *e
 	return S8(serialized_data, serialized_length);
 }
 
-
 // error strings are allocated on error_arena, probably scratch for that. If serialization fails,
 // nothing is allocated onto arena, the allocations are rewound
 // If there was an error, the gamestate returned might be partially constructed and bad. Don't use it
@@ -2522,9 +2536,9 @@ GameState load_from_string(Arena *arena, Arena *error_arena, String8 data, Strin
 		.arena = temp.arena,
 		.error_arena = error_arena,
 	};
-	GameState to_return = { 0 };
+	GameState to_return = {0};
 	ser_GameState(&ser, &to_return);
-	if(ser.cur_error.failed)
+	if (ser.cur_error.failed)
 	{
 		ArenaEndTemp(temp); // no allocations if it fails
 		*error_out = ser.cur_error.why;
@@ -2541,15 +2555,16 @@ void dump_save_data()
 	String8 error = {0};
 	String8 saved = save_to_string(scratch.arena, scratch.arena, &error, &gs);
 
-	if(error.size > 0)
+	if (error.size > 0)
 	{
 		Log("Failed to save game: %.*s\n", S8VArg(error));
 	}
 	else
 	{
-		EM_ASM( {
+		EM_ASM({
 			save_game_data = new Int8Array(Module.HEAP8.buffer, $0, $1);
-		}, (char*)(saved.str), saved.size);
+		},
+			   (char *)(saved.str), saved.size);
 	}
 
 	ReleaseScratch(scratch);
@@ -2559,12 +2574,12 @@ EMSCRIPTEN_KEEPALIVE
 void read_from_save_data(char *data, size_t length)
 {
 	ArenaTemp scratch = GetScratch(0, 0);
-	String8 data_str = S8((u8*)data, length);
+	String8 data_str = S8((u8 *)data, length);
 
 	String8 error = {0};
 	GameState new_gs = load_from_string(persistent_arena, scratch.arena, data_str, &error);
 
-	if(error.size > 0)
+	if (error.size > 0)
 	{
 		Log("Failed to load from size %lu: %.*s\n", length, S8VArg(error));
 	}
@@ -2581,9 +2596,12 @@ void read_from_save_data(char *data, size_t length)
 void end_text_input(char *what_was_entered_cstr)
 {
 	String8 gotten = S8CString(what_was_entered_cstr);
-	if(gotten.size == 0) {
+	if (gotten.size == 0)
+	{
 		// means cancelled, so can do nothing
-	} else {
+	}
+	else
+	{
 		String8 trimmed = S8Chop(gotten, MAX_SENTENCE_LENGTH);
 		String8 without_newlines = S8ListJoin(frame_arena, S8Split(frame_arena, trimmed, 1, &S8Lit("\n")), &(StringJoin){0});
 		text_ready = true;
@@ -2591,40 +2609,40 @@ void end_text_input(char *what_was_entered_cstr)
 	}
 	receiving_text_input = false;
 
-/*
-	ArenaTemp scratch = GetScratch(0, 0);
-	// avoid double ending text input
-	if (!receiving_text_input)
-	{
-		return;
-	}
-	receiving_text_input = false;
+	/*
+		ArenaTemp scratch = GetScratch(0, 0);
+		// avoid double ending text input
+		if (!receiving_text_input)
+		{
+			return;
+		}
+		receiving_text_input = false;
 
-	size_t player_said_len = strlen(what_player_said_cstr);
-	int actual_len = 0;
-	for (int i = 0; i < player_said_len; i++) if (what_player_said_cstr[i] != '\n') actual_len++;
-	if (actual_len == 0)
-	{
-		// this just means cancel the dialog
-	}
-	else
-	{
-		String8 what_player_said = S8CString(what_player_said_cstr);
-		what_player_said = S8ListJoin(scratch.arena, S8Split(scratch.arena, what_player_said, 1, &S8Lit("\n")), &(StringJoin){0});
+		size_t player_said_len = strlen(what_player_said_cstr);
+		int actual_len = 0;
+		for (int i = 0; i < player_said_len; i++) if (what_player_said_cstr[i] != '\n') actual_len++;
+		if (actual_len == 0)
+		{
+			// this just means cancel the dialog
+		}
+		else
+		{
+			String8 what_player_said = S8CString(what_player_said_cstr);
+			what_player_said = S8ListJoin(scratch.arena, S8Split(scratch.arena, what_player_said, 1, &S8Lit("\n")), &(StringJoin){0});
 
-		Action to_perform = {0};
-		what_player_said = S8Substring(what_player_said, 0, ARRLEN(to_perform.speech.text));
+			Action to_perform = {0};
+			what_player_said = S8Substring(what_player_said, 0, ARRLEN(to_perform.speech.text));
 
-		chunk_from_s8(&to_perform.speech, what_player_said);
+			chunk_from_s8(&to_perform.speech, what_player_said);
 
 
-		Log("UNIMPLEMENTED!!\n");
-	}
-	ReleaseScratch(scratch);
-*/
+			Log("UNIMPLEMENTED!!\n");
+		}
+		ReleaseScratch(scratch);
+	*/
 }
 /*
-	 AnimatedSprite moose_idle = 
+	 AnimatedSprite moose_idle =
 	 {
 	 .img = &image_moose,
 	 .time_per_frame = 0.15,
@@ -2636,8 +2654,8 @@ void end_text_input(char *what_was_entered_cstr)
 	 };
 	 */
 
-
-typedef struct {
+typedef struct
+{
 	sg_pass_action pass_action;
 	sg_pass pass;
 	sg_pipeline pip;
@@ -2647,8 +2665,6 @@ typedef struct {
 	sg_pipeline armature_pip;
 } Shadow_State;
 Shadow_State init_shadow_state();
-
-
 
 // @Place(sokol state struct)
 static struct
@@ -2691,7 +2707,9 @@ void create_screenspace_gfx_state()
 {
 	// this prevents common bug of whats passed to destroy func not being the resource
 	// you queried to see if it exists
-#define MAYBE_DESTROY(resource, destroy_func) if(resource.id != 0) destroy_func(resource);
+#define MAYBE_DESTROY(resource, destroy_func) \
+	if (resource.id != 0)                     \
+		destroy_func(resource);
 	MAYBE_DESTROY(state.outline_pass, sg_destroy_pass);
 	MAYBE_DESTROY(state.threedee_pass, sg_destroy_pass);
 
@@ -2706,21 +2724,18 @@ void create_screenspace_gfx_state()
 	assert(shd_desc);
 	sg_shader shd = sg_make_shader(shd_desc);
 
-	state.outline_mesh_pip = sg_make_pipeline(&(sg_pipeline_desc)
-			{
-			.shader = shd,
-			.depth = {
-				.pixel_format = SG_PIXELFORMAT_NONE,
-			},
-			.sample_count = SAMPLE_COUNT,
-			.layout = {
-			.attrs =
-			{
-			[ATTR_threedee_vs_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
-			[ATTR_threedee_vs_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
-			}
-			},
-			.colors[0].blend = (sg_blend_state) { // allow transparency
+	state.outline_mesh_pip = sg_make_pipeline(&(sg_pipeline_desc){
+		.shader = shd,
+		.depth = {
+			.pixel_format = SG_PIXELFORMAT_NONE,
+		},
+		.sample_count = SAMPLE_COUNT,
+		.layout = {.attrs = {
+					   [ATTR_threedee_vs_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
+					   [ATTR_threedee_vs_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
+				   }},
+		.colors[0].blend = (sg_blend_state){
+			// allow transparency
 			.enabled = true,
 			.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
 			.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
@@ -2728,31 +2743,28 @@ void create_screenspace_gfx_state()
 			.src_factor_alpha = SG_BLENDFACTOR_ONE,
 			.dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
 			.op_alpha = SG_BLENDOP_ADD,
-			},
-			.label = "outline-mesh-pipeline",
-			});
+		},
+		.label = "outline-mesh-pipeline",
+	});
 
 	shd_desc = threedee_armature_outline_shader_desc(sg_query_backend());
 	assert(shd_desc);
 	shd = sg_make_shader(shd_desc);
 
-	state.outline_armature_pip = sg_make_pipeline(&(sg_pipeline_desc)
-			{
-			.shader = shd,
-			.depth = {
-				.pixel_format = SG_PIXELFORMAT_NONE,
-			},
-			.sample_count = SAMPLE_COUNT,
-			.layout = {
-			.attrs =
-			{
-			[ATTR_threedee_vs_skeleton_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
-			[ATTR_threedee_vs_skeleton_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
-			[ATTR_threedee_vs_skeleton_indices_in].format = SG_VERTEXFORMAT_USHORT4N,
-			[ATTR_threedee_vs_skeleton_weights_in].format = SG_VERTEXFORMAT_FLOAT4,
-			}
-			},
-			.colors[0].blend = (sg_blend_state) { // allow transparency
+	state.outline_armature_pip = sg_make_pipeline(&(sg_pipeline_desc){
+		.shader = shd,
+		.depth = {
+			.pixel_format = SG_PIXELFORMAT_NONE,
+		},
+		.sample_count = SAMPLE_COUNT,
+		.layout = {.attrs = {
+					   [ATTR_threedee_vs_skeleton_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
+					   [ATTR_threedee_vs_skeleton_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
+					   [ATTR_threedee_vs_skeleton_indices_in].format = SG_VERTEXFORMAT_USHORT4N,
+					   [ATTR_threedee_vs_skeleton_weights_in].format = SG_VERTEXFORMAT_FLOAT4,
+				   }},
+		.colors[0].blend = (sg_blend_state){
+			// allow transparency
 			.enabled = true,
 			.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
 			.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
@@ -2760,9 +2772,9 @@ void create_screenspace_gfx_state()
 			.src_factor_alpha = SG_BLENDFACTOR_ONE,
 			.dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
 			.op_alpha = SG_BLENDOP_ADD,
-			},
-			.label = "outline-armature-pipeline",
-			});
+		},
+		.label = "outline-armature-pipeline",
+	});
 
 	sg_image_desc desc = {
 		.render_target = true,
@@ -2777,16 +2789,15 @@ void create_screenspace_gfx_state()
 	desc.sample_count = 1;
 	state.outline_pass_resolve_image = sg_make_image(&desc);
 	state.outline_pass = sg_make_pass(&(sg_pass_desc){
-			.color_attachments[0].image = state.outline_pass_image,
-			.resolve_attachments[0].image = state.outline_pass_resolve_image,
-			.depth_stencil_attachment = {
-				0
-			},
-			.label = "outline-pass",
+		.color_attachments[0].image = state.outline_pass_image,
+		.resolve_attachments[0].image = state.outline_pass_resolve_image,
+		.depth_stencil_attachment = {
+			0},
+		.label = "outline-pass",
 	});
 
 	desc.sample_count = 1;
-	
+
 	desc.label = "threedee-pass-render-target";
 	desc.sample_count = SAMPLE_COUNT;
 	state.threedee_pass_image = sg_make_image(&desc);
@@ -2801,42 +2812,41 @@ void create_screenspace_gfx_state()
 	state.threedee_pass_depth_image = sg_make_image(&desc);
 
 	state.threedee_pass = sg_make_pass(&(sg_pass_desc){
-			.color_attachments[0].image = state.threedee_pass_image,
-			.resolve_attachments[0].image = state.threedee_pass_resolve_image,
-			.depth_stencil_attachment = (sg_pass_attachment_desc){
-				.image = state.threedee_pass_depth_image,
-				.mip_level = 0,
-			},
-			.label = "threedee-pass",
+		.color_attachments[0].image = state.threedee_pass_image,
+		.resolve_attachments[0].image = state.threedee_pass_resolve_image,
+		.depth_stencil_attachment = (sg_pass_attachment_desc){
+			.image = state.threedee_pass_depth_image,
+			.mip_level = 0,
+		},
+		.label = "threedee-pass",
 	});
 }
 
 int num_draw_calls = 0;
 int num_vertices = 0;
 
-
 // if it's an invalid anim name, it just returns the idle animation
 Animation *get_anim_by_name(Armature *armature, String8 anim_name)
 {
 	String8List anims = {0};
-	for(u64 i = 0; i < armature->animations_length; i++)
+	for (u64 i = 0; i < armature->animations_length; i++)
 	{
 		S8ListPush(frame_arena, &anims, armature->animations[i].name);
-		if(S8Match(armature->animations[i].name, anim_name, 0))
+		if (S8Match(armature->animations[i].name, anim_name, 0))
 		{
 			return &armature->animations[i];
 		}
 	}
 
-	if(anim_name.size > 0)
+	if (anim_name.size > 0)
 	{
 		String8 anims_str = S8ListJoin(frame_arena, anims, &(StringJoin){.mid = S8Lit(", ")});
 		Log("No animation found '%.*s', the animations: [%.*s]\n", S8VArg(anim_name), S8VArg(anims_str));
 	}
 
-	for(u64 i = 0; i < armature->animations_length; i++)
+	for (u64 i = 0; i < armature->animations_length; i++)
 	{
-		if(S8Match(armature->animations[i].name, S8Lit("Idle"), 0))
+		if (S8Match(armature->animations[i].name, S8Lit("Idle"), 0))
 		{
 			return &armature->animations[i];
 		}
@@ -2852,7 +2862,7 @@ Transform get_animated_bone_transform(AnimationTrack *track, float time, bool do
 	assert(track);
 	float total_anim_time = track->poses[track->poses_length - 1].time;
 	assert(total_anim_time > 0.0f);
-	if(dont_loop)
+	if (dont_loop)
 	{
 		time = fminf(time, total_anim_time);
 	}
@@ -2860,14 +2870,14 @@ Transform get_animated_bone_transform(AnimationTrack *track, float time, bool do
 	{
 		time = fmodf(time, total_anim_time);
 	}
-	for(u64 i = 0; i < track->poses_length - 1; i++)
+	for (u64 i = 0; i < track->poses_length - 1; i++)
 	{
-		if(track->poses[i].time <= time && time <= track->poses[i + 1].time)
+		if (track->poses[i].time <= time && time <= track->poses[i + 1].time)
 		{
 			PoseBone from = track->poses[i];
 			PoseBone to = track->poses[i + 1];
 			float gap_btwn_keyframes = to.time - from.time;
-			float t = (time - from.time)/gap_btwn_keyframes;
+			float t = (time - from.time) / gap_btwn_keyframes;
 			assert(t >= 0.0f);
 			assert(t <= 1.0f);
 			return lerp_transforms(from.parent_space_pose, t, to.parent_space_pose);
@@ -2886,9 +2896,11 @@ PixelData encode_normalized_float32(float to_encode)
 {
 	Vec4 to_return_vector = {0};
 
-	// x is just -1.0f or 1.0f, encoded as a [0,1] normalized float. 
-	if(to_encode < 0.0f) to_return_vector.x = -1.0f;
-	else to_return_vector.x = 1.0f;
+	// x is just -1.0f or 1.0f, encoded as a [0,1] normalized float.
+	if (to_encode < 0.0f)
+		to_return_vector.x = -1.0f;
+	else
+		to_return_vector.x = 1.0f;
 	to_return_vector.x = to_return_vector.x / 2.0f + 0.5f;
 
 	float without_sign = fabsf(to_encode);
@@ -2901,10 +2913,9 @@ PixelData encode_normalized_float32(float to_encode)
 	// w is unused for now, but is 1.0f (and is the alpha channel in Vec4) so that it displays properly as a texture
 	to_return_vector.w = 1.0f;
 
-
 	PixelData to_return = {0};
 
-	for(int i = 0; i < 4; i++)
+	for (int i = 0; i < 4; i++)
 	{
 		assert(0.0f <= to_return_vector.Elements[i] && to_return_vector.Elements[i] <= 1.0f);
 		to_return.rgba[i] = (u8)(to_return_vector.Elements[i] * 255.0f);
@@ -2916,20 +2927,17 @@ PixelData encode_normalized_float32(float to_encode)
 float decode_normalized_float32(PixelData encoded)
 {
 	Vec4 v = {0};
-	for(int i = 0; i < 4; i++)
+	for (int i = 0; i < 4; i++)
 	{
 		v.Elements[i] = (float)encoded.rgba[i] / 255.0f;
 	}
 
 	float sign = 2.0f * v.x - 1.0f;
 
-	float to_return = sign * (v.z*255.0f + v.y);
+	float to_return = sign * (v.z * 255.0f + v.y);
 
 	return to_return;
 }
-
-
-
 
 void audio_stream_callback(float *buffer, int num_frames, int num_channels)
 {
@@ -2955,47 +2963,54 @@ void audio_stream_callback(float *buffer, int num_frames, int num_channels)
 				{
 					const int source_num_channels = it->sample->num_channels;
 					float volume = (float)(it->volume + 1.0);
-					if (source_num_channels == 1) {
+					if (source_num_channels == 1)
+					{
 						float src = Lerp(it->sample->pcm_data[pcm_position_int], pcm_position_frac, it->sample->pcm_data[pcm_position_int + 1]) * volume;
 						output_frames[0] += src;
 						output_frames[1] += src;
-					} else if (source_num_channels == 2) {
+					}
+					else if (source_num_channels == 2)
+					{
 						float src[2];
 						src[0] = Lerp(it->sample->pcm_data[pcm_position_int * 2 + 0], pcm_position_frac, it->sample->pcm_data[(pcm_position_int + 1) * 2 + 0]) * volume;
 						src[1] = Lerp(it->sample->pcm_data[pcm_position_int * 2 + 1], pcm_position_frac, it->sample->pcm_data[(pcm_position_int + 1) * 2 + 1]) * volume;
 						output_frames[0] += src[0];
 						output_frames[1] += src[1];
-					} else {
+					}
+					else
+					{
 						assert(false);
 					}
-					it->cursor_time += time_per_sample*(it->pitch + 1.0);
+					it->cursor_time += time_per_sample * (it->pitch + 1.0);
 				}
 			}
 		}
-		if (num_channels == 1) {
+		if (num_channels == 1)
+		{
 			buffer[i] = (output_frames[0] + output_frames[1]) * 0.5f;
-		} else if (num_channels == 2) {
+		}
+		else if (num_channels == 2)
+		{
 			buffer[i + 0] = output_frames[0];
 			buffer[i + 1] = output_frames[1];
 		}
 	}
 }
 
-
-#define WHITE     ((Color) { 1.0f, 1.0f, 1.0f, 1.0f })
-#define GREY      ((Color) { 0.4f, 0.4f, 0.4f, 1.0f })
-#define BLACK ((Color) { 0.0f, 0.0f, 0.0f, 1.0f })
-#define RED   ((Color) { 1.0f, 0.0f, 0.0f, 1.0f })
-#define PINK  ((Color) { 1.0f, 0.0f, 1.0f, 1.0f })
-#define BLUE  ((Color) { 0.0f, 0.0f, 1.0f, 1.0f })
-#define LIGHTBLUE ((Color) { 0.2f, 0.2f, 0.8f, 1.0f })
-#define GREEN ((Color) { 0.0f, 1.0f, 0.0f, 1.0f })
+#define WHITE ((Color){1.0f, 1.0f, 1.0f, 1.0f})
+#define GREY ((Color){0.4f, 0.4f, 0.4f, 1.0f})
+#define BLACK ((Color){0.0f, 0.0f, 0.0f, 1.0f})
+#define RED ((Color){1.0f, 0.0f, 0.0f, 1.0f})
+#define PINK ((Color){1.0f, 0.0f, 1.0f, 1.0f})
+#define BLUE ((Color){0.0f, 0.0f, 1.0f, 1.0f})
+#define LIGHTBLUE ((Color){0.2f, 0.2f, 0.8f, 1.0f})
+#define GREEN ((Color){0.0f, 1.0f, 0.0f, 1.0f})
 #define BROWN (colhex(0x4d3d25))
 #define YELLOW (colhex(0xffdd00))
 
 Color oflightness(float dark)
 {
-	return (Color) { dark, dark, dark, 1.0f };
+	return (Color){dark, dark, dark, 1.0f};
 }
 
 Color colhex(uint32_t hex)
@@ -3004,7 +3019,7 @@ Color colhex(uint32_t hex)
 	int g = (hex & 0x00ff00) >> 8;
 	int b = (hex & 0x0000ff) >> 0;
 
-	return (Color) { (float)r / 255.0f, (float)g / 255.0f, (float)b / 255.0f, 1.0f };
+	return (Color){(float)r / 255.0f, (float)g / 255.0f, (float)b / 255.0f, 1.0f};
 }
 
 Color blendcolors(Color a, float t, Color b)
@@ -3056,30 +3071,30 @@ void do_serialization_tests()
 {
 	Log("(UNIMPLEMENTED) Testing serialization...\n");
 
- /*
-	ArenaTemp scratch = GetScratch(0, 0);
-	
-	GameState gs = {0};
-	initialize_gamestate_from_threedee_level(&gs, &level_threedee);
+	/*
+	   ArenaTemp scratch = GetScratch(0, 0);
 
-	gs.player->pos = V2(50.0f, 0.0);
+	   GameState gs = {0};
+	   initialize_gamestate_from_threedee_level(&gs, &level_threedee);
 
-	String8 error = {0};
-	String8 saved = save_to_string(scratch.arena, scratch.arena, &error, &gs);
+	   gs.player->pos = V2(50.0f, 0.0);
 
-	assert(error.size == 0);
-	assert(saved.size > 0);
-	assert(saved.str != 0);
+	   String8 error = {0};
+	   String8 saved = save_to_string(scratch.arena, scratch.arena, &error, &gs);
 
-	initialize_gamestate_from_threedee_level(&gs, &level_threedee);
-	gs = load_from_string(persistent_arena, scratch.arena, saved, &error);
-	assert(gs.player->pos.x == 50.0f);
-	assert(error.size == 0);
+	   assert(error.size == 0);
+	   assert(saved.size > 0);
+	   assert(saved.str != 0);
 
-	Log("Default save data size is %lld bytes\n", saved.size);
+	   initialize_gamestate_from_threedee_level(&gs, &level_threedee);
+	   gs = load_from_string(persistent_arena, scratch.arena, saved, &error);
+	   assert(gs.player->pos.x == 50.0f);
+	   assert(error.size == 0);
 
-	ReleaseScratch(scratch);
-*/
+	   Log("Default save data size is %lld bytes\n", saved.size);
+
+	   ReleaseScratch(scratch);
+   */
 }
 
 void do_float_encoding_tests()
@@ -3099,7 +3114,8 @@ void do_float_encoding_tests()
 }
 #endif
 
-typedef struct {
+typedef struct
+{
 	float font_size;
 	float font_line_advance;
 	float font_scale;
@@ -3121,7 +3137,7 @@ LoadedFont load_font(Arena *arena, String8 font_filepath, float font_size)
 	to_return.font_buffer = LoadEntireFile(arena, font_filepath);
 	to_return.font_size = font_size;
 
-	unsigned char *font_bitmap = ArenaPush(arena, 512*512);
+	unsigned char *font_bitmap = ArenaPush(arena, 512 * 512);
 
 	const int font_bitmap_width = 512;
 
@@ -3130,29 +3146,28 @@ LoadedFont load_font(Arena *arena, String8 font_filepath, float font_size)
 	unsigned char *font_bitmap_rgba = ArenaPush(frame_arena, 4 * font_bitmap_width * font_bitmap_width);
 
 	// also flip the image, because I think opengl or something I'm too tired
-	for(int row = 0; row < 512; row++)
+	for (int row = 0; row < 512; row++)
 	{
-		for(int col = 0; col < 512; col++)
+		for (int col = 0; col < 512; col++)
 		{
 			int i = row * 512 + col;
 			int flipped_i = (512 - row) * 512 + col;
-			font_bitmap_rgba[i*4 + 0] = 255;
-			font_bitmap_rgba[i*4 + 1] = 255;
-			font_bitmap_rgba[i*4 + 2] = 255;
-			font_bitmap_rgba[i*4 + 3] = font_bitmap[flipped_i];
+			font_bitmap_rgba[i * 4 + 0] = 255;
+			font_bitmap_rgba[i * 4 + 1] = 255;
+			font_bitmap_rgba[i * 4 + 2] = 255;
+			font_bitmap_rgba[i * 4 + 3] = font_bitmap[flipped_i];
 		}
 	}
 
-	to_return.image = sg_make_image(&(sg_image_desc) {
+	to_return.image = sg_make_image(&(sg_image_desc){
 		.width = font_bitmap_width,
 		.height = font_bitmap_width,
 		.pixel_format = SG_PIXELFORMAT_RGBA8,
 		.data.subimage[0][0] =
-		{
-			.ptr = font_bitmap_rgba,
-			.size = (size_t)(font_bitmap_width * font_bitmap_width * 4),
-		}
-	});
+			{
+				.ptr = font_bitmap_rgba,
+				.size = (size_t)(font_bitmap_width * font_bitmap_width * 4),
+			}});
 
 	to_return.size = img_size(to_return.image);
 
@@ -3193,7 +3208,8 @@ Mesh mesh_tombstone = {0};
 
 void stbi_flip_into_correct_direction(bool do_it)
 {
-	if(do_it) stbi_set_flip_vertically_on_load(true);
+	if (do_it)
+		stbi_set_flip_vertically_on_load(true);
 }
 
 String8 make_devtools_help(Arena *arena)
@@ -3201,14 +3217,14 @@ String8 make_devtools_help(Arena *arena)
 	ArenaTemp scratch = GetScratch(&arena, 1);
 	String8List list = {0};
 
-	#define P(...) PushWithLint(scratch.arena, &list, __VA_ARGS__)
-	
+#define P(...) PushWithLint(scratch.arena, &list, __VA_ARGS__)
+
 	P("===============================================\n");
 	P("===============================================\n");
 	P("~~~~~~~~~~~--Devtools is Activated!--~~~~~~~~~~\n");
 	P("This means more asserts are turned on, and generally you are just better setup to detect errors and do some introspection on the program\n");
 	P("\nKeyboard bindings and things you can do:\n");
-	
+
 	P("7 - toggles the visibility of devtools debug drawing and debug text\n");
 	P("F - toggles flycam\n");
 	P("Q - if you're hovering over somebody, pressing this will print to the console a detailed overview of their state\n");
@@ -3218,7 +3234,7 @@ String8 make_devtools_help(Arena *arena)
 	P("If you hover over somebody it will display some parts of their memories, can be somewhat helpful\n");
 	P("J - judges the player and outputs their verdict to the console\n");
 
-	#undef P
+#undef P
 	String8 to_return = S8ListJoin(arena, list, &(StringJoin){0});
 	ReleaseScratch(scratch);
 	return to_return;
@@ -3229,14 +3245,15 @@ void init(void)
 	stbi_flip_into_correct_direction(true);
 	init_immediate_state();
 #ifdef WEB
-	EM_ASM( {
-			set_server_url(UTF8ToString($0));
-			}, SERVER_DOMAIN );
+	EM_ASM({
+		set_server_url(UTF8ToString($0));
+	},
+		   SERVER_DOMAIN);
 #endif
 
 	frame_arena = ArenaAlloc();
 #ifdef WEB
-	next_arena_big  = true;
+	next_arena_big = true;
 #endif
 	persistent_arena = ArenaAlloc();
 
@@ -3248,21 +3265,20 @@ void init(void)
 	Log("Devtools is off!\n");
 #endif
 
-
-
 	Log("Size of entity struct: %zu\n", sizeof(Entity));
 	Log("Size of %d gs.entities: %zu kb\n", (int)ARRLEN(gs.entities), sizeof(gs.entities) / 1024);
-	sg_setup(&(sg_desc) {
-			.context = sapp_sgcontext(),
-			.buffer_pool_size = 512,
-			.logger.func = slog_func,
-			});
+	Log("Size of gamestate struct: %zu kb\n", sizeof(gs) / 1024);
+	sg_setup(&(sg_desc){
+		.context = sapp_sgcontext(),
+		.buffer_pool_size = 512,
+		.logger.func = slog_func,
+	});
 	stm_setup();
-	saudio_setup(&(saudio_desc) {
-			.stream_cb = audio_stream_callback,
-			.logger.func = slog_func,
-			.num_channels = 2,
-			});
+	saudio_setup(&(saudio_desc){
+		.stream_cb = audio_stream_callback,
+		.logger.func = slog_func,
+		.num_channels = 2,
+	});
 
 	Log("Loading assets...\n");
 	load_assets();
@@ -3302,7 +3318,7 @@ void init(void)
 	shifted_farmer_armature = load_armature(persistent_arena, binary_file, S8Lit("Farmer.bin"));
 	shifted_farmer_armature.image = image_shifted_farmer;
 
-	Log("Done. Used %f of the frame arena, %d kB\n", (double) frame_arena->pos / (double)frame_arena->cap, (int)(frame_arena->pos/1024));
+	Log("Done. Used %f of the frame arena, %d kB\n", (double)frame_arena->pos / (double)frame_arena->cap, (int)(frame_arena->pos / 1024));
 
 	ArenaClear(frame_arena);
 
@@ -3316,27 +3332,24 @@ void init(void)
 #endif
 
 #ifdef WEB
-	EM_ASM( {
-			load_all();
-			});
+	EM_ASM({
+		load_all();
+	});
 #endif
 
 	default_font = load_font(persistent_arena, S8Lit("assets/PalanquinDark-Regular.ttf"), 35.0f);
 	font_for_text_input = load_font(persistent_arena, S8Lit("assets/PalanquinDark-Regular.ttf"), 64.0f);
-	
 
-	state.bind.vertex_buffers[0] = sg_make_buffer(&(sg_buffer_desc)
-			{
-			.usage = SG_USAGE_STREAM,
-			//.data = SG_RANGE(vertices),
+	state.bind.vertex_buffers[0] = sg_make_buffer(&(sg_buffer_desc){
+		.usage = SG_USAGE_STREAM,
+	//.data = SG_RANGE(vertices),
 #ifdef DEVTOOLS
-			// this is so the debug drawing has more vertices to work with
-			.size = 1024*2500,
+		// this is so the debug drawing has more vertices to work with
+		.size = 1024 * 2500,
 #else
-			.size = 1024*700,
+		.size = 1024 * 700,
 #endif
-			.label = "quad-vertices"
-			});
+		.label = "quad-vertices"});
 
 	create_screenspace_gfx_state();
 	state.shadows = init_shadow_state();
@@ -3346,21 +3359,17 @@ void init(void)
 	sg_shader shd = sg_make_shader(desc);
 
 	Color clearcol = colhex(0x98734c);
-	state.twodee_pip = sg_make_pipeline(&(sg_pipeline_desc)
-			{
-			.shader = shd,
-			.depth = {
+	state.twodee_pip = sg_make_pipeline(&(sg_pipeline_desc){
+		.shader = shd,
+		.depth = {
 			.compare = SG_COMPAREFUNC_LESS_EQUAL,
-			.write_enabled = true
-			},
-			.layout = {
-			.attrs =
-			{
-			[ATTR_threedee_vs_twodee_position].format = SG_VERTEXFORMAT_FLOAT3,
-			[ATTR_threedee_vs_twodee_texcoord0].format = SG_VERTEXFORMAT_FLOAT2,
-			}
-			},
-			.colors[0].blend = (sg_blend_state) { // allow transparency
+			.write_enabled = true},
+		.layout = {.attrs = {
+					   [ATTR_threedee_vs_twodee_position].format = SG_VERTEXFORMAT_FLOAT3,
+					   [ATTR_threedee_vs_twodee_texcoord0].format = SG_VERTEXFORMAT_FLOAT2,
+				   }},
+		.colors[0].blend = (sg_blend_state){
+			// allow transparency
 			.enabled = true,
 			.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
 			.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
@@ -3368,25 +3377,21 @@ void init(void)
 			.src_factor_alpha = SG_BLENDFACTOR_ONE,
 			.dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
 			.op_alpha = SG_BLENDOP_ADD,
-			},
-			.label = "quad-pipeline",
-			});
+		},
+		.label = "quad-pipeline",
+	});
 
-	state.twodee_outline_pip = sg_make_pipeline(&(sg_pipeline_desc)
-			{
-			.shader = sg_make_shader(threedee_twodee_outline_shader_desc(sg_query_backend())),
-			.depth = {
+	state.twodee_outline_pip = sg_make_pipeline(&(sg_pipeline_desc){
+		.shader = sg_make_shader(threedee_twodee_outline_shader_desc(sg_query_backend())),
+		.depth = {
 			.compare = SG_COMPAREFUNC_LESS_EQUAL,
-			.write_enabled = true
-			},
-			.layout = {
-			.attrs =
-			{
-			[ATTR_threedee_vs_twodee_position].format = SG_VERTEXFORMAT_FLOAT3,
-			[ATTR_threedee_vs_twodee_texcoord0].format = SG_VERTEXFORMAT_FLOAT2,
-			}
-			},
-			.colors[0].blend = (sg_blend_state) { // allow transparency
+			.write_enabled = true},
+		.layout = {.attrs = {
+					   [ATTR_threedee_vs_twodee_position].format = SG_VERTEXFORMAT_FLOAT3,
+					   [ATTR_threedee_vs_twodee_texcoord0].format = SG_VERTEXFORMAT_FLOAT2,
+				   }},
+		.colors[0].blend = (sg_blend_state){
+			// allow transparency
 			.enabled = true,
 			.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
 			.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
@@ -3394,25 +3399,21 @@ void init(void)
 			.src_factor_alpha = SG_BLENDFACTOR_ONE,
 			.dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
 			.op_alpha = SG_BLENDOP_ADD,
-			},
-			.label = "twodee-outline",
-			});
+		},
+		.label = "twodee-outline",
+	});
 
-	state.twodee_colorcorrect_pip = sg_make_pipeline(&(sg_pipeline_desc)
-			{
-			.shader = sg_make_shader(threedee_twodee_colorcorrect_shader_desc(sg_query_backend())),
-			.depth = {
+	state.twodee_colorcorrect_pip = sg_make_pipeline(&(sg_pipeline_desc){
+		.shader = sg_make_shader(threedee_twodee_colorcorrect_shader_desc(sg_query_backend())),
+		.depth = {
 			.compare = SG_COMPAREFUNC_LESS_EQUAL,
-			.write_enabled = true
-			},
-			.layout = {
-			.attrs =
-			{
-			[ATTR_threedee_vs_twodee_position].format = SG_VERTEXFORMAT_FLOAT3,
-			[ATTR_threedee_vs_twodee_texcoord0].format = SG_VERTEXFORMAT_FLOAT2,
-			}
-			},
-			.colors[0].blend = (sg_blend_state) { // allow transparency
+			.write_enabled = true},
+		.layout = {.attrs = {
+					   [ATTR_threedee_vs_twodee_position].format = SG_VERTEXFORMAT_FLOAT3,
+					   [ATTR_threedee_vs_twodee_texcoord0].format = SG_VERTEXFORMAT_FLOAT2,
+				   }},
+		.colors[0].blend = (sg_blend_state){
+			// allow transparency
 			.enabled = true,
 			.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
 			.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
@@ -3420,9 +3421,9 @@ void init(void)
 			.src_factor_alpha = SG_BLENDFACTOR_ONE,
 			.dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
 			.op_alpha = SG_BLENDOP_ADD,
-			},
-			.label = "twodee-color-correct",
-			});
+		},
+		.label = "twodee-color-correct",
+	});
 
 	desc = threedee_mesh_shader_desc(sg_query_backend());
 	assert(desc);
@@ -3465,25 +3466,21 @@ void init(void)
 	assert(desc);
 	shd = sg_make_shader(desc);
 
-	state.armature_pip = sg_make_pipeline(&(sg_pipeline_desc)
-			{
-			.shader = shd,
-			.depth = {
-				.pixel_format = SG_PIXELFORMAT_DEPTH,
-				.compare = SG_COMPAREFUNC_LESS_EQUAL,
-				.write_enabled = true
-			},
-			.sample_count = SAMPLE_COUNT,
-			.layout = {
-			.attrs =
-			{
-			[ATTR_threedee_vs_skeleton_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
-			[ATTR_threedee_vs_skeleton_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
-			[ATTR_threedee_vs_skeleton_indices_in].format = SG_VERTEXFORMAT_USHORT4N,
-			[ATTR_threedee_vs_skeleton_weights_in].format = SG_VERTEXFORMAT_FLOAT4,
-			}
-			},
-			.colors[0].blend = (sg_blend_state) { // allow transparency
+	state.armature_pip = sg_make_pipeline(&(sg_pipeline_desc){
+		.shader = shd,
+		.depth = {
+			.pixel_format = SG_PIXELFORMAT_DEPTH,
+			.compare = SG_COMPAREFUNC_LESS_EQUAL,
+			.write_enabled = true},
+		.sample_count = SAMPLE_COUNT,
+		.layout = {.attrs = {
+					   [ATTR_threedee_vs_skeleton_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
+					   [ATTR_threedee_vs_skeleton_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
+					   [ATTR_threedee_vs_skeleton_indices_in].format = SG_VERTEXFORMAT_USHORT4N,
+					   [ATTR_threedee_vs_skeleton_weights_in].format = SG_VERTEXFORMAT_FLOAT4,
+				   }},
+		.colors[0].blend = (sg_blend_state){
+			// allow transparency
 			.enabled = true,
 			.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
 			.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
@@ -3491,22 +3488,21 @@ void init(void)
 			.src_factor_alpha = SG_BLENDFACTOR_ONE,
 			.dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
 			.op_alpha = SG_BLENDOP_ADD,
-			},
-			.label = "armature",
-			});
+		},
+		.label = "armature",
+	});
 
-	state.clear_depth_buffer_pass_action = (sg_pass_action)
-	{
-		.colors[0] = { .load_action = SG_LOADACTION_LOAD },
-		.depth = { .load_action = SG_LOADACTION_CLEAR, .clear_value = 1.0f },
+	state.clear_depth_buffer_pass_action = (sg_pass_action){
+		.colors[0] = {.load_action = SG_LOADACTION_LOAD},
+		.depth = {.load_action = SG_LOADACTION_CLEAR, .clear_value = 1.0f},
 	};
 	state.clear_everything_pass_action = state.clear_depth_buffer_pass_action;
-	state.clear_everything_pass_action.colors[0] = (sg_color_attachment_action){ .load_action = SG_LOADACTION_CLEAR, .clear_value = { clearcol.r, clearcol.g, clearcol.b, 1.0f } };
+	state.clear_everything_pass_action.colors[0] = (sg_color_attachment_action){.load_action = SG_LOADACTION_CLEAR, .clear_value = {clearcol.r, clearcol.g, clearcol.b, 1.0f}};
 	state.threedee_msaa_pass_action = state.clear_everything_pass_action;
 	state.threedee_msaa_pass_action.colors[0].load_action = SG_LOADACTION_CLEAR;
 	state.threedee_msaa_pass_action.colors[0].store_action = SG_STOREACTION_DONTCARE;
 
-	state.sampler_linear = sg_make_sampler(&(sg_sampler_desc) {
+	state.sampler_linear = sg_make_sampler(&(sg_sampler_desc){
 		.min_filter = SG_FILTER_LINEAR,
 		.mag_filter = SG_FILTER_LINEAR,
 		// .mipmap_filter = SG_FILTER_LINEAR,
@@ -3516,7 +3512,7 @@ void init(void)
 		.label = "sampler-linear",
 	});
 
-	state.sampler_linear_border = sg_make_sampler(&(sg_sampler_desc) {
+	state.sampler_linear_border = sg_make_sampler(&(sg_sampler_desc){
 		.min_filter = SG_FILTER_LINEAR,
 		.mag_filter = SG_FILTER_LINEAR,
 		.wrap_u = SG_WRAP_CLAMP_TO_BORDER,
@@ -3526,7 +3522,7 @@ void init(void)
 		.label = "sampler-linear-border",
 	});
 
-	state.sampler_nearest = sg_make_sampler(&(sg_sampler_desc) {
+	state.sampler_nearest = sg_make_sampler(&(sg_sampler_desc){
 		.min_filter = SG_FILTER_NEAREST,
 		.mag_filter = SG_FILTER_NEAREST,
 
@@ -3544,7 +3540,6 @@ Vec2 screen_size()
 	return V2((float)sapp_width(), (float)sapp_height());
 }
 
-
 typedef struct Camera
 {
 	Vec2 pos;
@@ -3552,8 +3547,8 @@ typedef struct Camera
 } Camera;
 
 bool mobile_controls = false;
-Vec2 thumbstick_base_pos = { 0 };
-Vec2 thumbstick_nub_pos = { 0 };
+Vec2 thumbstick_base_pos = {0};
+Vec2 thumbstick_nub_pos = {0};
 typedef struct TouchMemory
 {
 	// need this because uintptr_t = 0 *doesn't* mean no touching!
@@ -3562,8 +3557,8 @@ typedef struct TouchMemory
 } TouchMemory;
 TouchMemory activate(uintptr_t by)
 {
-	//Log("Activating %ld\n", by);
-	return (TouchMemory) { .active = true, .identifier = by };
+	// Log("Activating %ld\n", by);
+	return (TouchMemory){.active = true, .identifier = by};
 }
 // returns if deactivated
 bool maybe_deactivate(TouchMemory *memory, uintptr_t ended_identifier)
@@ -3572,8 +3567,8 @@ bool maybe_deactivate(TouchMemory *memory, uintptr_t ended_identifier)
 	{
 		if (memory->identifier == ended_identifier)
 		{
-			//Log("Deactivating %ld\n", memory->identifier);
-			*memory = (TouchMemory) { 0 };
+			// Log("Deactivating %ld\n", memory->identifier);
+			*memory = (TouchMemory){0};
 			return true;
 		}
 	}
@@ -3583,10 +3578,10 @@ bool maybe_deactivate(TouchMemory *memory, uintptr_t ended_identifier)
 	}
 	return false;
 }
-TouchMemory movement_touch = { 0 };
-TouchMemory roll_pressed_by = { 0 };
-TouchMemory attack_pressed_by = { 0 };
-TouchMemory interact_pressed_by = { 0 };
+TouchMemory movement_touch = {0};
+TouchMemory roll_pressed_by = {0};
+TouchMemory attack_pressed_by = {0};
+TouchMemory interact_pressed_by = {0};
 bool mobile_roll_pressed = false;
 bool mobile_attack_pressed = false;
 bool mobile_interact_pressed = false;
@@ -3622,14 +3617,14 @@ Vec2 roll_button_pos()
 
 Vec2 interact_button_pos()
 {
-	return V2(screen_size().x - mobile_button_size()*2.0f, screen_size().y * (0.4f + (0.4f - 0.25f)));
+	return V2(screen_size().x - mobile_button_size() * 2.0f, screen_size().y * (0.4f + (0.4f - 0.25f)));
 }
 Vec2 attack_button_pos()
 {
-	return V2(screen_size().x - mobile_button_size()*2.0f, screen_size().y * 0.25f);
+	return V2(screen_size().x - mobile_button_size() * 2.0f, screen_size().y * 0.25f);
 }
 
-// everything is in pixels in world space, 43 pixels is approx 1 meter measured from 
+// everything is in pixels in world space, 43 pixels is approx 1 meter measured from
 // merchant sprite being 5'6"
 const float pixels_per_meter = 43.0f;
 
@@ -3638,30 +3633,30 @@ const float pixels_per_meter = 43.0f;
 // full region in pixels
 AABB full_region(sg_image img)
 {
-	return (AABB)
-	{
+	return (AABB){
 		.upper_left = V2(0.0f, 0.0f),
-			.lower_right = img_size(img),
+		.lower_right = img_size(img),
 	};
 }
 
 AABB aabb_at(Vec2 at, Vec2 size)
 {
-	return (AABB) {
+	return (AABB){
 		.upper_left = at,
-			.lower_right = AddV2(at, V2(size.x, -size.y)),
+		.lower_right = AddV2(at, V2(size.x, -size.y)),
 	};
 }
 
-AABB screen_aabb() {
+AABB screen_aabb()
+{
 	return aabb_at(V2(0.0, screen_size().y), screen_size());
 }
 
 AABB aabb_at_yplusdown(Vec2 at, Vec2 size)
 {
-	return (AABB) {
+	return (AABB){
 		.upper_left = at,
-			.lower_right = AddV2(at, V2(size.x, size.y)),
+		.lower_right = AddV2(at, V2(size.x, size.y)),
 	};
 }
 
@@ -3681,14 +3676,13 @@ Quad quad_at(Vec2 at, Vec2 size)
 	return to_return;
 }
 
-
 // out must be of at least length 4
 Quad quad_centered(Vec2 at, Vec2 size)
 {
 	Quad to_return = quad_at(at, size);
 	for (int i = 0; i < 4; i++)
 	{
-		to_return.points[i] = AddV2(to_return.points[i], V2(-size.X*0.5f, size.Y*0.5f));
+		to_return.points[i] = AddV2(to_return.points[i], V2(-size.X * 0.5f, size.Y * 0.5f));
 	}
 	return to_return;
 }
@@ -3696,7 +3690,7 @@ Quad quad_centered(Vec2 at, Vec2 size)
 Quad quad_rotated_centered(Vec2 at, Vec2 size, float rotation)
 {
 	Quad to_return = quad_centered(at, size);
-	for(int i = 0; i < 4; i++)
+	for (int i = 0; i < 4; i++)
 	{
 		to_return.points[i] = AddV2(RotateV2(SubV2(to_return.points[i], at), rotation), at);
 	}
@@ -3723,11 +3717,11 @@ Quad quad_aabb(AABB aabb)
 	Vec2 size_vec = SubV2(aabb.lower_right, aabb.upper_left); // negative in vertical direction
 
 	assert(aabb_is_valid(aabb));
-	return (Quad) {
+	return (Quad){
 		.ul = aabb.upper_left,
-			.ur = AddV2(aabb.upper_left, V2(size_vec.X, 0.0f)),
-			.lr = AddV2(aabb.upper_left, size_vec),
-			.ll = AddV2(aabb.upper_left, V2(0.0f, size_vec.Y)),
+		.ur = AddV2(aabb.upper_left, V2(size_vec.X, 0.0f)),
+		.lr = AddV2(aabb.upper_left, size_vec),
+		.ll = AddV2(aabb.upper_left, V2(0.0f, size_vec.Y)),
 	};
 }
 
@@ -3760,9 +3754,9 @@ bool overlapping(AABB a, AABB b)
 
 	{
 		float a_segment[2] =
-		{ a.upper_left.X, a.lower_right.X };
+			{a.upper_left.X, a.lower_right.X};
 		float b_segment[2] =
-		{ b.upper_left.X, b.lower_right.X };
+			{b.upper_left.X, b.lower_right.X};
 		if (segments_overlapping(a_segment, b_segment))
 		{
 		}
@@ -3776,9 +3770,9 @@ bool overlapping(AABB a, AABB b)
 
 	{
 		float a_segment[2] =
-		{ a.lower_right.Y, a.upper_left.Y };
+			{a.lower_right.Y, a.upper_left.Y};
 		float b_segment[2] =
-		{ b.lower_right.Y, b.upper_left.Y };
+			{b.lower_right.Y, b.upper_left.Y};
 		if (segments_overlapping(a_segment, b_segment))
 		{
 		}
@@ -3800,28 +3794,28 @@ bool overlapping_circle(Circle a, Circle b)
 
 bool has_point(AABB aabb, Vec2 point)
 {
-	return
-		(aabb.upper_left.X < point.X && point.X < aabb.lower_right.X) &&
-		(aabb.upper_left.Y > point.Y && point.Y > aabb.lower_right.Y);
+	return (aabb.upper_left.X < point.X && point.X < aabb.lower_right.X) &&
+		   (aabb.upper_left.Y > point.Y && point.Y > aabb.lower_right.Y);
 }
 
 AABB screen_cam_aabb()
 {
-	return (AABB) { .upper_left = V2(0.0, screen_size().Y), .lower_right = V2(screen_size().X, 0.0) };
+	return (AABB){.upper_left = V2(0.0, screen_size().Y), .lower_right = V2(screen_size().X, 0.0)};
 }
 
 #define FLOATS_PER_VERTEX (3 + 2)
-float cur_batch_data[1024*10] = { 0 };
+float cur_batch_data[1024 * 10] = {0};
 int cur_batch_data_index = 0;
 // @TODO check last tint as well, do this when factor into drawing parameters
-sg_image cur_batch_image = { 0 };
-threedee_twodee_fs_params_t cur_batch_params = { 0 };
-sg_pipeline cur_batch_pipeline = { 0 };
+sg_image cur_batch_image = {0};
+threedee_twodee_fs_params_t cur_batch_params = {0};
+sg_pipeline cur_batch_pipeline = {0};
 void flush_quad_batch()
 {
-	if (cur_batch_image.id == 0 || cur_batch_data_index == 0) return; // flush called when image changes, image starts out null!
+	if (cur_batch_image.id == 0 || cur_batch_data_index == 0)
+		return; // flush called when image changes, image starts out null!
 
-	if(cur_batch_pipeline.id != 0)
+	if (cur_batch_pipeline.id != 0)
 	{
 		sg_apply_pipeline(cur_batch_pipeline);
 	}
@@ -3830,9 +3824,8 @@ void flush_quad_batch()
 		sg_apply_pipeline(state.twodee_pip);
 	}
 
-
-	state.bind.vertex_buffer_offsets[0] = sg_append_buffer(state.bind.vertex_buffers[0], &(sg_range) { cur_batch_data, cur_batch_data_index*sizeof(*cur_batch_data) });
-	state.bind.fs.images[SLOT_threedee_twodee_tex] = cur_batch_image; // NOTE that this might get FUCKED if a custom pipeline is provided with more/less texture slots!!!
+	state.bind.vertex_buffer_offsets[0] = sg_append_buffer(state.bind.vertex_buffers[0], &(sg_range){cur_batch_data, cur_batch_data_index * sizeof(*cur_batch_data)});
+	state.bind.fs.images[SLOT_threedee_twodee_tex] = cur_batch_image;			// NOTE that this might get FUCKED if a custom pipeline is provided with more/less texture slots!!!
 	state.bind.fs.samplers[SLOT_threedee_fs_twodee_smp] = state.sampler_linear; // NOTE that this might get FUCKED if a custom pipeline is provided with more/less sampler slots!!!
 	sg_apply_bindings(&state.bind);
 	cur_batch_params.tex_size = img_size(cur_batch_image);
@@ -3843,12 +3836,12 @@ void flush_quad_batch()
 	cur_batch_params.flip_and_swap_rgb = 1;
 #endif
 	sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_threedee_twodee_fs_params, &SG_RANGE(cur_batch_params));
-	cur_batch_params.tex_size = V2(0,0); // unsure if setting the tex_size to something nonzero fucks up the batching so I'm just resetting it back here
+	cur_batch_params.tex_size = V2(0, 0); // unsure if setting the tex_size to something nonzero fucks up the batching so I'm just resetting it back here
 	assert(cur_batch_data_index % FLOATS_PER_VERTEX == 0);
 	sg_draw(0, cur_batch_data_index / FLOATS_PER_VERTEX, 1);
 	num_draw_calls += 1;
 	num_vertices += cur_batch_data_index / FLOATS_PER_VERTEX;
-	memset(cur_batch_data, 0, cur_batch_data_index*sizeof(*cur_batch_data));
+	memset(cur_batch_data, 0, cur_batch_data_index * sizeof(*cur_batch_data));
 	cur_batch_data_index = 0;
 }
 
@@ -3932,7 +3925,7 @@ typedef struct DrawParams
 	sg_pipeline custom_pipeline;
 
 	// for debugging purposes
-	int line_number; 
+	int line_number;
 } DrawParams;
 
 Vec2 into_clip_space(Vec2 screen_space_point)
@@ -3944,11 +3937,10 @@ Vec2 into_clip_space(Vec2 screen_space_point)
 
 Vec4 inverse_perspective_divide(Vec4 divided_point, float what_was_w)
 {
-	//return V4(v.x / v.w, v.y / v.w, v.z / v.w, v.w / v.w);
+	// return V4(v.x / v.w, v.y / v.w, v.z / v.w, v.w / v.w);
 
 	// f(v).x = v.x / v.w;
 	// output_x = input_x / input_w;
-
 
 	return V4(divided_point.x * what_was_w, divided_point.y * what_was_w, divided_point.z * what_was_w, what_was_w);
 }
@@ -3963,7 +3955,7 @@ Vec3 screenspace_point_to_camera_point(Vec2 screenspace, Mat4 view)
 
 	Vec2 clip_space = into_clip_space(screenspace);
 	Vec4 output_position = V4(clip_space.x, clip_space.y, -1.0, 1.0);
-	float what_was_w = MulM4V4(projection, V4(0,0,-NEAR_PLANE_DISTANCE,1)).w;
+	float what_was_w = MulM4V4(projection, V4(0, 0, -NEAR_PLANE_DISTANCE, 1)).w;
 	Vec3 to_return = MulM4V4(MulM4(InvGeneralM4(view), InvGeneralM4(projection)), inverse_perspective_divide(output_position, what_was_w)).xyz;
 
 	return to_return;
@@ -3974,28 +3966,28 @@ Vec3 ray_intersect_plane(Vec3 ray_point, Vec3 ray_vector, Vec3 plane_point, Vec3
 	float d = DotV3(plane_point, MulV3F(plane_normal, -1.0f));
 
 	float denom = DotV3(plane_normal, ray_vector);
-	if(fabsf(denom) <= 1e-4f)
+	if (fabsf(denom) <= 1e-4f)
 	{
 		// also could mean doesn't intersect plane
 		return plane_point;
 	}
 	assert(fabsf(denom) > 1e-4f); // avoid divide by zero
 
-    float t = -(DotV3(plane_normal, ray_point) + d) / DotV3(plane_normal, ray_vector);
+	float t = -(DotV3(plane_normal, ray_point) + d) / DotV3(plane_normal, ray_vector);
 
-    if(t <= 1e-4)
-    {
-    	// means doesn't intersect the plane, I think...
-    	return plane_point;
-    }
-    
-    assert(t > 1e-4);
+	if (t <= 1e-4)
+	{
+		// means doesn't intersect the plane, I think...
+		return plane_point;
+	}
 
-    return AddV3(ray_point, MulV3F(ray_vector, t));
+	assert(t > 1e-4);
+
+	return AddV3(ray_point, MulV3F(ray_vector, t));
 }
 
-typedef BUFF(DrawParams, 1024*5) RenderingQueue;
-RenderingQueue rendering_queues[LAYER_LAST] = { 0 };
+typedef BUFF(DrawParams, 1024 * 5) RenderingQueue;
+RenderingQueue rendering_queues[LAYER_LAST] = {0};
 
 // The image region is in pixel space of the image
 void draw_quad_impl(DrawParams d, int line)
@@ -4004,7 +3996,7 @@ void draw_quad_impl(DrawParams d, int line)
 	Vec2 *points = d.quad.points;
 
 	AABB cam_aabb = screen_cam_aabb();
-	AABB points_bounding_box = { .upper_left = V2(INFINITY, -INFINITY), .lower_right = V2(-INFINITY, INFINITY) };
+	AABB points_bounding_box = {.upper_left = V2(INFINITY, -INFINITY), .lower_right = V2(-INFINITY, INFINITY)};
 
 	for (int i = 0; i < 4; i++)
 	{
@@ -4019,7 +4011,6 @@ void draw_quad_impl(DrawParams d, int line)
 		return; // cull out of screen quads
 	}
 
-
 	assert(d.layer >= 0 && d.layer < ARRLEN(rendering_queues));
 	BUFF_APPEND(&rendering_queues[(int)d.layer], d);
 }
@@ -4028,8 +4019,8 @@ void draw_quad_impl(DrawParams d, int line)
 
 int rendering_compare(const void *a, const void *b)
 {
-	DrawParams *a_draw = (DrawParams*)a;
-	DrawParams *b_draw = (DrawParams*)b;
+	DrawParams *a_draw = (DrawParams *)a;
+	DrawParams *b_draw = (DrawParams *)b;
 
 	return (int)((a_draw->sorting_key - b_draw->sorting_key));
 }
@@ -4052,8 +4043,8 @@ Vec2 tile_id_to_coord(sg_image tileset_image, Vec2 tile_size, uint16_t tile_id)
 	int tiles_per_row = (int)(img_size(tileset_image).X / tile_size.X);
 	int tile_index = tile_id - 1;
 	int tile_image_row = tile_index / tiles_per_row;
-	int tile_image_col = tile_index - tile_image_row*tiles_per_row;
-	Vec2 tile_image_coord = V2((float)tile_image_col * tile_size.X, (float)tile_image_row*tile_size.Y);
+	int tile_image_col = tile_index - tile_image_row * tiles_per_row;
+	Vec2 tile_image_coord = V2((float)tile_image_col * tile_size.X, (float)tile_image_row * tile_size.Y);
 	return tile_image_coord;
 }
 
@@ -4065,13 +4056,12 @@ void colorquad(Quad q, Color col)
 		queue = true;
 	}
 	// y coord sorting for colorquad puts it below text for dialog panel
-	draw_quad((DrawParams) { q, image_white_square, full_region(image_white_square), col, .layer = LAYER_UI });
+	draw_quad((DrawParams){q, image_white_square, full_region(image_white_square), col, .layer = LAYER_UI});
 }
-
 
 Vec2 NozV2(Vec2 v)
 {
-	if(v.x == 0.0f && v.y == 0.0f)
+	if (v.x == 0.0f && v.y == 0.0f)
 	{
 		return V2(0.0f, 0.0f);
 	}
@@ -4088,11 +4078,10 @@ Quad line_quad(Vec2 from, Vec2 to, float line_width)
 	return (Quad){
 		.points = {
 			AddV2(from, MulV2F(normal, line_width)),  // upper left
-			AddV2(to, MulV2F(normal, line_width)),    // upper right
-			AddV2(to, MulV2F(normal, -line_width)),   // lower right
+			AddV2(to, MulV2F(normal, line_width)),	  // upper right
+			AddV2(to, MulV2F(normal, -line_width)),	  // lower right
 			AddV2(from, MulV2F(normal, -line_width)), // lower left
-		}
-	};
+		}};
 }
 
 // in world coordinates
@@ -4114,14 +4103,15 @@ const bool show_devtools = false;
 
 bool having_errors = false;
 
-Color debug_color = {1,0,0,1};
+Color debug_color = {1, 0, 0, 1};
 
 #define dbgcol(col) DeferLoop(debug_color = col, debug_color = RED)
 
 void dbgsquare(Vec2 at)
 {
 #ifdef DEVTOOLS
-	if (!show_devtools) return;
+	if (!show_devtools)
+		return;
 	colorquad(quad_centered(at, V2(10.0, 10.0)), debug_color);
 #else
 	(void)at;
@@ -4131,18 +4121,19 @@ void dbgsquare(Vec2 at)
 void dbgbigsquare(Vec2 at)
 {
 #ifdef DEVTOOLS
-	if (!show_devtools) return;
+	if (!show_devtools)
+		return;
 	colorquad(quad_centered(at, V2(20.0, 20.0)), debug_color);
 #else
 	(void)at;
 #endif
 }
 
-
 void dbgline(Vec2 from, Vec2 to)
 {
 #ifdef DEVTOOLS
-	if (!show_devtools) return;
+	if (!show_devtools)
+		return;
 	line(from, to, 1.0f, debug_color);
 #else
 	(void)from;
@@ -4160,7 +4151,8 @@ void dbgvec(Vec2 from, Vec2 vec)
 void dbgrect(AABB rect)
 {
 #ifdef DEVTOOLS
-	if (!show_devtools) return;
+	if (!show_devtools)
+		return;
 	if (!aabb_is_valid(rect))
 	{
 		dbgsquare(rect.upper_left);
@@ -4190,7 +4182,7 @@ Vec2 threedee_to_screenspace(Vec3 world)
 	// View and projection matrices must be initialized before calling this.
 	// We detect if this isn't true and early out with some arbitrary values,
 	// but really ideally shouldn't be happening at all
-	if(view.Elements[3][3] == 0.0)
+	if (view.Elements[3][3] == 0.0)
 	{
 		Log("Early outting from projection, uninitialized view\n");
 		return V2(world.x, world.y);
@@ -4200,16 +4192,17 @@ Vec2 threedee_to_screenspace(Vec3 world)
 		Vec4 view_space = MulM4V4(view, IsPoint(world));
 		Vec4 clip_space_no_perspective_divide = MulM4V4(projection, view_space);
 
-		// sometimes camera might be at 0,0,0, directly where you want to deproject. 
+		// sometimes camera might be at 0,0,0, directly where you want to deproject.
 		// In that case the projected value is undefined, because the perspective
-		// divide produces nans. 
+		// divide produces nans.
 		Vec3 clip_space;
 
-		if (clip_space_no_perspective_divide.z < 0.0) {
+		if (clip_space_no_perspective_divide.z < 0.0)
+		{
 			return V2(0.0, 0.0);
 		}
 
-		if(clip_space_no_perspective_divide.w != 0.0)
+		if (clip_space_no_perspective_divide.w != 0.0)
 		{
 			clip_space = perspective_divide(clip_space_no_perspective_divide);
 		}
@@ -4219,9 +4212,9 @@ Vec2 threedee_to_screenspace(Vec3 world)
 		}
 
 		// clip is from -1 to 1, need to map back to screen
-		Vec2 mapped_correctly = V2((clip_space.x + 1.0f)/2.0f, (clip_space.y + 1.0f)/2.0f);
+		Vec2 mapped_correctly = V2((clip_space.x + 1.0f) / 2.0f, (clip_space.y + 1.0f) / 2.0f);
 
-		return V2(mapped_correctly.x * screen_size().x , mapped_correctly.y * screen_size().y);
+		return V2(mapped_correctly.x * screen_size().x, mapped_correctly.y * screen_size().y);
 	}
 }
 
@@ -4236,25 +4229,26 @@ void dbg3dline(Vec3 from, Vec3 to)
 	dbgline(from_screenspace, to_screenspace);
 }
 
-void dbg3dline2d(Vec2 a, Vec2 b)  {
+void dbg3dline2d(Vec2 a, Vec2 b)
+{
 	Vec3 a_3 = V3(a.x, 0.0, a.y);
 	Vec3 b_3 = V3(b.x, 0.0, b.y);
 
 	dbg3dline(a_3, b_3);
 }
 
-void dbg3dline2dOffset(Vec2 a, Vec2 offset)  {
+void dbg3dline2dOffset(Vec2 a, Vec2 offset)
+{
 	Vec3 a_3 = V3(a.x, 0.0, a.y);
 	Vec3 b_3 = V3(offset.x, 0.0, offset.y);
 
-	dbg3dline(a_3, AddV3(a_3,b_3));
+	dbg3dline(a_3, AddV3(a_3, b_3));
 }
-
 
 void colorquadplane(Quad q, Color col)
 {
 	Quad warped = {0};
-	for(int i = 0; i < 4; i++)
+	for (int i = 0; i < 4; i++)
 	{
 		q.points[i] = threedee_to_screenspace(plane_point(q.points[i]));
 	}
@@ -4269,26 +4263,30 @@ void dbgsquare3d(Vec3 point)
 
 void dbgplanesquare(Vec2 at)
 {
-	if(!show_devtools) return;
-	colorquadplane(quad_centered(at, V2(3.0,3.0)), debug_color);
+	if (!show_devtools)
+		return;
+	colorquadplane(quad_centered(at, V2(3.0, 3.0)), debug_color);
 }
 
 void dbgplaneline(Vec2 from, Vec2 to)
 {
-	if(!show_devtools) return;
+	if (!show_devtools)
+		return;
 	dbg3dline(plane_point(from), plane_point(to));
 }
 
 void dbgplanevec(Vec2 from, Vec2 vec)
 {
-	if(!show_devtools) return;
+	if (!show_devtools)
+		return;
 	Vec2 to = AddV2(from, vec);
 	dbgplaneline(from, to);
 }
 
 void dbgplanerect(AABB aabb)
 {
-	if(!show_devtools) return;
+	if (!show_devtools)
+		return;
 	Quad q = quad_aabb(aabb);
 	dbgplaneline(q.ul, q.ur);
 	dbgplaneline(q.ur, q.lr);
@@ -4321,14 +4319,13 @@ void draw_thing(DrawnThing params)
 #ifdef DEVTOOLS
 	assert(drawn_this_frame_length < MAXIMUM_THREEDEE_THINGS);
 #else
-	if(drawn_this_frame_length >= MAXIMUM_THREEDEE_THINGS)
+	if (drawn_this_frame_length >= MAXIMUM_THREEDEE_THINGS)
 	{
 		Log("Drawing too many things!\n");
 		drawn_this_frame_length = MAXIMUM_THREEDEE_THINGS - 1;
 	}
 #endif
 }
-
 
 typedef struct TextParams
 {
@@ -4337,7 +4334,7 @@ typedef struct TextParams
 	Vec2 pos;
 	Color color;
 	float scale;
-	AABB clip_to; // if in world space, in world space. In space of pos given
+	AABB clip_to;  // if in world space, in world space. In space of pos given
 	Color *colors; // color per character, if not null must be array of same length as text
 	bool do_clipping;
 	LoadedFont *use_font; // if null, uses default font
@@ -4347,9 +4344,10 @@ typedef struct TextParams
 // returns bounds. To measure text you can set dry run to true and get the bounds
 AABB draw_text(TextParams t)
 {
-	AABB bounds = { 0 };
+	AABB bounds = {0};
 	LoadedFont font = default_font;
-	if(t.use_font) font = *t.use_font;
+	if (t.use_font)
+		font = *t.use_font;
 	PROFILE_SCOPE("draw text")
 	{
 		size_t text_len = t.text.size; // CANNOT include the null terminator at the end! Check for this
@@ -4360,7 +4358,7 @@ AABB draw_text(TextParams t)
 			stbtt_aligned_quad q;
 			float old_y = y;
 			PROFILE_SCOPE("get baked quad")
-				stbtt_GetBakedQuad(font.cdata, 512, 512, t.text.str[i]-32, &x, &y, &q, 1);
+			stbtt_GetBakedQuad(font.cdata, 512, 512, t.text.str[i] - 32, &x, &y, &q, 1);
 			float difference = y - old_y;
 			y = old_y + difference;
 
@@ -4368,7 +4366,7 @@ AABB draw_text(TextParams t)
 			if (t.text.str[i] == '\n')
 			{
 #ifdef DEVTOOLS
-				y += font.font_size*0.75f; // arbitrary, only debug t.text has newlines
+				y += font.font_size * 0.75f; // arbitrary, only debug t.text has newlines
 				x = 0.0;
 #else
 				assert(false);
@@ -4395,8 +4393,7 @@ AABB draw_text(TextParams t)
 					to_draw.points[i] = MulV2F(to_draw.points[i], t.scale);
 				}
 
-				AABB font_atlas_region = (AABB)
-				{
+				AABB font_atlas_region = (AABB){
 					.upper_left = V2(q.s0, 1.0f - q.t1),
 					.lower_right = V2(q.s1, 1.0f - q.t0),
 				};
@@ -4411,13 +4408,13 @@ AABB draw_text(TextParams t)
 				}
 
 				PROFILE_SCOPE("bounds computation")
-					for (int i = 0; i < 4; i++)
-					{
-						bounds.upper_left.X = fminf(bounds.upper_left.X, to_draw.points[i].X);
-						bounds.upper_left.Y = fmaxf(bounds.upper_left.Y, to_draw.points[i].Y);
-						bounds.lower_right.X = fmaxf(bounds.lower_right.X, to_draw.points[i].X);
-						bounds.lower_right.Y = fminf(bounds.lower_right.Y, to_draw.points[i].Y);
-					}
+				for (int i = 0; i < 4; i++)
+				{
+					bounds.upper_left.X = fminf(bounds.upper_left.X, to_draw.points[i].X);
+					bounds.upper_left.Y = fmaxf(bounds.upper_left.Y, to_draw.points[i].Y);
+					bounds.lower_right.X = fmaxf(bounds.lower_right.X, to_draw.points[i].X);
+					bounds.lower_right.Y = fminf(bounds.lower_right.Y, to_draw.points[i].Y);
+				}
 
 				PROFILE_SCOPE("shifting points")
 				for (int i = 0; i < 4; i++)
@@ -4436,11 +4433,11 @@ AABB draw_text(TextParams t)
 						}
 
 						Layer to_use = LAYER_UI_FG;
-						if(t.layer != LAYER_INVALID)
+						if (t.layer != LAYER_INVALID)
 						{
 							to_use = t.layer;
 						}
-						draw_quad((DrawParams) { to_draw, font.image, font_atlas_region, col, t.clip_to, .layer = to_use, .do_clipping = t.do_clipping });
+						draw_quad((DrawParams){to_draw, font.image, font_atlas_region, col, t.clip_to, .layer = to_use, .do_clipping = t.do_clipping});
 					}
 				}
 			}
@@ -4455,20 +4452,22 @@ AABB draw_text(TextParams t)
 
 float get_vertical_dist_between_lines(LoadedFont for_font, float text_scale)
 {
-	return for_font.font_line_advance*text_scale*0.9f;
+	return for_font.font_line_advance * text_scale * 0.9f;
 }
 
 AABB draw_centered_text(TextParams t)
 {
-	if(t.scale <= 0.01f) return (AABB){0};
+	if (t.scale <= 0.01f)
+		return (AABB){0};
 	t.dry_run = true;
 	AABB text_aabb = draw_text(t);
 	t.dry_run = false;
 	Vec2 center_pos = t.pos;
 	LoadedFont *to_use = &default_font;
-	if(t.use_font) to_use = t.use_font;
-	//t.pos = AddV2(center_pos, MulV2F(aabb_size(text_aabb), -0.5f));
-	t.pos = V2(center_pos.x - aabb_size(text_aabb).x/2.0f, center_pos.y - get_vertical_dist_between_lines(*to_use, t.scale)/2.0f); 
+	if (t.use_font)
+		to_use = t.use_font;
+	// t.pos = AddV2(center_pos, MulV2F(aabb_size(text_aabb), -0.5f));
+	t.pos = V2(center_pos.x - aabb_size(text_aabb).x / 2.0f, center_pos.y - get_vertical_dist_between_lines(*to_use, t.scale) / 2.0f);
 	return draw_text(t);
 }
 
@@ -4484,20 +4483,20 @@ typedef struct
 	Vec2 ml; // middle left
 } AABBStats;
 
-AABBStats stats(AABB aabb) {
+AABBStats stats(AABB aabb)
+{
 	Vec2 size = aabb_size(aabb);
-	return (AABBStats) {
+	return (AABBStats){
 		.ul = aabb.upper_left,
-		.um = AddV2(aabb.upper_left, V2(size.x/2.0f, 0.0)),
+		.um = AddV2(aabb.upper_left, V2(size.x / 2.0f, 0.0)),
 		.ur = AddV2(aabb.upper_left, V2(size.x, 0.0)),
-		.mr = AddV2(aabb.lower_right, V2(0.0, size.y/2.0f)),
+		.mr = AddV2(aabb.lower_right, V2(0.0, size.y / 2.0f)),
 		.lr = aabb.lower_right,
-		.lm = AddV2(aabb.lower_right, V2(-size.x/2.0f, 0.0)),
+		.lm = AddV2(aabb.lower_right, V2(-size.x / 2.0f, 0.0)),
 		.ll = AddV2(aabb.lower_right, V2(-size.x, 0.0)),
-		.ml = AddV2(aabb.upper_left, V2(0.0, -size.y/2.0f)),
+		.ml = AddV2(aabb.upper_left, V2(0.0, -size.y / 2.0f)),
 	};
 }
-
 
 int sorting_key_at(Vec2 pos)
 {
@@ -4507,17 +4506,18 @@ int sorting_key_at(Vec2 pos)
 // gets aabbs overlapping the input aabb, including gs.entities
 Overlapping get_overlapping(AABB aabb)
 {
-	Overlapping to_return = { 0 };
+	Overlapping to_return = {0};
 
 	// the gs.entities jessie
 	PROFILE_SCOPE("checking the entities")
-		ENTITIES_ITER(gs.entities)
+	ENTITIES_ITER(gs.entities)
+	{
+		if (!it->is_world && overlapping(aabb, entity_aabb(it)))
 		{
-			if (!it->is_world && overlapping(aabb, entity_aabb(it)))
-			{
-				BUFF_APPEND(&to_return, it);
-			}
+			BUFF_APPEND(&to_return, it);
 		}
+	}
+
 
 	return to_return;
 }
@@ -4526,8 +4526,9 @@ typedef struct CollisionInfo
 {
 	bool happened;
 	Vec2 normal;
-	BUFF(Entity*, 8) with;
-}CollisionInfo;
+	BUFF(Entity *, 8)
+	with;
+} CollisionInfo;
 
 typedef struct MoveSlideParams
 {
@@ -4540,31 +4541,30 @@ typedef struct MoveSlideParams
 	CollisionInfo *col_info_out;
 } MoveSlideParams;
 
-
 Vec2 get_penetration_vector(AABB stable, AABB dynamic)
 {
-	//Assumes we already know that they are colliding.
-	//It could be faster to use this info for collision detection as well,
-	//but this would require an intrusive refactor, and it is not the common
-	//case that things are colliding anyway, so it's actually not that much
-	//duplicated work.
+	// Assumes we already know that they are colliding.
+	// It could be faster to use this info for collision detection as well,
+	// but this would require an intrusive refactor, and it is not the common
+	// case that things are colliding anyway, so it's actually not that much
+	// duplicated work.
 	Vec2 dynamic_centre = aabb_center(dynamic);
 	Vec2 dynamic_half_dims = MulV2F(aabb_size(dynamic), 0.5f);
 
 	stable.lower_right.x += dynamic_half_dims.x;
 	stable.lower_right.y -= dynamic_half_dims.y;
-	stable.upper_left.x  -= dynamic_half_dims.x;
-	stable.upper_left.y  += dynamic_half_dims.y;
+	stable.upper_left.x -= dynamic_half_dims.x;
+	stable.upper_left.y += dynamic_half_dims.y;
 
-	float right_delta  = stable.lower_right.x - dynamic_centre.x;
-	float left_delta   = stable.upper_left.x  - dynamic_centre.x;
+	float right_delta = stable.lower_right.x - dynamic_centre.x;
+	float left_delta = stable.upper_left.x - dynamic_centre.x;
 	float bottom_delta = stable.lower_right.y - dynamic_centre.y;
-	float top_delta    = stable.upper_left.y  - dynamic_centre.y;
+	float top_delta = stable.upper_left.y - dynamic_centre.y;
 
-	float r = fabsf( right_delta);
-	float l = fabsf(  left_delta);
+	float r = fabsf(right_delta);
+	float l = fabsf(left_delta);
 	float b = fabsf(bottom_delta);
-	float t = fabsf(   top_delta);
+	float t = fabsf(top_delta);
 
 	if (r <= l && r <= b && r <= t)
 		return V2(right_delta, 0.0);
@@ -4574,7 +4574,6 @@ Vec2 get_penetration_vector(AABB stable, AABB dynamic)
 		return V2(0.0, bottom_delta);
 	return V2(0.0, top_delta);
 }
-
 
 // returns new pos after moving and sliding against collidable things
 Vec2 move_and_slide(MoveSlideParams p)
@@ -4589,10 +4588,11 @@ Vec2 move_and_slide(MoveSlideParams p)
 		Circle circle;
 		Entity *e; // required
 	} CollisionObj;
-	BUFF(CollisionObj, 256) to_check = { 0 };
+	BUFF(CollisionObj, 256)
+	to_check = {0};
 
 	// add world boxes
-	for(CollisionCylinder *cur = get_cur_room(&gs, &level_threedee)->collision_list; cur; cur = cur->next)
+	for (CollisionCylinder *cur = get_cur_room(&gs, &level_threedee)->collision_list; cur; cur = cur->next)
 	{
 		BUFF_APPEND(&to_check, ((CollisionObj){cur->bounds, gs.world_entity}));
 	}
@@ -4614,7 +4614,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 	// sideways velocity. It's visual and I can't put diagrams in code so uh oh!
 
 	typedef BUFF(CollisionObj, 32) OverlapBuff;
-	OverlapBuff actually_overlapping = { 0 };
+	OverlapBuff actually_overlapping = {0};
 
 	BUFF_ITER(CollisionObj, &to_check)
 	{
@@ -4624,22 +4624,21 @@ Vec2 move_and_slide(MoveSlideParams p)
 		}
 	}
 
-
 	float smallest_distance = FLT_MAX;
 	int smallest_circle_index = 0;
 	int i = 0;
 	BUFF_ITER(CollisionObj, &actually_overlapping)
 	{
 		float cur_dist = LenV2(SubV2(at_new.center, it->circle.center));
-		if (cur_dist < smallest_distance) {
+		if (cur_dist < smallest_distance)
+		{
 			smallest_distance = cur_dist;
 			smallest_circle_index = i;
 		}
 		i++;
 	}
 
-
-	OverlapBuff overlapping_smallest_first = { 0 };
+	OverlapBuff overlapping_smallest_first = {0};
 	if (actually_overlapping.cur_index > 0)
 	{
 		BUFF_APPEND(&overlapping_smallest_first, actually_overlapping.data[smallest_circle_index]);
@@ -4664,18 +4663,17 @@ Vec2 move_and_slide(MoveSlideParams p)
 		}
 	}
 
-
-	//overlapping_smallest_first = actually_overlapping;
+	// overlapping_smallest_first = actually_overlapping;
 
 	BUFF_ITER(CollisionObj, &actually_overlapping)
-		dbgcol(WHITE)
+	dbgcol(WHITE)
 		dbgplanerect(aabb_centered(it->circle.center, (Vec2){it->circle.radius, it->circle.radius}));
 
 	BUFF_ITER(CollisionObj, &overlapping_smallest_first)
-		dbgcol(WHITE)
+	dbgcol(WHITE)
 		dbgplanesquare(it->circle.center);
 
-	CollisionInfo info = { 0 };
+	CollisionInfo info = {0};
 	for (int col_iter_i = 0; col_iter_i < 1; col_iter_i++)
 		BUFF_ITER(CollisionObj, &overlapping_smallest_first)
 		{
@@ -4685,22 +4683,22 @@ Vec2 move_and_slide(MoveSlideParams p)
 			at_new.center = AddV2(to_depenetrate_from.center, MulV2F(resolution_vector, to_depenetrate_from.radius + at_new.radius));
 			bool happened_with_this_one = true;
 
-			if(happened_with_this_one)
+			if (happened_with_this_one)
 			{
 				bool already_in_happened = false;
 				Entity *e = it->e;
-				if(e)
+				if (e)
 				{
 					BUFF_ITER(Entity *, &info.with)
 					{
-						if(e == *it)
+						if (e == *it)
 						{
 							already_in_happened = true;
 						}
 					}
-					if(!already_in_happened)
+					if (!already_in_happened)
 					{
-						if(!BUFF_HAS_SPACE(&info.with))
+						if (!BUFF_HAS_SPACE(&info.with))
 						{
 							Log("WARNING not enough space in collision info out\n");
 						}
@@ -4713,7 +4711,8 @@ Vec2 move_and_slide(MoveSlideParams p)
 			}
 		}
 
-	if (p.col_info_out) *p.col_info_out = info;
+	if (p.col_info_out)
+		*p.col_info_out = info;
 
 	Vec2 result_pos = at_new.center;
 	return result_pos;
@@ -4730,7 +4729,7 @@ float character_width(LoadedFont for_font, int ascii_letter, float text_scale)
 // spaces will be added between them inshallah.
 String8List split_by_word(Arena *arena, String8 string)
 {
-	String8 word_delimeters[] = { S8Lit(" ") };
+	String8 word_delimeters[] = {S8Lit(" ")};
 	return S8Split(arena, string, ARRLEN(word_delimeters), word_delimeters);
 }
 
@@ -4749,7 +4748,6 @@ typedef struct
 	PlacedWord *first;
 	PlacedWord *last;
 } PlacedWordList;
-
 
 typedef enum
 {
@@ -4799,48 +4797,48 @@ PlacedWordList place_wrapped_words(Arena *arena, String8List words, float text_s
 		}
 	}
 
-	switch(just)
+	switch (just)
 	{
-		case JUST_LEFT:
+	case JUST_LEFT:
 		break;
-		case JUST_CENTER:
+	case JUST_CENTER:
+	{
+		// PlacedWord **by_line_index = PushArray(scratch.arena, PlacedWord*, current_line_index);
+		for (int i = to_return.first->line_index; i <= to_return.last->line_index; i++)
 		{
-			//PlacedWord **by_line_index = PushArray(scratch.arena, PlacedWord*, current_line_index);
-			for(int i = to_return.first->line_index; i <= to_return.last->line_index; i++)
+			PlacedWord *first_on_line = 0;
+			PlacedWord *last_on_line = 0;
+
+			for (PlacedWord *cur = to_return.first; cur; cur = cur->next)
 			{
-				PlacedWord *first_on_line = 0;
-				PlacedWord *last_on_line = 0;
-
-				for(PlacedWord *cur = to_return.first; cur; cur = cur->next)
+				if (cur->line_index == i)
 				{
-					if(cur->line_index == i)
+					if (first_on_line == 0)
 					{
-						if(first_on_line == 0)
-						{
-							first_on_line = cur;
-						}
-					}
-					else if(cur->line_index > i)
-					{
-						last_on_line = cur->prev;
-						assert(last_on_line->line_index == i);
-						break;
+						first_on_line = cur;
 					}
 				}
-				if(first_on_line && !last_on_line)
+				else if (cur->line_index > i)
 				{
-					last_on_line = to_return.last;
-				}
-
-				float total_width = fabsf(first_on_line->lower_left_corner.x - (last_on_line->lower_left_corner.x + last_on_line->size.x));
-				float midpoint = total_width/2.0f;
-				for(PlacedWord *cur = first_on_line; cur != last_on_line->next; cur = cur->next)
-				{
-					cur->lower_left_corner.x = (cur->lower_left_corner.x - midpoint) + maximum_width/2.0f;
+					last_on_line = cur->prev;
+					assert(last_on_line->line_index == i);
+					break;
 				}
 			}
+			if (first_on_line && !last_on_line)
+			{
+				last_on_line = to_return.last;
+			}
+
+			float total_width = fabsf(first_on_line->lower_left_corner.x - (last_on_line->lower_left_corner.x + last_on_line->size.x));
+			float midpoint = total_width / 2.0f;
+			for (PlacedWord *cur = first_on_line; cur != last_on_line->next; cur = cur->next)
+			{
+				cur->lower_left_corner.x = (cur->lower_left_corner.x - midpoint) + maximum_width / 2.0f;
+			}
 		}
-		break;
+	}
+	break;
 	}
 
 	ReleaseScratch(scratch);
@@ -4849,7 +4847,7 @@ PlacedWordList place_wrapped_words(Arena *arena, String8List words, float text_s
 
 void translate_words_by(PlacedWordList words, Vec2 translation)
 {
-	for(PlacedWord *cur = words.first; cur; cur = cur->next)
+	for (PlacedWord *cur = words.first; cur; cur = cur->next)
 	{
 		cur->lower_left_corner = AddV2(cur->lower_left_corner, translation);
 	}
@@ -4861,9 +4859,9 @@ String8 last_said_sentence(Entity *npc)
 
 	String8 to_return = (String8){0};
 
-	for(Memory *cur = npc->memories_last; cur; cur = cur->prev)
+	for (Memory *cur = npc->memories_last; cur; cur = cur->prev)
 	{
-		if(cur->context.author_npc_kind == npc->npc_kind && cur->speech.text_length > 0)
+		if (cur->context.author_npc_kind == npc->npc_kind && cur->speech.text_length > 0)
 		{
 			to_return = TextChunkString8(cur->speech);
 			break;
@@ -4895,22 +4893,22 @@ Vec2 get_point_along_trail(BuffRef trail, float along)
 	assert(trail.data_elem_size == sizeof(Vec2));
 	assert(*trail.cur_index > 1);
 
-	Vec2 *arr = (Vec2*)trail.data;
+	Vec2 *arr = (Vec2 *)trail.data;
 
 	int cur = *trail.cur_index - 1;
-	while(cur > 0)
+	while (cur > 0)
 	{
 		Vec2 from = arr[cur];
 		Vec2 to = arr[cur - 1];
 		Vec2 cur_segment = SubV2(to, from);
 		float len = LenV2(cur_segment);
-		if(len < along)
+		if (len < along)
 		{
 			along -= len;
 		}
 		else
 		{
-			return LerpV2(from, along/len, to);
+			return LerpV2(from, along / len, to);
 		}
 		cur -= 1;
 	}
@@ -4920,23 +4918,23 @@ float get_total_trail_len(BuffRef trail)
 {
 	assert(trail.data_elem_size == sizeof(Vec2));
 
-	if(*trail.cur_index <= 1)
+	if (*trail.cur_index <= 1)
 	{
 		return 0.0f;
 	}
 	else
 	{
 		float to_return = 0.0f;
-		Vec2 *arr = (Vec2*)trail.data;
-		for(int i = 0; i < *trail.cur_index - 1; i++)
+		Vec2 *arr = (Vec2 *)trail.data;
+		for (int i = 0; i < *trail.cur_index - 1; i++)
 		{
-			to_return += LenV2(SubV2(arr[i], arr[i+1]));
+			to_return += LenV2(SubV2(arr[i], arr[i + 1]));
 		}
 		return to_return;
 	}
 }
 
-Vec2 mouse_pos = { 0 }; // in screen space
+Vec2 mouse_pos = {0}; // in screen space
 
 #define ROLL_KEY SAPP_KEYCODE_LEFT_SHIFT
 double elapsed_time = 0.0;
@@ -4953,7 +4951,7 @@ typedef struct
 	bool mouse_up;
 } PressedState;
 
-PressedState pressed = { 0 };
+PressedState pressed = {0};
 bool mouse_down = false;
 float learned_shift = 0.0;
 float learned_space = 0.0;
@@ -4982,9 +4980,12 @@ bool imbutton_key(ImbuttonArgs args)
 {
 	Layer layer = LAYER_UI;
 	LoadedFont *font = &default_font;
-	if(args.layer != LAYER_INVALID) layer = args.layer;
-	if(args.font) font = args.font;
-	get_state(state, struct { float pressed_amount; bool is_being_pressed; }, "%.*s", S8VArg(args.key));
+	if (args.layer != LAYER_INVALID)
+		layer = args.layer;
+	if (args.font)
+		font = args.font;
+	get_state(
+		state, struct { float pressed_amount; bool is_being_pressed; }, "%.*s", S8VArg(args.key));
 
 	float raise = Lerp(0.0f, state->pressed_amount, 5.0f);
 	args.button_aabb.upper_left.y += raise;
@@ -5007,22 +5008,30 @@ bool imbutton_key(ImbuttonArgs args)
 			to_return = true; // when mouse released, and hovering over button, this is a button press - Lao Tzu
 		}
 	}
-	if (pressed.mouse_up) state->is_being_pressed = false;
+	if (pressed.mouse_up)
+		state->is_being_pressed = false;
 
-	if (state->is_being_pressed || args.force_down) pressed_target = 0.0f;
+	if (state->is_being_pressed || args.force_down)
+		pressed_target = 0.0f;
 
-	state->pressed_amount = Lerp(state->pressed_amount, args.dt*20.0f, pressed_target);
+	state->pressed_amount = Lerp(state->pressed_amount, args.dt * 20.0f, pressed_target);
 
 	float button_alpha = Lerp(0.5f, state->pressed_amount, 1.0f);
 
 	if (aabb_is_valid(args.button_aabb))
 	{
-		if(!args.nobg)
-			draw_quad((DrawParams) { quad_aabb(args.button_aabb), IMG(image_white_square), blendalpha(WHITE, button_alpha), .layer = layer,  });
+		if (!args.nobg)
+			draw_quad((DrawParams){
+				quad_aabb(args.button_aabb),
+				IMG(image_white_square),
+				blendalpha(WHITE, button_alpha),
+				.layer = layer,
+			});
 
-		if(args.icon) {
+		if (args.icon)
+		{
 			Vec2 button_size = aabb_size(args.button_aabb);
-			float icon_vertical_size = button_size.y - 2.0f*args.icon_padding;
+			float icon_vertical_size = button_size.y - 2.0f * args.icon_padding;
 			Vec2 icon_size = V2(icon_vertical_size, icon_vertical_size);
 			Vec2 center = aabb_center(args.button_aabb);
 			AABB icon_aabb = aabb_centered(center, icon_size);
@@ -5033,17 +5042,24 @@ bool imbutton_key(ImbuttonArgs args)
 			}
 			*/
 			AABB region = full_region(*args.icon);
-			if(args.icon_flipped) {
+			if (args.icon_flipped)
+			{
 				swapVec2(&region.upper_left, &region.lower_right);
 			}
-			draw_quad((DrawParams) { quad_aabb(icon_aabb), *args.icon, region, blendalpha(WHITE, button_alpha), .layer = layer, });
+			draw_quad((DrawParams){
+				quad_aabb(icon_aabb),
+				*args.icon,
+				region,
+				blendalpha(WHITE, button_alpha),
+				.layer = layer,
+			});
 		}
-		
-		// don't use draw centered text here because it looks funny for some reason... I think it's because the vertical line advance of the font, used in draw_centered_text, is the wrong thing for a button like this 
-		TextParams t = (TextParams) { false, args.text, aabb_center(args.button_aabb), BLACK, args.text_scale, .clip_to = args.button_aabb, .do_clipping = true, .layer = layer, .use_font = font };
+
+		// don't use draw centered text here because it looks funny for some reason... I think it's because the vertical line advance of the font, used in draw_centered_text, is the wrong thing for a button like this
+		TextParams t = (TextParams){false, args.text, aabb_center(args.button_aabb), BLACK, args.text_scale, .clip_to = args.button_aabb, .do_clipping = true, .layer = layer, .use_font = font};
 		t.dry_run = true;
 		AABB aabb = draw_text(t);
-		if(aabb_is_valid(aabb))
+		if (aabb_is_valid(aabb))
 		{
 			t.dry_run = false;
 			t.pos = SubV2(aabb_center(args.button_aabb), MulV2F(aabb_size(aabb), 0.5f));
@@ -5058,7 +5074,7 @@ bool imbutton_key(ImbuttonArgs args)
 
 Quat rot_on_plane_to_quat(float rot)
 {
-	return QFromAxisAngle_RH(V3(0,1,0), AngleRad(-rot));
+	return QFromAxisAngle_RH(V3(0, 1, 0), AngleRad(-rot));
 }
 
 Transform entity_transform(Entity *e)
@@ -5069,27 +5085,25 @@ Transform entity_transform(Entity *e)
 	// the handedness of the 3d coordinate system not matching the handedness of the 2d coordinate system
 	Quat entity_rot = rot_on_plane_to_quat(e->rotation);
 
-	return (Transform){.offset = AddV3(plane_point(e->pos), V3(0,0,0)), .rotation = entity_rot, .scale = V3(1, 1, 1)};
+	return (Transform){.offset = AddV3(plane_point(e->pos), V3(0, 0, 0)), .rotation = entity_rot, .scale = V3(1, 1, 1)};
 	/*
 	(void)entity_rot;
 	return (Transform){.offset = AddV3(plane_point(e->pos), V3(0,0,0)), .rotation = Make_Q(0,0,0,1), .scale = V3(1, 1, 1)};
 	*/
 }
 
-
-Shadow_State init_shadow_state() {
-	//To start off with, most of this initialisation code is taken from the
-	// sokol shadows sample, which can be found here. 
-	// https://floooh.github.io/sokol-html5/shadows-sapp.html
+Shadow_State init_shadow_state()
+{
+	// To start off with, most of this initialisation code is taken from the
+	//  sokol shadows sample, which can be found here.
+	//  https://floooh.github.io/sokol-html5/shadows-sapp.html
 
 	Shadow_State shadows = {0};
 
-	shadows.pass_action = (sg_pass_action) {
+	shadows.pass_action = (sg_pass_action){
 		.colors[0] = {
 			.load_action = SG_LOADACTION_CLEAR,
-			.clear_value = { 1.0f, 1.0f, 1.0f, 1.0f }
-		}
-	};
+			.clear_value = {1.0f, 1.0f, 1.0f, 1.0f}}};
 
 	/*
 		 As of right now, it looks like sokol_gfx does not support depth only
@@ -5105,48 +5119,43 @@ Shadow_State init_shadow_state() {
 		.height = SHADOW_MAP_DIMENSION,
 		.pixel_format = sapp_sgcontext().color_format,
 		.sample_count = 1,
-		.label = "shadow-map-color-image"
-	};
+		.label = "shadow-map-color-image"};
 	shadows.color_img = sg_make_image(&img_desc);
 	img_desc.pixel_format = SG_PIXELFORMAT_DEPTH; // @TODO @URGENT replace depth with R8, I think depth isn't always safe on Webgl1 according to sg_gfx header. Also replace other instances of this in codebase
 	img_desc.label = "shadow-map-depth-image";
 	shadows.depth_img = sg_make_image(&img_desc);
 	shadows.pass = sg_make_pass(&(sg_pass_desc){
-			.color_attachments[0].image = shadows.color_img,
-			.depth_stencil_attachment.image = shadows.depth_img,
-			.label = "shadow-map-pass"
-			});
-
+		.color_attachments[0].image = shadows.color_img,
+		.depth_stencil_attachment.image = shadows.depth_img,
+		.label = "shadow-map-pass"});
 
 	sg_pipeline_desc desc = (sg_pipeline_desc){
 		.layout = {
 			.attrs = {
 				[ATTR_threedee_vs_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
 				[ATTR_threedee_vs_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
-			}
+			}},
+		.shader = sg_make_shader(threedee_mesh_shadow_mapping_shader_desc(sg_query_backend())),
+		// Cull front faces in the shadow map pass
+		// .cull_mode = SG_CULLMODE_BACK,
+		.sample_count = 1,
+		.depth = {
+			.pixel_format = SG_PIXELFORMAT_DEPTH,
+			.compare = SG_COMPAREFUNC_LESS_EQUAL,
+			.write_enabled = true,
 		},
-			.shader = sg_make_shader(threedee_mesh_shadow_mapping_shader_desc(sg_query_backend())),
-			// Cull front faces in the shadow map pass
-			// .cull_mode = SG_CULLMODE_BACK,
-			.sample_count = 1,
-			.depth = {
-				.pixel_format = SG_PIXELFORMAT_DEPTH,
-				.compare = SG_COMPAREFUNC_LESS_EQUAL,
-				.write_enabled = true,
-			},
-			.colors[0].pixel_format = sapp_sgcontext().color_format,
-			.label = "shadow-map-pipeline"
-	};
+		.colors[0].pixel_format = sapp_sgcontext().color_format,
+		.label = "shadow-map-pipeline"};
 
 	shadows.pip = sg_make_pipeline(&desc);
 
 	desc.label = "armature-shadow-map-pipeline";
 	desc.shader = sg_make_shader(threedee_armature_shadow_mapping_shader_desc(sg_query_backend()));
 	sg_vertex_attr_state skeleton_vertex_attrs[] = {
-			[ATTR_threedee_vs_skeleton_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
-			[ATTR_threedee_vs_skeleton_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
-			[ATTR_threedee_vs_skeleton_indices_in].format = SG_VERTEXFORMAT_USHORT4N,
-			[ATTR_threedee_vs_skeleton_weights_in].format = SG_VERTEXFORMAT_FLOAT4,
+		[ATTR_threedee_vs_skeleton_pos_in].format = SG_VERTEXFORMAT_FLOAT3,
+		[ATTR_threedee_vs_skeleton_uv_in].format = SG_VERTEXFORMAT_FLOAT2,
+		[ATTR_threedee_vs_skeleton_indices_in].format = SG_VERTEXFORMAT_USHORT4N,
+		[ATTR_threedee_vs_skeleton_weights_in].format = SG_VERTEXFORMAT_FLOAT4,
 	};
 	assert(ARRLEN(skeleton_vertex_attrs) < ARRLEN(desc.layout.attrs));
 	memcpy(desc.layout.attrs, skeleton_vertex_attrs, sizeof(skeleton_vertex_attrs));
@@ -5156,37 +5165,32 @@ Shadow_State init_shadow_state() {
 
 float round_to_nearest(float input, float round_target)
 {
-    float result = 0.0f;
-    if(round_target != 0.0f)
-    {
-        float div = roundf(input / round_target);
-        result = div * round_target;
-    }
-    return result;
+	float result = 0.0f;
+	if (round_target != 0.0f)
+	{
+		float div = roundf(input / round_target);
+		result = div * round_target;
+	}
+	return result;
 }
 
-
-typedef struct
+void debug_draw_img(sg_image img, int index)
 {
-	//For now we consider all vertices on the near plane to be equal to the camera position, and store that at vertices[0];
-	Vec3 vertices[5];
-} FrustumVertices;
-
-void debug_draw_img(sg_image img, int index) {
-    draw_quad((DrawParams){quad_at(V2(512.0f*index, 512.0), V2(512.0, 512.0)), IMG(img), WHITE, .layer=LAYER_UI});
+	draw_quad((DrawParams){quad_at(V2(512.0f * index, 512.0), V2(512.0, 512.0)), IMG(img), WHITE, .layer = LAYER_UI});
 }
 
-void debug_draw_img_with_border(sg_image img, int index) {
-    float bs = 50.0;
-    draw_quad((DrawParams){quad_at(V2(512.0f*index, 512.0), V2(512.0, 512.0)), img, (AABB){V2(-bs, -bs), AddV2(img_size(img), V2(bs, bs))}, WHITE, .layer=LAYER_UI});
+void debug_draw_img_with_border(sg_image img, int index)
+{
+	float bs = 50.0;
+	draw_quad((DrawParams){quad_at(V2(512.0f * index, 512.0), V2(512.0, 512.0)), img, (AABB){V2(-bs, -bs), AddV2(img_size(img), V2(bs, bs))}, WHITE, .layer = LAYER_UI});
 }
 
 void actually_draw_thing(DrawnThing *it, Mat4 light_space_matrix, bool for_outline)
 {
 	int num_vertices_to_draw = 0;
-	if(it->mesh)
+	if (it->mesh)
 	{
-		if(for_outline)
+		if (for_outline)
 			sg_apply_pipeline(state.outline_mesh_pip);
 		else if (it->alpha_blend)
 			sg_apply_pipeline(state.threedee_alpha_blended_pip);
@@ -5194,7 +5198,7 @@ void actually_draw_thing(DrawnThing *it, Mat4 light_space_matrix, bool for_outli
 			sg_apply_pipeline(state.threedee_pip);
 		sg_bindings bindings = {0};
 		bindings.fs.images[SLOT_threedee_tex] = it->mesh->image;
-		if(for_outline)
+		if (for_outline)
 		{
 			bindings.fs.samplers[SLOT_threedee_fs_outline_smp] = state.sampler_linear;
 		}
@@ -5210,7 +5214,7 @@ void actually_draw_thing(DrawnThing *it, Mat4 light_space_matrix, bool for_outli
 		Mat4 model = transform_to_matrix(it->t);
 		threedee_vs_params_t vs_params = {
 			.model = model,
-			.view =	 view,
+			.view = view,
 			.projection = projection,
 			.directional_light_space_matrix = light_space_matrix,
 			.time = (float)elapsed_time,
@@ -5222,9 +5226,9 @@ void actually_draw_thing(DrawnThing *it, Mat4 light_space_matrix, bool for_outli
 
 		num_vertices_to_draw = (int)it->mesh->num_vertices;
 	}
-	else if(it->armature)
+	else if (it->armature)
 	{
-		if(for_outline)
+		if (for_outline)
 			sg_apply_pipeline(state.outline_armature_pip);
 		else
 			sg_apply_pipeline(state.armature_pip);
@@ -5232,7 +5236,7 @@ void actually_draw_thing(DrawnThing *it, Mat4 light_space_matrix, bool for_outli
 		bindings.vs.images[SLOT_threedee_bones_tex] = it->armature->bones_texture;
 		bindings.vs.samplers[SLOT_threedee_vs_skeleton_smp] = state.sampler_nearest;
 		bindings.fs.images[SLOT_threedee_tex] = it->armature->image;
-		if(for_outline)
+		if (for_outline)
 		{
 			bindings.fs.samplers[SLOT_threedee_fs_outline_smp] = state.sampler_linear;
 		}
@@ -5251,7 +5255,7 @@ void actually_draw_thing(DrawnThing *it, Mat4 light_space_matrix, bool for_outli
 			.view = view,
 			.projection = projection,
 			.directional_light_space_matrix = light_space_matrix,
-			.bones_tex_size = V2((float)it->armature->bones_texture_width,(float)it->armature->bones_texture_height),
+			.bones_tex_size = V2((float)it->armature->bones_texture_width, (float)it->armature->bones_texture_height),
 		};
 		sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_skeleton_vs_params, &SG_RANGE(params));
 		num_vertices_to_draw = (int)it->armature->vertices_length;
@@ -5259,12 +5263,11 @@ void actually_draw_thing(DrawnThing *it, Mat4 light_space_matrix, bool for_outli
 	else
 		assert(false);
 
-
-	if(!for_outline)
+	if (!for_outline)
 	{
 		threedee_fs_params_t fs_params = {0};
 		fs_params.shadow_map_dimension = SHADOW_MAP_DIMENSION;
-		if(it->no_dust)
+		if (it->no_dust)
 		{
 			fs_params.how_much_not_to_blend_ground_color = 0.0;
 		}
@@ -5298,26 +5301,26 @@ void flush_all_drawn_things(ShadowMats shadow)
 		{
 			SLICE_ITER(DrawnThing, drawn_this_frame)
 			{
-				if(it->armature)
+				if (it->armature)
 				{
 					ArenaTemp scratch = GetScratch(0, 0);
 					Armature *armature = it->armature;
 					int bones_tex_size = 4 * armature->bones_texture_width * armature->bones_texture_height;
 					u8 *bones_tex = ArenaPush(scratch.arena, bones_tex_size);
 
-					for(u64 i = 0; i < armature->bones_length; i++)
+					for (u64 i = 0; i < armature->bones_length; i++)
 					{
 						Bone *cur = &armature->bones[i];
 
 						// for debug drawing
-						Vec3 from = MulM4V3(cur->matrix_local, V3(0,0,0));
-						Vec3 x = MulM4V3(cur->matrix_local, V3(cur->length,0,0));
-						Vec3 y = MulM4V3(cur->matrix_local, V3(0,cur->length,0));
-						Vec3 z = MulM4V3(cur->matrix_local, V3(0,0,cur->length));
+						Vec3 from = MulM4V3(cur->matrix_local, V3(0, 0, 0));
+						Vec3 x = MulM4V3(cur->matrix_local, V3(cur->length, 0, 0));
+						Vec3 y = MulM4V3(cur->matrix_local, V3(0, cur->length, 0));
+						Vec3 z = MulM4V3(cur->matrix_local, V3(0, 0, cur->length));
 
 						Mat4 final = M4D(1.0f);
 						final = MulM4(cur->inverse_model_space_pos, final);
-						for(Bone *cur_in_hierarchy = cur; cur_in_hierarchy; cur_in_hierarchy = cur_in_hierarchy->parent)
+						for (Bone *cur_in_hierarchy = cur; cur_in_hierarchy; cur_in_hierarchy = cur_in_hierarchy->parent)
 						{
 							int bone_index = (int)(cur_in_hierarchy - armature->bones);
 							final = MulM4(transform_to_matrix(armature->anim_blended_poses[bone_index]), final);
@@ -5342,33 +5345,32 @@ void flush_all_drawn_things(ShadowMats shadow)
 						dbgcol(BLUE)
 							dbg3dline(from, z);
 
-						for(int col = 0; col < 4; col++)
+						for (int col = 0; col < 4; col++)
 						{
 							Vec4 to_upload = final.Columns[col];
 
 							int bytes_per_pixel = 4;
 							int bytes_per_column_of_mat = bytes_per_pixel * 4;
 							int bytes_per_row = bytes_per_pixel * armature->bones_texture_width;
-							for(int elem = 0; elem < 4; elem++)
+							for (int elem = 0; elem < 4; elem++)
 							{
 								float after_decoding = decode_normalized_float32(encode_normalized_float32(to_upload.Elements[elem]));
 								assert(fabsf(after_decoding - to_upload.Elements[elem]) < 0.01f);
 							}
-							memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*0], encode_normalized_float32(to_upload.Elements[0]).rgba, bytes_per_pixel);
-							memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*1], encode_normalized_float32(to_upload.Elements[1]).rgba, bytes_per_pixel);
-							memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*2], encode_normalized_float32(to_upload.Elements[2]).rgba, bytes_per_pixel);
-							memcpy(&bones_tex[bytes_per_column_of_mat*col + bytes_per_row*i + bytes_per_pixel*3], encode_normalized_float32(to_upload.Elements[3]).rgba, bytes_per_pixel);
+							memcpy(&bones_tex[bytes_per_column_of_mat * col + bytes_per_row * i + bytes_per_pixel * 0], encode_normalized_float32(to_upload.Elements[0]).rgba, bytes_per_pixel);
+							memcpy(&bones_tex[bytes_per_column_of_mat * col + bytes_per_row * i + bytes_per_pixel * 1], encode_normalized_float32(to_upload.Elements[1]).rgba, bytes_per_pixel);
+							memcpy(&bones_tex[bytes_per_column_of_mat * col + bytes_per_row * i + bytes_per_pixel * 2], encode_normalized_float32(to_upload.Elements[2]).rgba, bytes_per_pixel);
+							memcpy(&bones_tex[bytes_per_column_of_mat * col + bytes_per_row * i + bytes_per_pixel * 3], encode_normalized_float32(to_upload.Elements[3]).rgba, bytes_per_pixel);
 						}
 					}
 
 					// sokol prohibits updating an image more than once per frame
-					if(armature->last_updated_bones_frame != frame_index)
+					if (armature->last_updated_bones_frame != frame_index)
 					{
 						armature->last_updated_bones_frame = frame_index;
 						sg_update_image(armature->bones_texture, &(sg_image_data){
 																	 .subimage[0][0] = (sg_range){bones_tex, bones_tex_size},
 																 });
-
 					}
 
 					ReleaseScratch(scratch);
@@ -5380,7 +5382,7 @@ void flush_all_drawn_things(ShadowMats shadow)
 		Mat4 light_space_matrix;
 		{
 			light_space_matrix = MulM4(shadow.projection, shadow.view);
-			//debug_draw_shadow_info(cam_pos, cam_facing, cam_right, light_space_matrix);
+			// debug_draw_shadow_info(cam_pos, cam_facing, cam_right, light_space_matrix);
 
 			sg_begin_pass(state.shadows.pass, &state.shadows.pass_action);
 
@@ -5389,8 +5391,9 @@ void flush_all_drawn_things(ShadowMats shadow)
 			SLICE_ITER(DrawnThing, drawn_this_frame)
 			{
 				assert(it->mesh || it->armature);
-				if(it->dont_cast_shadows) continue;
-				if(it->mesh)
+				if (it->dont_cast_shadows)
+					continue;
+				if (it->mesh)
 				{
 					sg_bindings bindings = {0};
 					bindings.fs.images[SLOT_threedee_tex] = it->mesh->image;
@@ -5416,7 +5419,7 @@ void flush_all_drawn_things(ShadowMats shadow)
 			sg_apply_pipeline(state.shadows.armature_pip);
 			SLICE_ITER(DrawnThing, drawn_this_frame)
 			{
-				if(it->armature)
+				if (it->armature)
 				{
 					sg_bindings bindings = {0};
 					bindings.vs.images[SLOT_threedee_bones_tex] = it->armature->bones_texture;
@@ -5432,7 +5435,7 @@ void flush_all_drawn_things(ShadowMats shadow)
 						.view = shadow.view,
 						.projection = shadow.projection,
 						.directional_light_space_matrix = light_space_matrix,
-						.bones_tex_size = V2((float)it->armature->bones_texture_width,(float)it->armature->bones_texture_height),
+						.bones_tex_size = V2((float)it->armature->bones_texture_width, (float)it->armature->bones_texture_height),
 					};
 					sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_threedee_skeleton_vs_params, &SG_RANGE(params));
 
@@ -5446,16 +5449,15 @@ void flush_all_drawn_things(ShadowMats shadow)
 
 		// do the outline pass
 		{
-			sg_begin_pass(state.outline_pass, &(sg_pass_action) {
-				.colors[0] = {
-					.load_action = SG_LOADACTION_CLEAR,
-					.clear_value = { 0.0f, 0.0f, 0.0f, 0.0f },
-				}
-			});
+			sg_begin_pass(state.outline_pass, &(sg_pass_action){
+												  .colors[0] = {
+													  .load_action = SG_LOADACTION_CLEAR,
+													  .clear_value = {0.0f, 0.0f, 0.0f, 0.0f},
+												  }});
 
 			SLICE_ITER(DrawnThing, drawn_this_frame)
 			{
-				if(it->outline)
+				if (it->outline)
 				{
 					actually_draw_thing(it, light_space_matrix, true);
 				}
@@ -5471,14 +5473,16 @@ void flush_all_drawn_things(ShadowMats shadow)
 			// draw meshes
 			SLICE_ITER(DrawnThing, drawn_this_frame)
 			{
-				if(it->alpha_blend) continue;
-				if(it->mesh) actually_draw_thing(it, light_space_matrix, false);
+				if (it->alpha_blend)
+					continue;
+				if (it->mesh)
+					actually_draw_thing(it, light_space_matrix, false);
 			}
 
-			// draw armatures armature rendering 
+			// draw armatures armature rendering
 			SLICE_ITER(DrawnThing, drawn_this_frame)
 			{
-				if(it->armature)
+				if (it->armature)
 				{
 					assert(!it->alpha_blend); // too lazy to implement this right now
 					actually_draw_thing(it, light_space_matrix, false);
@@ -5488,11 +5492,9 @@ void flush_all_drawn_things(ShadowMats shadow)
 			// draw transparent
 			SLICE_ITER(DrawnThing, drawn_this_frame)
 			{
-				if(it->alpha_blend)
+				if (it->alpha_blend)
 					actually_draw_thing(it, light_space_matrix, false);
 			}
-
-
 
 			// zero out everything
 			SLICE_ITER(DrawnThing, drawn_this_frame)
@@ -5531,15 +5533,15 @@ String8List words_on_current_page(Entity *it, TextPlacementSettings *settings)
 	PlacedWordList placed = place_wrapped_words(frame_arena, split_by_word(frame_arena, last), settings->text_scale, settings->text_width_in_pixels, *settings->font, JUST_LEFT);
 
 	String8List on_current_page = {0};
-	for(PlacedWord *cur = placed.first; cur; cur = cur->next)
+	for (PlacedWord *cur = placed.first; cur; cur = cur->next)
 	{
-		if(cur->line_index / settings->lines_per_page == it->cur_page_index)
-			S8ListPush(frame_arena, &on_current_page, cur->text);	
+		if (cur->line_index / settings->lines_per_page == it->cur_page_index)
+			S8ListPush(frame_arena, &on_current_page, cur->text);
 	}
 
 	return on_current_page;
 
-	//return place_wrapped_words(frame_arena, on_current_page, text_scale, aabb_size(placing_text_in).x, default_font);
+	// return place_wrapped_words(frame_arena, on_current_page, text_scale, aabb_size(placing_text_in).x, default_font);
 }
 
 String8List words_on_current_page_without_unsaid(Entity *it, TextPlacementSettings *settings)
@@ -5547,9 +5549,9 @@ String8List words_on_current_page_without_unsaid(Entity *it, TextPlacementSettin
 	String8List all_words = words_on_current_page(it, settings);
 	int index = 0;
 	String8List to_return = {0};
-	for(String8Node *cur = all_words.first; cur; cur = cur->next)
+	for (String8Node *cur = all_words.first; cur; cur = cur->next)
 	{
-		if(index > it->words_said_on_page)
+		if (index > it->words_said_on_page)
 			break;
 		S8ListPush(frame_arena, &to_return, cur->string);
 		index += 1;
@@ -5559,17 +5561,17 @@ String8List words_on_current_page_without_unsaid(Entity *it, TextPlacementSettin
 
 Vec3 point_on_plane_from_camera_point(Mat4 view, Vec2 screenspace_camera_point)
 {
-	Vec3 view_cam_pos = MulM4V4(InvGeneralM4(view), V4(0,0,0,1)).xyz;
+	Vec3 view_cam_pos = MulM4V4(InvGeneralM4(view), V4(0, 0, 0, 1)).xyz;
 	Vec3 world_point = screenspace_point_to_camera_point(screenspace_camera_point, view);
 	Vec3 point_ray = NormV3(SubV3(world_point, view_cam_pos));
-	Vec3 marker = ray_intersect_plane(view_cam_pos, point_ray, V3(0,0,0), V3(0,1,0));
+	Vec3 marker = ray_intersect_plane(view_cam_pos, point_ray, V3(0, 0, 0), V3(0, 1, 0));
 	return marker;
 }
 
 int mod(int a, int b)
 {
-    int r = a % b;
-    return r < 0 ? r + b : r;
+	int r = a % b;
+	return r < 0 ? r + b : r;
 }
 
 void frame(void)
@@ -5580,11 +5582,11 @@ void frame(void)
 	{
 		unwarped_dt_double = stm_sec(stm_diff(stm_now(), last_frame_time));
 		unwarped_dt_double = fmin(unwarped_dt_double, MINIMUM_TIMESTEP * 5.0); // clamp dt at maximum 5 frames, avoid super huge dt
-		elapsed_time += unwarped_dt_double*speed_factor;
+		elapsed_time += unwarped_dt_double * speed_factor;
 		unwarped_elapsed_time += unwarped_dt_double;
 		last_frame_time = stm_now();
 	}
-	double dt_double = unwarped_dt_double*speed_factor;
+	double dt_double = unwarped_dt_double * speed_factor;
 	float unwarped_dt = (float)unwarped_dt_double;
 	float dt = (float)dt_double;
 	frame_index += 1;
@@ -5617,77 +5619,78 @@ void frame(void)
 
 		text_input_fade = Lerp(text_input_fade, unwarped_dt * 8.0f, receiving_text_input ? 1.0f : 0.0f);
 
-		Vec3 cam_target_pos = V3(0,0,0);
-		if(gs.edit.enabled) {
+		Vec3 cam_target_pos = V3(0, 0, 0);
+		if (gs.edit.enabled)
+		{
 			cam_target_pos.x = gs.edit.camera_panning.x;
 			cam_target_pos.z = gs.edit.camera_panning.y;
-		} else if(gs.player) {
+		}
+		else if (gs.player)
+		{
 			cam_target_pos.x = gs.player->pos.x;
 			cam_target_pos.z = gs.player->pos.y;
 		}
-		//dbgline(V2(0,0), V2(500, 500));
+		// dbgline(V2(0,0), V2(500, 500));
 		const float vertical_to_horizontal_ratio = CAM_VERTICAL_TO_HORIZONTAL_RATIO;
 		const float cam_distance = CAM_DISTANCE;
 		Vec3 cam_offset_from_target;
 		{
 			float ratio = vertical_to_horizontal_ratio;
-			float x = sqrtf( (cam_distance * cam_distance) / (1 + (ratio*ratio)) );
+			float x = sqrtf((cam_distance * cam_distance) / (1 + (ratio * ratio)));
 			float y = ratio * x;
 			cam_offset_from_target = V3(x, y, 0.0);
 		}
-		cam_offset_from_target = MulM4V4(Rotate_RH(-PI32/3.0f + PI32, V3(0,1,0)), IsPoint(cam_offset_from_target)).xyz;
-		if(get_cur_room(&gs, &level_threedee)->camera_offset_is_overridden)
+		cam_offset_from_target = MulM4V4(Rotate_RH(-PI32 / 3.0f + PI32, V3(0, 1, 0)), IsPoint(cam_offset_from_target)).xyz;
+		if (get_cur_room(&gs, &level_threedee)->camera_offset_is_overridden)
 		{
 			cam_offset_from_target = get_cur_room(&gs, &level_threedee)->camera_offset;
 		}
 		Vec3 cam_pos = AddV3(cam_target_pos, cam_offset_from_target);
 
-		Vec2 movement = { 0 };
+		Vec2 movement = {0};
 		if (mobile_controls)
 		{
 			movement = SubV2(thumbstick_nub_pos, thumbstick_base_pos);
 			if (LenV2(movement) > 0.0f)
 			{
-				movement = MulV2F(NormV2(movement), LenV2(movement) / (thumbstick_base_size()*0.5f));
+				movement = MulV2F(NormV2(movement), LenV2(movement) / (thumbstick_base_size() * 0.5f));
 			}
 		}
 		else
 		{
 			movement = V2(
-					(float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A],
-					(float)keydown[SAPP_KEYCODE_W] - (float)keydown[SAPP_KEYCODE_S]
-					);
+				(float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A],
+				(float)keydown[SAPP_KEYCODE_W] - (float)keydown[SAPP_KEYCODE_S]);
 		}
 		if (LenV2(movement) > 1.0)
 		{
 			movement = NormV2(movement);
 		}
 
-
 		Vec3 light_dir;
 		{
 			float t = 0.3f;
-			Vec3 sun_vector = V3(2.0f*t - 1.0f, sinf(t*PI32)*0.8f + 0.2f, 0.8f); // where the sun is pointing from
+			Vec3 sun_vector = V3(2.0f * t - 1.0f, sinf(t * PI32) * 0.8f + 0.2f, 0.8f); // where the sun is pointing from
 			light_dir = NormV3(MulV3F(sun_vector, -1.0f));
 		}
 
 		// make movement relative to camera forward
 		Vec3 facing = NormV3(SubV3(cam_target_pos, cam_pos));
-		Vec3 right = Cross(facing, V3(0,1,0));
+		Vec3 right = Cross(facing, V3(0, 1, 0));
 		Vec2 forward_2d = NormV2(V2(facing.x, facing.z));
 		Vec2 right_2d = NormV2(V2(right.x, right.z));
 		movement = AddV2(MulV2F(forward_2d, movement.y), MulV2F(right_2d, movement.x));
 
-		if(flycam)
-			movement = V2(0,0);
+		if (flycam)
+			movement = V2(0, 0);
 
 		view = Translate(V3(0.0, 1.0, -5.0f));
 		Mat4 normal_cam_view = LookAt_RH(cam_pos, cam_target_pos, V3(0, 1, 0));
-		if(flycam)
+		if (flycam)
 		{
 			Basis basis = flycam_basis();
 			view = LookAt_RH(flycam_pos, AddV3(flycam_pos, basis.forward), V3(0, 1, 0));
-			//view = flycam_matrix();
+			// view = flycam_matrix();
 		}
 		else
 		{
@@ -5696,67 +5699,66 @@ void frame(void)
 
 		projection = Perspective_RH_NO(FIELD_OF_VIEW, screen_size().x / screen_size().y, NEAR_PLANE_DISTANCE, FAR_PLANE_DISTANCE);
 
-
 		// calculate light stuff
 		Vec3 camera_bounds[] = {
-			point_on_plane_from_camera_point(normal_cam_view, V2(0.0,0.0)),
-			point_on_plane_from_camera_point(normal_cam_view, V2(screen_size().x,0.0)),
-			point_on_plane_from_camera_point(normal_cam_view, V2(screen_size().x,screen_size().y)),
-			point_on_plane_from_camera_point(normal_cam_view, V2(0.0,screen_size().y)),
+			point_on_plane_from_camera_point(normal_cam_view, V2(0.0, 0.0)),
+			point_on_plane_from_camera_point(normal_cam_view, V2(screen_size().x, 0.0)),
+			point_on_plane_from_camera_point(normal_cam_view, V2(screen_size().x, screen_size().y)),
+			point_on_plane_from_camera_point(normal_cam_view, V2(0.0, screen_size().y)),
 		};
-		for(int i = 0; i < ARRLEN(camera_bounds); i++)
+		for (int i = 0; i < ARRLEN(camera_bounds); i++)
 			dbgcol(PINK)
 				dbg3dline(camera_bounds[i], camera_bounds[(i + 1) % ARRLEN(camera_bounds)]);
 
-		Vec3 center = V3(0,0,0);
-		ARR_ITER(Vec3, camera_bounds) center = AddV3(center, *it);
+		Vec3 center = V3(0, 0, 0);
+		ARR_ITER(Vec3, camera_bounds)
+		center = AddV3(center, *it);
 		center = MulV3F(center, 1.0f / (float)ARRLEN(camera_bounds));
 		Vec3 shadows_focused_on = center;
 		float max_radius = 0.0f;
 		ARR_ITER(Vec3, camera_bounds)
 		{
 			float l = LenV3(SubV3(*it, shadows_focused_on));
-			if(l > max_radius)
+			if (l > max_radius)
 			{
 				max_radius = l;
 			}
 		}
 		ShadowMats shadow = {
-			.view = LookAt_RH(shadows_focused_on, AddV3(shadows_focused_on,light_dir), V3(0, 1, 0)),
+			.view = LookAt_RH(shadows_focused_on, AddV3(shadows_focused_on, light_dir), V3(0, 1, 0)),
 			.projection = Orthographic_RH_NO(-max_radius, max_radius, -max_radius, max_radius, -100.0f, 400.0f),
 			//.projection = Orthographic_RH_NO(svp.l, svp.r, svp.b, svp.t, svp.n, svp.f),
 		};
 
-
 		// @Place(draw 3d things)
 
-		for(PlacedMesh *cur = get_cur_room(&gs, &level_threedee)->placed_mesh_list; cur; cur = cur->next)
+		for (PlacedMesh *cur = get_cur_room(&gs, &level_threedee)->placed_mesh_list; cur; cur = cur->next)
 		{
 			float seed = (float)((int64_t)cur % 1024);
 
 			DrawnThing call = (DrawnThing){.mesh = cur->draw_with, .t = cur->t};
-			if(S8Match(cur->name, S8Lit("Ground"), 0))
+			if (S8Match(cur->name, S8Lit("Ground"), 0))
 				call.no_dust = true;
 
 			call.no_dust = true;
-			float helicopter_offset = (float)sin(elapsed_time*0.5f)*0.5f;
-			if(S8Match(cur->name, S8Lit("HelicopterBlade"), 0))
+			float helicopter_offset = (float)sin(elapsed_time * 0.5f) * 0.5f;
+			if (S8Match(cur->name, S8Lit("HelicopterBlade"), 0))
 			{
 				call.t.offset.y += helicopter_offset;
-				call.t.rotation = QFromAxisAngle_RH(V3(0,1,0), (float)elapsed_time * 15.0f);
+				call.t.rotation = QFromAxisAngle_RH(V3(0, 1, 0), (float)elapsed_time * 15.0f);
 			}
-			if(S8Match(cur->name, S8Lit("BlurryBlade"), 0))
+			if (S8Match(cur->name, S8Lit("BlurryBlade"), 0))
 			{
-				call.t.rotation = QFromAxisAngle_RH(V3(0,1,0), (float)elapsed_time * 15.0f);
+				call.t.rotation = QFromAxisAngle_RH(V3(0, 1, 0), (float)elapsed_time * 15.0f);
 				call.t.offset.y += helicopter_offset;
 				call.alpha_blend = true;
 				call.dont_cast_shadows = true;
 			}
-			if(S8Match(cur->name, S8Lit("HelicopterBody"), 0))
+			if (S8Match(cur->name, S8Lit("HelicopterBody"), 0))
 			{
 				call.t.offset.y += helicopter_offset;
 			}
-			if(S8FindSubstring(cur->name, S8Lit("Bush"), 0, 0) == 0)
+			if (S8FindSubstring(cur->name, S8Lit("Bush"), 0, 0) == 0)
 			{
 				call.wobble_factor = 1.0f;
 				call.seed = seed;
@@ -5764,9 +5766,10 @@ void frame(void)
 			draw_thing(call);
 		}
 
+		// @Place(Draw entities)
 		ENTITIES_ITER(gs.entities)
 		{
-			if(it->is_npc && it->current_roomid == get_cur_room(&gs, &level_threedee)->roomid)
+			if (it->is_npc && it->current_roomid == get_cur_room(&gs, &level_threedee)->roomid)
 			{
 				assert(it->is_npc);
 				Transform draw_with = entity_transform(it);
@@ -5805,12 +5808,12 @@ void frame(void)
 
 		// progress the animation, then blend the two animations if necessary, and finally
 		// output into anim_blended_poses
-		ARR_ITER(Armature*, armatures)
+		ARR_ITER(Armature *, armatures)
 		{
 			Armature *cur = *it;
 			float seed = (float)((int64_t)cur % 1024); // offset into elapsed time to make all of their animations out of phase
 			float along_current_animation = 0.0;
-			if(cur->currently_playing_isnt_looping)
+			if (cur->currently_playing_isnt_looping)
 			{
 				along_current_animation = (float)cur->cur_animation_time;
 				cur->cur_animation_time += dt;
@@ -5820,9 +5823,9 @@ void frame(void)
 				along_current_animation = (float)elapsed_time + seed;
 			}
 
-			if(cur->go_to_animation.size > 0)
+			if (cur->go_to_animation.size > 0)
 			{
-				if(S8Match(cur->go_to_animation, cur->currently_playing_animation, 0))
+				if (S8Match(cur->go_to_animation, cur->currently_playing_animation, 0))
 				{
 				}
 				else
@@ -5831,7 +5834,7 @@ void frame(void)
 					cur->currently_playing_animation = cur->go_to_animation;
 					cur->animation_blend_t = 0.0f;
 					cur->go_to_animation = (String8){0};
-					if(cur->next_animation_isnt_looping)
+					if (cur->next_animation_isnt_looping)
 					{
 						cur->cur_animation_time = 0.0;
 						cur->currently_playing_isnt_looping = true;
@@ -5844,14 +5847,14 @@ void frame(void)
 				cur->next_animation_isnt_looping = false;
 			}
 
-			if(cur->animation_blend_t < 1.0f)
+			if (cur->animation_blend_t < 1.0f)
 			{
 				cur->animation_blend_t += dt / ANIMATION_BLEND_TIME;
-				
+
 				Animation *to_anim = get_anim_by_name(cur, cur->currently_playing_animation);
 				assert(to_anim);
 
-				for(u64 i = 0; i < cur->bones_length; i++)
+				for (u64 i = 0; i < cur->bones_length; i++)
 				{
 					Transform *output_transform = &cur->anim_blended_poses[i];
 					Transform from_transform = cur->current_poses[i];
@@ -5863,17 +5866,17 @@ void frame(void)
 			else
 			{
 				Animation *cur_anim = get_anim_by_name(cur, cur->currently_playing_animation);
-				for(u64 i = 0; i < cur->bones_length; i++)
+				for (u64 i = 0; i < cur->bones_length; i++)
 				{
 					cur->anim_blended_poses[i] = get_animated_bone_transform(&cur_anim->tracks[i], along_current_animation, cur->currently_playing_isnt_looping);
 				}
 			}
 		}
 
-		flush_all_drawn_things(shadow); 
+		flush_all_drawn_things(shadow);
 
 		// draw the 3d render
-		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.threedee_pass_resolve_image), WHITE, .layer = LAYER_WORLD, .custom_pipeline = state.twodee_colorcorrect_pip });
+		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.threedee_pass_resolve_image), WHITE, .layer = LAYER_WORLD, .custom_pipeline = state.twodee_colorcorrect_pip});
 		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.outline_pass_resolve_image), WHITE, .custom_pipeline = state.twodee_outline_pip, .layer = LAYER_UI});
 
 		// 2d drawing TODO move this to when the drawing is flushed.
@@ -5884,23 +5887,23 @@ void frame(void)
 
 		// @Place(text input drawing)
 #ifdef DESKTOP
-		draw_quad((DrawParams){quad_at(V2(0,screen_size().y), screen_size()), IMG(image_white_square), blendalpha(BLACK, text_input_fade*0.3f), .layer = LAYER_UI_TEXTINPUT});
+		draw_quad((DrawParams){quad_at(V2(0, screen_size().y), screen_size()), IMG(image_white_square), blendalpha(BLACK, text_input_fade * 0.3f), .layer = LAYER_UI_TEXTINPUT});
 		Vec2 edge_of_text = MulV2F(screen_size(), 0.5f);
 		float text_scale = 1.0f;
-		if(text_input.text_length > 0)
+		if (text_input.text_length > 0)
 		{
 			AABB bounds = draw_centered_text((TextParams){false, TextChunkString8(text_input), MulV2F(screen_size(), 0.5f), blendalpha(WHITE, text_input_fade), text_scale, .use_font = &font_for_text_input, .layer = LAYER_UI_TEXTINPUT});
 			edge_of_text = bounds.lower_right;
 		}
-		Vec2 cursor_center = V2(edge_of_text.x,screen_size().y/2.0f);
-		draw_quad((DrawParams){quad_centered(cursor_center, V2(3.0f, get_vertical_dist_between_lines(font_for_text_input, text_scale))), IMG(image_white_square), blendalpha(WHITE, text_input_fade * (sinf((float)elapsed_time*8.0f)/2.0f + 0.5f)), .layer = LAYER_UI_TEXTINPUT});
+		Vec2 cursor_center = V2(edge_of_text.x, screen_size().y / 2.0f);
+		draw_quad((DrawParams){quad_centered(cursor_center, V2(3.0f, get_vertical_dist_between_lines(font_for_text_input, text_scale))), IMG(image_white_square), blendalpha(WHITE, text_input_fade * (sinf((float)elapsed_time * 8.0f) / 2.0f + 0.5f)), .layer = LAYER_UI_TEXTINPUT});
 #endif
 
 		Entity *cur_unread_entity = 0;
 		uint64_t earliest_unread_time = gs.tick;
 		ENTITIES_ITER(gs.entities)
 		{
-			if(it->is_npc && it->undismissed_action && it->undismissed_action_tick < earliest_unread_time)
+			if (it->is_npc && it->undismissed_action && it->undismissed_action_tick < earliest_unread_time)
 			{
 				earliest_unread_time = it->undismissed_action_tick;
 				cur_unread_entity = it;
@@ -5910,19 +5913,23 @@ void frame(void)
 		// @Place(UI rendering that happens before gameplay processing so can consume events before the gameplay needs them)
 		PROFILE_SCOPE("Editor Rendering")
 		{
-			if(keypressed[SAPP_KEYCODE_TAB]) {
+			if (keypressed[SAPP_KEYCODE_TAB])
+			{
 				gs.edit.enabled = !gs.edit.enabled;
 			}
-			if(gs.edit.enabled) {
-				draw_text((TextParams){false, S8Lit("Editing"), V2(0,0), WHITE, .scale = 1.0f, .use_font = &font_for_text_input});
-				if(get_cur_room(&gs, &level_threedee)->roomid == gs.edit.player_spawn_roomid) {
-					draw_thing((DrawnThing){&mesh_spawnring, .t = (Transform){.offset = plane_point(gs.edit.player_spawn_position), .rotation = Make_Q(0,0,0,1),.scale = V3(1,1,1)}});
+			if (gs.edit.enabled)
+			{
+				draw_text((TextParams){false, S8Lit("Editing"), V2(0, 0), WHITE, .scale = 1.0f, .use_font = &font_for_text_input});
+				if (get_cur_room(&gs, &level_threedee)->roomid == gs.edit.player_spawn_roomid)
+				{
+					draw_thing((DrawnThing){&mesh_spawnring, .t = (Transform){.offset = plane_point(gs.edit.player_spawn_position), .rotation = Make_Q(0, 0, 0, 1), .scale = V3(1, 1, 1)}});
 				}
 
 				LoadedFont room_name_font = font_for_text_input;
 				float max_room_name_width = 0.0f;
 				float max_height = 0.0f;
-				for(Room *cur = level_threedee.room_list_first; cur; cur = cur->next) {
+				for (Room *cur = level_threedee.room_list_first; cur; cur = cur->next)
+				{
 					Vec2 bounds = aabb_size(draw_text((TextParams){true, cur->name, .use_font = &room_name_font, .scale = 1.0f}));
 					max_room_name_width = max(max_room_name_width, bounds.x);
 					max_height = max(max_height, bounds.y);
@@ -5930,17 +5937,19 @@ void frame(void)
 				float padding = 10.0;
 				float whole_height = max_height + padding;
 				Vec2 left_right_buttons_size = V2(whole_height, whole_height);
-				float whole_width = left_right_buttons_size.x*2.0f + padding*2.0f + max_room_name_width;
+				float whole_width = left_right_buttons_size.x * 2.0f + padding * 2.0f + max_room_name_width;
 
 				Room *cur_room = get_cur_room(&gs, &level_threedee);
-				bool left = imbutton(aabb_at(V2(screen_size().x/2.0f - whole_width/2.0f, screen_size().y - padding/2.0f), left_right_buttons_size), .icon = &image_right_arrow, .icon_padding = whole_height*0.1f, .nobg = true, .icon_flipped = true);
-				bool right = imbutton(aabb_at(V2(screen_size().x/2.0f + whole_width/2.0f - left_right_buttons_size.x, screen_size().y - padding/2.0f), left_right_buttons_size), .icon = &image_right_arrow, .icon_padding = whole_height*0.1f, .nobg = true);
+				bool left = imbutton(aabb_at(V2(screen_size().x / 2.0f - whole_width / 2.0f, screen_size().y - padding / 2.0f), left_right_buttons_size), .icon = &image_right_arrow, .icon_padding = whole_height * 0.1f, .nobg = true, .icon_flipped = true);
+				bool right = imbutton(aabb_at(V2(screen_size().x / 2.0f + whole_width / 2.0f - left_right_buttons_size.x, screen_size().y - padding / 2.0f), left_right_buttons_size), .icon = &image_right_arrow, .icon_padding = whole_height * 0.1f, .nobg = true);
 				// bool left = imbutton(aabb_at(mouse_pos, left_right_buttons_size), .icon = &image_left_arrow, .icon_padding = whole_height*0.1f, .nobg = true);
-				AABB drawn_bounds = draw_centered_text((TextParams){false, cur_room->name, V2(screen_size().x/2.0f, screen_size().y - padding), WHITE, 1.0f, .use_font = &room_name_font});
-				dbgline(V2(screen_size().x*0.25f, screen_size().y), V2(screen_size().x*0.25f, screen_size().y - whole_height));
+				AABB drawn_bounds = draw_centered_text((TextParams){false, cur_room->name, V2(screen_size().x / 2.0f, screen_size().y - padding), WHITE, 1.0f, .use_font = &room_name_font});
+				dbgline(V2(screen_size().x * 0.25f, screen_size().y), V2(screen_size().x * 0.25f, screen_size().y - whole_height));
 				dbgrect(drawn_bounds);
-				if(left) cur_room = cur_room->prev ? cur_room->prev : level_threedee.room_list_last;
-				if(right) cur_room = cur_room->next ? cur_room->next : level_threedee.room_list_first;
+				if (left)
+					cur_room = cur_room->prev ? cur_room->prev : level_threedee.room_list_last;
+				if (right)
+					cur_room = cur_room->next ? cur_room->next : level_threedee.room_list_first;
 				gs.edit.current_roomid = cur_room->roomid;
 
 				Vec3 mouse_movement_on_plane = {0};
@@ -5953,19 +5962,23 @@ void frame(void)
 					mouse_movement_on_plane = SubV3(to_plane, from_plane);
 					// dbg3dline(from_plane, to_plane);
 				}
-					
-				if(mouse_down) {
+
+				if (mouse_down)
+				{
 					gs.edit.camera_panning_target = AddV2(gs.edit.camera_panning_target, point_plane(mouse_movement_on_plane));
 				}
 
-				if (imbutton(grow_from_ml(stats(screen_aabb()).ml, V2(10.0f,0.0f), V2(200.0f, 60.0f)), 1.0f, S8Lit("Set Player Spawn"))) {
+				if (imbutton(grow_from_ml(stats(screen_aabb()).ml, V2(10.0f, 0.0f), V2(200.0f, 60.0f)), 1.0f, S8Lit("Set Player Spawn")))
+				{
 					gs.edit.placing_spawn = true;
 				}
 
-				if(gs.edit.placing_spawn) {
+				if (gs.edit.placing_spawn)
+				{
 					gs.edit.player_spawn_position = point_plane(point_on_plane_from_camera_point(view, mouse_pos));
 					gs.edit.player_spawn_roomid = get_cur_room(&gs, &level_threedee)->roomid;
-					if(pressed.mouse_down) {
+					if (pressed.mouse_down)
+					{
 						gs.edit.placing_spawn = false;
 					}
 				}
@@ -5974,40 +5987,48 @@ void frame(void)
 				{
 					float screen_margin = 10.0f;
 					float width = 400.0f;
-					
+
 					float character_panel_height = 150.0f;
 					float total_height = 0.0f;
-					BUFF_ITER(Npc, &gs.characters) {
+					BUFF_ITER(Npc, &gs.characters)
+					{
 						total_height += character_panel_height;
 					}
-					AABB sidebar = aabb_at(V2(screen_size().x - width - screen_margin, screen_size().y / 2.0f + total_height/2.0f), V2(width, total_height));
-					draw_centered_text((TextParams){false, S8Lit("Characters"), AddV2(sidebar.upper_left, V2(aabb_size(sidebar).x/2.0f, 30.0f)), WHITE, 1.0f, .use_font = &font_for_text_input});
+					AABB sidebar = aabb_at(V2(screen_size().x - width - screen_margin, screen_size().y / 2.0f + total_height / 2.0f), V2(width, total_height));
+					draw_centered_text((TextParams){false, S8Lit("Characters"), AddV2(sidebar.upper_left, V2(aabb_size(sidebar).x / 2.0f, 30.0f)), WHITE, 1.0f, .use_font = &font_for_text_input});
 					float plus_size = 50.0f;
-					if(imbutton(aabb_centered(AddV2(sidebar.lower_right, V2(-aabb_size(sidebar).x/2.0f, -plus_size - screen_margin )),V2(plus_size, plus_size)), 1.0f, S8Lit(""), .icon = &image_add, .nobg = true)) {
+					if (imbutton(aabb_centered(AddV2(sidebar.lower_right, V2(-aabb_size(sidebar).x / 2.0f, -plus_size - screen_margin)), V2(plus_size, plus_size)), 1.0f, S8Lit(""), .icon = &image_add, .nobg = true))
+					{
 						Npc new = (Npc){.name = TextChunkLit("<Unnamed>"), .kind = get_next_kind(&gs)};
 						BUFF_APPEND(&gs.characters, new);
 					}
-					
+
 					Vec2 cur = sidebar.upper_left; // upper left corner of current
-					BUFF_ITER_I(Npc, &gs.characters, i) {
+					BUFF_ITER_I(Npc, &gs.characters, i)
+					{
 						Quad panel = quad_at(cur, V2(width, character_panel_height));
-						draw_quad((DrawParams){panel, IMG(image_white_square), ((Color) { 0.7f, 0.7f, 0.7f, 1.0f }), 1.0f, .layer = LAYER_UI});
+						draw_quad((DrawParams){panel, IMG(image_white_square), ((Color){0.7f, 0.7f, 0.7f, 1.0f}), 1.0f, .layer = LAYER_UI});
 						String8 name = TextChunkString8(it->name);
 						bool rename = imbutton_key((ImbuttonArgs){aabb_at(cur, V2(width, 50.0f)), 1.0f, name, .key = tprint("%d %d", __LINE__, i), .dt = unwarped_dt}); // the hack here in the key is off the charts. Holy moly.
 						get_state(state, TextInputResultKey, "%d %d", __LINE__, i);
-						if(rename) {
+						if (rename)
+						{
 							*state = begin_text_input(name);
 						}
 						String8 new = text_ready_for_me(*state);
-						if(new.size > 0) {
+						if (new.size > 0)
+						{
 							chunk_from_s8(&it->name, new);
 						}
 
 						Vec2 button_size = V2(75.0f, 75.0f);
 						bool place = imbutton_key((ImbuttonArgs){aabb_at(AddV2(panel.lr, V2(-button_size.x, button_size.y)), button_size), 1.0f, S8Lit(""), .key = tprint("%d %d", __LINE__, i), .dt = unwarped_dt, .icon = &image_place, .nobg = true});
-						if(place) {
+						bool edit = imbutton_key((ImbuttonArgs){aabb_at(AddV2(panel.lr, V2(-button_size.x * 2.0f, button_size.y)), button_size), 1.0f, S8Lit(""), .key = tprint("%d %d", __LINE__, i), .dt = unwarped_dt, .icon = &image_edit_brain, .nobg = true});
+						if (place)
+						{
 							Entity *existing = npcs_entity(it->kind);
-							if(!existing) {
+							if (!existing)
+							{
 								existing = new_entity(&gs);
 								existing->npc_kind = it->kind;
 								existing->is_npc = true;
@@ -6015,14 +6036,38 @@ void frame(void)
 							existing->current_roomid = cur_room->roomid;
 							gs.edit.placing_npc = it->kind;
 						}
+						if (edit)
+						{
+							gs.edit.editing_npc = it->kind;
+						}
 						cur.y -= character_panel_height;
 					}
 					Entity *placing = npcs_entity(gs.edit.placing_npc);
-					if(placing) {
+					if (placing)
+					{
 						placing->pos = point_plane(point_on_plane_from_camera_point(view, mouse_pos));
 						placing->current_roomid = cur_room->roomid;
-						if(pressed.mouse_down) {
+						if (pressed.mouse_down)
+						{
 							gs.edit.placing_npc = NPC_nobody;
+						}
+					}
+
+					Npc *editing = npc_data(&gs, gs.edit.editing_npc);
+					get_state(editing_factor, float, "%d", __LINE__);
+					bool is_editing = editing != &nobody_data;
+					*editing_factor = Lerp(*editing_factor, dt * 19.0f, is_editing ? 1.0f : 0.0f);
+					{
+						const float screen_margin = 100.0f;
+						AABB editing_box = lerp_aabbs((AABB){.upper_left = aabb_center(screen_aabb()), .lower_right = aabb_center(screen_aabb())}, *editing_factor, grow_from_center(screen_aabb(), V2(-screen_margin, -screen_margin)));
+						if (pressed.mouse_down && !has_point(editing_box, mouse_pos))
+						{
+							gs.edit.editing_npc = NPC_nobody;
+						}
+						if (aabb_is_valid(editing_box))
+						{
+							draw_quad((DrawParams){quad_aabb(screen_aabb()), IMG(image_white_square), blendalpha(BLACK, 0.2f * *editing_factor), .layer = LAYER_UI});
+							draw_quad((DrawParams){quad_aabb(editing_box), IMG(image_white_square), blendalpha(WHITE, 0.8f), .layer = LAYER_UI});
 						}
 					}
 				}
@@ -6037,15 +6082,16 @@ void frame(void)
 			{
 				if (it->is_npc && !it->is_player && it->current_roomid == get_cur_room(&gs, &level_threedee)->roomid)
 				{
-					if(it->undismissed_action)
+					if (it->undismissed_action)
 					{
 						assert(it->undismissed_action_tick <= gs.tick); // no future undismissed actions
 					}
-					
+
 					// dialog bubble rendering
 					const float text_scale = speech_bubble.text_scale;
 					float dist = 0.0f;
-					if(gs.player) dist = LenV2(SubV2(it->pos, gs.player->pos));
+					if (gs.player)
+						dist = LenV2(SubV2(it->pos, gs.player->pos));
 					float bubble_factor = 1.0f - clamp01(dist / 6.0f);
 					Vec3 bubble_pos = AddV3(plane_point(it->pos), V3(0, 1.7f, 0)); // 1.7 meters is about 5'8", average person height
 					Vec2 head_pos = threedee_to_screenspace(bubble_pos);
@@ -6061,24 +6107,24 @@ void frame(void)
 						unread = true;
 					}
 					draw_quad((DrawParams){
-							quad_centered(bubble_center, size),
-							IMG(image_dialog_bubble),
-							blendalpha(WHITE, dialog_alpha),
-							.layer = LAYER_UI_FG,
+						quad_centered(bubble_center, size),
+						IMG(image_dialog_bubble),
+						blendalpha(WHITE, dialog_alpha),
+						.layer = LAYER_UI_FG,
 					});
 					String8List words_to_say = words_on_current_page(it, &speech_bubble);
 					if (unread)
 					{
 						draw_quad((DrawParams){
-								quad_centered(AddV2(bubble_center, V2(size.x * 0.4f, -32.0f + (float)sin(unwarped_elapsed_time * 2.0) * 10.0f)), V2(32, 32)),
-								IMG(image_unread_triangle),
-								blendalpha(WHITE, 0.8f),
-								.layer = LAYER_UI_FG,
+							quad_centered(AddV2(bubble_center, V2(size.x * 0.4f, -32.0f + (float)sin(unwarped_elapsed_time * 2.0) * 10.0f)), V2(32, 32)),
+							IMG(image_unread_triangle),
+							blendalpha(WHITE, 0.8f),
+							.layer = LAYER_UI_FG,
 						});
 
 						if (pressed.interact)
 						{
-							if(it->words_said_on_page < words_to_say.node_count)
+							if (it->words_said_on_page < words_to_say.node_count)
 							{
 								// still saying stuff
 								it->words_said_on_page = (int)words_to_say.node_count;
@@ -6086,37 +6132,37 @@ void frame(void)
 							else
 							{
 								it->cur_page_index += 1;
-								if(words_on_current_page(it, &speech_bubble).node_count == 0)
+								if (words_on_current_page(it, &speech_bubble).node_count == 0)
 								{
 									// don't reset words_said_on_page because, even when the action is dismissed, the text for the last
 									// page of dialog should still linger
 									it->undismissed_action = false;
 									it->cur_page_index -= 1;
-								} 
+								}
 								else
 								{
-									it->characters_of_word_animated = 0.0f;	
+									it->characters_of_word_animated = 0.0f;
 									it->words_said_on_page = 0;
-								}								
+								}
 							}
 							pressed.interact = false;
 						}
 					}
 					it->loading_anim_in = Lerp(it->loading_anim_in, unwarped_dt * 5.0f, it->gen_request_id != 0 ? 1.0f : 0.0f);
 					draw_quad((DrawParams){
-							quad_rotated_centered(head_pos, V2(40, 40), (float)unwarped_elapsed_time * 2.0f),
-							IMG(image_loading),
-							blendalpha(WHITE, it->loading_anim_in),
-							.layer = LAYER_UI_FG,
+						quad_rotated_centered(head_pos, V2(40, 40), (float)unwarped_elapsed_time * 2.0f),
+						IMG(image_loading),
+						blendalpha(WHITE, it->loading_anim_in),
+						.layer = LAYER_UI_FG,
 					});
 					AABB placing_text_in = aabb_centered(AddV2(bubble_center, V2(0, 10.0f)), V2(speech_bubble.text_width_in_pixels, size.y * 0.15f));
 					dbgrect(placing_text_in);
 
 					String8List to_draw = words_on_current_page_without_unsaid(it, &speech_bubble);
-					if(to_draw.node_count != 0)
+					if (to_draw.node_count != 0)
 					{
-						PlacedWordList placed = place_wrapped_words(frame_arena, to_draw, text_scale, aabb_size(placing_text_in).x, default_font, JUST_LEFT);  
-						
+						PlacedWordList placed = place_wrapped_words(frame_arena, to_draw, text_scale, aabb_size(placing_text_in).x, default_font, JUST_LEFT);
+
 						// also called on npc response to see if it fits in the right amount of bubbles, if not tells AI how many words it has to trim its response by
 						// translate_words_by(placed, V2(placing_text_in.upper_left.x, placing_text_in.lower_right.y));
 						translate_words_by(placed, AddV2(placing_text_in.upper_left, V2(0, -get_vertical_dist_between_lines(default_font, text_scale))));
@@ -6135,12 +6181,12 @@ void frame(void)
 		static Entity *interacting_with = 0; // used by rendering to figure out who to draw dialog box on
 		static bool player_in_combat = false;
 
-
 		float speed_target = 1.0f;
 		gs.stopped_time = cur_unread_entity != 0;
-		if(gs.stopped_time) speed_target = 0.0f;
+		if (gs.stopped_time)
+			speed_target = 0.0f;
 		// pausing the game
-		speed_factor = Lerp(speed_factor, unwarped_dt*10.0f, speed_target);
+		speed_factor = Lerp(speed_factor, unwarped_dt * 10.0f, speed_target);
 		if (fabsf(speed_factor - speed_target) <= 0.05f)
 		{
 			speed_factor = speed_target;
@@ -6152,8 +6198,8 @@ void frame(void)
 		bool keypressed_before_gameplay[SAPP_KEYCODE_MAX];
 		memcpy(keypressed_before_gameplay, keypressed, sizeof(keypressed));
 		PROFILE_SCOPE("gameplay processing")
-        {
-            uint64_t time_start_gameplay_processing = stm_now();
+		{
+			uint64_t time_start_gameplay_processing = stm_now();
 			unprocessed_gameplay_time += unwarped_dt;
 			float timestep = fminf(unwarped_dt, (float)MINIMUM_TIMESTEP);
 			while (unprocessed_gameplay_time >= timestep)
@@ -6161,11 +6207,12 @@ void frame(void)
 				num_timestep_loops++;
 				unprocessed_gameplay_time -= timestep;
 				float unwarped_dt = timestep;
-				float dt = unwarped_dt*speed_factor;
+				float dt = unwarped_dt * speed_factor;
 
 				gs.tick += 1;
 
-				if(!gs.edit.enabled && gs.player == 0) {
+				if (!gs.edit.enabled && gs.player == 0)
+				{
 					gs.player = new_entity(&gs);
 					gs.player->is_player = true;
 					gs.player->is_npc = true;
@@ -6179,97 +6226,97 @@ void frame(void)
 					ENTITIES_ITER(gs.entities)
 					{
 						assert(!(it->exists && it->generation == 0));
-						
-						if(LenV2(it->last_moved) > 0.0f && !it->killed)
+
+						if (LenV2(it->last_moved) > 0.0f && !it->killed)
 							it->rotation = lerp_angle(it->rotation, dt * (it->quick_turning_timer > 0 ? 12.0f : 8.0f), AngleOfV2(it->last_moved));
 
 						if (it->is_npc)
 						{
 							// @Place(entity processing)
-							if(it->dialog_fade > 0.0f)
-								it->dialog_fade -= dt/DIALOG_FADE_TIME;
-							
+							if (it->dialog_fade > 0.0f)
+								it->dialog_fade -= dt / DIALOG_FADE_TIME;
+
 							Entity *toface = 0;
-							if(gete(it->aiming_shotgun_at))
+							if (gete(it->aiming_shotgun_at))
 							{
 								toface = gete(it->aiming_shotgun_at);
 							}
-							else if(gete(it->looking_at))
+							else if (gete(it->looking_at))
 							{
 								toface = gete(it->looking_at);
 							}
-							if(toface)
+							if (toface)
 								it->target_rotation = AngleOfV2(SubV2(toface->pos, it->pos));
-							
-							if(!it->is_player)
-								it->rotation = lerp_angle(it->rotation, unwarped_dt*8.0f, it->target_rotation);
+
+							if (!it->is_player)
+								it->rotation = lerp_angle(it->rotation, unwarped_dt * 8.0f, it->target_rotation);
 
 							if (it->gen_request_id != 0 && !gs.stopped_time)
 							{
 								assert(it->gen_request_id > 0);
 
 								GenRequestStatus status = gen_request_status(it->gen_request_id);
-								switch(status)
+								switch (status)
 								{
-									case GEN_Deleted:
+								case GEN_Deleted:
 									it->gen_request_id = 0;
 									break;
-									case GEN_NotDoneYet:
+								case GEN_NotDoneYet:
 									break;
-									case GEN_Success:
+								case GEN_Success:
+								{
+									having_errors = false;
+									// done! we can get the string
+									TextChunk sentence_chunk = gen_request_content(it->gen_request_id);
+									String8 sentence_str = TextChunkString8(sentence_chunk);
+
+									// parse out from the sentence NPC action and dialog
+									ActionOld out = {0};
+
+									Log("Parsing `%.*s`...\n", S8VArg(sentence_str));
+									String8 parse_response = parse_chatgpt_response(frame_arena, &gs, it, sentence_str, &out);
+
+									// check that it wraps in below two lines
+									TextPlacementSettings *to_wrap_to = &speech_bubble;
+									PlacedWordList placed = place_wrapped_words(frame_arena, split_by_word(frame_arena, TextChunkString8(out.speech)), to_wrap_to->text_scale, to_wrap_to->text_width_in_pixels, *to_wrap_to->font, JUST_LEFT);
+									int words_over_limit = 0;
+									for (PlacedWord *cur = placed.first; cur; cur = cur->next)
 									{
-										having_errors = false;
-										// done! we can get the string
-										TextChunk sentence_chunk = gen_request_content(it->gen_request_id);
-										String8 sentence_str = TextChunkString8(sentence_chunk);
-
-										// parse out from the sentence NPC action and dialog
-										Action out = {0};
-
-										Log("Parsing `%.*s`...\n", S8VArg(sentence_str));
-										String8 parse_response = parse_chatgpt_response(frame_arena, &gs, it, sentence_str, &out);
-
-										// check that it wraps in below two lines
-										TextPlacementSettings *to_wrap_to = &speech_bubble;
-										PlacedWordList placed = place_wrapped_words(frame_arena, split_by_word(frame_arena, TextChunkString8(out.speech)), to_wrap_to->text_scale, to_wrap_to->text_width_in_pixels, *to_wrap_to->font, JUST_LEFT);
-										int words_over_limit = 0;
-										for (PlacedWord *cur = placed.first; cur; cur = cur->next)
+										if (cur->line_index >= to_wrap_to->lines_per_page * to_wrap_to->maximum_pages_from_ai) // the max number of lines of text on a bubble
 										{
-											if (cur->line_index >= to_wrap_to->lines_per_page * to_wrap_to->maximum_pages_from_ai) // the max number of lines of text on a bubble
-											{
-												words_over_limit += 1;
-											}
+											words_over_limit += 1;
 										}
+									}
 
-										if (words_over_limit > 0)
+									if (words_over_limit > 0)
+									{
+										String8 new_err = FmtWithLint(frame_arena, "Your speech is %d words over the maximum limit, you must be more succinct and remove at least that many words", words_over_limit);
+										append_to_errors(it, make_memory(out, (MemoryContext){.i_said_this = true, .author_npc_kind = it->npc_kind, .talking_to_kind = out.talking_to_kind}), new_err);
+									}
+									else
+									{
+										if (parse_response.size == 0)
 										{
-											String8 new_err = FmtWithLint(frame_arena, "Your speech is %d words over the maximum limit, you must be more succinct and remove at least that many words", words_over_limit);
-											append_to_errors(it, make_memory(out, (MemoryContext){.i_said_this = true, .author_npc_kind = it->npc_kind, .talking_to_kind = out.talking_to_kind}), new_err);
+											Log("Performing action %s!\n", actions[out.kind].name);
+											perform_action(&gs, it, out);
 										}
 										else
 										{
-											if (parse_response.size == 0)
-											{
-												Log("Performing action %s!\n", actions[out.kind].name);
-												perform_action(&gs, it, out);
-											}
-											else
-											{
-												Log("There was a parse error: `%.*s`\n", S8VArg(parse_response));
-												append_to_errors(it, (Memory){0}, parse_response);
-											}
+											Log("There was a parse error: `%.*s`\n", S8VArg(parse_response));
+											append_to_errors(it, (Memory){0}, parse_response);
 										}
-
-										done_with_request(it->gen_request_id);
-										it->gen_request_id = 0;
 									}
-									break;
-									case GEN_Failed:
+
+									done_with_request(it->gen_request_id);
+									it->gen_request_id = 0;
+								}
+								break;
+								case GEN_Failed:
 									Log("Failed to generate dialog! Fuck!\n");
 									having_errors = true;
 									it->gen_request_id = 0;
 									break;
-									default:
+								default:
 									Log("Unknown generation request status: %d\n", status);
 									it->gen_request_id = 0;
 									break;
@@ -6287,20 +6334,20 @@ void frame(void)
 
 								String8List to_say = words_on_current_page(it, &speech_bubble);
 								String8List to_say_without_unsaid = words_on_current_page_without_unsaid(it, &speech_bubble);
-								if(to_say.node_count > 0 && it->words_said_on_page < to_say.node_count)
+								if (to_say.node_count > 0 && it->words_said_on_page < to_say.node_count)
 								{
-									if(cur_unread_entity == it)
+									if (cur_unread_entity == it)
 									{
 										it->characters_of_word_animated += CHARACTERS_PER_SEC * unwarped_dt;
-										int characters_in_animating_word = (int)to_say_without_unsaid.last->string.size; 
-										if((int)it->characters_of_word_animated + 1 > characters_in_animating_word)
+										int characters_in_animating_word = (int)to_say_without_unsaid.last->string.size;
+										if ((int)it->characters_of_word_animated + 1 > characters_in_animating_word)
 										{
 											it->words_said_on_page += 1;
 											it->characters_of_word_animated = 0.0f;
 
 											float dist = LenV2(SubV2(it->pos, gs.player->pos));
 											float volume = Lerp(-0.6f, clamp01(dist / 70.0f), -1.0f);
-											AudioSample * possible_grunts[] = {
+											AudioSample *possible_grunts[] = {
 												&sound_grunt_0,
 												&sound_grunt_1,
 												&sound_grunt_2,
@@ -6314,16 +6361,16 @@ void frame(void)
 								ReleaseScratch(scratch);
 							}
 
-
-							if(gete(it->joined))
+							if (gete(it->joined))
 							{
 								int place_in_line = 1;
 								Entity *e = it;
 								ENTITIES_ITER(gs.entities)
 								{
-									if(it->is_npc && gete(it->joined) == gete(e->joined))
+									if (it->is_npc && gete(it->joined) == gete(e->joined))
 									{
-										if(it == e) break;
+										if (it == e)
+											break;
 										place_in_line += 1;
 									}
 								}
@@ -6331,36 +6378,35 @@ void frame(void)
 								Vec2 target = get_point_along_trail(BUFF_MAKEREF(&it->position_history), (float)place_in_line * 1.0f);
 
 								Vec2 last_pos = it->pos;
-								it->pos = LerpV2(it->pos, dt*5.0f, target);
-								if(LenV2(SubV2(it->pos, last_pos)) > 0.01f)
+								it->pos = LerpV2(it->pos, dt * 5.0f, target);
+								if (LenV2(SubV2(it->pos, last_pos)) > 0.01f)
 								{
 									it->last_moved = NormV2(SubV2(it->pos, last_pos));
 									it->vel = MulV2F(it->last_moved, 1.0f / dt);
 								}
 								else
 								{
-									it->vel = V2(0,0);
+									it->vel = V2(0, 0);
 								}
 							}
 
-
 							// A* code
-							if(false)
+							if (false)
 							{
 								Entity *targeting = gs.player;
 
-									/*
-										 G cost: distance from the current node to the start node
-										 H cost: distance from the current node to the target node
+								/*
+									 G cost: distance from the current node to the start node
+									 H cost: distance from the current node to the target node
 
-										 G     H
-										 SUM
-										 F cost: G + H
-										 */
+									 G     H
+									 SUM
+									 F cost: G + H
+									 */
 								Vec2 to = targeting->pos;
 
 								PathCache *cached = get_path_cache(elapsed_time, it->cached_path);
-								AStarPath path = { 0 };
+								AStarPath path = {0};
 								bool succeeded = false;
 								if (cached)
 								{
@@ -6370,147 +6416,156 @@ void frame(void)
 								else
 								{
 									Vec2 from = it->pos;
-									typedef struct AStarNode {
+									typedef struct AStarNode
+									{
 										bool exists;
-										struct AStarNode * parent;
+										struct AStarNode *parent;
 										bool in_closed_set;
 										bool in_open_set;
-											float f_score; // total of g score and h score
-											float g_score; // distance from the node to the start node
-											Vec2 pos;
-										} AStarNode;
+										float f_score; // total of g score and h score
+										float g_score; // distance from the node to the start node
+										Vec2 pos;
+									} AStarNode;
 
-										BUFF(AStarNode, MAX_ASTAR_NODES) nodes = { 0 };
-										struct { Vec2 key; AStarNode *value; } *node_cache = 0;
+									BUFF(AStarNode, MAX_ASTAR_NODES)
+									nodes = {0};
+									struct
+									{
+										Vec2 key;
+										AStarNode *value;
+									} *node_cache = 0;
 #define V2_HASH(v) (FloorV2(v))
-										const float jump_size = TILE_SIZE / 2.0f;
-										BUFF_APPEND(&nodes, ((AStarNode) { .in_open_set = true, .pos = from }));
-										Vec2 from_hash = V2_HASH(from);
-										float got_there_tolerance = max_coord(entity_aabb_size(targeting))*1.5f;
-										hmput(node_cache, from_hash, &nodes.data[0]);
+									const float jump_size = TILE_SIZE / 2.0f;
+									BUFF_APPEND(&nodes, ((AStarNode){.in_open_set = true, .pos = from}));
+									Vec2 from_hash = V2_HASH(from);
+									float got_there_tolerance = max_coord(entity_aabb_size(targeting)) * 1.5f;
+									hmput(node_cache, from_hash, &nodes.data[0]);
 
-										bool should_quit = false;
-										AStarNode *last_node = 0;
-										PROFILE_SCOPE("A* Pathfinding") // astar pathfinding a star
-										while (!should_quit)
+									bool should_quit = false;
+									AStarNode *last_node = 0;
+									PROFILE_SCOPE("A* Pathfinding") // astar pathfinding a star
+									while (!should_quit)
+									{
+										int openset_size = 0;
+										BUFF_ITER(AStarNode, &nodes)
+										if (it->in_open_set) openset_size += 1;
+										if (openset_size == 0)
 										{
-											int openset_size = 0;
-											BUFF_ITER(AStarNode, &nodes) if (it->in_open_set) openset_size += 1;
-											if (openset_size == 0)
+											should_quit = true;
+										}
+										else
+										{
+											AStarNode *current = 0;
+											PROFILE_SCOPE("Get lowest fscore astar node in open set")
 											{
+												float min_fscore = INFINITY;
+												int min_fscore_index = -1;
+												BUFF_ITER_I(AStarNode, &nodes, i)
+												if (it->in_open_set)
+												{
+													if (it->f_score < min_fscore)
+													{
+														min_fscore = it->f_score;
+														min_fscore_index = i;
+													}
+												}
+												assert(min_fscore_index >= 0);
+												current = &nodes.data[min_fscore_index];
+												assert(current);
+											}
+
+											float length_to_goal = 0.0f;
+											PROFILE_SCOPE("get length to goal")
+											length_to_goal = LenV2(SubV2(to, current->pos));
+
+											if (length_to_goal <= got_there_tolerance)
+											{
+												succeeded = true;
 												should_quit = true;
+												last_node = current;
 											}
 											else
 											{
-												AStarNode *current = 0;
-												PROFILE_SCOPE("Get lowest fscore astar node in open set")
+												current->in_open_set = false;
+												Vec2 neighbor_positions[] = {
+													V2(-jump_size, 0.0f),
+													V2(jump_size, 0.0f),
+													V2(0.0f, jump_size),
+													V2(0.0f, -jump_size),
+
+													V2(-jump_size, jump_size),
+													V2(jump_size, jump_size),
+													V2(jump_size, -jump_size),
+													V2(-jump_size, -jump_size),
+												};
+												ARR_ITER(Vec2, neighbor_positions) *it = AddV2(*it, current->pos);
+
+												Entity *e = it;
+
+												PROFILE_SCOPE("Checking neighbor positions")
+												ARR_ITER(Vec2, neighbor_positions)
 												{
-													float min_fscore = INFINITY;
-													int min_fscore_index = -1;
-													BUFF_ITER_I(AStarNode, &nodes, i)
-													if (it->in_open_set)
+													Vec2 cur_pos = *it;
+
+													dbgsquare(cur_pos);
+
+													bool would_block_me = false;
+
+													PROFILE_SCOPE("Checking for overlap")
 													{
-														if (it->f_score < min_fscore)
-														{
-															min_fscore = it->f_score;
-															min_fscore_index = i;
-														}
+														Overlapping overlapping_at_want = get_overlapping(entity_aabb_at(e, cur_pos));
+														BUFF_ITER(Entity *, &overlapping_at_want)
+														if (*it != e) would_block_me = true;
 													}
-													assert(min_fscore_index >= 0);
-													current = &nodes.data[min_fscore_index];
-													assert(current);
-												}
 
-												float length_to_goal = 0.0f;
-												PROFILE_SCOPE("get length to goal") length_to_goal = LenV2(SubV2(to, current->pos));
-
-												if (length_to_goal <= got_there_tolerance)
-												{
-													succeeded = true;
-													should_quit = true;
-													last_node = current;
-												}
-												else
-												{
-													current->in_open_set = false;
-													Vec2 neighbor_positions[] = {
-														V2(-jump_size, 0.0f),
-														V2(jump_size, 0.0f),
-														V2(0.0f, jump_size),
-														V2(0.0f, -jump_size),
-
-														V2(-jump_size, jump_size),
-														V2(jump_size, jump_size),
-														V2(jump_size, -jump_size),
-														V2(-jump_size, -jump_size),
-													};
-													ARR_ITER(Vec2, neighbor_positions) *it = AddV2(*it, current->pos);
-
-													Entity *e = it;
-
-													PROFILE_SCOPE("Checking neighbor positions")
-													ARR_ITER(Vec2, neighbor_positions)
+													if (would_block_me)
 													{
-														Vec2 cur_pos = *it;
+													}
+													else
+													{
+														AStarNode *existing = 0;
+														Vec2 hash = V2_HASH(cur_pos);
+														existing = hmget(node_cache, hash);
 
-														dbgsquare(cur_pos);
-
-														bool would_block_me = false;
-
-														PROFILE_SCOPE("Checking for overlap")
+														if (false)
+															PROFILE_SCOPE("look for existing A* node")
+														BUFF_ITER(AStarNode, &nodes)
 														{
-															Overlapping overlapping_at_want = get_overlapping(entity_aabb_at(e, cur_pos));
-															BUFF_ITER(Entity*, &overlapping_at_want) if (*it != e) would_block_me = true;
-														}
-
-														if (would_block_me)
-														{
-														}
-														else
-														{
-															AStarNode *existing = 0;
-															Vec2 hash = V2_HASH(cur_pos);
-															existing = hmget(node_cache, hash);
-
-															if (false)
-																PROFILE_SCOPE("look for existing A* node")
-															BUFF_ITER(AStarNode, &nodes)
+															if (V2ApproxEq(it->pos, cur_pos))
 															{
-																if (V2ApproxEq(it->pos, cur_pos))
+																existing = it;
+																break;
+															}
+														}
+
+														float tentative_gscore = current->g_score + jump_size;
+														if (tentative_gscore < (existing ? existing->g_score : INFINITY))
+														{
+															if (!existing)
+															{
+																if (!BUFF_HAS_SPACE(&nodes))
 																{
-																	existing = it;
-																	break;
+																	should_quit = true;
+																	succeeded = false;
+																}
+																else
+																{
+																	BUFF_APPEND(&nodes, (AStarNode){0});
+																	existing = &nodes.data[nodes.cur_index - 1];
+																	existing->pos = cur_pos;
+																	Vec2 pos_hash = V2_HASH(cur_pos);
+																	hmput(node_cache, pos_hash, existing);
 																}
 															}
 
-															float tentative_gscore = current->g_score + jump_size;
-															if (tentative_gscore < (existing ? existing->g_score : INFINITY))
-															{
-																if (!existing)
-																{
-																	if (!BUFF_HAS_SPACE(&nodes))
-																	{
-																		should_quit = true;
-																		succeeded = false;
-																	}
-																	else
-																	{
-																		BUFF_APPEND(&nodes, (AStarNode) { 0 });
-																		existing = &nodes.data[nodes.cur_index-1];
-																		existing->pos = cur_pos;
-																		Vec2 pos_hash = V2_HASH(cur_pos);
-																		hmput(node_cache, pos_hash, existing);
-																	}
-																}
-
-																if (existing)
-																	PROFILE_SCOPE("estimate heuristic")
+															if (existing)
+																PROFILE_SCOPE("estimate heuristic")
 																{
 																	existing->parent = current;
 																	existing->g_score = tentative_gscore;
 																	float h_score = 0.0f;
 																	{
-																					// diagonal movement heuristic from some article
+																		// diagonal movement heuristic from some article
 																		Vec2 curr_cell = *it;
 																		Vec2 goal = to;
 																		float D = jump_size;
@@ -6520,78 +6575,79 @@ void frame(void)
 																		float h = D * (dx + dy) + (D2 - 2 * D) * fminf(dx, dy);
 
 																		h_score += h;
-																					// approx distance with manhattan distance
-																					//h_score += fabsf(existing->pos.x - to.x) + fabsf(existing->pos.y - to.y);
+																		// approx distance with manhattan distance
+																		// h_score += fabsf(existing->pos.x - to.x) + fabsf(existing->pos.y - to.y);
 																	}
 																	existing->f_score = tentative_gscore + h_score;
 																	existing->in_open_set = true;
 																}
-															}
 														}
 													}
 												}
 											}
 										}
-
-										hmfree(node_cache);
-										node_cache = 0;
-
-										// reconstruct path
-										if (succeeded)
-										{
-											assert(last_node);
-											AStarNode *cur = last_node;
-											while (cur)
-											{
-												BUFF_PUSH_FRONT(&path, cur->pos);
-												cur = cur->parent;
-											}
-										}
-
-										if (succeeded)
-											it->cached_path = cache_path(elapsed_time, &path);
 									}
 
-									Vec2 next_point_on_path = { 0 };
+									hmfree(node_cache);
+									node_cache = 0;
+
+									// reconstruct path
 									if (succeeded)
 									{
-										float nearest_dist = INFINITY;
-										int nearest_index = -1;
-										Entity *from = it;
-										BUFF_ITER_I(Vec2, &path, i)
+										assert(last_node);
+										AStarNode *cur = last_node;
+										while (cur)
 										{
-											float dist = LenV2(SubV2(*it, from->pos));
-											if (dist < nearest_dist)
-											{
-												nearest_dist = dist;
-												nearest_index = i;
-											}
-										}
-										assert(nearest_index >= 0);
-										int target_index = (nearest_index + 1);
-
-										if (target_index >= path.cur_index)
-										{
-											next_point_on_path = to;
-										}
-										else
-										{
-											next_point_on_path = path.data[target_index];
+											BUFF_PUSH_FRONT(&path, cur->pos);
+											cur = cur->parent;
 										}
 									}
 
-									BUFF_ITER_I(Vec2, &path, i)
-									{
+									if (succeeded)
+										it->cached_path = cache_path(elapsed_time, &path);
+								}
 
-										if (i == 0)
+								Vec2 next_point_on_path = {0};
+								if (succeeded)
+								{
+									float nearest_dist = INFINITY;
+									int nearest_index = -1;
+									Entity *from = it;
+										BUFF_ITER_I(Vec2, &path, i)
+									{
+										float dist = LenV2(SubV2(*it, from->pos));
+										if (dist < nearest_dist)
 										{
+											nearest_dist = dist;
+											nearest_index = i;
 										}
-										else
-										{
-											dbgcol(BLUE) dbgline(*it, path.data[i-1]);
-										}
+									}
+									assert(nearest_index >= 0);
+									int target_index = (nearest_index + 1);
+
+									if (target_index >= path.cur_index)
+									{
+										next_point_on_path = to;
+									}
+									else
+									{
+										next_point_on_path = path.data[target_index];
 									}
 								}
+
+								BUFF_ITER_I(Vec2, &path, i)
+								{
+
+									if (i == 0)
+									{
+									}
+									else
+									{
+										dbgcol(BLUE) dbgline(*it, path.data[i - 1]);
+									}
+								}
+							}
+
 
 							if (false) // used to be old man code
 							{
@@ -6647,13 +6703,13 @@ void frame(void)
 
 				PROFILE_SCOPE("Destroy gs.entities, maybe send generation requests")
 				{
-					for(int i = 0; i < ARRLEN(gs.entities); i++)
+					for (int i = 0; i < ARRLEN(gs.entities); i++)
 					{
 						Entity *it = &gs.entities[i];
 						if (it->destroy)
 						{
 							// add all memories to memory free list
-							for(Memory *cur = it->memories_first; cur;)
+							for (Memory *cur = it->memories_first; cur;)
 							{
 								Memory *prev = cur;
 								cur = cur->next;
@@ -6663,17 +6719,15 @@ void frame(void)
 							it->memories_last = 0;
 
 							int gen = it->generation;
-							*it = (Entity) { 0 };
+							*it = (Entity){0};
 							it->generation = gen;
 						}
 					}
 
 					ENTITIES_ITER(gs.entities)
-					if(it->is_npc)
+					if (it->is_npc)
 					{
-						bool doesnt_prompt_on_dirty_perceptions = false
-						|| it->current_roomid != get_cur_room(&gs, &level_threedee)->roomid
-						;
+						bool doesnt_prompt_on_dirty_perceptions = false || it->current_roomid != get_cur_room(&gs, &level_threedee)->roomid;
 						if (it->perceptions_dirty && doesnt_prompt_on_dirty_perceptions)
 						{
 							it->perceptions_dirty = false;
@@ -6691,14 +6745,14 @@ void frame(void)
 #ifdef DEVTOOLS
 #ifdef MOCK_AI_RESPONSE
 								mocking_the_ai_response = true;
-#endif // mock
-#endif // devtools
+#endif												   // mock
+#endif												   // devtools
 								bool succeeded = true; // couldn't get AI response if false
 								if (mocking_the_ai_response)
 								{
 									String8 ai_response = {0};
 									if (it->memories_last->context.talking_to_kind == it->npc_kind)
-									//if (it->memories_last->context.author_npc_kind != it->npc_kind)
+									// if (it->memories_last->context.author_npc_kind != it->npc_kind)
 									{
 										const char *action = 0;
 										const char *action_argument = "Raphael";
@@ -6726,7 +6780,7 @@ void frame(void)
 									// something to mock
 									assert(ai_response.size > 0);
 									Log("Mocking...\n");
-									Action a = {0};
+									ActionOld a = {0};
 									String8 error_message = S8Lit("Something really bad happened bro. File " STRINGIZE(__FILE__) " Line " STRINGIZE(__LINE__));
 									if (succeeded)
 									{
@@ -6751,278 +6805,287 @@ void frame(void)
 				}
 
 				// @Place(process player)
-				if(gs.player)
-				PROFILE_SCOPE("process player")
-				{
-					// do dialog
-					Entity *closest_interact_with = 0;
+				if (gs.player)
+					PROFILE_SCOPE("process player")
 					{
-						// find closest to talk to
+						// do dialog
+						Entity *closest_interact_with = 0;
 						{
-							AABB dialog_rect = aabb_centered(gs.player->pos, V2(DIALOG_INTERACT_SIZE, DIALOG_INTERACT_SIZE));
-							dbgrect(dialog_rect);
-							Overlapping possible_dialogs = get_overlapping(dialog_rect);
-							float closest_interact_with_dist = INFINITY;
-							BUFF_ITER(Entity*, &possible_dialogs)
+							// find closest to talk to
 							{
-								bool entity_talkable = true;
-								if (entity_talkable) entity_talkable = entity_talkable && (*it)->is_npc;
-								if (entity_talkable) entity_talkable = entity_talkable && !(*it)->is_player;
-								if (entity_talkable) entity_talkable = entity_talkable && !(*it)->killed;
+								AABB dialog_rect = aabb_centered(gs.player->pos, V2(DIALOG_INTERACT_SIZE, DIALOG_INTERACT_SIZE));
+								dbgrect(dialog_rect);
+								Overlapping possible_dialogs = get_overlapping(dialog_rect);
+								float closest_interact_with_dist = INFINITY;
+								BUFF_ITER(Entity *, &possible_dialogs)
+								{
+									bool entity_talkable = true;
+									if (entity_talkable)
+										entity_talkable = entity_talkable && (*it)->is_npc;
+									if (entity_talkable)
+										entity_talkable = entity_talkable && !(*it)->is_player;
+									if (entity_talkable)
+										entity_talkable = entity_talkable && !(*it)->killed;
 #ifdef WEB
-								if (entity_talkable) entity_talkable = entity_talkable && (*it)->gen_request_id == 0;
+									if (entity_talkable)
+										entity_talkable = entity_talkable && (*it)->gen_request_id == 0;
 #endif
 
-								bool entity_interactible = entity_talkable;
+									bool entity_interactible = entity_talkable;
 
-								if (entity_interactible)
-								{
-									float dist = LenV2(SubV2((*it)->pos, gs.player->pos));
-									if (dist < closest_interact_with_dist)
+									if (entity_interactible)
 									{
-										closest_interact_with_dist = dist;
-										closest_interact_with = (*it);
+										float dist = LenV2(SubV2((*it)->pos, gs.player->pos));
+										if (dist < closest_interact_with_dist)
+										{
+											closest_interact_with_dist = dist;
+											closest_interact_with = (*it);
+										}
 									}
 								}
 							}
+							interacting_with = closest_interact_with;
+
+							gs.player->interacting_with = frome(interacting_with);
 						}
-						interacting_with = closest_interact_with;
 
-						gs.player->interacting_with = frome(interacting_with);
-					}
-
-					if (pressed.interact)
-					{
-						if (closest_interact_with)
+						if (pressed.interact)
 						{
-							if (closest_interact_with->is_npc)
+							if (closest_interact_with)
 							{
-								// begin dialog with closest npc
-								gs.player->talking_to = frome(closest_interact_with);
-								begin_text_input(S8Lit(""));
+								if (closest_interact_with->is_npc)
+								{
+									// begin dialog with closest npc
+									gs.player->talking_to = frome(closest_interact_with);
+									begin_text_input(S8Lit(""));
+								}
+								else
+								{
+									assert(false);
+								}
+							}
+						}
+
+						float speed = 0.0f;
+						if (!gs.player->killed)
+							speed = PLAYER_SPEED;
+						// velocity processing for player player movement
+						{
+							gs.player->last_moved = NormV2(movement);
+							Vec2 target_vel = MulV2F(movement, pixels_per_meter * speed);
+							float player_speed = LenV2(gs.player->vel);
+							float target_speed = LenV2(target_vel);
+							bool quick_turn = (player_speed < target_speed / 2) || DotV2(gs.player->vel, target_vel) < -0.707f;
+							gs.player->quick_turning_timer -= dt;
+							if (quick_turn)
+							{
+								gs.player->quick_turning_timer = 0.125f;
+							}
+							if (quick_turn)
+							{
+								gs.player->vel = target_vel;
+							}
+							else
+							{ // framerate-independent smoothly transition towards target (functions as friction when target is 0)
+								gs.player->vel = SubV2(gs.player->vel, target_vel);
+								gs.player->vel = MulV2F(gs.player->vel, powf(1e-8f, dt));
+								gs.player->vel = AddV2(gs.player->vel, target_vel);
+							}
+							// printf("%f%s\n", LenV2(gs.player->vel), gs.player->quick_turning_timer > 0 ? " QUICK TURN" : "");
+
+							gs.player->pos = move_and_slide((MoveSlideParams){gs.player, gs.player->pos, MulV2F(gs.player->vel, dt)});
+
+							bool should_append = false;
+
+							// make it so no snap when new points added
+							if (gs.player->position_history.cur_index > 0)
+							{
+								gs.player->position_history.data[gs.player->position_history.cur_index - 1] = gs.player->pos;
+							}
+
+							if (gs.player->position_history.cur_index > 2)
+							{
+								should_append = LenV2(SubV2(gs.player->position_history.data[gs.player->position_history.cur_index - 2], gs.player->pos)) > TILE_SIZE;
 							}
 							else
 							{
-								assert(false);
+								should_append = true;
 							}
+							if (should_append)
+								BUFF_QUEUE_APPEND(&gs.player->position_history, gs.player->pos);
+						}
+						// health
+						if (gs.player->damage >= 1.0)
+						{
+							reset_level();
 						}
 					}
 
-					float speed = 0.0f;
-					if(!gs.player->killed) speed = PLAYER_SPEED;
-					// velocity processing for player player movement
-					{
-						gs.player->last_moved = NormV2(movement);
-						Vec2 target_vel = MulV2F(movement, pixels_per_meter * speed);
-						float player_speed = LenV2(gs.player->vel);
-						float target_speed = LenV2(target_vel);
-						bool quick_turn = (player_speed < target_speed / 2) || DotV2(gs.player->vel, target_vel) < -0.707f;
-						gs.player->quick_turning_timer -= dt;
-						if (quick_turn) {
-							gs.player->quick_turning_timer = 0.125f;
-						}
-						if (quick_turn) {
-							gs.player->vel = target_vel;
-						} else { // framerate-independent smoothly transition towards target (functions as friction when target is 0)
-							gs.player->vel = SubV2(gs.player->vel, target_vel);
-							gs.player->vel = MulV2F(gs.player->vel, powf(1e-8f, dt));
-							gs.player->vel = AddV2(gs.player->vel, target_vel);
-						}
-						// printf("%f%s\n", LenV2(gs.player->vel), gs.player->quick_turning_timer > 0 ? " QUICK TURN" : "");
-
-						gs.player->pos = move_and_slide((MoveSlideParams) { gs.player, gs.player->pos, MulV2F(gs.player->vel, dt) });
-
-						bool should_append = false;
-
-						// make it so no snap when new points added
-						if(gs.player->position_history.cur_index > 0)
-						{
-							gs.player->position_history.data[gs.player->position_history.cur_index - 1] = gs.player->pos;
-						}
-
-						if(gs.player->position_history.cur_index > 2)
-						{
-							should_append = LenV2(SubV2(gs.player->position_history.data[gs.player->position_history.cur_index - 2], gs.player->pos)) > TILE_SIZE;
-						}
-						else
-						{
-							should_append = true;
-						}
-						if(should_append) BUFF_QUEUE_APPEND(&gs.player->position_history, gs.player->pos);
-
-					}
-					// health
-					if (gs.player->damage >= 1.0)
-					{
-						reset_level();
-					}
-				}
-
-				pressed = (PressedState) { 0 };
+				pressed = (PressedState){0};
 				memset(keypressed, 0, sizeof(keypressed));
 			} // while loop
 
-            last_frame_gameplay_processing_time = stm_sec(stm_diff(stm_now(), time_start_gameplay_processing));
+			last_frame_gameplay_processing_time = stm_sec(stm_diff(stm_now(), time_start_gameplay_processing));
 		}
 		memcpy(keypressed, keypressed_before_gameplay, sizeof(keypressed));
 		pressed = before_gameplay_loops;
 
-
-
-
 #ifdef DEVTOOLS
-		if(flycam)
+		if (flycam)
 		{
 			Basis basis = flycam_basis();
 			float speed = 2.0f;
 			speed *= flycam_speed;
-			flycam_pos = AddV3(flycam_pos, MulV3F(basis.forward, ((float)keydown[SAPP_KEYCODE_W] - (float)keydown[SAPP_KEYCODE_S])*speed*dt));
-			flycam_pos = AddV3(flycam_pos, MulV3F(basis.right, ((float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A])*speed*dt));
-			flycam_pos = AddV3(flycam_pos, MulV3F(basis.up, (((float)keydown[SAPP_KEYCODE_SPACE] + (float)keydown[SAPP_KEYCODE_LEFT_CONTROL]) - (float)keydown[SAPP_KEYCODE_LEFT_SHIFT])*speed*dt));
+			flycam_pos = AddV3(flycam_pos, MulV3F(basis.forward, ((float)keydown[SAPP_KEYCODE_W] - (float)keydown[SAPP_KEYCODE_S]) * speed * dt));
+			flycam_pos = AddV3(flycam_pos, MulV3F(basis.right, ((float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A]) * speed * dt));
+			flycam_pos = AddV3(flycam_pos, MulV3F(basis.up, (((float)keydown[SAPP_KEYCODE_SPACE] + (float)keydown[SAPP_KEYCODE_LEFT_CONTROL]) - (float)keydown[SAPP_KEYCODE_LEFT_SHIFT]) * speed * dt));
 		}
 #endif
 
 		// @Place(player rendering)
-		if(0)
-		PROFILE_SCOPE("render player") // draw character draw player render character
-		{
-			if(gs.player->position_history.cur_index > 0)
+		if (0)
+			PROFILE_SCOPE("render player") // draw character draw player render character
 			{
-				float trail_len = get_total_trail_len(BUFF_MAKEREF(&gs.player->position_history));
-				if(trail_len > 0.0f) // fmodf returns nan
+				if (gs.player->position_history.cur_index > 0)
 				{
-					float along = fmodf((float)elapsed_time*100.0f, 200.0f);
-					Vec2 at = get_point_along_trail(BUFF_MAKEREF(&gs.player->position_history), along);
-					dbgbigsquare(at);
-					dbgbigsquare(get_point_along_trail(BUFF_MAKEREF(&gs.player->position_history), 50.0f));
-				}
-				BUFF_ITER_I(Vec2, &gs.player->position_history, i)
-				{
-					if(i == gs.player->position_history.cur_index - 1) 
+					float trail_len = get_total_trail_len(BUFF_MAKEREF(&gs.player->position_history));
+					if (trail_len > 0.0f) // fmodf returns nan
 					{
+						float along = fmodf((float)elapsed_time * 100.0f, 200.0f);
+						Vec2 at = get_point_along_trail(BUFF_MAKEREF(&gs.player->position_history), along);
+						dbgbigsquare(at);
+						dbgbigsquare(get_point_along_trail(BUFF_MAKEREF(&gs.player->position_history), 50.0f));
 					}
-					else
+					BUFF_ITER_I(Vec2, &gs.player->position_history, i)
 					{
-						dbgline(*it, gs.player->position_history.data[i + 1]);
+						if (i == gs.player->position_history.cur_index - 1)
+						{
+						}
+						else
+						{
+							dbgline(*it, gs.player->position_history.data[i + 1]);
+						}
 					}
 				}
-			}
 
-			// if somebody, show their dialog panel
-			if (interacting_with)
-			{
-				// interaction keyboard hint
-				if (!mobile_controls)
+				// if somebody, show their dialog panel
+				if (interacting_with)
 				{
-					float size = 100.0f;
-					Vec2 midpoint = MulV2F(AddV2(interacting_with->pos, gs.player->pos), 0.5f);
-					draw_quad((DrawParams) { quad_centered(AddV2(midpoint, V2(0.0, 5.0f + sinf((float)elapsed_time*3.0f)*5.0f)), V2(size, size)), IMG(image_e_icon), blendalpha(WHITE, clamp01(1.0f - learned_e)), .layer = LAYER_UI_FG });
+					// interaction keyboard hint
+					if (!mobile_controls)
+					{
+						float size = 100.0f;
+						Vec2 midpoint = MulV2F(AddV2(interacting_with->pos, gs.player->pos), 0.5f);
+						draw_quad((DrawParams){quad_centered(AddV2(midpoint, V2(0.0, 5.0f + sinf((float)elapsed_time * 3.0f) * 5.0f)), V2(size, size)), IMG(image_e_icon), blendalpha(WHITE, clamp01(1.0f - learned_e)), .layer = LAYER_UI_FG});
+					}
+
+					// interaction circle
+					draw_quad((DrawParams){quad_centered(interacting_with->pos, V2(TILE_SIZE, TILE_SIZE)), image_hovering_circle, full_region(image_hovering_circle), WHITE, .layer = LAYER_UI});
 				}
 
-				// interaction circle
-				draw_quad((DrawParams) { quad_centered(interacting_with->pos, V2(TILE_SIZE, TILE_SIZE)), image_hovering_circle, full_region(image_hovering_circle), WHITE, .layer = LAYER_UI });
+				// hurt vignette
+				if (gs.player->damage > 0.0)
+				{
+					draw_quad((DrawParams){
+						(Quad){.ul = V2(0.0f, screen_size().Y), .ur = screen_size(), .lr = V2(screen_size().X, 0.0f)},
+						image_hurt_vignette,
+						full_region(image_hurt_vignette),
+						(Color){1.0f, 1.0f, 1.0f, gs.player->damage},
+						.layer = LAYER_SCREENSPACE_EFFECTS,
+					});
+				}
 			}
-
-			// hurt vignette
-			if (gs.player->damage > 0.0)
-			{
-				draw_quad((DrawParams) { (Quad) { .ul = V2(0.0f, screen_size().Y), .ur = screen_size(), .lr = V2(screen_size().X, 0.0f) }, image_hurt_vignette, full_region(image_hurt_vignette), (Color) { 1.0f, 1.0f, 1.0f, gs.player->damage }, .layer = LAYER_SCREENSPACE_EFFECTS, });
-			}
-		}
-
 
 		if (having_errors)
 		{
-			Vec2 text_center = V2(screen_size().x / 2.0f, screen_size().y*0.8f);
-			draw_quad((DrawParams){centered_quad(text_center, V2(screen_size().x*0.8f, screen_size().y*0.1f)), IMG(image_white_square), blendalpha(BLACK, 0.5f), .layer = LAYER_ULTRA_IMPORTANT_NOTIFICATIONS});
-			draw_centered_text((TextParams){false, S8Lit("The AI server is having technical difficulties..."), text_center, WHITE, 1.0f, .layer = LAYER_ULTRA_IMPORTANT_NOTIFICATIONS });
+			Vec2 text_center = V2(screen_size().x / 2.0f, screen_size().y * 0.8f);
+			draw_quad((DrawParams){centered_quad(text_center, V2(screen_size().x * 0.8f, screen_size().y * 0.1f)), IMG(image_white_square), blendalpha(BLACK, 0.5f), .layer = LAYER_ULTRA_IMPORTANT_NOTIFICATIONS});
+			draw_centered_text((TextParams){false, S8Lit("The AI server is having technical difficulties..."), text_center, WHITE, 1.0f, .layer = LAYER_ULTRA_IMPORTANT_NOTIFICATIONS});
 		}
-
 
 		// win screen
 		{
 			static float visible = 0.0f;
 			float target = 0.0f;
-			if(gs.won)
+			if (gs.won)
 			{
 				target = 1.0f;
 			}
-			visible = Lerp(visible, unwarped_dt*9.0f, target);
+			visible = Lerp(visible, unwarped_dt * 9.0f, target);
 
-			draw_quad((DrawParams) {quad_at(V2(0,screen_size().y), screen_size()), IMG(image_white_square), blendalpha(BLACK, visible*0.7f), .layer = LAYER_UI});
+			draw_quad((DrawParams){quad_at(V2(0, screen_size().y), screen_size()), IMG(image_white_square), blendalpha(BLACK, visible * 0.7f), .layer = LAYER_UI});
 			float shake_speed = 9.0f;
 			Vec2 win_offset = V2(sinf((float)unwarped_elapsed_time * shake_speed * 1.5f + 0.1f), sinf((float)unwarped_elapsed_time * shake_speed + 0.3f));
 			win_offset = MulV2F(win_offset, 10.0f);
-			draw_centered_text((TextParams){false, S8Lit("YOU WON"), AddV2(MulV2F(screen_size(), 0.5f), win_offset), WHITE, 9.0f*visible});
+			draw_centered_text((TextParams){false, S8Lit("YOU WON"), AddV2(MulV2F(screen_size(), 0.5f), win_offset), WHITE, 9.0f * visible});
 
-			if(imbutton(aabb_centered(V2(screen_size().x/2.0f, screen_size().y*0.25f), MulV2F(V2(170.0f, 60.0f), visible)), 1.5f*visible, S8Lit("Restart")))
+			if (imbutton(aabb_centered(V2(screen_size().x / 2.0f, screen_size().y * 0.25f), MulV2F(V2(170.0f, 60.0f), visible)), 1.5f * visible, S8Lit("Restart")))
 			{
 				reset_level();
 			}
 		}
 
 		// killed screen
-		if(gs.player)
+		if (gs.player)
 		{
 			static float visible = 0.0f;
 			float target = 0.0f;
 			bool anybody_unread = false;
 			ENTITIES_ITER(gs.entities)
 			{
-				if(it->undismissed_action) anybody_unread = true;
+				if (it->undismissed_action)
+					anybody_unread = true;
 			}
-			if(gs.player->killed && (!anybody_unread || gs.finished_reading_dying_dialog))
+			if (gs.player->killed && (!anybody_unread || gs.finished_reading_dying_dialog))
 			{
 				gs.finished_reading_dying_dialog = true;
 				target = 1.0f;
 			}
-			visible = Lerp(visible, unwarped_dt*4.0f, target);
+			visible = Lerp(visible, unwarped_dt * 4.0f, target);
 
-			draw_quad((DrawParams) {quad_at(V2(0,screen_size().y), screen_size()), IMG(image_white_square), blendalpha(BLACK, visible*0.7f), .layer = LAYER_UI});
+			draw_quad((DrawParams){quad_at(V2(0, screen_size().y), screen_size()), IMG(image_white_square), blendalpha(BLACK, visible * 0.7f), .layer = LAYER_UI});
 			float shake_speed = 9.0f;
 			Vec2 win_offset = V2(sinf((float)unwarped_elapsed_time * shake_speed * 1.5f + 0.1f), sinf((float)unwarped_elapsed_time * shake_speed + 0.3f));
 			win_offset = MulV2F(win_offset, 10.0f);
-			draw_centered_text((TextParams){false, S8Lit("YOU FAILED TO SAVE DANIEL"), AddV2(MulV2F(screen_size(), 0.5f), win_offset), WHITE, 3.0f*visible}); // YOU DIED
+			draw_centered_text((TextParams){false, S8Lit("YOU FAILED TO SAVE DANIEL"), AddV2(MulV2F(screen_size(), 0.5f), win_offset), WHITE, 3.0f * visible}); // YOU DIED
 
-			if(imbutton(aabb_centered(V2(screen_size().x/2.0f, screen_size().y*0.25f), MulV2F(V2(170.0f, 60.0f), visible)), 1.5f*visible, S8Lit("Continue")))
+			if (imbutton(aabb_centered(V2(screen_size().x / 2.0f, screen_size().y * 0.25f), MulV2F(V2(170.0f, 60.0f), visible)), 1.5f * visible, S8Lit("Continue")))
 			{
 				gs.player->killed = false;
-				//transition_to_room(&gs, &level_threedee, S8Lit("StartingRoom"));
+				// transition_to_room(&gs, &level_threedee, S8Lit("StartingRoom"));
 				reset_level();
 			}
 		}
 
 #define HELPER_SIZE 250.0f
 
-
 		// keyboard tutorial icons
-		if(false)
-		if (!mobile_controls)
-		{
-			float total_height = HELPER_SIZE * 2.0f;
-			float vertical_spacing = HELPER_SIZE / 2.0f;
-			total_height -= (total_height - (vertical_spacing + HELPER_SIZE));
-			const float padding = 50.0f;
-			float y = screen_size().y / 2.0f + total_height / 2.0f;
-			float x = screen_size().x - padding - HELPER_SIZE;
-			draw_quad((DrawParams) { quad_at(V2(x, y), V2(HELPER_SIZE, HELPER_SIZE)), IMG(image_shift_icon), (Color) { 1.0f, 1.0f, 1.0f, fmaxf(0.0f, 1.0f-learned_shift) }, .layer = LAYER_UI_FG });
-			y -= vertical_spacing;
-			draw_quad((DrawParams) { quad_at(V2(x, y), V2(HELPER_SIZE, HELPER_SIZE)), IMG(image_space_icon), (Color) { 1.0f, 1.0f, 1.0f, fmaxf(0.0f, 1.0f-learned_space) }, .layer = LAYER_UI_FG });
-		}
-
+		if (false)
+			if (!mobile_controls)
+			{
+				float total_height = HELPER_SIZE * 2.0f;
+				float vertical_spacing = HELPER_SIZE / 2.0f;
+				total_height -= (total_height - (vertical_spacing + HELPER_SIZE));
+				const float padding = 50.0f;
+				float y = screen_size().y / 2.0f + total_height / 2.0f;
+				float x = screen_size().x - padding - HELPER_SIZE;
+				draw_quad((DrawParams){quad_at(V2(x, y), V2(HELPER_SIZE, HELPER_SIZE)), IMG(image_shift_icon), (Color){1.0f, 1.0f, 1.0f, fmaxf(0.0f, 1.0f - learned_shift)}, .layer = LAYER_UI_FG});
+				y -= vertical_spacing;
+				draw_quad((DrawParams){quad_at(V2(x, y), V2(HELPER_SIZE, HELPER_SIZE)), IMG(image_space_icon), (Color){1.0f, 1.0f, 1.0f, fmaxf(0.0f, 1.0f - learned_space)}, .layer = LAYER_UI_FG});
+			}
 
 		if (mobile_controls)
 		{
 			float thumbstick_nub_size = (img_size(image_mobile_thumbstick_nub).x / img_size(image_mobile_thumbstick_base).x) * thumbstick_base_size();
-			draw_quad((DrawParams) { quad_centered(thumbstick_base_pos, V2(thumbstick_base_size(), thumbstick_base_size())), IMG(image_mobile_thumbstick_base), WHITE, .layer = LAYER_UI_FG });
-			draw_quad((DrawParams) { quad_centered(thumbstick_nub_pos, V2(thumbstick_nub_size, thumbstick_nub_size)), IMG(image_mobile_thumbstick_nub), WHITE, .layer = LAYER_UI_FG });
+			draw_quad((DrawParams){quad_centered(thumbstick_base_pos, V2(thumbstick_base_size(), thumbstick_base_size())), IMG(image_mobile_thumbstick_base), WHITE, .layer = LAYER_UI_FG});
+			draw_quad((DrawParams){quad_centered(thumbstick_nub_pos, V2(thumbstick_nub_size, thumbstick_nub_size)), IMG(image_mobile_thumbstick_nub), WHITE, .layer = LAYER_UI_FG});
 
 			if (interacting_with)
 			{
-				draw_quad((DrawParams) { quad_centered(interact_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .layer = LAYER_UI_FG });
+				draw_quad((DrawParams){quad_centered(interact_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .layer = LAYER_UI_FG});
 			}
-			draw_quad((DrawParams) { quad_centered(roll_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .layer = LAYER_UI_FG });
-			draw_quad((DrawParams) { quad_centered(attack_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .layer = LAYER_UI_FG });
+			draw_quad((DrawParams){quad_centered(roll_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .layer = LAYER_UI_FG});
+			draw_quad((DrawParams){quad_centered(attack_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .layer = LAYER_UI_FG});
 		}
 
 #ifdef DEVTOOLS
@@ -7032,33 +7095,33 @@ void frame(void)
 			{
 				Vec2 depth_size = V2(200.0f, 200.0f);
 				draw_quad((DrawParams){quad_at(V2(screen_size().x - depth_size.x, screen_size().y), depth_size), IMG(state.shadows.color_img), WHITE, .layer = LAYER_UI_FG});
-				draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y/2.0f), MulV2F(screen_size(), 0.1f)), IMG(state.outline_pass_resolve_image), WHITE, .layer = LAYER_UI_FG});
+				draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y / 2.0f), MulV2F(screen_size(), 0.1f)), IMG(state.outline_pass_resolve_image), WHITE, .layer = LAYER_UI_FG});
 
-				Vec3 view_cam_pos = MulM4V4(InvGeneralM4(view), V4(0,0,0,1)).xyz;
-				//if(view_cam_pos.y >= 4.900f) // causes nan if not true... not good...
-				if(true)
+				Vec3 view_cam_pos = MulM4V4(InvGeneralM4(view), V4(0, 0, 0, 1)).xyz;
+				// if(view_cam_pos.y >= 4.900f) // causes nan if not true... not good...
+				if (true)
 				{
 					Vec3 world_mouse = screenspace_point_to_camera_point(mouse_pos, view);
 					Vec3 mouse_ray = NormV3(SubV3(world_mouse, view_cam_pos));
-					Vec3 marker = ray_intersect_plane(view_cam_pos, mouse_ray, V3(0,0,0), V3(0,1,0));
+					Vec3 marker = ray_intersect_plane(view_cam_pos, mouse_ray, V3(0, 0, 0), V3(0, 1, 0));
 					Vec2 mouse_on_floor = point_plane(marker);
-					Overlapping mouse_over = get_overlapping(aabb_centered(mouse_on_floor, V2(1,1)));
-					BUFF_ITER(Entity*, &mouse_over)
+					Overlapping mouse_over = get_overlapping(aabb_centered(mouse_on_floor, V2(1, 1)));
+					BUFF_ITER(Entity *, &mouse_over)
 					{
 						dbgcol(PINK)
 						{
 							dbgplanerect(entity_aabb(*it));
 
-						// debug draw memories of hovered
+							// debug draw memories of hovered
 							Entity *to_view = *it;
-							Vec2 start_at = V2(0,300);
+							Vec2 start_at = V2(0, 300);
 							Vec2 cur_pos = start_at;
 
 							AABB bounds = draw_text((TextParams){false, S8Fmt(frame_arena, "--Memories for %.*s--", TextChunkVArg(npc_data(&gs, to_view->npc_kind)->name)), cur_pos, WHITE, 1.0});
 							cur_pos.y -= aabb_size(bounds).y;
 
-							for(Memory *cur = to_view->memories_first; cur; cur = cur->next)
-								if(cur->speech.text_length > 0)
+							for (Memory *cur = to_view->memories_first; cur; cur = cur->next)
+								if (cur->speech.text_length > 0)
 								{
 									String8 to_text = cur->context.talking_to_kind != NPC_nobody ? S8Fmt(frame_arena, " to %.*s ", TextChunkVArg(npc_data(&gs, cur->context.talking_to_kind)->name)) : S8Lit("");
 									String8 text = S8Fmt(frame_arena, "%s%.*s%.*s: %.*s", to_view->npc_kind == cur->context.author_npc_kind ? "(Me) " : "", TextChunkVArg(npc_data(&gs, cur->context.author_npc_kind)->name), S8VArg(to_text), cur->speech.text_length, cur->speech);
@@ -7066,22 +7129,23 @@ void frame(void)
 									cur_pos.y -= aabb_size(bounds).y;
 								}
 
-							if(keypressed[SAPP_KEYCODE_Q] && !receiving_text_input)
+							if (keypressed[SAPP_KEYCODE_Q] && !receiving_text_input)
 							{
 								Log("\n\n==========------- Printing debugging information for %.*s -------==========\n", TextChunkVArg(npc_data(&gs, to_view->npc_kind)->name));
 								Log("\nMemories-----------------------------\n");
 								int mem_idx = 0;
-								for(Memory *cur = to_view->memories_first; cur; cur = cur->next)
+								for (Memory *cur = to_view->memories_first; cur; cur = cur->next)
 								{
 									String8 to_text = cur->context.talking_to_kind != NPC_nobody ? S8Fmt(frame_arena, " to %.*s ", TextChunkVArg(npc_data(&gs, cur->context.talking_to_kind)->name)) : S8Lit("");
 									String8 speech = TextChunkString8(cur->speech);
-									if(speech.size == 0) speech = S8Lit("<said nothing>");
+									if (speech.size == 0)
+										speech = S8Lit("<said nothing>");
 									String8 text = S8Fmt(frame_arena, "%s%.*s%.*s: %.*s", to_view->npc_kind == cur->context.author_npc_kind ? "(Me) " : "", TextChunkVArg(npc_data(&gs, cur->context.author_npc_kind)->name), S8VArg(to_text), S8VArg(speech));
 									printf("Memory %d: %.*s\n", mem_idx, S8VArg(text));
 									mem_idx++;
 								}
 								Log("\nPrompt-----------------------------\n");
-								String8 prompt  = generate_chatgpt_prompt(frame_arena, &gs, to_view, get_can_talk_to(to_view));
+								String8 prompt = generate_chatgpt_prompt(frame_arena, &gs, to_view, get_can_talk_to(to_view));
 								printf("%.*s\n", S8VArg(prompt));
 							}
 						}
@@ -7090,40 +7154,40 @@ void frame(void)
 
 				Vec2 pos = V2(0.0, screen_size().Y);
 				int num_entities = 0;
-				ENTITIES_ITER(gs.entities) num_entities++;
+				ENTITIES_ITER(gs.entities)
+				num_entities++;
 				String8 stats =
 					tprint("Frametime: %.1f ms\n"
-					       "Processing: %.1f ms\n"
-					       "Gameplay processing: %.1f ms\n"
-					       "Entities: %d\n"
-					       "Draw calls: %d\n"
-					       "Drawn Vertices: %d\n"
-					       "Profiling: %s\n"
-					       "Number gameplay processing loops: %d\n"
-					       "Flycam: %s\n"
-					       "Player position: %f %f\n",
-					       dt*1000.0,
-					       last_frame_processing_time*1000.0,
-					       last_frame_gameplay_processing_time*1000.0,
-					       num_entities,
-					       num_draw_calls,
-					       num_vertices,
-					       profiling ? "yes" : "no",
-					       num_timestep_loops,
-					       flycam ? "yes" : "no",
-					       v2varg((gs.player ? gs.player->pos : V2(0,0))));
-				AABB bounds = draw_text((TextParams) { true, stats, pos, BLACK, 1.0f });
+						   "Processing: %.1f ms\n"
+						   "Gameplay processing: %.1f ms\n"
+						   "Entities: %d\n"
+						   "Draw calls: %d\n"
+						   "Drawn Vertices: %d\n"
+						   "Profiling: %s\n"
+						   "Number gameplay processing loops: %d\n"
+						   "Flycam: %s\n"
+						   "Player position: %f %f\n",
+						   dt * 1000.0,
+						   last_frame_processing_time * 1000.0,
+						   last_frame_gameplay_processing_time * 1000.0,
+						   num_entities,
+						   num_draw_calls,
+						   num_vertices,
+						   profiling ? "yes" : "no",
+						   num_timestep_loops,
+						   flycam ? "yes" : "no",
+						   v2varg((gs.player ? gs.player->pos : V2(0, 0))));
+				AABB bounds = draw_text((TextParams){true, stats, pos, BLACK, 1.0f});
 				pos.Y -= bounds.upper_left.Y - screen_size().Y;
-				bounds = draw_text((TextParams) { true, stats, pos, BLACK, 1.0f });
+				bounds = draw_text((TextParams){true, stats, pos, BLACK, 1.0f});
 
 				// background panel
-				colorquad(quad_aabb(bounds), (Color) { 1.0, 1.0, 1.0, 0.3f });
-				draw_text((TextParams) { false, stats, pos, BLACK, 1.0f });
+				colorquad(quad_aabb(bounds), (Color){1.0, 1.0, 1.0, 0.3f});
+				draw_text((TextParams){false, stats, pos, BLACK, 1.0f});
 				num_draw_calls = 0;
 				num_vertices = 0;
 			}
 #endif // devtools
-
 
 		// @Place(actually render 2d)
 		PROFILE_SCOPE("flush rendering")
@@ -7165,41 +7229,38 @@ void frame(void)
 							cur_batch_pipeline = d.custom_pipeline;
 						}
 
-
-
-						float new_vertices[ FLOATS_PER_VERTEX*4 ] = { 0 };
+						float new_vertices[FLOATS_PER_VERTEX * 4] = {0};
 						Vec2 region_size = SubV2(d.image_region.lower_right, d.image_region.upper_left);
-						
+
 						// the region size can be negative if the image is desired to be flipped
 						// assert(region_size.X > 0.0);
 						// assert(region_size.Y > 0.0);
 
 						Vec2 tex_coords[4] =
-						{
-							// upper left vertex, upper right vertex, lower right vertex, lower left vertex
+							{
+								// upper left vertex, upper right vertex, lower right vertex, lower left vertex
 
-							/*
-							AddV2(lower_left, V2(0.0,           region_size.y)),
-							AddV2(lower_left, V2(region_size.x, region_size.y)),
-							AddV2(lower_left, V2(region_size.x, 0.0          )),
-							AddV2(lower_left, V2(0.0          , 0.0          )),
-							*/
+								/*
+								AddV2(lower_left, V2(0.0,           region_size.y)),
+								AddV2(lower_left, V2(region_size.x, region_size.y)),
+								AddV2(lower_left, V2(region_size.x, 0.0          )),
+								AddV2(lower_left, V2(0.0          , 0.0          )),
+								*/
 
-							// This flips the image
+								// This flips the image
 
-							AddV2(d.image_region.upper_left, V2(0.0,           region_size.Y)),
-							AddV2(d.image_region.upper_left, V2(region_size.X, region_size.Y)),
-							AddV2(d.image_region.upper_left, V2(region_size.X,           0.0)),
-							AddV2(d.image_region.upper_left, V2(0.0,                     0.0)),
+								AddV2(d.image_region.upper_left, V2(0.0, region_size.Y)),
+								AddV2(d.image_region.upper_left, V2(region_size.X, region_size.Y)),
+								AddV2(d.image_region.upper_left, V2(region_size.X, 0.0)),
+								AddV2(d.image_region.upper_left, V2(0.0, 0.0)),
 
-
-							/*
-							AddV2(d.image_region.upper_left, V2(region_size.X, region_size.Y)),
-							AddV2(d.image_region.upper_left, V2(0.0,           region_size.Y)),
-							AddV2(d.image_region.upper_left, V2(0.0,                     0.0)),
-							AddV2(d.image_region.upper_left, V2(region_size.X,           0.0)),
-							*/
-						};
+								/*
+								AddV2(d.image_region.upper_left, V2(region_size.X, region_size.Y)),
+								AddV2(d.image_region.upper_left, V2(0.0,           region_size.Y)),
+								AddV2(d.image_region.upper_left, V2(0.0,                     0.0)),
+								AddV2(d.image_region.upper_left, V2(region_size.X,           0.0)),
+								*/
+							};
 
 						// convert to uv space
 						sg_image_desc desc = sg_query_image_desc(d.image);
@@ -7210,21 +7271,21 @@ void frame(void)
 						for (int i = 0; i < 4; i++)
 						{
 							Vec2 in_clip_space = into_clip_space(points[i]);
-							new_vertices[i*FLOATS_PER_VERTEX + 0] = in_clip_space.X;
-							new_vertices[i*FLOATS_PER_VERTEX + 1] = in_clip_space.Y;
+							new_vertices[i * FLOATS_PER_VERTEX + 0] = in_clip_space.X;
+							new_vertices[i * FLOATS_PER_VERTEX + 1] = in_clip_space.Y;
 							// update Y_COORD_IN_BACK, Y_COORD_IN_FRONT when this changes
 							/*
 								 float unmapped = (clampf(d.y_coord_sorting, -1.0f, 2.0f));
 								 float mapped = (unmapped + 1.0f)/3.0f;
 								 new_vertices[i*FLOATS_PER_VERTEX + 2] = 1.0f - (float)clamp(mapped, 0.0, 1.0);
 								 */
-							new_vertices[i*FLOATS_PER_VERTEX + 2] = 0.0f;
-							new_vertices[i*FLOATS_PER_VERTEX + 3] = tex_coords[i].X;
-							new_vertices[i*FLOATS_PER_VERTEX + 4] = tex_coords[i].Y;
+							new_vertices[i * FLOATS_PER_VERTEX + 2] = 0.0f;
+							new_vertices[i * FLOATS_PER_VERTEX + 3] = tex_coords[i].X;
+							new_vertices[i * FLOATS_PER_VERTEX + 4] = tex_coords[i].Y;
 						}
 
 						// two triangles drawn, six vertices
-						size_t total_size = 6*FLOATS_PER_VERTEX;
+						size_t total_size = 6 * FLOATS_PER_VERTEX;
 
 						// batched a little too close to the sun
 						if (cur_batch_data_index + total_size >= ARRLEN(cur_batch_data))
@@ -7234,19 +7295,21 @@ void frame(void)
 							cur_batch_params = params;
 						}
 
-#define PUSH_VERTEX(vert) { memcpy(&cur_batch_data[cur_batch_data_index], &vert, FLOATS_PER_VERTEX*sizeof(float)); cur_batch_data_index += FLOATS_PER_VERTEX; }
-						PUSH_VERTEX(new_vertices[0*FLOATS_PER_VERTEX]);
-						PUSH_VERTEX(new_vertices[1*FLOATS_PER_VERTEX]);
-						PUSH_VERTEX(new_vertices[2*FLOATS_PER_VERTEX]);
-						PUSH_VERTEX(new_vertices[0*FLOATS_PER_VERTEX]);
-						PUSH_VERTEX(new_vertices[2*FLOATS_PER_VERTEX]);
-						PUSH_VERTEX(new_vertices[3*FLOATS_PER_VERTEX]);
+#define PUSH_VERTEX(vert)                                                                        \
+	{                                                                                            \
+		memcpy(&cur_batch_data[cur_batch_data_index], &vert, FLOATS_PER_VERTEX * sizeof(float)); \
+		cur_batch_data_index += FLOATS_PER_VERTEX;                                               \
+	}
+						PUSH_VERTEX(new_vertices[0 * FLOATS_PER_VERTEX]);
+						PUSH_VERTEX(new_vertices[1 * FLOATS_PER_VERTEX]);
+						PUSH_VERTEX(new_vertices[2 * FLOATS_PER_VERTEX]);
+						PUSH_VERTEX(new_vertices[0 * FLOATS_PER_VERTEX]);
+						PUSH_VERTEX(new_vertices[2 * FLOATS_PER_VERTEX]);
+						PUSH_VERTEX(new_vertices[3 * FLOATS_PER_VERTEX]);
 #undef PUSH_VERTEX
-
 					}
 				}
 				BUFF_CLEAR(rendering_queue);
-
 			}
 
 			// end of rendering
@@ -7260,25 +7323,25 @@ void frame(void)
 		ArenaClear(frame_arena);
 
 		memset(keypressed, 0, sizeof(keypressed));
-		pressed = (PressedState) { 0 };
-		mouse_movement = V2(0,0);
+		pressed = (PressedState){0};
+		mouse_movement = V2(0, 0);
 	}
 }
 
 void cleanup(void)
 {
 #ifdef DESKTOP
-	for(ChatRequest *cur = requests_first; cur; cur = cur->next)
+	for (ChatRequest *cur = requests_first; cur; cur = cur->next)
 	{
 		cur->should_close = true;
 	}
 #endif
 
 	ArenaRelease(frame_arena);
-	
+
 	// Don't free the persistent arena because threads still access their ChatRequest should_close fieldon shutdown,
 	// and ChatRequest is allocated on the persistent arena. We just shamelessly leak this memory. Cowabunga!
-	//ArenaRelease(persistent_arena);
+	// ArenaRelease(persistent_arena);
 	sg_shutdown();
 	cleanup_immediate_state();
 	Log("Cleaning up\n");
@@ -7286,13 +7349,13 @@ void cleanup(void)
 
 void event(const sapp_event *e)
 {
-	#ifdef DESKTOP
+#ifdef DESKTOP
 	// the desktop text backend, for debugging purposes
 	if (receiving_text_input)
 	{
 		if (e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_code == SAPP_KEYCODE_BACKSPACE)
 		{
-			if(text_input.text_length > 0)
+			if (text_input.text_length > 0)
 				text_input.text_length -= 1;
 		}
 		else
@@ -7309,14 +7372,13 @@ void event(const sapp_event *e)
 
 		if (e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_code == SAPP_KEYCODE_ENTER)
 		{
-			end_text_input((char*)nullterm(frame_arena, TextChunkString8(text_input)).str);
+			end_text_input((char *)nullterm(frame_arena, TextChunkString8(text_input)).str);
 		}
 	}
 #endif
 
-
-
-	if (e->key_repeat) return;
+	if (e->key_repeat)
+		return;
 
 	if (e->type == SAPP_EVENTTYPE_RESIZED)
 	{
@@ -7332,10 +7394,9 @@ void event(const sapp_event *e)
 		mobile_controls = true;
 	}
 
-
 	if (e->type == SAPP_EVENTTYPE_KEY_DOWN &&
-	    (e->key_code == SAPP_KEYCODE_F11 ||
-	     e->key_code == SAPP_KEYCODE_ENTER && ((e->modifiers & SAPP_MODIFIER_ALT) || (e->modifiers & SAPP_MODIFIER_SHIFT))))
+		(e->key_code == SAPP_KEYCODE_F11 ||
+		 e->key_code == SAPP_KEYCODE_ENTER && ((e->modifiers & SAPP_MODIFIER_ALT) || (e->modifiers & SAPP_MODIFIER_SHIFT))))
 	{
 #ifdef DESKTOP
 		sapp_toggle_fullscreen();
@@ -7344,17 +7405,25 @@ void event(const sapp_event *e)
 			var elem = document.documentElement;
 			if (document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement)
 			{
-				if (document.exitFullscreen) document.exitFullscreen();
-				else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
-				else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
-				else if (document.msExitFullscreen) document.msExitFullscreen();
+				if (document.exitFullscreen)
+					document.exitFullscreen();
+				else if (document.webkitExitFullscreen)
+					document.webkitExitFullscreen();
+				else if (document.mozCancelFullScreen)
+					document.mozCancelFullScreen();
+				else if (document.msExitFullscreen)
+					document.msExitFullscreen();
 			}
 			else
 			{
-				if (elem.requestFullscreen) elem.requestFullscreen();
-				else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
-				else if (elem.mozRequestFullScreen) elem.mozRequestFullScreen();
-				else if (elem.msRequestFullscreen) elem.msRequestFullscreen();
+				if (elem.requestFullscreen)
+					elem.requestFullscreen();
+				else if (elem.webkitRequestFullscreen)
+					elem.webkitRequestFullscreen();
+				else if (elem.mozRequestFullScreen)
+					elem.mozRequestFullScreen();
+				else if (elem.msRequestFullscreen)
+					elem.msRequestFullscreen();
 			}
 		});
 #endif
@@ -7367,23 +7436,22 @@ void event(const sapp_event *e)
 		sapp_lock_mouse(flycam);
 	}
 
-	if(flycam)
+	if (flycam)
 	{
 		if (e->type == SAPP_EVENTTYPE_MOUSE_MOVE && !mouse_frozen)
 		{
 			const float rotation_speed = 0.001f;
 			flycam_horizontal_rotation -= e->mouse_dx * rotation_speed;
 			flycam_vertical_rotation -= e->mouse_dy * rotation_speed;
-			flycam_vertical_rotation = clampf(flycam_vertical_rotation, -PI32/2.0f + 0.01f, PI32/2.0f - 0.01f);
+			flycam_vertical_rotation = clampf(flycam_vertical_rotation, -PI32 / 2.0f + 0.01f, PI32 / 2.0f - 0.01f);
 		}
-		else if(e->type == SAPP_EVENTTYPE_MOUSE_SCROLL)
+		else if (e->type == SAPP_EVENTTYPE_MOUSE_SCROLL)
 		{
-			flycam_speed *= 1.0f + 0.1f*e->scroll_y;
+			flycam_speed *= 1.0f + 0.1f * e->scroll_y;
 		}
 	}
 
 #endif
-
 
 	// mobile handling touch controls handling touch input
 	if (mobile_controls)
@@ -7395,11 +7463,11 @@ void event(const sapp_event *e)
 			{
 				sapp_touchpoint point = e->touches[i];
 				Vec2 touchpoint_screen_pos = TOUCHPOINT_SCREEN(point);
-				if (touchpoint_screen_pos.x < screen_size().x*0.4f)
+				if (touchpoint_screen_pos.x < screen_size().x * 0.4f)
 				{
 					if (!movement_touch.active)
 					{
-						//if(LenV2(SubV2(touchpoint_screen_pos, thumbstick_base_pos)) > 1.25f * thumbstick_base_size())
+						// if(LenV2(SubV2(touchpoint_screen_pos, thumbstick_base_pos)) > 1.25f * thumbstick_base_size())
 						if (true)
 						{
 							thumbstick_base_pos = touchpoint_screen_pos;
@@ -7408,18 +7476,18 @@ void event(const sapp_event *e)
 						thumbstick_nub_pos = thumbstick_base_pos;
 					}
 				}
-				if (LenV2(SubV2(touchpoint_screen_pos, roll_button_pos())) < mobile_button_size()*0.5f)
+				if (LenV2(SubV2(touchpoint_screen_pos, roll_button_pos())) < mobile_button_size() * 0.5f)
 				{
 					roll_pressed_by = activate(point.identifier);
 					mobile_roll_pressed = true;
 				}
-				if (LenV2(SubV2(touchpoint_screen_pos, interact_button_pos())) < mobile_button_size()*0.5f)
+				if (LenV2(SubV2(touchpoint_screen_pos, interact_button_pos())) < mobile_button_size() * 0.5f)
 				{
 					interact_pressed_by = activate(point.identifier);
 					mobile_interact_pressed = true;
 					pressed.interact = true;
 				}
-				if (LenV2(SubV2(touchpoint_screen_pos, attack_button_pos())) < mobile_button_size()*0.5f)
+				if (LenV2(SubV2(touchpoint_screen_pos, attack_button_pos())) < mobile_button_size() * 0.5f)
 				{
 					attack_pressed_by = activate(point.identifier);
 					mobile_attack_pressed = true;
@@ -7560,27 +7628,30 @@ void event(const sapp_event *e)
 		mouse_movement.y -= e->mouse_dy;
 		bool ignore_movement = false;
 #ifdef DEVTOOLS
-		if (mouse_frozen) ignore_movement = true;
+		if (mouse_frozen)
+			ignore_movement = true;
 #endif
-		if (!ignore_movement) mouse_pos = V2(e->mouse_x, (float)sapp_height() - e->mouse_y);
+		if (!ignore_movement)
+			mouse_pos = V2(e->mouse_x, (float)sapp_height() - e->mouse_y);
 	}
 }
 
-sapp_desc sokol_main(int argc, char* argv[])
+sapp_desc sokol_main(int argc, char *argv[])
 {
-	(void)argc; (void)argv;
-	return (sapp_desc) {
+	(void)argc;
+	(void)argv;
+	return (sapp_desc){
 		.init_cb = init,
-			.frame_cb = frame,
-			.cleanup_cb = cleanup,
-			.event_cb = event,
-			.sample_count = 1,
-			.width = 800,
-			.height = 600,
-			.window_title = "Dante's Cowboy",
-			.win32_console_attach = true,
-			.win32_console_create = true,
-			.icon.sokol_default = true,
-			.logger.func = slog_func,
+		.frame_cb = frame,
+		.cleanup_cb = cleanup,
+		.event_cb = event,
+		.sample_count = 1,
+		.width = 800,
+		.height = 600,
+		.window_title = "Dante's Cowboy",
+		.win32_console_attach = true,
+		.win32_console_create = true,
+		.icon.sokol_default = true,
+		.logger.func = slog_func,
 	};
 }

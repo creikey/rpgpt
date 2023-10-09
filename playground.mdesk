@@ -1,0 +1,27 @@
+Name: Roger Penrose
+Prompt: He is an illusive testing character, who confounds even the most brilliant philosophers and doctors to this date.
+Soul:
+{
+    {
+        Situation: {
+            Memories: [
+                "mem1",
+                "",
+                "mem3",
+            ]
+            Events: [
+                {
+                    Author: Jesse Pinkman
+                    Response: {
+                        speech: "How dare you!"
+                        action: SAY_TO
+                        
+                    }
+                }
+            ]
+        }
+        Response: {
+
+        }
+    },
+}
