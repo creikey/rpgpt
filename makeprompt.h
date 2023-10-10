@@ -425,8 +425,6 @@ typedef struct GameState {
 
 	// these must point entities in its own array.
 	u64 current_roomid;
-	Entity *player;
-	Entity *world_entity;
 	Entity entities[MAX_ENTITIES];
 	rnd_gamerand_t random;
 } GameState;

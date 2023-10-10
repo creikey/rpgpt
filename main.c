@@ -909,6 +909,20 @@ AABB entity_aabb(Entity *e)
 	return entity_aabb_at(e, at);
 }
 
+Entity *player(GameState *gs) {
+	ENTITIES_ITER(gs->entities) {
+		if(it->is_player) return it;
+	}
+	return 0;
+}
+
+Entity *world(GameState *gs) {
+	ENTITIES_ITER(gs->entities) {
+		if(it->is_world) return it;
+	}
+	return 0;
+}
+
 typedef struct LoadedImage
 {
 	struct LoadedImage *next;
@@ -2294,15 +2308,12 @@ void cleanup_gamestate(GameState *gs) {
 // this can be called more than once, it cleanly handles all states of the gamestate
 void initialize_gamestate(GameState *gs, u64 roomid) {
 	if(!gs->arena) gs->arena = ArenaAlloc();
-	if(!gs->world_entity) {
-		gs->world_entity = new_entity(gs);
-		gs->world_entity->is_world = true;
+	if(!world(gs)) {
+		Entity *world = new_entity(gs);
+		world->is_world = true;
 	}
 	gs->current_roomid = roomid;
 	rnd_gamerand_seed(&gs->random, RANDOM_SEED);
-#ifdef DEVTOOLS
-	gs->edit.enabled = true;
-#endif
 }
 
 void reset_level()
@@ -2315,6 +2326,7 @@ void reset_level()
 enum
 {
 	V0,
+	V1,
 
 	VMax,
 } Version;
@@ -2353,8 +2365,9 @@ void ser_entity(SerState *ser, Entity *e)
 	ser_float(ser, &e->damage);
 
 	ser_bool(ser, &e->is_world);
-
 	ser_bool(ser, &e->is_npc);
+	ser_bool(ser, &e->is_player);
+
 	ser_bool(ser, &e->being_hovered);
 	ser_bool(ser, &e->perceptions_dirty);
 
@@ -2482,15 +2495,7 @@ void ser_GameState(SerState *ser, GameState *gs)
 
 	if (!ser->cur_error.failed)
 	{
-		ARR_ITER(Entity, gs->entities)
-		{
-			if (it->is_world)
-			{
-				gs->world_entity = it;
-			}
-		}
-
-		if (gs->world_entity == 0)
+		if (world(gs) == 0)
 		{
 			ser->cur_error = (SerError){.failed = true, .why = S8Lit("No world entity found in deserialized entities")};
 		}
@@ -3100,7 +3105,7 @@ void do_serialization_tests()
 	   GameState gs = {0};
 	   initialize_gamestate_from_threedee_level(&gs, &level_threedee);
 
-	   gs.player->pos = V2(50.0f, 0.0);
+	   player(&gs)->pos = V2(50.0f, 0.0);
 
 	   String8 error = {0};
 	   String8 saved = save_to_string(scratch.arena, scratch.arena, &error, &gs);
@@ -3111,7 +3116,7 @@ void do_serialization_tests()
 
 	   initialize_gamestate_from_threedee_level(&gs, &level_threedee);
 	   gs = load_from_string(persistent_arena, scratch.arena, saved, &error);
-	   assert(gs.player->pos.x == 50.0f);
+	   assert(player(&gs)->pos.x == 50.0f);
 	   assert(error.size == 0);
 
 	   Log("Default save data size is %lld bytes\n", saved.size);
@@ -4632,7 +4637,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 	// add world boxes
 	for (CollisionCylinder *cur = get_cur_room(&gs, &level_threedee)->collision_list; cur; cur = cur->next)
 	{
-		BUFF_APPEND(&to_check, ((CollisionObj){cur->bounds, gs.world_entity}));
+		BUFF_APPEND(&to_check, ((CollisionObj){cur->bounds, world(&gs)}));
 	}
 
 	// add entity boxes
@@ -5663,10 +5668,10 @@ void frame(void)
 			cam_target_pos.x = gs.edit.camera_panning.x;
 			cam_target_pos.z = gs.edit.camera_panning.y;
 		}
-		else if (gs.player)
+		else if (player(&gs))
 		{
-			cam_target_pos.x = gs.player->pos.x;
-			cam_target_pos.z = gs.player->pos.y;
+			cam_target_pos.x = player(&gs)->pos.x;
+			cam_target_pos.z = player(&gs)->pos.y;
 		}
 		// dbgline(V2(0,0), V2(500, 500));
 		const float vertical_to_horizontal_ratio = CAM_VERTICAL_TO_HORIZONTAL_RATIO;
@@ -5812,9 +5817,10 @@ void frame(void)
 				assert(it->is_npc);
 				Transform draw_with = entity_transform(it);
 
-				// draw_thing((DrawnThing){.mesh = &mesh_tombstone, .t = draw_with, .outline = gete(gs.player->interacting_with) == it});
 				{
 					Armature *to_use = &player_armature;
+
+					// if9!
 
 					if (it->killed)
 					{
@@ -5830,7 +5836,7 @@ void frame(void)
 						to_use->go_to_animation = S8Lit("Idle");
 					}
 
-					draw_thing((DrawnThing){.armature = to_use, .t = draw_with, .outline = gs.player && gete(gs.player->interacting_with) == it});
+					draw_thing((DrawnThing){.armature = to_use, .t = draw_with, .outline = player(&gs) && gete(player(&gs)->interacting_with) == it});
 
 					if (gete(it->aiming_shotgun_at))
 					{
@@ -6128,8 +6134,8 @@ void frame(void)
 					// dialog bubble rendering
 					const float text_scale = speech_bubble.text_scale;
 					float dist = 0.0f;
-					if (gs.player)
-						dist = LenV2(SubV2(it->pos, gs.player->pos));
+					if (player(&gs))
+						dist = LenV2(SubV2(it->pos, player(&gs)->pos));
 					float bubble_factor = 1.0f - clamp01(dist / 6.0f);
 					Vec3 bubble_pos = AddV3(plane_point(it->pos), V3(0, 1.7f, 0)); // 1.7 meters is about 5'8", average person height
 					Vec2 head_pos = threedee_to_screenspace(bubble_pos);
@@ -6249,13 +6255,13 @@ void frame(void)
 
 				gs.tick += 1;
 
-				if (!gs.edit.enabled && gs.player == 0)
+				if (!gs.edit.enabled && player(&gs) == 0)
 				{
-					gs.player = new_entity(&gs);
-					gs.player->is_player = true;
-					gs.player->is_npc = true;
-					gs.player->current_roomid = gs.edit.player_spawn_roomid;
-					gs.player->pos = gs.edit.player_spawn_position;
+					Entity *player = new_entity(&gs);
+					player->is_player = true;
+					player->is_npc = true;
+					player->current_roomid = gs.edit.player_spawn_roomid;
+					player->pos = gs.edit.player_spawn_position;
 				}
 
 				// process gs.entities process entities
@@ -6383,7 +6389,7 @@ void frame(void)
 											it->words_said_on_page += 1;
 											it->characters_of_word_animated = 0.0f;
 
-											float dist = LenV2(SubV2(it->pos, gs.player->pos));
+											float dist = LenV2(SubV2(it->pos, player(&gs)->pos));
 											float volume = Lerp(-0.6f, clamp01(dist / 70.0f), -1.0f);
 											AudioSample *possible_grunts[] = {
 												&sound_grunt_0,
@@ -6431,7 +6437,7 @@ void frame(void)
 							// A* code
 							if (false)
 							{
-								Entity *targeting = gs.player;
+								Entity *targeting = player(&gs);
 
 								/*
 									 G cost: distance from the current node to the start node
@@ -6843,7 +6849,7 @@ void frame(void)
 				}
 
 				// @Place(process player)
-				if (gs.player)
+				if (player(&gs))
 					PROFILE_SCOPE("process player")
 					{
 						// do dialog
@@ -6851,7 +6857,7 @@ void frame(void)
 						{
 							// find closest to talk to
 							{
-								AABB dialog_rect = aabb_centered(gs.player->pos, V2(DIALOG_INTERACT_SIZE, DIALOG_INTERACT_SIZE));
+								AABB dialog_rect = aabb_centered(player(&gs)->pos, V2(DIALOG_INTERACT_SIZE, DIALOG_INTERACT_SIZE));
 								dbgrect(dialog_rect);
 								Overlapping possible_dialogs = get_overlapping(dialog_rect);
 								float closest_interact_with_dist = INFINITY;
@@ -6873,7 +6879,7 @@ void frame(void)
 
 									if (entity_interactible)
 									{
-										float dist = LenV2(SubV2((*it)->pos, gs.player->pos));
+										float dist = LenV2(SubV2((*it)->pos, player(&gs)->pos));
 										if (dist < closest_interact_with_dist)
 										{
 											closest_interact_with_dist = dist;
@@ -6884,7 +6890,7 @@ void frame(void)
 							}
 							interacting_with = closest_interact_with;
 
-							gs.player->interacting_with = frome(interacting_with);
+							player(&gs)->interacting_with = frome(interacting_with);
 						}
 
 						if (pressed.interact)
@@ -6894,7 +6900,7 @@ void frame(void)
 								if (closest_interact_with->is_npc)
 								{
 									// begin dialog with closest npc
-									gs.player->talking_to = frome(closest_interact_with);
+									player(&gs)->talking_to = frome(closest_interact_with);
 									begin_text_input(S8Lit(""));
 								}
 								else
@@ -6905,55 +6911,55 @@ void frame(void)
 						}
 
 						float speed = 0.0f;
-						if (!gs.player->killed)
+						if (!player(&gs)->killed)
 							speed = PLAYER_SPEED;
 						// velocity processing for player player movement
 						{
-							gs.player->last_moved = NormV2(movement);
+							player(&gs)->last_moved = NormV2(movement);
 							Vec2 target_vel = MulV2F(movement, pixels_per_meter * speed);
-							float player_speed = LenV2(gs.player->vel);
+							float player_speed = LenV2(player(&gs)->vel);
 							float target_speed = LenV2(target_vel);
-							bool quick_turn = (player_speed < target_speed / 2) || DotV2(gs.player->vel, target_vel) < -0.707f;
-							gs.player->quick_turning_timer -= dt;
+							bool quick_turn = (player_speed < target_speed / 2) || DotV2(player(&gs)->vel, target_vel) < -0.707f;
+							player(&gs)->quick_turning_timer -= dt;
 							if (quick_turn)
 							{
-								gs.player->quick_turning_timer = 0.125f;
+								player(&gs)->quick_turning_timer = 0.125f;
 							}
 							if (quick_turn)
 							{
-								gs.player->vel = target_vel;
+								player(&gs)->vel = target_vel;
 							}
 							else
 							{ // framerate-independent smoothly transition towards target (functions as friction when target is 0)
-								gs.player->vel = SubV2(gs.player->vel, target_vel);
-								gs.player->vel = MulV2F(gs.player->vel, powf(1e-8f, dt));
-								gs.player->vel = AddV2(gs.player->vel, target_vel);
+								player(&gs)->vel = SubV2(player(&gs)->vel, target_vel);
+								player(&gs)->vel = MulV2F(player(&gs)->vel, powf(1e-8f, dt));
+								player(&gs)->vel = AddV2(player(&gs)->vel, target_vel);
 							}
-							// printf("%f%s\n", LenV2(gs.player->vel), gs.player->quick_turning_timer > 0 ? " QUICK TURN" : "");
+							// printf("%f%s\n", LenV2(player(&gs)->vel), player(&gs)->quick_turning_timer > 0 ? " QUICK TURN" : "");
 
-							gs.player->pos = move_and_slide((MoveSlideParams){gs.player, gs.player->pos, MulV2F(gs.player->vel, dt)});
+							player(&gs)->pos = move_and_slide((MoveSlideParams){player(&gs), player(&gs)->pos, MulV2F(player(&gs)->vel, dt)});
 
 							bool should_append = false;
 
 							// make it so no snap when new points added
-							if (gs.player->position_history.cur_index > 0)
+							if (player(&gs)->position_history.cur_index > 0)
 							{
-								gs.player->position_history.data[gs.player->position_history.cur_index - 1] = gs.player->pos;
+								player(&gs)->position_history.data[player(&gs)->position_history.cur_index - 1] = player(&gs)->pos;
 							}
 
-							if (gs.player->position_history.cur_index > 2)
+							if (player(&gs)->position_history.cur_index > 2)
 							{
-								should_append = LenV2(SubV2(gs.player->position_history.data[gs.player->position_history.cur_index - 2], gs.player->pos)) > TILE_SIZE;
+								should_append = LenV2(SubV2(player(&gs)->position_history.data[player(&gs)->position_history.cur_index - 2], player(&gs)->pos)) > TILE_SIZE;
 							}
 							else
 							{
 								should_append = true;
 							}
 							if (should_append)
-								BUFF_QUEUE_APPEND(&gs.player->position_history, gs.player->pos);
+								BUFF_QUEUE_APPEND(&player(&gs)->position_history, player(&gs)->pos);
 						}
 						// health
-						if (gs.player->damage >= 1.0)
+						if (player(&gs)->damage >= 1.0)
 						{
 							reset_level();
 						}
@@ -6984,24 +6990,24 @@ void frame(void)
 		if (0)
 			PROFILE_SCOPE("render player") // draw character draw player render character
 			{
-				if (gs.player->position_history.cur_index > 0)
+				if (player(&gs)->position_history.cur_index > 0)
 				{
-					float trail_len = get_total_trail_len(BUFF_MAKEREF(&gs.player->position_history));
+					float trail_len = get_total_trail_len(BUFF_MAKEREF(&player(&gs)->position_history));
 					if (trail_len > 0.0f) // fmodf returns nan
 					{
 						float along = fmodf((float)elapsed_time * 100.0f, 200.0f);
-						Vec2 at = get_point_along_trail(BUFF_MAKEREF(&gs.player->position_history), along);
+						Vec2 at = get_point_along_trail(BUFF_MAKEREF(&player(&gs)->position_history), along);
 						dbgbigsquare(at);
-						dbgbigsquare(get_point_along_trail(BUFF_MAKEREF(&gs.player->position_history), 50.0f));
+						dbgbigsquare(get_point_along_trail(BUFF_MAKEREF(&player(&gs)->position_history), 50.0f));
 					}
-					BUFF_ITER_I(Vec2, &gs.player->position_history, i)
+					BUFF_ITER_I(Vec2, &player(&gs)->position_history, i)
 					{
-						if (i == gs.player->position_history.cur_index - 1)
+						if (i == player(&gs)->position_history.cur_index - 1)
 						{
 						}
 						else
 						{
-							dbgline(*it, gs.player->position_history.data[i + 1]);
+							dbgline(*it, player(&gs)->position_history.data[i + 1]);
 						}
 					}
 				}
@@ -7013,7 +7019,7 @@ void frame(void)
 					if (!mobile_controls)
 					{
 						float size = 100.0f;
-						Vec2 midpoint = MulV2F(AddV2(interacting_with->pos, gs.player->pos), 0.5f);
+						Vec2 midpoint = MulV2F(AddV2(interacting_with->pos, player(&gs)->pos), 0.5f);
 						draw_quad((DrawParams){quad_centered(AddV2(midpoint, V2(0.0, 5.0f + sinf((float)elapsed_time * 3.0f) * 5.0f)), V2(size, size)), IMG(image_e_icon), blendalpha(WHITE, clamp01(1.0f - learned_e)), .layer = LAYER_UI_FG});
 					}
 
@@ -7022,13 +7028,13 @@ void frame(void)
 				}
 
 				// hurt vignette
-				if (gs.player->damage > 0.0)
+				if (player(&gs)->damage > 0.0)
 				{
 					draw_quad((DrawParams){
 						(Quad){.ul = V2(0.0f, screen_size().Y), .ur = screen_size(), .lr = V2(screen_size().X, 0.0f)},
 						image_hurt_vignette,
 						full_region(image_hurt_vignette),
-						(Color){1.0f, 1.0f, 1.0f, gs.player->damage},
+						(Color){1.0f, 1.0f, 1.0f, player(&gs)->damage},
 						.layer = LAYER_SCREENSPACE_EFFECTS,
 					});
 				}
@@ -7064,7 +7070,7 @@ void frame(void)
 		}
 
 		// killed screen
-		if (gs.player)
+		if (player(&gs))
 		{
 			static float visible = 0.0f;
 			float target = 0.0f;
@@ -7074,7 +7080,7 @@ void frame(void)
 				if (it->undismissed_action)
 					anybody_unread = true;
 			}
-			if (gs.player->killed && (!anybody_unread || gs.finished_reading_dying_dialog))
+			if (player(&gs)->killed && (!anybody_unread || gs.finished_reading_dying_dialog))
 			{
 				gs.finished_reading_dying_dialog = true;
 				target = 1.0f;
@@ -7089,7 +7095,7 @@ void frame(void)
 
 			if (imbutton(aabb_centered(V2(screen_size().x / 2.0f, screen_size().y * 0.25f), MulV2F(V2(170.0f, 60.0f), visible)), 1.5f * visible, S8Lit("Continue")))
 			{
-				gs.player->killed = false;
+				player(&gs)->killed = false;
 				// transition_to_room(&gs, &level_threedee, S8Lit("StartingRoom"));
 				reset_level();
 			}
@@ -7127,7 +7133,7 @@ void frame(void)
 		}
 
 #ifdef DEVTOOLS
-		if(gs.edit.enabled && pressed.mouse_up) {
+		if(pressed.mouse_up) {
 			String8 error = {0};
 			Log("Saving gamestate...\n");
 			String8 saved = save_to_string(frame_arena, frame_arena, &error, &gs);
@@ -7234,7 +7240,7 @@ void frame(void)
 						   profiling ? "yes" : "no",
 						   num_timestep_loops,
 						   flycam ? "yes" : "no",
-						   v2varg((gs.player ? gs.player->pos : V2(0, 0))));
+						   v2varg((player(&gs) ? player(&gs)->pos : V2(0, 0))));
 				AABB bounds = draw_text((TextParams){true, stats, pos, BLACK, 1.0f});
 				pos.Y -= bounds.upper_left.Y - screen_size().Y;
 				bounds = draw_text((TextParams){true, stats, pos, BLACK, 1.0f});
