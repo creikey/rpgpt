@@ -1,31 +1,33 @@
 Name: Roger Penrose
 Description: He is an illusive testing character, who confounds even the most brilliant philosophers and doctors to this date.
 Soul:
-    Situation #0:
-        Memory #0: I'm being
-        Memory #1: Silly
+	Situation #0:
+		Memory #0: I'm being
+		Memory #1: Silly
 
-        Perception:
-            In Room: Farm
-            Characters Around Me:
-                John:
-                    Health Status: decent
-                    Drunkenness: 0.0
-                    Holding: nothing
-            Items Around Me:
-                Whiskey
+		Perception:
+		Some testing thing:
+			In Room: Farm
+			Characters Around Me:
+				John:
+					Health Status: decent
+					Drunkenness: 0.0
+					Holding: nothing
+			Items Around Me:
+				Whiskey
 
-        My Status:
-            Health Status: decent
-            Drunkenness: 0.5
-            Holding: whiskey
+		My Status:
+			Health Status: decent
+			Drunkenness: 0.5
+			Holding: whiskey
 
-        Previous Event #0: John said to me, "Why are you like that bro?"
-        Previous Event #1: I said to John, "Just because"
+		Previous Event #0: John said to me, "Why are you like that bro?"
+		Previous Event #1: I said to John, "Just because"
 
-        Response:
-            Say_To:
-                To: John
-                Speech: Why are you like that dude?
-            Throw:
-                To: John
+		Response:
+			Say_To:
+				To: John
+				Speech: Why are you like that dude?
+			Throw:
+				To: John
+

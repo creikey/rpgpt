@@ -94,7 +94,6 @@ typedef struct TextChunkList
 	TextChunk text;
 } TextChunkList;
 
-
 typedef enum
 {
 	ARG_CHARACTER,
@@ -286,11 +285,16 @@ typedef enum HealthStatus {
 	HEALTH_verge_of_death,
 } HealthStatus;
 
+// Whatever this health is, it can be perceived by others, e.g it's public
 typedef struct Health {
 	HealthStatus status;
 	float drunkenness; // 1.0 is max drunkenness
 } Health;
 
+
+// these are items and events that are available during the game, but 'rendered' to different structs
+// when sent to the AI as text so that they're more stable. I.E, if you change the name of an item or an index,
+// old memories still work, old reactions to items in a room still work, etc. 
 typedef enum ItemKind {
 	ITEM_none,
 	ITEM_whiskey,
@@ -307,36 +311,84 @@ typedef enum EventKind {
 	EVENT_stopped_talking,
 } EventKind;
 
+// these are the structs as presented to the AI, without a dependence on game data.
+
+typedef struct ItemInSituation {
+	TextChunk name;
+	TextChunk description; // might include some state, e.g 'the beer was drank 5 times'
+	ItemKind actual_item_kind; // used to map back to gameplay items, sometimes might be invalid item if that's not the purpose of the item in a situation
+} ItemInSituation;
+
 typedef struct Response {
-	TextChunk text;
-	ActionKind action;
-	NpcKind target;
-	int memory_slot;
+	TextChunk text; // for speech or memory
+	
+	// both of these indices correspond to what was provided in the CharacterSituation
+	int action_index;
+	int target_index;
+
+	int memory_index;
 } Response;
 
 typedef BUFF(Response, 5) FullResponse; // what the AI is allowed to output 
 
 typedef struct CharacterPerception {
 	Health health;
+	TextChunk name;
+	ItemInSituation held_item;
 } CharacterPerception;
 
+typedef struct ScenePerception {
+	BUFF(CharacterPerception, 10) characters;
+	BUFF(ItemKind, 10) items_on_floor; // available to be picked up or navigated to
+	
+} ScenePerception;
+
 typedef struct CharacterStatus {
-	TextChunk goal;
-	u64 in_room;
 	Item held_item;
 	Health health;
 } CharacterStatus;
 
+typedef enum TargetKind {
+	TARGET_invalid,
+	TARGET_path,
+	TARGET_person,
+	TARGET_item,
+} TargetKind;
+
+typedef struct Target {
+	TextChunk name;
+	TextChunk description;
+	TargetKind kind;
+} Target;
+
 // the situation for somebody
 typedef struct CharacterSituation {
+	TextChunk goal; // kind of like the most important memory, self described character's goal right now
 	TextChunk memories[4]; // explicit numbered memories
-	BUFF(TextChunk, 5) events; // events that this character has observed
+	BUFF(TextChunk, 5) events; // events that this character has observed in the plain english form
+	BUFF(Target, 10) targets;
+	CharacterStatus my_status;
+
 	CharacterStatus status;
 } CharacterSituation;
 
+/*
+Training samples must remain stable as the game is changed, is the decision here: i.e, if the characters
+in the situations are edited/changed, the training samples KEEP the old characters. This is so custom characters
+don't become invalid when the game is updated. I'm making the same decision with the items, instead of storing
+an across-update-stable 'item ID', I want to store the name of the item. All items can be used and have the same 'API'
+so no need of updating there is necessary.
+
+I.E: the situation is freestanding and doesn't refer to any other data. Not NpcKind, not ItemKind, not anything.
+Even the list of available actions and their arguments are stored in the situation. It's basically like pure JSON data.
+
+Also, you can't deserialize training samples easily because they exact text, and such a thing should NEVER happen.
+Training sample into gamestate = bad time. For things like recording gamestate for replays, there's a real man serialization
+codepath into binary.
+*/
 typedef struct TrainingSample {
 	CharacterSituation situation;
-	Response response;
+	FullResponse response;
 } TrainingSample;
 
 typedef struct Npc {

@@ -29,41 +29,33 @@
 
 #include <windows.h> // for sleep.
 
-void error_impl(Arena *arena, String8List *errors, String8 message)
+typedef struct Error {
+    struct Error *next, *prev;
+    String8 message;
+    int line;
+} Error;
+
+typedef struct ErrorList {
+    int count;
+    Error *first, *last;
+} ErrorList;
+
+void ErrorPush(Arena *arena, ErrorList *list, Error message)
 {
-    S8ListPush(arena, errors, message);
+    Error *new_err = PushArrayZero(arena, Error, 1);
+    *new_err = message;
+    
+    QueuePush(list->first, list->last, new_err);
+    list->count += 1;
+}
+
+void error_impl(Arena *arena, ErrorList *errors, int line_in_toparse, String8 message)
+{
+    ErrorPush(arena, errors, (Error){.line = line_in_toparse, .message = message});
     // this is a function so you can breakpoint here and discover when errors occur
 }
 
-#define error(fmt_str, ...) error_impl(arena, errors, S8Fmt(arena, fmt_str, __VA_ARGS__))
-
-// Allows you to not need to quote children of a parent.
-String8 all_children_as_string(Arena *arena, Node *parent)
-{
-    String8List children = {0};
-    for (Node *cur = parent->first_child; !NodeIsNil(cur); cur = cur->next)
-    {
-        S8ListPush(arena, &children, cur->string);
-    }
-    return S8ListJoin(arena, children, &(StringJoin){.mid = S8Lit(" ")});
-}
-
-Node *get_child_should_exist(Arena *arena, String8List *errors, Node *parent, String8 child_name)
-{
-    if (errors->node_count > 0)
-        return NilNode();
-
-    Node *child = MD_ChildFromString(parent, child_name, StringMatchFlag_CaseInsensitive);
-    if (NodeIsNil(child))
-    {
-        error("Couldn't find child with name '%.*s' on node '%.*s'", S8VArg(child_name), S8VArg(parent->string));
-    }
-    return child;
-}
-
-typedef struct {
-
-}
+#define error(line_in_toparse, fmt_str, ...) error_impl(arena, errors, line_in_toparse, S8Fmt(arena, fmt_str, __VA_ARGS__))
 
 int main(int argc, char **argv)
 {
@@ -71,41 +63,72 @@ int main(int argc, char **argv)
     (void)argv;
 
     Arena *arena = ArenaAlloc();
-    ParseResult result = ParseWholeFile(arena, S8Lit("playground.mdesk"));
-    if (result.errors.node_count > 0)
-    {
-        printf("Failed to parse file:\n");
-        for (Message *cur = result.errors.first; cur->next; cur = cur->next)
-        {
-            printf("%.*s\n", S8VArg(cur->string));
-        }
-    }
-    else
-    {
-        Node *node = result.node;
-        String8List errors_list = {0};
-        String8List *errors = &errors_list;
+    Sleep(200); // have to wait for console to pop up, super annoying
 
-        Npc out;
-        chunk_from_s8(&out.name, all_children_as_string(arena, get_child_should_exist(arena, errors, node, S8Lit("name"))));
+    // Prose is the name for this file format where you describe the souls of characters
 
-        if (errors->node_count == 0)
+    // tokenize
+    typedef struct ProseToken
+    {
+        struct ProseToken *next, *prev;
+        String8 field;
+        int field_number; // this is -1 if no field_number, e.g if 'Field Text #0:' isn't specified and had no '#', then this would be -1
+        String8 value; // may be an empty string, if it's trying to be like, an object
+        int indentation;
+        int line;
+    } ProseToken;
+
+    ErrorList errors_lit = {0};
+    ErrorList *errors = &errors_lit;
+
+    Npc out = {0};
+    // all arena allocations done from here are temporary. As it just copies data into Npc
+    // parse 'playground.txt' into 'out'
+    {
+        // read the file
+        String8 to_parse = LoadEntireFile(arena, S8Lit("playground.txt"));
+
+        // tokenize to_parse
+        ProseToken *tokenized_first = 0;
+        ProseToken *tokenized_last = 0;
         {
-            // unit testing asserts
-            assert(S8Match(TextChunkString8(out.name), S8Lit("Roger Penrose"), 0));
-        }
-        else
-        {
-            printf("Corrupt character soul:\n");
-            for (String8Node *cur = errors->first; cur->next; cur = cur->next)
+            String8List as_lines = S8Split(arena, to_parse, 1, &S8Lit("\n"));
+            int line = 1; // lines start at 1
+            for (String8Node *cur = as_lines.first; cur; cur = cur->next)
             {
-                printf("%.*s\n", S8VArg(cur->string));
-            }
-            assert(false);
-        }
+                int indentation = 0;
+                while(indentation < cur->string.size && cur->string.str[indentation] == '\t') indentation += 1;
 
+                String8 no_funny_business = S8SkipWhitespace(S8ChopWhitespace(cur->string));
+                if(no_funny_business.size == 0) continue;
+
+                String8List along_colon = S8Split(arena, no_funny_business, 1, &S8Lit(":"));
+                if(along_colon.node_count != 2 && along_colon.node_count != 1) {
+                    error(line, "Requires exactly one ':' on the line to delimit the field and value. Got %d", along_colon.node_count - 1);
+                } else {
+                    ProseToken *token_out = PushArrayZero(arena, ProseToken, 1);
+                    token_out->field_number = -1;
+                    if(along_colon.node_count == 2)
+                        token_out->value = along_colon.last->string;
+                    token_out->line = line;
+                    token_out->indentation = indentation;
+
+                    DblPushBack(tokenized_first, tokenized_last, token_out);
+                }
+                line += 1;
+            }
+        }
     }
 
+    if (errors->count > 0)
+    {
+        printf("Failed with errors:\n");
+        for (Error *cur = errors->first; cur; cur = cur->next)
+        {
+            printf("On line %d of input: %.*s\n", cur->line, S8VArg(cur->message));
+        }
+        assert(false);
+    }
     printf("Success.\n");
     __debugbreak();
 }
