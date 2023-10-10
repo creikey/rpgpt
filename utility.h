@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 
+
 #define STRINGIZE(x) STRINGIZE2(x)
 #define STRINGIZE2(x) #x
 
@@ -25,3 +26,4 @@
 #define assert game_assert
 
 #define Log(...) { printf("%s Log %d | ", __FILE__, __LINE__); printf(__VA_ARGS__); }
+

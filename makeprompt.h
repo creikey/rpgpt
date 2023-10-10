@@ -16,8 +16,6 @@
 
 // Never expected such a stupid stuff from such a great director. If there is 0 stari can give that or -200 to this movie. Its worst to see and unnecessary loss of money
 
-#define PushWithLint(arena, list,  ...) { S8ListPushFmt(arena, list,  __VA_ARGS__); if(false) printf( __VA_ARGS__); }
-#define FmtWithLint(arena, ...) (0 ? printf(__VA_ARGS__) : (void)0, S8Fmt(arena, __VA_ARGS__))
 
 typedef BUFF(char, 1024 * 10) Escaped;
 
@@ -359,14 +357,14 @@ typedef struct Target {
 	TextChunk name;
 	TextChunk description;
 	TargetKind kind;
-} Target;
+} SituationTarget;
 
 // the situation for somebody
 typedef struct CharacterSituation {
 	TextChunk goal; // kind of like the most important memory, self described character's goal right now
 	TextChunk memories[4]; // explicit numbered memories
 	BUFF(TextChunk, 5) events; // events that this character has observed in the plain english form
-	BUFF(Target, 10) targets;
+	BUFF(Target, 10) SituationTarget;
 	CharacterStatus my_status;
 
 	CharacterStatus status;

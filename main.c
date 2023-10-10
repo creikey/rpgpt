@@ -219,6 +219,19 @@ String8 nullterm(Arena *copy_onto, String8 to_nullterm)
 	return to_return;
 }
 
+// all utilities that depend on md.h strings or look like md.h stuff in general
+#define PushWithLint(arena, list,  ...) { S8ListPushFmt(arena, list,  __VA_ARGS__); if(false) printf( __VA_ARGS__); }
+#define FmtWithLint(arena, ...) (0 ? printf(__VA_ARGS__) : (void)0, S8Fmt(arena, __VA_ARGS__))
+
+void WriteEntireFile(char *null_terminated_path, String8 data) {
+    FILE* file = fopen(null_terminated_path, "wb");
+    if(file) {
+        fwrite(data.str, 1, data.size, file);
+        fclose(file);
+    } else {
+        Log("Failed to open file %s and save data.\n", null_terminated_path)
+    }
+}
 
 double clamp(double d, double min, double max)
 {
@@ -2268,42 +2281,35 @@ void transition_to_room(GameState *gs, ThreeDeeLevel *level, u64 new_roomid)
 	gs->current_roomid = new_roomid;
 }
 
-void initialize_gamestate_from_threedee_level(GameState *gs, ThreeDeeLevel *level)
-{
-	if (gs->arena)
-	{
-		ArenaRelease(gs->arena);
-	}
-	memset(gs, 0, sizeof(GameState));
-	gs->arena = ArenaAlloc();
-	rnd_gamerand_seed(&gs->random, RANDOM_SEED);
-
-	// make entities for all rooms
-	for (Room *cur_room = level->room_list_first; cur_room; cur_room = cur_room->next)
-	{
-		for (PlacedEntity *cur = cur_room->placed_entity_list; cur; cur = cur->next)
-		{
-			assert(false); // need to decide on a way entitie kind is decided on
-			Entity *cur_entity = new_entity(gs);
-			cur_entity->npc_kind = cur->npc_kind;
-			cur_entity->pos = point_plane(cur->t.offset);
-			cur_entity->current_roomid = cur_room->roomid;
+// no crash or anything bad if called on an already cleaned up gamestate
+void cleanup_gamestate(GameState *gs) {
+	if(gs) {
+		if(gs->arena) {
+			ArenaRelease(gs->arena);
 		}
+		memset(gs, 0, sizeof(GameState));
 	}
+}
 
-	gs->world_entity = new_entity(gs);
-	gs->world_entity->is_world = true;
-
+// this can be called more than once, it cleanly handles all states of the gamestate
+void initialize_gamestate(GameState *gs, u64 roomid) {
+	if(!gs->arena) gs->arena = ArenaAlloc();
+	if(!gs->world_entity) {
+		gs->world_entity = new_entity(gs);
+		gs->world_entity->is_world = true;
+	}
+	gs->current_roomid = roomid;
+	rnd_gamerand_seed(&gs->random, RANDOM_SEED);
 #ifdef DEVTOOLS
 	gs->edit.enabled = true;
 #endif
-
-	transition_to_room(gs, &level_threedee, level->room_list_first->roomid);
 }
 
 void reset_level()
 {
-	initialize_gamestate_from_threedee_level(&gs, &level_threedee);
+	Log("STUB\n");
+	// you prob want to do something like all dead entities are alive and reset to their editor positions.
+	// This means entities need an editor spawnpoint position and a gameplay position....
 }
 
 enum
@@ -2428,7 +2434,19 @@ void ser_Npc(SerState *ser, Npc *npc)
 {
 	ser_TextChunk(ser, &npc->name);
 	ser_int(ser, &npc->kind);
-	ser_TextChunk(ser, &npc->prompt);
+}
+
+void ser_EditorState(SerState *ser, EditorState *ed) {
+	ser_bool(ser, &ed->enabled);
+	ser_u64(ser, &ed->current_roomid);
+	ser_Vec2(ser, &ed->camera_panning_target);
+	ser_Vec2(ser, &ed->camera_panning);
+	ser_NpcKind(ser, &ed->placing_npc);
+	ser_NpcKind(ser, &ed->editing_npc);
+
+	ser_bool(ser, &ed->placing_spawn);
+	ser_u64(ser, &ed->player_spawn_roomid);
+	ser_Vec2(ser, &ed->player_spawn_position);
 }
 
 void ser_GameState(SerState *ser, GameState *gs)
@@ -2443,6 +2461,8 @@ void ser_GameState(SerState *ser, GameState *gs)
 
 	ser_uint64_t(ser, &gs->tick);
 	ser_bool(ser, &gs->won);
+
+	ser_EditorState(ser, &gs->edit);
 
 	ser_double(ser, &gs->time);
 	SER_BUFF(ser, Npc, &gs->characters);
@@ -2459,7 +2479,6 @@ void ser_GameState(SerState *ser, GameState *gs)
 			ser_entity(ser, &(gs->entities[i]));
 		}
 	}
-	gs->world_entity = 0;
 
 	if (!ser->cur_error.failed)
 	{
@@ -2476,6 +2495,9 @@ void ser_GameState(SerState *ser, GameState *gs)
 			ser->cur_error = (SerError){.failed = true, .why = S8Lit("No world entity found in deserialized entities")};
 		}
 	}
+
+	if(!ser->serializing)
+		initialize_gamestate(gs, gs->current_roomid);
 }
 
 // error_out is allocated onto arena if it fails
@@ -2525,7 +2547,7 @@ String8 save_to_string(Arena *output_bytes_arena, Arena *error_arena, String8 *e
 // error strings are allocated on error_arena, probably scratch for that. If serialization fails,
 // nothing is allocated onto arena, the allocations are rewound
 // If there was an error, the gamestate returned might be partially constructed and bad. Don't use it
-GameState load_from_string(Arena *arena, Arena *error_arena, String8 data, String8 *error_out)
+GameState *load_from_string(Arena *arena, Arena *error_arena, String8 data, String8 *error_out)
 {
 	ArenaTemp temp = ArenaBeginTemp(arena);
 
@@ -2536,10 +2558,11 @@ GameState load_from_string(Arena *arena, Arena *error_arena, String8 data, Strin
 		.arena = temp.arena,
 		.error_arena = error_arena,
 	};
-	GameState to_return = {0};
-	ser_GameState(&ser, &to_return);
+	GameState *to_return = PushArrayZero(temp.arena, GameState, 1);
+	ser_GameState(&ser, to_return);
 	if (ser.cur_error.failed)
 	{
+		cleanup_gamestate(to_return);
 		ArenaEndTemp(temp); // no allocations if it fails
 		*error_out = ser.cur_error.why;
 	}
@@ -3322,7 +3345,22 @@ void init(void)
 
 	ArenaClear(frame_arena);
 
-	reset_level();
+	cleanup_gamestate(&gs);
+	bool loaded_from_file = false;
+	{
+		String8 game_file = LoadEntireFile(frame_arena, S8Lit("assets/main_game_level.bin"));
+		String8 error = {0};
+		GameState *deserialized_gs = load_from_string(frame_arena, frame_arena, game_file, &error);
+
+		if(error.size == 0) {
+			gs = *deserialized_gs;
+			loaded_from_file = true;
+		}  else {
+			Log("Failed to load from saved gamestate: %.*s\n", S8VArg(error));
+		}
+	}
+	if(!loaded_from_file)
+		initialize_gamestate(&gs, level_threedee.room_list_first->roomid);
 
 #ifdef DEVTOOLS
 	do_metadesk_tests();
@@ -7089,6 +7127,26 @@ void frame(void)
 		}
 
 #ifdef DEVTOOLS
+		if(gs.edit.enabled && pressed.mouse_up) {
+			String8 error = {0};
+			Log("Saving gamestate...\n");
+			String8 saved = save_to_string(frame_arena, frame_arena, &error, &gs);
+			if(error.size > 0) {
+				Log("Failed to save gamestate: %.*s\n", S8VArg(error));
+			} else {
+				WriteEntireFile((char*)nullterm(frame_arena, S8Lit("assets/main_game_level.bin")).str, saved);
+			}
+			// reload from the saved data to make sure that functionality works
+			if(error.size == 0) {
+				GameState *deserialized_gs = load_from_string(frame_arena, frame_arena, saved, &error);
+				if(error.size == 0) {
+					cleanup_gamestate(&gs);
+					gs = *deserialized_gs;
+				}  else {
+					Log("Failed to load from saved gamestate: %.*s\n", S8VArg(error));
+				}
+			}
+		}
 		// statistics @Place(devtools drawing developer menu drawing)
 		if (show_devtools)
 			PROFILE_SCOPE("devtools drawing")
