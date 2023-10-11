@@ -1234,6 +1234,39 @@ typedef struct
 	int bones_texture_height;
 } Armature;
 
+void initialize_animated_properties(Arena *arena, Armature *armature) {
+	armature->bones_texture = sg_make_image(&(sg_image_desc) {
+		.width = armature->bones_texture_width,
+		.height = armature->bones_texture_height,
+		.pixel_format = SG_PIXELFORMAT_RGBA8,
+		.usage = SG_USAGE_STREAM,
+	});
+	armature->current_poses = PushArray(arena, Transform, armature->bones_length);
+	armature->anim_blended_poses = PushArray(arena, Transform, armature->bones_length);
+	for(int i = 0; i < armature->bones_length; i++)
+	{
+		armature->anim_blended_poses[i] = (Transform){.scale = V3(1,1,1), .rotation = Make_Q(1,0,0,1)};
+	}
+}
+
+// sokol stuff needs to be cleaned up, because it's not allocated and managed on the gamestate arena...
+// this cleans up the animated properties, not the images and vertex buffers, as those are loaded
+// before the gamestate is created, and the purpose of this is to allow you to delete/recreate
+// the gamestate without leaking resources.
+void cleanup_armature(Armature *armature) {
+	sg_destroy_image(armature->bones_texture);
+	armature->bones_texture = (sg_image){0};
+}
+
+// still points to the source armature's vertex data, but all animation data is duplicated.
+// the armature is allocated onto the arena
+Armature *duplicate_armature(Arena *arena, Armature *source) {
+	Armature *ret = PushArrayZero(arena, Armature, 1);
+	*ret = *source;
+	initialize_animated_properties(arena, ret);
+	return ret;
+}
+
 // armature_name is used for debugging purposes, it has to effect on things
 Armature load_armature(Arena *arena, String8 binary_file, String8 armature_name)
 {
@@ -1293,12 +1326,6 @@ Armature load_armature(Arena *arena, String8 binary_file, String8 armature_name)
 		}
 	}
 
-	to_return.current_poses = PushArray(arena, Transform, to_return.bones_length);
-	to_return.anim_blended_poses = PushArray(arena, Transform, to_return.bones_length);
-	for(int i = 0; i < to_return.bones_length; i++)
-	{
-		to_return.anim_blended_poses[i] = (Transform){.scale = V3(1,1,1), .rotation = Make_Q(1,0,0,1)};
-	}
 
 	ser_u64(&ser, &to_return.animations_length);
 	//Log("Armature %.*s has  %llu animations\n", S8VArg(armature_name), to_return.animations_length);
@@ -1374,12 +1401,7 @@ Armature load_armature(Arena *arena, String8 binary_file, String8 armature_name)
 	to_return.bones_texture_height = (int)to_return.bones_length;
 
 	//Log("Armature %.*s has bones texture size (%d, %d)\n", S8VArg(armature_name), to_return.bones_texture_width, to_return.bones_texture_height);
-	to_return.bones_texture = sg_make_image(&(sg_image_desc) {
-		.width = to_return.bones_texture_width,
-		.height = to_return.bones_texture_height,
-		.pixel_format = SG_PIXELFORMAT_RGBA8,
-		.usage = SG_USAGE_STREAM,
-	});
+	initialize_animated_properties(arena, &to_return);
 
 	// a sanity check
 	SLICE_ITER(Bone, to_return.bones)
@@ -2298,6 +2320,12 @@ void transition_to_room(GameState *gs, ThreeDeeLevel *level, u64 new_roomid)
 // no crash or anything bad if called on an already cleaned up gamestate
 void cleanup_gamestate(GameState *gs) {
 	if(gs) {
+		ENTITIES_ITER(gs->entities) {
+			if(it->armature) {
+				cleanup_armature(it->armature);
+				it->armature = 0;
+			}
+		}
 		if(gs->arena) {
 			ArenaRelease(gs->arena);
 		}
@@ -5550,6 +5578,72 @@ void flush_all_drawn_things(ShadowMats shadow)
 	}
 }
 
+void animate_armature(Armature *it, float dt) {
+	// progress the animation, then blend the two animations if necessary, and finally
+	// output into anim_blended_poses
+	Armature *cur = it;
+	float seed = (float)((int64_t)cur % 1024); // offset into elapsed time to make all of their animations out of phase
+	float along_current_animation = 0.0;
+	if (cur->currently_playing_isnt_looping)
+	{
+		along_current_animation = (float)cur->cur_animation_time;
+		cur->cur_animation_time += dt;
+	}
+	else
+	{
+		along_current_animation = (float)elapsed_time + seed;
+	}
+
+	if (cur->go_to_animation.size > 0)
+	{
+		if (S8Match(cur->go_to_animation, cur->currently_playing_animation, 0))
+		{
+		}
+		else
+		{
+			memcpy(cur->current_poses, cur->anim_blended_poses, cur->bones_length * sizeof(*cur->current_poses));
+			cur->currently_playing_animation = cur->go_to_animation;
+			cur->animation_blend_t = 0.0f;
+			cur->go_to_animation = (String8){0};
+			if (cur->next_animation_isnt_looping)
+			{
+				cur->cur_animation_time = 0.0;
+				cur->currently_playing_isnt_looping = true;
+			}
+			else
+			{
+				cur->currently_playing_isnt_looping = false;
+			}
+		}
+		cur->next_animation_isnt_looping = false;
+	}
+
+	if (cur->animation_blend_t < 1.0f)
+	{
+		cur->animation_blend_t += dt / ANIMATION_BLEND_TIME;
+
+		Animation *to_anim = get_anim_by_name(cur, cur->currently_playing_animation);
+		assert(to_anim);
+
+		for (u64 i = 0; i < cur->bones_length; i++)
+		{
+			Transform *output_transform = &cur->anim_blended_poses[i];
+			Transform from_transform = cur->current_poses[i];
+			Transform to_transform = get_animated_bone_transform(&to_anim->tracks[i], along_current_animation, cur->currently_playing_isnt_looping);
+
+			*output_transform = lerp_transforms(from_transform, cur->animation_blend_t, to_transform);
+		}
+	}
+	else
+	{
+		Animation *cur_anim = get_anim_by_name(cur, cur->currently_playing_animation);
+		for (u64 i = 0; i < cur->bones_length; i++)
+		{
+			cur->anim_blended_poses[i] = get_animated_bone_transform(&cur_anim->tracks[i], along_current_animation, cur->currently_playing_isnt_looping);
+		}
+	}
+}
+
 typedef struct
 {
 	float text_scale;
@@ -5816,9 +5910,13 @@ void frame(void)
 			{
 				assert(it->is_npc);
 				Transform draw_with = entity_transform(it);
+				if(!it->armature) {
+					it->armature = duplicate_armature(gs.arena, &player_armature);
+				}
 
 				{
-					Armature *to_use = &player_armature;
+					Armature *to_use = it->armature;
+					animate_armature(to_use, dt);
 
 					// if9!
 
@@ -5846,73 +5944,6 @@ void frame(void)
 						shotgun_t.rotation = rot_on_plane_to_quat(AngleOfV2(SubV2(gete(it->aiming_shotgun_at)->pos, it->pos)));
 						draw_thing((DrawnThing){.mesh = &mesh_shotgun, .t = shotgun_t});
 					}
-				}
-			}
-		}
-
-		// progress the animation, then blend the two animations if necessary, and finally
-		// output into anim_blended_poses
-		ARR_ITER(Armature *, armatures)
-		{
-			Armature *cur = *it;
-			float seed = (float)((int64_t)cur % 1024); // offset into elapsed time to make all of their animations out of phase
-			float along_current_animation = 0.0;
-			if (cur->currently_playing_isnt_looping)
-			{
-				along_current_animation = (float)cur->cur_animation_time;
-				cur->cur_animation_time += dt;
-			}
-			else
-			{
-				along_current_animation = (float)elapsed_time + seed;
-			}
-
-			if (cur->go_to_animation.size > 0)
-			{
-				if (S8Match(cur->go_to_animation, cur->currently_playing_animation, 0))
-				{
-				}
-				else
-				{
-					memcpy(cur->current_poses, cur->anim_blended_poses, cur->bones_length * sizeof(*cur->current_poses));
-					cur->currently_playing_animation = cur->go_to_animation;
-					cur->animation_blend_t = 0.0f;
-					cur->go_to_animation = (String8){0};
-					if (cur->next_animation_isnt_looping)
-					{
-						cur->cur_animation_time = 0.0;
-						cur->currently_playing_isnt_looping = true;
-					}
-					else
-					{
-						cur->currently_playing_isnt_looping = false;
-					}
-				}
-				cur->next_animation_isnt_looping = false;
-			}
-
-			if (cur->animation_blend_t < 1.0f)
-			{
-				cur->animation_blend_t += dt / ANIMATION_BLEND_TIME;
-
-				Animation *to_anim = get_anim_by_name(cur, cur->currently_playing_animation);
-				assert(to_anim);
-
-				for (u64 i = 0; i < cur->bones_length; i++)
-				{
-					Transform *output_transform = &cur->anim_blended_poses[i];
-					Transform from_transform = cur->current_poses[i];
-					Transform to_transform = get_animated_bone_transform(&to_anim->tracks[i], along_current_animation, cur->currently_playing_isnt_looping);
-
-					*output_transform = lerp_transforms(from_transform, cur->animation_blend_t, to_transform);
-				}
-			}
-			else
-			{
-				Animation *cur_anim = get_anim_by_name(cur, cur->currently_playing_animation);
-				for (u64 i = 0; i < cur->bones_length; i++)
-				{
-					cur->anim_blended_poses[i] = get_animated_bone_transform(&cur_anim->tracks[i], along_current_animation, cur->currently_playing_isnt_looping);
 				}
 			}
 		}

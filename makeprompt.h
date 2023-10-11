@@ -233,6 +233,7 @@ typedef struct Entity
 
 	// npcs
 	bool is_player;
+	void *armature; // copied into the gamestate's arena, created if null. Don't serialize
 	EntityRef joined;
 	EntityRef aiming_shotgun_at;
 	EntityRef looking_at; // aiming shotgun at takes facing priority over this
