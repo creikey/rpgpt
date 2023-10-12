@@ -465,7 +465,6 @@ ISANERROR("No platform defined for text input!")
 #endif // desktop
 
 TextChunk text_input_result = {0};
-typedef int TextInputResultKey;
 TextInputResultKey text_result_key = 1;
 bool text_ready = false;
 TextInputResultKey begin_text_input(String8 placeholder_text)
@@ -2666,35 +2665,6 @@ void end_text_input(char *what_was_entered_cstr)
 	receiving_text_input = false;
 
 	/*
-		ArenaTemp scratch = GetScratch(0, 0);
-		// avoid double ending text input
-		if (!receiving_text_input)
-		{
-			return;
-		}
-		receiving_text_input = false;
-
-		size_t player_said_len = strlen(what_player_said_cstr);
-		int actual_len = 0;
-		for (int i = 0; i < player_said_len; i++) if (what_player_said_cstr[i] != '\n') actual_len++;
-		if (actual_len == 0)
-		{
-			// this just means cancel the dialog
-		}
-		else
-		{
-			String8 what_player_said = S8CString(what_player_said_cstr);
-			what_player_said = S8ListJoin(scratch.arena, S8Split(scratch.arena, what_player_said, 1, &S8Lit("\n")), &(StringJoin){0});
-
-			Action to_perform = {0};
-			what_player_said = S8Substring(what_player_said, 0, ARRLEN(to_perform.speech.text));
-
-			chunk_from_s8(&to_perform.speech, what_player_said);
-
-
-			Log("UNIMPLEMENTED!!\n");
-		}
-		ReleaseScratch(scratch);
 	*/
 }
 /*
@@ -6883,6 +6853,25 @@ void frame(void)
 				if (player(&gs))
 					PROFILE_SCOPE("process player")
 					{
+						String8 text_to_say = text_ready_for_me(player(&gs)->player_input_key);
+						if(text_to_say.size > 0) {
+							String8 no_whitespace = S8SkipWhitespace(S8ChopWhitespace(text_to_say));
+							if (no_whitespace.size == 0)
+							{
+								// this just means cancel the dialog
+							}
+							else
+							{
+								String8 what_player_said = text_to_say;
+								what_player_said = S8ListJoin(frame_arena, S8Split(frame_arena, what_player_said, 1, &S8Lit("\n")), &(StringJoin){0});
+
+								ActionOld to_perform = {0};
+								what_player_said = S8Substring(what_player_said, 0, ARRLEN(to_perform.speech.text));
+
+								chunk_from_s8(&to_perform.speech, what_player_said);
+								perform_action(&gs, player(&gs), to_perform);
+							}
+						}
 						// do dialog
 						Entity *closest_interact_with = 0;
 						{
@@ -6932,7 +6921,7 @@ void frame(void)
 								{
 									// begin dialog with closest npc
 									player(&gs)->talking_to = frome(closest_interact_with);
-									begin_text_input(S8Lit(""));
+									player(&gs)->player_input_key = begin_text_input(S8Lit(""));
 								}
 								else
 								{

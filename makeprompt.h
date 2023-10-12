@@ -210,6 +210,8 @@ typedef struct RememberedError
 	TextChunk reason_why_its_bad;
 } RememberedError;
 
+typedef int TextInputResultKey;
+
 typedef struct Entity
 {
 	bool exists;
@@ -233,6 +235,7 @@ typedef struct Entity
 
 	// npcs
 	bool is_player;
+	TextInputResultKey player_input_key;
 	void *armature; // copied into the gamestate's arena, created if null. Don't serialize
 	EntityRef joined;
 	EntityRef aiming_shotgun_at;
