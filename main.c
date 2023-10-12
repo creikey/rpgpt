@@ -1892,10 +1892,8 @@ Entity *get_targeted(Entity *from, NpcKind targeted)
 Memory make_memory(ActionOld a, MemoryContext context)
 {
 	Memory new_memory = {0};
-	new_memory.speech = a.speech;
-	new_memory.action_taken = a.kind;
+	new_memory.action = a;
 	new_memory.context = context;
-	new_memory.action_argument = a.argument;
 	return new_memory;
 }
 
@@ -1998,7 +1996,7 @@ String8 is_action_valid(Arena *arena, Entity *from, ActionOld a)
 		}
 		if (arg_valid == false)
 		{
-			error_message = FmtWithLint(arena, "Your action_argument for who the action `%s` be directed at, %.*s, is either invalid (you can't operate on nobody) or it's not an NPC that's near you right now.", actions[a.kind].name, TextChunkVArg(npc_data(&gs, a.argument.targeting)->name));
+			error_message = FmtWithLint(arena, "Your action.argument for who the action `%s` be directed at, %.*s, is either invalid (you can't operate on nobody) or it's not an NPC that's near you right now.", actions[a.kind].name, TextChunkVArg(npc_data(&gs, a.argument.targeting)->name));
 		}
 	}
 
@@ -2090,8 +2088,6 @@ bool perform_action(GameState *gs, Entity *from, ActionOld a)
 
 	if (a.speech.text_length > 0)
 		from->dialog_fade = 2.5f;
-
-	context.talking_to_kind = a.talking_to_kind;
 
 	String8 is_valid = is_action_valid(scratch.arena, from, a);
 	bool proceed_propagating = true;
@@ -4902,9 +4898,9 @@ String8 last_said_sentence(Entity *npc)
 
 	for (Memory *cur = npc->memories_last; cur; cur = cur->prev)
 	{
-		if (cur->context.author_npc_kind == npc->npc_kind && cur->speech.text_length > 0)
+		if (cur->context.author_npc_kind == npc->npc_kind && cur->action.speech.text_length > 0)
 		{
-			to_return = TextChunkString8(cur->speech);
+			to_return = TextChunkString8(cur->action.speech);
 			break;
 		}
 	}
@@ -6336,7 +6332,7 @@ void frame(void)
 									if (words_over_limit > 0)
 									{
 										String8 new_err = FmtWithLint(frame_arena, "Your speech is %d words over the maximum limit, you must be more succinct and remove at least that many words", words_over_limit);
-										append_to_errors(it, make_memory(out, (MemoryContext){.i_said_this = true, .author_npc_kind = it->npc_kind, .talking_to_kind = out.talking_to_kind}), new_err);
+										append_to_errors(it, make_memory(out, (MemoryContext){.i_said_this = true, .author_npc_kind = it->npc_kind,}), new_err);
 									}
 									else
 									{
@@ -6796,7 +6792,7 @@ void frame(void)
 								if (mocking_the_ai_response)
 								{
 									String8 ai_response = {0};
-									if (it->memories_last->context.talking_to_kind == it->npc_kind)
+									if (it->memories_last->action.talking_to_kind == it->npc_kind)
 									// if (it->memories_last->context.author_npc_kind != it->npc_kind)
 									{
 										const char *action = 0;
@@ -7205,10 +7201,10 @@ void frame(void)
 							cur_pos.y -= aabb_size(bounds).y;
 
 							for (Memory *cur = to_view->memories_first; cur; cur = cur->next)
-								if (cur->speech.text_length > 0)
+								if (cur->action.speech.text_length > 0)
 								{
-									String8 to_text = cur->context.talking_to_kind != NPC_nobody ? S8Fmt(frame_arena, " to %.*s ", TextChunkVArg(npc_data(&gs, cur->context.talking_to_kind)->name)) : S8Lit("");
-									String8 text = S8Fmt(frame_arena, "%s%.*s%.*s: %.*s", to_view->npc_kind == cur->context.author_npc_kind ? "(Me) " : "", TextChunkVArg(npc_data(&gs, cur->context.author_npc_kind)->name), S8VArg(to_text), cur->speech.text_length, cur->speech);
+									String8 to_text = cur->action.talking_to_kind != NPC_nobody ? S8Fmt(frame_arena, " to %.*s ", TextChunkVArg(npc_data(&gs, cur->action.talking_to_kind)->name)) : S8Lit("");
+									String8 text = S8Fmt(frame_arena, "%s%.*s%.*s: %.*s", to_view->npc_kind == cur->context.author_npc_kind ? "(Me) " : "", TextChunkVArg(npc_data(&gs, cur->context.author_npc_kind)->name), S8VArg(to_text), cur->action.speech.text_length, cur->action.speech);
 									AABB bounds = draw_text((TextParams){false, text, cur_pos, WHITE, 1.0});
 									cur_pos.y -= aabb_size(bounds).y;
 								}
@@ -7220,8 +7216,8 @@ void frame(void)
 								int mem_idx = 0;
 								for (Memory *cur = to_view->memories_first; cur; cur = cur->next)
 								{
-									String8 to_text = cur->context.talking_to_kind != NPC_nobody ? S8Fmt(frame_arena, " to %.*s ", TextChunkVArg(npc_data(&gs, cur->context.talking_to_kind)->name)) : S8Lit("");
-									String8 speech = TextChunkString8(cur->speech);
+									String8 to_text = cur->action.talking_to_kind != NPC_nobody ? S8Fmt(frame_arena, " to %.*s ", TextChunkVArg(npc_data(&gs, cur->action.talking_to_kind)->name)) : S8Lit("");
+									String8 speech = TextChunkString8(cur->action.speech);
 									if (speech.size == 0)
 										speech = S8Lit("<said nothing>");
 									String8 text = S8Fmt(frame_arena, "%s%.*s%.*s: %.*s", to_view->npc_kind == cur->context.author_npc_kind ? "(Me) " : "", TextChunkVArg(npc_data(&gs, cur->context.author_npc_kind)->name), S8VArg(to_text), S8VArg(speech));

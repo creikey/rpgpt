@@ -122,8 +122,6 @@ typedef struct
 {
 	bool i_said_this; // don't trigger npc action on own self memory modification
 	NpcKind author_npc_kind;
-	NpcKind talking_to_kind;
-	bool heard_physically; // if not physically, the source was directly
 } MemoryContext;
 
 // memories are subjective to an individual NPC
@@ -132,12 +130,8 @@ typedef struct Memory
 	struct Memory *prev;
 	struct Memory *next;
 
-	// if action_taken is none, there might still be speech. If speech_length == 0 and action_taken == none, it's an invalid memory and something has gone wrong
-	ActionKind action_taken;
-	ActionArgument action_argument;
-
+	ActionOld action;
 	MemoryContext context;
-	TextChunk speech;
 } Memory;
 
 // text chunk must be a literal, not a pointer
@@ -578,11 +572,11 @@ String8List dump_memory_as_json(Arena *arena, GameState *gs, Memory *it)
 	#define AddFmt(...) PushWithLint(arena, &current_list, __VA_ARGS__)
 
 	AddFmt("{");
-	AddFmt("\"speech\":\"%.*s\",", TextChunkVArg(it->speech));
-	AddFmt("\"action\":\"%s\",", actions[it->action_taken].name);
-	String8 arg_str = action_argument_string(scratch.arena, gs, it->action_argument);
-	AddFmt("\"action_argument\":\"%.*s\",", S8VArg(arg_str));
-	AddFmt("\"target\":\"%.*s\"}", TextChunkVArg(npc_data(gs, it->context.talking_to_kind)->name));
+	AddFmt("\"speech\":\"%.*s\",", TextChunkVArg(it->action.speech));
+	AddFmt("\"action\":\"%s\",", actions[it->action.kind].name);
+	String8 arg_str = action_argument_string(scratch.arena, gs, it->action.argument);
+	AddFmt("\"action.argument\":\"%.*s\",", S8VArg(arg_str));
+	AddFmt("\"target\":\"%.*s\"}", TextChunkVArg(npc_data(gs, it->action.talking_to_kind)->name));
 
  #undef AddFmt
 	ReleaseScratch(scratch);
@@ -597,55 +591,55 @@ String8List memory_description(Arena *arena, GameState *gs, Entity *e, Memory *i
 	bool no_longer_wants_to_converse = false; // add the no longer wants to converse text after any speech, it makes more sense reading it
 	
 #define HUMAN(kind) S8VArg(npc_to_human_readable(gs, e, kind))
-	if (it->action_taken != ACT_none)
+	if (it->action.kind != ACT_none)
 	{
-		switch (it->action_taken)
+		switch (it->action.kind)
 		{
 		case ACT_none:
 			break;
 		case ACT_join:
-			AddFmt("%.*s joined %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action_argument.targeting));
+			AddFmt("%.*s joined %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action.argument.targeting));
 			break;
 		case ACT_leave:
 			AddFmt("%.*s left their party\n", HUMAN(it->context.author_npc_kind));
 			break;
 		case ACT_aim_shotgun:
-			AddFmt("%.*s aimed their shotgun at %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action_argument.targeting));
+			AddFmt("%.*s aimed their shotgun at %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action.argument.targeting));
 			break;
 		case ACT_fire_shotgun:
-			AddFmt("%.*s fired their shotgun at %.*s, brutally murdering them.\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action_argument.targeting));
+			AddFmt("%.*s fired their shotgun at %.*s, brutally murdering them.\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action.argument.targeting));
 			break;
 		case ACT_put_shotgun_away:
 			AddFmt("%.*s holstered their shotgun, no longer threatening anybody\n", HUMAN(it->context.author_npc_kind));
 			break;
 		case ACT_approach:
-			AddFmt("%.*s approached %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action_argument.targeting));
+			AddFmt("%.*s approached %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action.argument.targeting));
 			break;
 		case ACT_end_conversation:
 			no_longer_wants_to_converse = true;
 			break;
 		case ACT_assign_gameplay_objective:
-			AddFmt("%.*s assigned a definitive game objective to %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->context.talking_to_kind));
+			AddFmt("%.*s assigned a definitive game objective to %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action.talking_to_kind));
 			break;
 		case ACT_award_victory:
-			AddFmt("%.*s awarded victory to %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->context.talking_to_kind));
+			AddFmt("%.*s awarded victory to %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action.talking_to_kind));
 			break;
 		}
 	}
-	if (it->speech.text_length > 0)
+	if (it->action.speech.text_length > 0)
 	{
 		String8 target_string = S8Lit("the world");
-		if (it->context.talking_to_kind != NPC_nobody)
+		if (it->action.talking_to_kind != NPC_nobody)
 		{
-			if (it->context.talking_to_kind == e->npc_kind)
+			if (it->action.talking_to_kind == e->npc_kind)
 				target_string = S8Lit("you");
 			else
-				target_string = TextChunkString8(npc_data(gs, it->context.talking_to_kind)->name);
+				target_string = TextChunkString8(npc_data(gs, it->action.talking_to_kind)->name);
 		}
 
 		if(!e->is_world)
 		{
-			if(it->context.talking_to_kind == e->npc_kind)
+			if(it->action.talking_to_kind == e->npc_kind)
 			{
 				AddFmt("(Speaking directly you) ");
 			}
@@ -654,7 +648,7 @@ String8List memory_description(Arena *arena, GameState *gs, Entity *e, Memory *i
 				AddFmt("(Overheard conversation, they aren't speaking directly to you) ");
 			}
 		}
-		AddFmt("%.*s said \"%.*s\" to %.*s", TextChunkVArg(npc_data(gs, it->context.author_npc_kind)->name), TextChunkVArg(it->speech), S8VArg(target_string));
+		AddFmt("%.*s said \"%.*s\" to %.*s", TextChunkVArg(npc_data(gs, it->context.author_npc_kind)->name), TextChunkVArg(it->action.speech), S8VArg(target_string));
 		if(!e->is_world)
 		{
 			AddFmt(" (you are %.*s)", TextChunkVArg(npc_data(gs, e->npc_kind)->name));
@@ -664,13 +658,13 @@ String8List memory_description(Arena *arena, GameState *gs, Entity *e, Memory *i
 
 	if (no_longer_wants_to_converse)
 	{
-		if (it->action_argument.targeting == NPC_nobody)
+		if (it->action.argument.targeting == NPC_nobody)
 		{
 			AddFmt("%.*s no longer wants to converse with everybody\n", HUMAN(it->context.author_npc_kind));
 		}
 		else
 		{
-			AddFmt("%.*s no longer wants to converse with %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action_argument.targeting));
+			AddFmt("%.*s no longer wants to converse with %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action.argument.targeting));
 		}
 	}
 #undef HUMAN
@@ -749,7 +743,7 @@ String8 generate_chatgpt_prompt(Arena *arena, GameState *gs, Entity *e, CanTalkT
 				AddFmt("Errors you made: \n");
 				for(RememberedError *cur = e->errorlist_first; cur; cur = cur->next)
 				{
-					if(cur->offending_self_output.speech.text_length > 0 || cur->offending_self_output.action_taken != ACT_none)
+					if(cur->offending_self_output.action.speech.text_length > 0 || cur->offending_self_output.action.kind != ACT_none)
 					{
 						String8 offending_json_output = S8ListJoin(scratch.arena, dump_memory_as_json(scratch.arena, gs, &cur->offending_self_output), &(StringJoin){0});
 						AddFmt("When you output, `%.*s`, ", S8VArg(offending_json_output));
@@ -843,7 +837,7 @@ String8 parse_chatgpt_response(Arena *arena, GameState *gs, Entity *e, String8 a
 	{
 		speech_str = get_field(message_obj, S8Lit("speech"));
 		action_str = get_field(message_obj, S8Lit("action"));
-		action_argument_str = get_field(message_obj, S8Lit("action_argument"));
+		action_argument_str = get_field(message_obj, S8Lit("action.argument"));
 		target_str = get_field(message_obj, S8Lit("target"));
 	}
 	if(error_message.size == 0 && action_str.size == 0)

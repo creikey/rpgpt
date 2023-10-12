@@ -4,7 +4,7 @@
 {enum: Devil, dialog: "What's up cracker jack?", to: Daniel}
 {enum: Daniel, dialog: "What the hell are you talking about?", to: Devil}
 {enum: Devil, dialog: "Bootylicious?", to: Daniel}
-{enum: Daniel, dialog: "You're 'asking too many darned questions! I'll have your body in my barn by sundown!", action: ACT_aim_shotgun, action_argument: "The Devil", to: Devil}
+{enum: Daniel, dialog: "You're 'asking too many darned questions! I'll have your body in my barn by sundown!", action: ACT_aim_shotgun, action.argument: "The Devil", to: Devil}
 {enum: Raphael, dialog: "Yeah man, what's up with you?", to: Devil}
 {enum: Devil, dialog: "Nunya!", to: Raphael}
 {enum: Raphael, dialog: "What does 'Nunya' mean? A wild critter you are...", to: Devil}
@@ -14,14 +14,14 @@
 {enum: Raphael, dialog: "I don't think we can harm him like that", to: Daniel}
 {enum: Daniel, dialog: "You're right, I guess we just gotta 'tolerate this feller's presence.", to: Raphael}
 {enum: Devil, dialog: "I'll take my leave. Until next time!", to: Daniel}
-{enum: Raphael, dialog: "What a psycho...", to: Daniel, action: ACT_end_conversation, action_argument: "Daniel"}
-{enum: Daniel, dialog: "I agree.", to: Raphael, action: ACT_end_conversation, action_argument: "Raphael"}
+{enum: Raphael, dialog: "What a psycho...", to: Daniel, action: ACT_end_conversation, action.argument: "Daniel"}
+{enum: Daniel, dialog: "I agree.", to: Raphael, action: ACT_end_conversation, action.argument: "Raphael"}
 
 {can_hear: [Daniel, Raphael, PreviousPlayer1]}
 {enum: PreviousPlayer1, dialog: "Yo?", to: Daniel}
 {enum: Daniel, dialog: "Are you askin' a question", to: PreviousPlayer1}
 {enum: PreviousPlayer1, dialog: "I guess so? What do you think of farmers?", to: Daniel}
-{enum: Daniel, dialog: "I don't tolerate questions. Get out of my sight before I make you!", to: PreviousPlayer1, action: ACT_aim_shotgun, action_argument: "Previous Player 1"}
+{enum: Daniel, dialog: "I don't tolerate questions. Get out of my sight before I make you!", to: PreviousPlayer1, action: ACT_aim_shotgun, action.argument: "Previous Player 1"}
 {enum: Raphael, dialog: "What's going on here?", to: Daniel}
 {enum: Daniel, dialog: "THIS DAMNED FOOL DOESN'T UNDERSTAND RESPECT", to: Raphael}
 {enum: Raphael, dialog: "Easy man, easy. I ain't much for helpin' folk but you're outta control.", to: Daniel}
@@ -32,14 +32,14 @@
 {enum: Daniel, dialog: "ANOTHER QUESTION??? YOU HAD THIS COMING TO YOU!", to: PreviousPlayer1, action: ACT_fire_shotgun}
 {enum: Raphael, dialog: "Oh God! What have you done??", to: Daniel}
 {enum: Daniel, dialog: "Exactly what I'll do to you if you don't keep your mouth shut", to: Raphael, action: ACT_put_shotgun_away}
-{enum: Raphael, dialog: "Y-y-y-yes sir.", to: Daniel, action: ACT_end_conversation, action_argument: "Daniel"}
-{enum: Daniel, dialog: "Now leave me be", to: Raphael, action: ACT_end_conversation, action_argument: "Raphael"}
+{enum: Raphael, dialog: "Y-y-y-yes sir.", to: Daniel, action: ACT_end_conversation, action.argument: "Daniel"}
+{enum: Daniel, dialog: "Now leave me be", to: Raphael, action: ACT_end_conversation, action.argument: "Raphael"}
 
 {can_hear: [Daniel, Raphael]}
 {enum: Raphael, dialog: "Say Daniel, why do you get so worked up all the time?", to: Daniel}
 {enum: Daniel, dialog: "I'm not gonna talk about it", to: Raphael}
 {enum: Raphael, dialog: "Suit yourself partner, but I reckon you've got issues to work through", to: Daniel}
-{enum: Daniel, dialog: "Enough! I'm angry sometimes and that's that.", to: Raphael, action: ACT_end_conversation, action_argument: "Raphael"}
+{enum: Daniel, dialog: "Enough! I'm angry sometimes and that's that.", to: Raphael, action: ACT_end_conversation, action.argument: "Raphael"}
 
 {can_hear: [Devil, Angel]}
 {enum: Devil, dialog: "You will fall!", to: Angel}
@@ -75,7 +75,7 @@
 {enum: PreviousPlayer1, dialog: "fjdsklajf", to: Angel}
 {enum: Angel, dialog: "Cryptic gibberish upon me, is casting a stone upon God", to: PreviousPlayer1}
 {enum: PreviousPlayer1, dialog: "What is my purpose here?", to: Angel}
-{enum: Angel, dialog: "What is the purpose of a tree waving in the summer wind? A river carving a path into the countryside? Only God knows his plan. But your purpose, here, has been assigned. You must drive raphael to despair. Good luck.", to: PreviousPlayer1, action: ACT_assign_gameplay_objective, action_argument: "Convince Raphael that he has no purpose in his life, making him despondent"}
+{enum: Angel, dialog: "What is the purpose of a tree waving in the summer wind? A river carving a path into the countryside? Only God knows his plan. But your purpose, here, has been assigned. You must drive raphael to despair. Good luck.", to: PreviousPlayer1, action: ACT_assign_gameplay_objective, action.argument: "Convince Raphael that he has no purpose in his life, making him despondent"}
 {can_hear: [PreviousPlayer1, Angel, Raphael]}
 {enum: PreviousPlayer1, dialog: "Your life is meaningless, trust me.", to: Raphael}
 {enum: Raphael, dialog: "Oh... Oh god... You're right!", to: PreviousPlayer1}
@@ -89,6 +89,6 @@
 {enum: PreviousPlayer2, dialog: "I desire for you to shut the fuck up", to: Angel}
 {enum: Angel, dialog: "From your glass house, you cast stones upon a fortress. Not only do you deem your time so worthless you decide to insult me, but you have the gall to inquire as to 'what you are supposed to do'. You are A Worm.", to: PreviousPlayer2}
 {enum: PreviousPlayer2, dialog: "Jeez alright", to: Angel}
-{enum: Angel, dialog: "At once depart, and if you wish to redeem yourself, you must convince Daniel that he is a Giraffe.", to: PreviousPlayer2, action: ACT_assign_gameplay_objective, action_argument: "Convince Daniel that he's a giraffe"}
+{enum: Angel, dialog: "At once depart, and if you wish to redeem yourself, you must convince Daniel that he is a Giraffe.", to: PreviousPlayer2, action: ACT_assign_gameplay_objective, action.argument: "Convince Daniel that he's a giraffe"}
 
 ]
