@@ -100,6 +100,7 @@ typedef enum
 // A value of 0 means no npc. So is invalid if you're referring to somebody.
 typedef int NpcKind;
 #define NPC_nobody 0
+#define NPC_player 1
 
 typedef struct
 {
@@ -228,7 +229,6 @@ typedef struct Entity
 	u64 current_roomid;
 
 	// npcs
-	bool is_player;
 	TextInputResultKey player_input_key;
 	void *armature; // copied into the gamestate's arena, created if null. Don't serialize
 	EntityRef joined;
@@ -435,6 +435,10 @@ Npc nobody_data = {
 	.name = TextChunkLitC("Nobody"),
 	.kind = NPC_nobody,
 };
+Npc player_data = {
+	.name = TextChunkLitC("The Player"),
+	.kind = NPC_player,
+};
 Npc *npc_data_by_name(GameState *gs, String8 name) {
 	BUFF_ITER(Npc, &gs->characters) {
 		if(S8Match(TextChunkString8(it->name), name, 0)) {
@@ -445,6 +449,7 @@ Npc *npc_data_by_name(GameState *gs, String8 name) {
 }
 Npc *npc_data(GameState *gs, NpcKind kind) {
 	if(kind == NPC_nobody) return &nobody_data;
+	if(kind == NPC_player) return &player_data;
 	BUFF_ITER(Npc, &gs->characters) {
 		if(it->kind == kind) {
 			return it;
@@ -455,10 +460,11 @@ Npc *npc_data(GameState *gs, NpcKind kind) {
 NpcKind get_next_kind(GameState *gs) {
 	NpcKind max_found = 0;
 	BUFF_ITER(Npc, &gs->characters) {
-		assert(it->kind != 0);
+		assert(it->kind != NPC_nobody);
+		assert(it->kind != NPC_player);
 		if(it->kind > max_found) max_found = it->kind;
 	}
-	return max_found + 1;
+	return max(NPC_player + 1, max_found + 1);
 }
 
 // to fix initializer is not constant
@@ -651,7 +657,7 @@ String8List memory_description(Arena *arena, GameState *gs, Entity *e, Memory *i
 		AddFmt("%.*s said \"%.*s\" to %.*s", TextChunkVArg(npc_data(gs, it->context.author_npc_kind)->name), TextChunkVArg(it->action.speech), S8VArg(target_string));
 		if(!e->is_world)
 		{
-			AddFmt(" (you are %.*s)", TextChunkVArg(npc_data(gs, e->npc_kind)->name));
+			// AddFmt(" (you are %.*s)", TextChunkVArg(npc_data(gs, e->npc_kind)->name));
 		}
 		AddFmt("\n");
 	}
@@ -851,7 +857,7 @@ String8 parse_chatgpt_response(Arena *arena, GameState *gs, Entity *e, String8 a
 	{
 		error_message = FmtWithLint(arena, "Speech string provided is too big, maximum bytes is %d", MAX_SENTENCE_LENGTH);
 	}
-	assert(!e->is_player); // player can't perform AI actions?
+	assert(e->npc_kind != NPC_player); // player can't perform AI actions?
 
 	if(error_message.size == 0)
 	{

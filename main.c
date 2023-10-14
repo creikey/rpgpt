@@ -910,7 +910,7 @@ AABB entity_aabb(Entity *e)
 
 Entity *player(GameState *gs) {
 	ENTITIES_ITER(gs->entities) {
-		if(it->is_player) return it;
+		if(it->npc_kind == NPC_player) return it;
 	}
 	return 0;
 }
@@ -2093,7 +2093,7 @@ bool perform_action(GameState *gs, Entity *from, ActionOld a)
 	bool proceed_propagating = true;
 	if (is_valid.size > 0)
 	{
-		assert(!from->is_player);
+		assert(from->npc_kind != NPC_player);
 		append_to_errors(from, make_memory(a, context), is_valid);
 		proceed_propagating = false;
 	}
@@ -2110,7 +2110,7 @@ bool perform_action(GameState *gs, Entity *from, ActionOld a)
 		cause_action_side_effects(from, a);
 
 		// self memory
-		if (!from->is_player)
+		if (from->npc_kind != NPC_player)
 		{
 			MemoryContext my_context = context;
 			my_context.i_said_this = true;
@@ -2135,7 +2135,7 @@ bool perform_action(GameState *gs, Entity *from, ActionOld a)
 		ENTITIES_ITER(gs->entities)
 		{
 			if (
-				!it->is_player && it->current_roomid == from->current_roomid && it != from && it != targeted)
+				it->npc_kind != NPC_player && it->current_roomid == from->current_roomid && it != from && it != targeted)
 			{
 				remember_action(gs, it, a, context);
 			}
@@ -2350,6 +2350,8 @@ enum
 {
 	V0,
 	V1,
+	// V2-V4 skipped because they're vector macros lol
+	V5,
 
 	VMax,
 } Version;
@@ -2389,7 +2391,6 @@ void ser_entity(SerState *ser, Entity *e)
 
 	ser_bool(ser, &e->is_world);
 	ser_bool(ser, &e->is_npc);
-	ser_bool(ser, &e->is_player);
 
 	ser_bool(ser, &e->being_hovered);
 	ser_bool(ser, &e->perceptions_dirty);
@@ -6121,7 +6122,7 @@ void frame(void)
 		{
 			ENTITIES_ITER(gs.entities)
 			{
-				if (it->is_npc && !it->is_player && it->current_roomid == get_cur_room(&gs, &level_threedee)->roomid)
+				if (it->is_npc && it->npc_kind != NPC_player && it->current_roomid == get_cur_room(&gs, &level_threedee)->roomid)
 				{
 					if (it->undismissed_action)
 					{
@@ -6255,8 +6256,8 @@ void frame(void)
 				if (!gs.edit.enabled && player(&gs) == 0)
 				{
 					Entity *player = new_entity(&gs);
-					player->is_player = true;
 					player->is_npc = true;
+					player->npc_kind = NPC_player;
 					player->current_roomid = gs.edit.player_spawn_roomid;
 					player->pos = gs.edit.player_spawn_position;
 				}
@@ -6289,7 +6290,7 @@ void frame(void)
 							if (toface)
 								it->target_rotation = AngleOfV2(SubV2(toface->pos, it->pos));
 
-							if (!it->is_player)
+							if (it->npc_kind != NPC_player)
 								it->rotation = lerp_angle(it->rotation, unwarped_dt * 8.0f, it->target_rotation);
 
 							if (it->gen_request_id != 0 && !gs.stopped_time)
@@ -6865,6 +6866,8 @@ void frame(void)
 								what_player_said = S8Substring(what_player_said, 0, ARRLEN(to_perform.speech.text));
 
 								chunk_from_s8(&to_perform.speech, what_player_said);
+								Entity * speaking = gete(player(&gs)->talking_to);
+								to_perform.talking_to_kind = speaking ? speaking->npc_kind : NPC_nobody;
 								perform_action(&gs, player(&gs), to_perform);
 							}
 						}
@@ -6883,7 +6886,7 @@ void frame(void)
 									if (entity_talkable)
 										entity_talkable = entity_talkable && (*it)->is_npc;
 									if (entity_talkable)
-										entity_talkable = entity_talkable && !(*it)->is_player;
+										entity_talkable = entity_talkable && (*it)->npc_kind != NPC_player;
 									if (entity_talkable)
 										entity_talkable = entity_talkable && !(*it)->killed;
 #ifdef WEB
