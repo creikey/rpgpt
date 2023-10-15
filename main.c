@@ -6146,12 +6146,12 @@ void frame(void)
 								float height = -wrapped.last->lower_left_corner.y + get_vertical_dist_between_lines(default_font, 1.0f);
 								translate_words_by(wrapped, AddV2(desc.upper_left, V2(0, -get_vertical_dist_between_lines(default_font, 1.0f))));
 								for(PlacedWord *cur = wrapped.first; cur; cur = cur->next) {
-									draw_text((TextParams){false, cur->text, cur->lower_left_corner, blendalpha(WHITE, *editing_factor),1.0f});
+									draw_text((TextParams){false, cur->text, cur->lower_left_corner, blendalpha(BLACK, *editing_factor),1.0f});
 								}
 
 								AABB edit_button = aabb(stats(desc).ur, AddV2(stats(within).ur, V2(0, -height)));
 								dbgrect(desc);
-								bool edit = imbutton(edit_button, 1.0f, S8Lit("Edit"));
+								bool edit = imbutton(grow_from_center(edit_button, V2(-(1.0f - *editing_factor) * aabb_size(edit_button).x, -(1.0f - *editing_factor) * aabb_size(edit_button).y)), 1.0f, S8Lit("Edit"));
 								get_state(desc_result, TextInputResultKey, "%d", __LINE__);
 								if (edit)
 								{
