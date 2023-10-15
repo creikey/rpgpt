@@ -362,10 +362,8 @@ typedef struct CharacterSituation {
 	TextChunk goal; // kind of like the most important memory, self described character's goal right now
 	TextChunk memories[4]; // explicit numbered memories
 	BUFF(TextChunk, 5) events; // events that this character has observed in the plain english form
-	BUFF(Target, 10) SituationTarget;
+	BUFF(SituationTarget, 10) targets;
 	CharacterStatus my_status;
-
-	CharacterStatus status;
 } CharacterSituation;
 
 /*
@@ -389,7 +387,8 @@ typedef struct TrainingSample {
 
 typedef struct Npc {
 	TextChunk name;
-	NpcKind kind; // must not be 0, that's nobody!
+	NpcKind kind; // must not be 0, that's nobody! This isn't edited by the player, just used to uniquely identify the character
+	TextChunk description;
 	BUFF(TrainingSample, 4) soul;
 } Npc;
 
@@ -400,6 +399,7 @@ typedef struct EditorState {
 	Vec2 camera_panning;
 	NpcKind placing_npc;
 	NpcKind editing_npc;
+	bool editing_dialog_open; // this is so while it's animated being closed the editing_npc data is still there
 
 	bool placing_spawn;
 	u64 player_spawn_roomid;

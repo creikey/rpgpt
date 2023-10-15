@@ -2352,6 +2352,9 @@ enum
 	V1,
 	// V2-V4 skipped because they're vector macros lol
 	V5,
+	VEditingDialog,
+	VDescription,
+	VDead,
 
 	VMax,
 } Version;
@@ -2379,7 +2382,7 @@ void ser_TextChunk(SerState *ser, TextChunk *t)
 	ser_bytes(ser, (u8 *)t->text, t->text_length);
 }
 
-void ser_entity(SerState *ser, Entity *e)
+void ser_Entity(SerState *ser, Entity *e)
 {
 	ser_bool(ser, &e->exists);
 	ser_bool(ser, &e->destroy);
@@ -2388,6 +2391,10 @@ void ser_entity(SerState *ser, Entity *e)
 	ser_Vec2(ser, &e->pos);
 	ser_Vec2(ser, &e->vel);
 	ser_float(ser, &e->damage);
+	if(ser->version >= VDead) {
+		ser_bool(ser, &e->dead);
+		ser_u64(ser, &e->current_roomid);
+	}
 
 	ser_bool(ser, &e->is_world);
 	ser_bool(ser, &e->is_npc);
@@ -2470,6 +2477,8 @@ void ser_entity(SerState *ser, Entity *e)
 void ser_Npc(SerState *ser, Npc *npc)
 {
 	ser_TextChunk(ser, &npc->name);
+	if(ser->version >= VDescription)
+		ser_TextChunk(ser, &npc->description);
 	ser_int(ser, &npc->kind);
 }
 
@@ -2480,6 +2489,8 @@ void ser_EditorState(SerState *ser, EditorState *ed) {
 	ser_Vec2(ser, &ed->camera_panning);
 	ser_NpcKind(ser, &ed->placing_npc);
 	ser_NpcKind(ser, &ed->editing_npc);
+	if(ser->version >= VEditingDialog)
+		ser_bool(ser, &ed->editing_dialog_open);
 
 	ser_bool(ser, &ed->placing_spawn);
 	ser_u64(ser, &ed->player_spawn_roomid);
@@ -2513,7 +2524,7 @@ void ser_GameState(SerState *ser, GameState *gs)
 		ser_bool(ser, &gs->entities[i].exists);
 		if (gs->entities[i].exists)
 		{
-			ser_entity(ser, &(gs->entities[i]));
+			ser_Entity(ser, &(gs->entities[i]));
 		}
 	}
 
@@ -3677,11 +3688,17 @@ AABB full_region(sg_image img)
 	};
 }
 
-AABB aabb_at(Vec2 at, Vec2 size)
+AABB aabb(Vec2 upper_left, Vec2 lower_right) {
+	return (AABB) {
+		upper_left, lower_right
+	};
+}
+
+AABB aabb_at(Vec2 upper_left, Vec2 size)
 {
 	return (AABB){
-		.upper_left = at,
-		.lower_right = AddV2(at, V2(size.x, -size.y)),
+		.upper_left = upper_left,
+		.lower_right = AddV2(upper_left, V2(size.x, -size.y)),
 	};
 }
 
@@ -5953,6 +5970,15 @@ void frame(void)
 		}
 
 		// @Place(UI rendering that happens before gameplay processing so can consume events before the gameplay needs them)
+		PROFILE_SCOPE("Random ui rendering")
+		{
+			float size = 100.0f;
+			float margin = size;
+			bool kill_self = imbutton(aabb_centered(V2(margin, margin), V2(size, size)), .icon = &image_retry, .icon_padding = size * 0.1f, .nobg = true);
+			if(kill_self && player(&gs)) {
+				player(&gs)->destroy = true;
+			}
+		}
 		PROFILE_SCOPE("Editor Rendering")
 		{
 			if (keypressed[SAPP_KEYCODE_TAB])
@@ -5985,9 +6011,7 @@ void frame(void)
 				bool left = imbutton(aabb_at(V2(screen_size().x / 2.0f - whole_width / 2.0f, screen_size().y - padding / 2.0f), left_right_buttons_size), .icon = &image_right_arrow, .icon_padding = whole_height * 0.1f, .nobg = true, .icon_flipped = true);
 				bool right = imbutton(aabb_at(V2(screen_size().x / 2.0f + whole_width / 2.0f - left_right_buttons_size.x, screen_size().y - padding / 2.0f), left_right_buttons_size), .icon = &image_right_arrow, .icon_padding = whole_height * 0.1f, .nobg = true);
 				// bool left = imbutton(aabb_at(mouse_pos, left_right_buttons_size), .icon = &image_left_arrow, .icon_padding = whole_height*0.1f, .nobg = true);
-				AABB drawn_bounds = draw_centered_text((TextParams){false, cur_room->name, V2(screen_size().x / 2.0f, screen_size().y - padding), WHITE, 1.0f, .use_font = &room_name_font});
-				dbgline(V2(screen_size().x * 0.25f, screen_size().y), V2(screen_size().x * 0.25f, screen_size().y - whole_height));
-				dbgrect(drawn_bounds);
+				draw_centered_text((TextParams){false, cur_room->name, V2(screen_size().x / 2.0f, screen_size().y - padding), WHITE, 1.0f, .use_font = &room_name_font});
 				if (left)
 					cur_room = cur_room->prev ? cur_room->prev : level_threedee.room_list_last;
 				if (right)
@@ -6080,6 +6104,7 @@ void frame(void)
 						}
 						if (edit)
 						{
+							gs.edit.editing_dialog_open = true;
 							gs.edit.editing_npc = it->kind;
 						}
 						cur.y -= character_panel_height;
@@ -6097,19 +6122,47 @@ void frame(void)
 
 					Npc *editing = npc_data(&gs, gs.edit.editing_npc);
 					get_state(editing_factor, float, "%d", __LINE__);
-					bool is_editing = editing != &nobody_data;
+					bool is_editing = editing != &nobody_data && gs.edit.editing_dialog_open;
 					*editing_factor = Lerp(*editing_factor, dt * 19.0f, is_editing ? 1.0f : 0.0f);
 					{
 						const float screen_margin = 100.0f;
 						AABB editing_box = lerp_aabbs((AABB){.upper_left = aabb_center(screen_aabb()), .lower_right = aabb_center(screen_aabb())}, *editing_factor, grow_from_center(screen_aabb(), V2(-screen_margin, -screen_margin)));
 						if (pressed.mouse_down && !has_point(editing_box, mouse_pos))
 						{
-							gs.edit.editing_npc = NPC_nobody;
+							gs.edit.editing_dialog_open = false;
 						}
 						if (aabb_is_valid(editing_box))
 						{
 							draw_quad((DrawParams){quad_aabb(screen_aabb()), IMG(image_white_square), blendalpha(BLACK, 0.2f * *editing_factor), .layer = LAYER_UI});
 							draw_quad((DrawParams){quad_aabb(editing_box), IMG(image_white_square), blendalpha(WHITE, 0.8f), .layer = LAYER_UI});
+							float margin = 50.0f;
+							AABB within = grow_from_center(editing_box, V2(-margin, -margin));
+							float text_percent = 0.8f;
+							if(aabb_is_valid(within)) {
+								AABB desc = aabb_at(within.upper_left, V2(aabb_size(within).x*text_percent, aabb_size(within).y));
+								String8 desc_str = TextChunkString8(editing->description);
+								if(desc_str.size == 0) desc_str = S8Lit("<Empty>");
+								PlacedWordList wrapped = place_wrapped_words(frame_arena, split_by_word(frame_arena, desc_str), 1.0f, aabb_size(desc).x, default_font, JUST_LEFT);
+								float height = -wrapped.last->lower_left_corner.y + get_vertical_dist_between_lines(default_font, 1.0f);
+								translate_words_by(wrapped, AddV2(desc.upper_left, V2(0, -get_vertical_dist_between_lines(default_font, 1.0f))));
+								for(PlacedWord *cur = wrapped.first; cur; cur = cur->next) {
+									draw_text((TextParams){false, cur->text, cur->lower_left_corner, blendalpha(WHITE, *editing_factor),1.0f});
+								}
+
+								AABB edit_button = aabb(stats(desc).ur, AddV2(stats(within).ur, V2(0, -height)));
+								dbgrect(desc);
+								bool edit = imbutton(edit_button, 1.0f, S8Lit("Edit"));
+								get_state(desc_result, TextInputResultKey, "%d", __LINE__);
+								if (edit)
+								{
+									*desc_result = begin_text_input(desc_str);
+								}
+								String8 new = text_ready_for_me(*desc_result);
+								if (new.size > 0)
+								{
+									chunk_from_s8(&editing->description, new);
+								}
+							}
 						}
 					}
 				}
@@ -6198,7 +6251,6 @@ void frame(void)
 						.layer = LAYER_UI_FG,
 					});
 					AABB placing_text_in = aabb_centered(AddV2(bubble_center, V2(0, 10.0f)), V2(speech_bubble.text_width_in_pixels, size.y * 0.15f));
-					dbgrect(placing_text_in);
 
 					String8List to_draw = words_on_current_page_without_unsaid(it, &speech_bubble);
 					if (to_draw.node_count != 0)
@@ -6261,6 +6313,7 @@ void frame(void)
 					player->current_roomid = gs.edit.player_spawn_roomid;
 					player->pos = gs.edit.player_spawn_position;
 				}
+				if(player(&gs)) gs.current_roomid = player(&gs)->current_roomid;
 
 				// process gs.entities process entities
 				PROFILE_SCOPE("entity processing")
@@ -6877,7 +6930,6 @@ void frame(void)
 							// find closest to talk to
 							{
 								AABB dialog_rect = aabb_centered(player(&gs)->pos, V2(DIALOG_INTERACT_SIZE, DIALOG_INTERACT_SIZE));
-								dbgrect(dialog_rect);
 								Overlapping possible_dialogs = get_overlapping(dialog_rect);
 								float closest_interact_with_dist = INFINITY;
 								BUFF_ITER(Entity *, &possible_dialogs)

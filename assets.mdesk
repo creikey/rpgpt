@@ -18,6 +18,10 @@
 {
  filepath: "angel.png",
 }
+@image retry:
+{
+ filepath: "retry.png",
+}
 @image unread_triangle:
 {
  filepath: "unread_triangle.png",

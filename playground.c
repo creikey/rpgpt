@@ -57,6 +57,8 @@ void error_impl(Arena *arena, ErrorList *errors, int line_in_toparse, String8 me
 
 #define error(line_in_toparse, fmt_str, ...) error_impl(arena, errors, line_in_toparse, S8Fmt(arena, fmt_str, __VA_ARGS__))
 
+
+
 int main(int argc, char **argv)
 {
     (void)argc;
