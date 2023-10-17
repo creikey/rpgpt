@@ -23,19 +23,19 @@ if os.path.exists(bpy.path.abspath(f"//{EXPORT_DIRECTORY}")):
 os.makedirs(bpy.path.abspath(f"//{EXPORT_DIRECTORY}"))
 
 def write_b8(f, boolean: bool):
-    f.write(bytes(struct.pack("?", boolean)))
+    f.write(bytes(struct.pack("<?", boolean)))
 
 def write_f32(f, number: float):
-    f.write(bytes(struct.pack("f", number)))
+    f.write(bytes(struct.pack("<f", number)))
 
 def write_u64(f, number: int):
-    f.write(bytes(struct.pack("Q", number)))
+    f.write(bytes(struct.pack("<Q", number)))
 
 def write_i32(f, number: int):
-    f.write(bytes(struct.pack("i", number)))
+    f.write(bytes(struct.pack("<i", number)))
 
 def write_u16(f, number: int): # unsigned short, used in shaders to figure out which bone index is current
-    f.write(bytes(struct.pack("H", number)))
+    f.write(bytes(struct.pack("<H", number)))
 
 def write_v3(f, vector):
     write_f32(f, vector.x)
