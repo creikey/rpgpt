@@ -20,6 +20,7 @@ Open `art.blend`, go to the scripting tab and hit the play button run the script
 
 To enable codegen error messages, change @echo off to @echo on in run_codegen.bat
 
+You must be on a little endian machine.
 
 # Debugging in the web
 To get this working, you're going to need to follow flooh's answer linked [here](https://groups.google.com/g/emscripten-discuss/c/DEmpyGoq6kE/m/Bx44ZmfmAAAJ), and copy pasted for redundancy here:
