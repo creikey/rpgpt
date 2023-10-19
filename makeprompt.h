@@ -315,17 +315,6 @@ typedef struct ItemInSituation {
 	ItemKind actual_item_kind; // used to map back to gameplay items, sometimes might be invalid item if that's not the purpose of the item in a situation
 } ItemInSituation;
 
-typedef struct Response {
-	TextChunk text; // for speech or memory
-	
-	// both of these indices correspond to what was provided in the CharacterSituation
-	int action_index;
-	int target_index;
-
-	int memory_index;
-} Response;
-
-typedef BUFF(Response, 5) FullResponse; // what the AI is allowed to output 
 
 typedef struct CharacterPerception {
 	Health health;
@@ -335,8 +324,6 @@ typedef struct CharacterPerception {
 
 typedef struct ScenePerception {
 	BUFF(CharacterPerception, 10) characters;
-	BUFF(ItemKind, 10) items_on_floor; // available to be picked up or navigated to
-	
 } ScenePerception;
 
 typedef struct CharacterStatus {
@@ -346,9 +333,7 @@ typedef struct CharacterStatus {
 
 typedef enum TargetKind {
 	TARGET_invalid,
-	TARGET_path,
 	TARGET_person,
-	TARGET_item,
 } TargetKind;
 
 typedef struct Target {
@@ -357,14 +342,85 @@ typedef struct Target {
 	TargetKind kind;
 } SituationTarget;
 
+typedef struct ArgumentSpecification {
+	TextChunk name;
+	TextChunk description;
+} ArgumentSpecification;
+
+#define MAX_ARGS 3
+
+typedef struct SituationAction {
+	TextChunk name;
+	TextChunk description;
+	BUFF(ArgumentSpecification, MAX_ARGS) args;
+} SituationAction;
+
 // the situation for somebody
 typedef struct CharacterSituation {
-	TextChunk goal; // kind of like the most important memory, self described character's goal right now
-	TextChunk memories[4]; // explicit numbered memories
+	TextChunk room_description;
 	BUFF(TextChunk, 5) events; // events that this character has observed in the plain english form
 	BUFF(SituationTarget, 10) targets;
-	CharacterStatus my_status;
+	BUFF(SituationAction, 10) actions;
 } CharacterSituation;
+
+typedef BUFF(TextChunk, MAX_ARGS) ArgList;
+
+typedef struct Response {
+	// both of these indices correspond to what was provided in the CharacterSituation
+	TextChunk action;
+	ArgList arguments;
+} Response;
+
+#define MAX_ACTIONS 5
+typedef BUFF(Response, MAX_ACTIONS) FullResponse; // what the AI is allowed to output 
+
+typedef struct ParsedResponse {
+	SituationAction *taken;
+	ArgList arguments;
+} ParsedResponse;
+
+typedef struct ParsedFullResponse {
+	BUFF(ParsedResponse, MAX_ACTIONS) parsed;
+} ParsedFullResponse;
+
+CharacterSituation situation_0 = {
+	.room_description = TextChunkLitC("A lush forest, steeped in shade. Some mysterious gears are scattered across the floor"),
+	.events.cur_index = 2,
+	.events.data = {
+		TextChunkLitC("The player approached you"),
+		TextChunkLitC("The player said to you, 'What's up fool?'"),
+	},
+	.targets.cur_index = 1,
+	.targets.data = {
+		{
+			.name = TextChunkLitC("The Player"),
+			.description = TextChunkLitC("The Player. They just spawned in out of nowhere, and are causing a bit of a ruckus."),
+			.kind = TARGET_person,
+		},
+	},
+	.actions.cur_index = 2,
+	.actions.data = {
+		{
+			.name = TextChunkLitC("none"),
+			.description = TextChunkLitC("Do nothing"),
+		},
+		{
+			.name = TextChunkLitC("say_to"),
+			.description = TextChunkLitC("Say something to the target"),
+			.args.cur_index = 2,
+			.args.data = {
+				{
+					.name = TextChunkLitC("target"),
+					.description = TextChunkLitC("The target of your speech. Must be a valid target specified earlier, must match exactly that target")
+				},
+				{
+					.name = TextChunkLitC("speech"),
+					.description = TextChunkLitC("The content of your speech, is a string that's whatever you want it to be."),
+				},
+			},
+		},
+	},
+};
 
 /*
 Training samples must remain stable as the game is changed, is the decision here: i.e, if the characters
@@ -382,7 +438,7 @@ codepath into binary.
 */
 typedef struct TrainingSample {
 	CharacterSituation situation;
-	FullResponse response;
+	FullResponse response; // one or more actions
 } TrainingSample;
 
 typedef struct Npc {
@@ -391,6 +447,28 @@ typedef struct Npc {
 	TextChunk description;
 	BUFF(TrainingSample, 4) soul;
 } Npc;
+
+Npc *get_npc(Arena *arena) {
+	Npc *ret = PushArrayZero(arena, Npc, 1);
+	ret->name = TextChunkLit("Bill");
+	ret->kind = 1;
+	ret->description = TextChunkLit("You have an intense drinking problem, and you talk like Theo Von, often saying offensive statements accidentally. You bumble around and will do anything for more whiskey. Often you go on bizarre, weird tangents and stories, that seem to just barely make sense. Your storied background has no rival: growing up adventurous and poor has given you texture and character. You have zero self awareness, and never directly state to anybody why you do things with a clear explanation, it's always cryptic, bizarre, and out of pocket.");
+	BUFF_APPEND(&ret->soul,
+		((TrainingSample){
+			.situation = situation_0,
+			.response.cur_index = 1,
+			.response.data = {
+				{
+					.action = TextChunkLitC("say_to"),
+					.arguments.cur_index = 2,
+					.arguments.data[0] = TextChunkLitC("The Player"),
+					.arguments.data[1] = TextChunkLitC("Don't *hic* 'fool' me partner. I'm jus-*hic* tryna' relax over here."),
+				},
+			},
+		})
+	);
+	return ret;
+}
 
 typedef struct EditorState {
 	bool enabled;
@@ -678,9 +756,237 @@ String8List memory_description(Arena *arena, GameState *gs, Entity *e, Memory *i
 	return current_list;
 }
 
+String8List describe_situation(Arena *arena, CharacterSituation *situation) {
+	String8List ret = {0};
+
+	#define AddFmt(...) PushWithLint(arena, &ret, __VA_ARGS__)
+
+	AddFmt("Where you're standing: %.*s\n\n", TextChunkVArg(situation->room_description));
+
+	AddFmt("The targets you can provide as arguments to your actions:\n");
+	BUFF_ITER(SituationTarget, &situation->targets) {
+		AddFmt("%.*s - %.*s\n", TextChunkVArg(it->name), TextChunkVArg(it->description));
+	}
+	AddFmt("\n");
+
+	AddFmt("The actions you can take, and the arguments they expect. Actions are called like `ACTION(\"Arg 1\", \"Arg 2\")`\n");
+	BUFF_ITER(SituationAction, &situation->actions) {
+		AddFmt("%.*s - %.*s - ", TextChunkVArg(it->name), TextChunkVArg(it->description));
+		SituationAction *action = it;
+		BUFF_ITER_I(ArgumentSpecification, &action->args, i) {
+			AddFmt("(Argument %d: %.*s, %.*s), ", i, TextChunkVArg(it->name), TextChunkVArg(it->description));
+		}
+		AddFmt("\n");
+	}
+	AddFmt("\n");
+
+	AddFmt("Previous events you need to respond to:\n");
+	BUFF_ITER(TextChunk, &situation->events) {
+		AddFmt("%.*s\n", TextChunkVArg(*it));
+	}
+
+	#undef AddFmt
+	return ret;
+}
+
+// Parses something like this: `action_one("arg 1", "arg 2"), action_two("arg 3", "arg 4")`
+ParsedFullResponse *parse_output(Arena *arena, CharacterSituation *situation, String8 raw_output, String8 *error_out) {
+	#define error(...) *error_out = S8Fmt(arena, __VA_ARGS__)
+
+	ParsedFullResponse *ret = PushArrayZero(arena, ParsedFullResponse, 1);
+	String8 output = S8SkipWhitespace(S8ChopWhitespace(raw_output));
+
+	ArenaTemp scratch = GetScratch(&arena, 1);
+
+	typedef enum {
+		ST_invalid,
+		ST_action,
+		ST_in_args,
+		ST_in_string,
+	} State;
+
+	State stat = ST_action;
+
+	typedef struct ParsedActionCall {
+		struct ParsedActionCall *next;
+		String8 action_name;
+		BUFF(String8, MAX_ARGS) arguments;
+	} ParsedActionCall;
+
+	ParsedActionCall *parsed = 0;
+
+	ParsedActionCall cur_parsed = {0};
+	u64 cur = 0;
+	while(cur < output.size && error_out->size == 0) {
+		switch(stat) {
+			case ST_invalid:
+			assert(false);
+			break;
+
+			case ST_action:
+			{
+				if(output.str[cur] == ' ' || output.str[cur] == ',') {
+					cur = cur + 1;
+				} else {
+					u64 args = S8FindSubstring(output, S8Lit("("), cur, 0);
+					if(args == output.size) {
+						error("Expected a '(' after action '%.*s'", S8VArg(S8Substring(output, cur, output.size)));
+					} else {
+						cur_parsed.action_name = S8Substring(output, cur, args);
+						stat = ST_in_args;
+						cur = args + 1;
+					}
+				}
+			}
+			break;
+
+			case ST_in_args:
+			{
+				if(output.str[cur] == ')') {
+					ParsedActionCall *newly_parsed = PushArrayZero(scratch.arena, ParsedActionCall, 1);
+					*newly_parsed = cur_parsed;
+					StackPush(parsed, newly_parsed);
+					cur_parsed = (ParsedActionCall){0};
+					cur = cur + 1;
+					stat = ST_action;
+				} else {
+					if(output.str[cur] == '"') {
+						BUFF_APPEND(&cur_parsed.arguments, S8(output.str + cur + 1, 0));
+						stat = ST_in_string;
+						cur = cur + 1;
+						else if(output.str[cur] == ',' || output.str[cur] == ' ') {
+							cur = cur + 1;
+						} else {
+							error("Expected a `\"` to mark the beginning of a string in an action");
+						}
+					}
+				}
+			}
+			break;
+
+			case ST_in_string:
+			{
+				assert(cur_parsed.arguments.cur_index > 0);
+				u64 end = S8FindSubstring(output, S8Lit("\""), cur, 0);
+				String *outputting = &cur_parsed.arguments.data[cur_parsed.arguments.cur_index - 1];
+				outputting->size = end - (outputting->str - output.str);
+				cur = end + 1;
+				stat = ST_in_args;
+			}
+			break;
+
+			default:
+			assert(false);
+			break;
+		}
+	}
+	if(stat != ST_action) {
+		// output ended before unfinished business
+		error("Unclosed `(` or `\"` detected. Not allowed!");
+	}
+
+	if(error_out->size == 0) {
+		// convert into the parsed response, potentially erroring
+		for(ParsedActionCall *cur = parsed; cur->next; cur = cur->next) {
+			if(error_out.size != 0) break;
+
+			ParsedResponse newly_parsed = {0};
+
+			SituationAction *found = 0;
+			BUFF_ITER(SituationAction, &situation->actions) {
+				if(S8Match(cur->action_name, it->name, 0)) {
+					found = it;
+				}
+			}
+			if(!found) {
+				error("Couldn't find action of name '%.*s'", S8VArg(cur->action_name));
+			}
+
+			if(error_out.size == 0) {
+				newly_parsed.taken = found;
+				if(cur->arguments.cur_index != found->args.cur_index) {
+					error("For action '%.*s', expected %llu arguments but found %llu", found->args.cur_index, cur->arguments.cur_index);
+				} else {
+					newly_parsed.arguments = cur->arguments;
+				}
+			}
+
+			if(error_out.size == 0) {
+				BUFF_APPEND(&ret->parsed, newly_parsed);
+			}
+		}
+	}
+
+	ReleaseScratch(scratch);
+
+	#undef error
+	return ret;
+}
+
 // outputs json which is parsed by the server
-String8 generate_chatgpt_prompt(Arena *arena, GameState *gs, Entity *e, CanTalkTo can_talk_to)
+String8 generate_chatgpt_prompt(Arena *arena, Npc *personality, CharacterSituation *situation)
 {
+	ArenaTemp scratch = GetScratch(&arena, 1);
+
+	String8List list = {0};
+
+	PushWithLint(scratch.arena, &list, "[");
+
+	#define AddFmt(...) PushWithLint(scratch.arena, &current_list, __VA_ARGS__)
+	#define AddNewNode(node_type) { S8ListPush(scratch.arena, &list, make_json_node(scratch.arena, node_type, S8ListJoin(scratch.arena, current_list, &(StringJoin){0}))); current_list = (String8List){0}; }
+	
+	// make first system node
+	{
+		String8List current_list = {0};
+		AddFmt("%s\n\n", global_prompt);
+		AddFmt("You are acting as %.*s. %.*s\n", TextChunkVArg(personality->name), TextChunkVArg(personality->description));
+		AddNewNode(MSG_SYSTEM);
+	}
+
+	// add previous samples
+	BUFF_ITER(TrainingSample, &personality->soul) {
+		{
+			String8List current_list = {0};
+			String8List described = describe_situation(scratch.arena, &it->situation);
+			S8ListConcat(&current_list, &described);
+			AddNewNode(MSG_USER);
+		}
+		{
+			String8List current_list = {0};
+			FullResponse *sample_response = &it->response;
+			BUFF_ITER_I(Response, sample_response, i) {
+				AddFmt("%.*s(", TextChunkVArg(it->action));
+				Response *resp = it;
+				BUFF_ITER_I(TextChunk, &resp->arguments, i) {
+					AddFmt("\"%.*s\"", TextChunkVArg(*it));
+					if(i < resp->arguments.cur_index - 1) AddFmt(", ");
+				}
+				AddFmt(")");
+				if(i < sample_response->cur_index - 1) AddFmt(", ");
+			}
+			AddNewNode(MSG_ASSISTANT);
+		}
+	}
+
+   // add current situation
+	{
+		String8List current_list = {0};
+		String8List described = describe_situation(scratch.arena, situation);
+		S8ListConcat(&current_list, &described);
+		AddNewNode(MSG_USER);
+	}
+
+	String8 with_trailing_comma = S8ListJoin(scratch.arena, list, &(StringJoin){S8Lit(""),S8Lit(""),S8Lit(""),});
+	String8 no_trailing_comma = S8Chop(with_trailing_comma, 1);
+
+	String8 to_return = S8Fmt(arena, "%.*s]", S8VArg(no_trailing_comma));
+
+	ReleaseScratch(scratch);
+
+ #undef AddFmt
+ #undef AddNewNode
+	return to_return;
+	/*
 	assert(e->is_npc);
 	assert(npc_data(gs, e->npc_kind) != 0);
 
@@ -777,6 +1083,7 @@ String8 generate_chatgpt_prompt(Arena *arena, GameState *gs, Entity *e, CanTalkT
 
  #undef AddFmt
 	return to_return;
+*/
 }
 
 

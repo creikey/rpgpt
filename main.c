@@ -5695,6 +5695,41 @@ int mod(int a, int b)
 	return r < 0 ? r + b : r;
 }
 
+CharacterSituation *generate_situation(Arena *arena, GameState *gs, Entity *e) {
+	(void) gs;
+	(void) e;
+	CharacterSituation *ret = PushArrayZero(arena, CharacterSituation, 1);
+	ret->room_description = TextChunkLit("A lush forest, steeped in shade. Some mysterious gears are scattered across the floor");
+
+	BUFF_APPEND(&ret->events, TextChunkLit("The player approached you"));
+	BUFF_APPEND(&ret->targets, ((SituationTarget) {
+			.name = TextChunkLit("The Player"),
+			.description = TextChunkLit("The Player. They just spawned in out of nowhere, and are causing a bit of a ruckus."),
+			.kind = TARGET_person,
+		})
+	);
+	BUFF_APPEND(&ret->actions, ((SituationAction) {
+		.name = TextChunkLit("none"),
+		.description = TextChunkLit("Do nothing"),
+	}));
+	BUFF_APPEND(&ret->actions, ((SituationAction) {
+		.name = TextChunkLit("say_to"),
+		.description = TextChunkLit("Say something to the target"),
+		.args.cur_index = 2,
+		.args.data = {
+			{
+				.name = TextChunkLit("target"),
+				.description = TextChunkLit("The target of your speech. Must be a valid target specified earlier, must match exactly that target")
+			},
+			{
+				.name = TextChunkLit("speech"),
+				.description = TextChunkLit("The content of your speech, is a string that's whatever you want it to be."),
+			},
+		},
+	}));
+	return ret;
+}
+
 void frame(void)
 {
 	static float speed_factor = 1.0f;
@@ -6833,7 +6868,8 @@ void frame(void)
 							{
 								it->perceptions_dirty = false; // needs to be in beginning because they might be redirtied by the new perception
 								String8 prompt_str = {0};
-								prompt_str = generate_chatgpt_prompt(frame_arena, &gs, it, get_can_talk_to(it));
+								// prompt_str = generate_chatgpt_prompt(frame_arena, &gs, it, get_can_talk_to(it));
+								prompt_str = generate_chatgpt_prompt(frame_arena, get_npc(frame_arena), generate_situation(frame_arena, &gs, it));
 								Log("Want to make request with prompt `%.*s`\n", S8VArg(prompt_str));
 
 								bool mocking_the_ai_response = false;
@@ -7280,8 +7316,9 @@ void frame(void)
 									mem_idx++;
 								}
 								Log("\nPrompt-----------------------------\n");
-								String8 prompt = generate_chatgpt_prompt(frame_arena, &gs, to_view, get_can_talk_to(to_view));
-								printf("%.*s\n", S8VArg(prompt));
+								Log("UNIMPLEMENTED!")
+								// String8 prompt = generate_chatgpt_prompt(frame_arena, &gs, to_view, get_can_talk_to(to_view));
+								// printf("%.*s\n", S8VArg(prompt));
 							}
 						}
 					}
