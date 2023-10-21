@@ -142,6 +142,9 @@ typedef struct Memory
 #define TextChunkLitC(s) {.text = s, .text_length = sizeof(s) - 1} // sizeof includes the null terminator. Not good.
 #define TextChunkLit(s) (TextChunk) TextChunkLitC(s)
 
+// shorthand to save typing.
+#define TCS8(t) TextChunkString8(t)
+
 void chunk_from_s8(TextChunk *into, String8 from)
 {
 	assert(from.size < ARRLEN(into->text));
@@ -375,7 +378,10 @@ typedef struct Response {
 typedef BUFF(Response, MAX_ACTIONS) FullResponse; // what the AI is allowed to output 
 
 typedef struct ParsedResponse {
-	SituationAction *taken;
+	// this is picking which situation action out of the situation struct provided, it's choosing. 
+	// the idea is you provide some user data on the SituationAction then when acting in the gameplay the game code
+	// can map the situation action's real action information back to the gameplay side effects
+	SituationAction *taken; 
 	ArgList arguments;
 } ParsedResponse;
 
@@ -791,7 +797,7 @@ String8List describe_situation(Arena *arena, CharacterSituation *situation) {
 
 // Parses something like this: `action_one("arg 1", "arg 2"), action_two("arg 3", "arg 4")`
 ParsedFullResponse *parse_output(Arena *arena, CharacterSituation *situation, String8 raw_output, String8 *error_out) {
-	#define error(...) *error_out = S8Fmt(arena, __VA_ARGS__)
+	#define error(...) *error_out = FmtWithLint(arena, __VA_ARGS__)
 
 	ParsedFullResponse *ret = PushArrayZero(arena, ParsedFullResponse, 1);
 	String8 output = S8SkipWhitespace(S8ChopWhitespace(raw_output));
@@ -854,11 +860,10 @@ ParsedFullResponse *parse_output(Arena *arena, CharacterSituation *situation, St
 						BUFF_APPEND(&cur_parsed.arguments, S8(output.str + cur + 1, 0));
 						stat = ST_in_string;
 						cur = cur + 1;
-						else if(output.str[cur] == ',' || output.str[cur] == ' ') {
-							cur = cur + 1;
-						} else {
-							error("Expected a `\"` to mark the beginning of a string in an action");
-						}
+					} else if(output.str[cur] == ',' || output.str[cur] == ' ') {
+						cur = cur + 1;
+					} else {
+						error("Expected a `\"` to mark the beginning of a string in an action");
 					}
 				}
 			}
@@ -868,7 +873,7 @@ ParsedFullResponse *parse_output(Arena *arena, CharacterSituation *situation, St
 			{
 				assert(cur_parsed.arguments.cur_index > 0);
 				u64 end = S8FindSubstring(output, S8Lit("\""), cur, 0);
-				String *outputting = &cur_parsed.arguments.data[cur_parsed.arguments.cur_index - 1];
+				String8 *outputting = &cur_parsed.arguments.data[cur_parsed.arguments.cur_index - 1];
 				outputting->size = end - (outputting->str - output.str);
 				cur = end + 1;
 				stat = ST_in_args;
@@ -887,14 +892,14 @@ ParsedFullResponse *parse_output(Arena *arena, CharacterSituation *situation, St
 
 	if(error_out->size == 0) {
 		// convert into the parsed response, potentially erroring
-		for(ParsedActionCall *cur = parsed; cur->next; cur = cur->next) {
-			if(error_out.size != 0) break;
+		for(ParsedActionCall *cur = parsed; cur; cur = cur->next) {
+			if(error_out->size != 0) break;
 
 			ParsedResponse newly_parsed = {0};
 
 			SituationAction *found = 0;
 			BUFF_ITER(SituationAction, &situation->actions) {
-				if(S8Match(cur->action_name, it->name, 0)) {
+				if(S8Match(cur->action_name, TextChunkString8(it->name), 0)) {
 					found = it;
 				}
 			}
@@ -902,16 +907,21 @@ ParsedFullResponse *parse_output(Arena *arena, CharacterSituation *situation, St
 				error("Couldn't find action of name '%.*s'", S8VArg(cur->action_name));
 			}
 
-			if(error_out.size == 0) {
+			if(error_out->size == 0) {
 				newly_parsed.taken = found;
 				if(cur->arguments.cur_index != found->args.cur_index) {
-					error("For action '%.*s', expected %llu arguments but found %llu", found->args.cur_index, cur->arguments.cur_index);
+					error("For action '%.*s', expected %d arguments but found %d", S8VArg(cur->action_name), found->args.cur_index, cur->arguments.cur_index);
 				} else {
-					newly_parsed.arguments = cur->arguments;
+					BUFF_CLEAR(&newly_parsed.arguments);
+					BUFF_ITER(String8, &cur->arguments) {
+						TextChunk arg_out = {0};
+						chunk_from_s8(&arg_out, *it);
+						BUFF_APPEND(&newly_parsed.arguments, arg_out);
+					}
 				}
 			}
 
-			if(error_out.size == 0) {
+			if(error_out->size == 0) {
 				BUFF_APPEND(&ret->parsed, newly_parsed);
 			}
 		}

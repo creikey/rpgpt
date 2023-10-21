@@ -3094,9 +3094,41 @@ void do_metadesk_tests()
 }
 void do_parsing_tests()
 {
-	Log("(UNIMPLEMENTED) Testing chatgpt parsing...\n");
+	Log("Testing chatgpt parsing...\n");
 
 	ArenaTemp scratch = GetScratch(0, 0);
+	
+	String8 err = {0};
+	parse_output(scratch.arena, &situation_0, S8Lit("say_to(\"The Player\")"), &err);
+	assert(err.size > 0);
+
+	err = (String8){0};
+	ParsedFullResponse *parsed = parse_output(scratch.arena, &situation_0, S8Lit("say_to(\"The Player\", \"What's up!\")"), &err);
+	assert(parsed->parsed.cur_index == 1);
+	ParsedResponse *taken = &parsed->parsed.data[0];
+	
+	assert(S8Match(TCS8(taken->taken->name), S8Lit("say_to"), 0));
+	assert(taken->arguments.cur_index == 2);
+	assert(S8Match(TCS8(taken->arguments.data[0]), S8Lit("The Player"), 0));
+	assert(S8Match(TCS8(taken->arguments.data[1]), S8Lit("What's up!"), 0));
+	assert(err.size == 0);
+	
+	// some rounds of random fuzzing just to make sure it doesn't crash or infinite loop
+	rnd_gamerand_t fuzzing_random = {0};
+	rnd_gamerand_seed(&fuzzing_random, 42);
+	for(int i = 0; i < 10000; i++) {
+		const int fuzzed_str_length = 1000;
+		u8 *data = PushArrayZero(scratch.arena, u8, fuzzed_str_length);
+		for(int i = 0; i < fuzzed_str_length; i++) {
+			data[i] = (u8)(rnd_gamerand_range(&fuzzing_random, '0', 'z') % 255);
+		}
+		String8 input = S8(data, fuzzed_str_length);
+		String8 err = {0};
+		ParsedFullResponse *parsed = parse_output(scratch.arena, &situation_0, input, &err);
+		(void)parsed;
+		ReleaseScratch(scratch);
+		scratch = GetScratch(0, 0);
+	}
 	ReleaseScratch(scratch);
 }
 
