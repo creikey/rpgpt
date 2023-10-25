@@ -146,7 +146,6 @@ int main(int argc, char **argv)
 
 #define GEN_TABLE(arr_elem_type, table_name, arr, str_access) { fprintf(char_header, "char *%s[] = {\n", table_name); ARR_ITER(arr_elem_type, arr) fprintf(char_header, "\"%s\",\n", str_access); fprintf(char_header, "}; // %s\n", table_name); }
 #define GEN_ENUM(arr_elem_type, arr, enum_type_name, table_name, enum_name_access, fmt_str) { fprintf(char_header, "typedef enum\n{\n"); ARR_ITER(arr_elem_type, arr) fprintf(char_header, fmt_str, enum_name_access); fprintf(char_header, "} %s;\n", enum_type_name); GEN_TABLE(arr_elem_type, table_name, arr, enum_name_access); }
-	GEN_ENUM(ActionInfo, actions, "ActionKind", "ActionKind_names", it->name, "ACT_%s,\n");
 
 	fclose(char_header);
 

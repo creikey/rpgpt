@@ -1861,6 +1861,28 @@ void push_memory(GameState *gs, Entity *e, Memory new_memory)
 	}
 }
 
+typedef struct ActualActionArgument
+{
+	// could be a union but meh.
+	Entity *character;
+	TextChunk text;
+} ActualActionArgument;
+
+// actions are only relevant at a certain point in time when the character in question is alive, the targets are there, etc
+typedef struct Action
+{
+	ActionKind kind;
+	BUFF(ActualActionArgument, MAX_ARGS) args;
+} Action;
+
+String8 npc_name(Entity *e){
+	if(e->npc_kind == NPC_player) return S8Lit("The Player");
+	else if(e->is_npc) return TCS8(npc_data(&gs, e->npc_kind)->name);
+	else return S8Lit("");
+}
+
+
+
 CanTalkTo get_can_talk_to(Entity *e)
 {
 	CanTalkTo to_return = {0};
@@ -1935,7 +1957,7 @@ String8 npc_identifier_chunk(TextChunk chunk)
 String8 is_action_valid(Arena *arena, Entity *from, ActionOld a)
 {
 	assert(a.speech.text_length <= MAX_SENTENCE_LENGTH && a.speech.text_length >= 0);
-	assert(a.kind >= 0 && a.kind < ARRLEN(actions));
+	assert(a.kind >= 0 && a.kind < ARRLEN(gamecode_actions));
 	assert(from);
 
 	String8 error_message = (String8){0};
@@ -1967,57 +1989,7 @@ String8 is_action_valid(Arena *arena, Entity *from, ActionOld a)
 		}
 	}
 
-	if (error_message.size == 0 && a.kind == ACT_leave && gete(from->joined) == 0)
-	{
-		error_message = S8Lit("You can't leave somebody unless you joined them.");
-	}
-	if (error_message.size == 0 && a.kind == ACT_join && gete(from->joined) != 0)
-	{
-		error_message = FmtWithLint(arena, "You can't join somebody, you're already in %.*s's party", TextChunkVArg(npc_data(&gs, gete(from->joined)->npc_kind)->name));
-	}
-	if (error_message.size == 0 && a.kind == ACT_fire_shotgun && gete(from->aiming_shotgun_at) == 0)
-	{
-		error_message = S8Lit("You can't fire your shotgun without aiming it first");
-	}
-	if (error_message.size == 0 && a.kind == ACT_put_shotgun_away && gete(from->aiming_shotgun_at) == 0)
-	{
-		error_message = S8Lit("You can't put your shotgun away without aiming it first");
-	}
 
-	bool target_is_character = a.kind == ACT_join || a.kind == ACT_aim_shotgun;
-
-	if (error_message.size == 0 && target_is_character)
-	{
-		bool arg_valid = false;
-		BUFF_ITER(Entity *, &talk)
-		{
-			if ((*it)->npc_kind == a.argument.targeting)
-				arg_valid = true;
-		}
-		if (arg_valid == false)
-		{
-			error_message = FmtWithLint(arena, "Your action.argument for who the action `%s` be directed at, %.*s, is either invalid (you can't operate on nobody) or it's not an NPC that's near you right now.", actions[a.kind].name, TextChunkVArg(npc_data(&gs, a.argument.targeting)->name));
-		}
-	}
-
-	if (error_message.size == 0)
-	{
-		AvailableActions available = {0};
-		fill_available_actions(&gs, from, &available);
-		bool found = false;
-		String8List action_strings_list = {0};
-		BUFF_ITER(ActionKind, &available)
-		{
-			S8ListPush(arena, &action_strings_list, S8CString(actions[*it].name));
-			if (*it == a.kind)
-				found = true;
-		}
-		if (!found)
-		{
-			String8 action_strings = S8ListJoin(arena, action_strings_list, &(StringJoin){.mid = S8Lit(", ")});
-			error_message = FmtWithLint(arena, "You cannot perform action %s right now, you can only perform these actions: [%.*s]", actions[a.kind].name, S8VArg(action_strings));
-		}
-	}
 
 	assert(error_message.size < MAX_SENTENCE_LENGTH); // is copied into text chunks
 
@@ -2050,36 +2022,33 @@ void cause_action_side_effects(Entity *from, ActionOld a)
 		from->looking_at = frome(to);
 	}
 
-	if (a.kind == ACT_join)
-	{
-		Entity *target = get_targeted(from, a.argument.targeting);
-		assert(target); // error checked in is_action_valid
-		from->joined = frome(target);
-	}
-	if (a.kind == ACT_leave)
-	{
-		from->joined = (EntityRef){0};
-	}
-	if (a.kind == ACT_aim_shotgun)
-	{
-		Entity *target = get_targeted(from, a.argument.targeting);
-		assert(target); // error checked in is_action_valid
-		from->aiming_shotgun_at = frome(target);
-	}
-	if (a.kind == ACT_fire_shotgun)
-	{
-		assert(gete(from->aiming_shotgun_at));
-		gete(from->aiming_shotgun_at)->killed = true;
-	}
-
 	ReleaseScratch(scratch);
+}
+
+// performs the action. The action must be a valid thing to do before calling this, if not the game may crash
+void perform_action(GameState *gs, Entity *from, Action *a) {
+	switch(a->kind) {
+		case ACT_invalid:
+		break;
+		case ACT_none:
+		break;
+		case ACT_say_to:
+		{
+			Entity* target = a->args.data[0].character;
+			String8 speech = TCS8(a->args.data[1].text);
+			// basically, there needs to be a thing where the speech is displayed and animated into view to the user,
+			// and all the entities nearby hear it and it goes into their remembered events log.
+			// Probably refactor into global array of undismissed actions that the game is "playing through" constantly
+		}
+		break;
+	}
 }
 
 // only called when the action is instantiated, correctly propagates the information
 // of the action physically and through the party
 // If the action is invalid, remembers the error if it's an NPC, and does nothing else
 // Returns if the action was valid or not
-bool perform_action(GameState *gs, Entity *from, ActionOld a)
+bool perform_action_old(GameState *gs, Entity *from, ActionOld a)
 {
 	ArenaTemp scratch = GetScratch(0, 0);
 
@@ -5712,6 +5681,89 @@ String8List words_on_current_page_without_unsaid(Entity *it, TextPlacementSettin
 	return to_return;
 }
 
+// the returned action is also checked to ensure that it's allowed according to the current gamestate
+Action bake_into_action(Arena *error_arena, String8 *error_out, GameState *gs, Entity *taking_the_action, ParsedResponse *parsed) {
+	assert(parsed->taken); // if this is null, then it's likely a constant action where the parsed action isn't meant to be mapped back to a gameplay action. 
+
+	#define error(...) *error_out = FmtWithLint(error_arena, __VA_ARGS__)
+	*error_out = S8Lit("");
+
+	Action ret = {0};
+	ret.kind = parsed->taken->gameplay_action;
+
+	BUFF_ITER_I(ArgumentSpecification, &parsed->taken->args, arg_index) {
+		TextChunk argtext = parsed->arguments.data[arg_index];
+		ActualActionArgument out = {0};
+		switch(it->expected_type) {
+			case ARGTYPE_invalid:
+			error("At index %d expected no argument, but found one.", arg_index);
+			break;
+
+			case ARGTYPE_text:
+			out.text = argtext;
+			break;
+
+			case ARGTYPE_character:
+
+			bool found = false;
+			ENTITIES_ITER(gs->entities) {
+				if(S8Match(npc_name(it), TCS8(argtext), 0)) {
+					found = true;
+					out.character = it;
+				}
+			}
+			if(!found) {
+				error("The character you're referring to at index %d, `%.*s`, doesn't exist in the game", arg_index, TextChunkVArg(argtext));
+			}
+			break;
+		}
+		if(error_out->size == 0) {
+			ret.args.data[arg_index] = out;
+		}
+	}
+	ret.args.cur_index = parsed->taken->args.cur_index;
+
+	// validate that the action is allowed in the gameplay, and everything there looks good
+	switch(ret.kind) {
+		case ACT_invalid:
+		assert(false);
+		break;
+		case ACT_none:
+		break;
+		case ACT_say_to:
+		{
+			// has to be in same room
+			assert(act_by_enum(ACT_say_to)->args.data[0].expected_type == ARGTYPE_character);
+			if(ret.args.data[0].character->current_roomid != taking_the_action->current_roomid) {
+				error("You can't speak to character '%.*s', they're not in the same room as you", S8VArg(npc_name(ret.args.data[0].character)));
+			}
+
+			// must wrap
+			assert(act_by_enum(ACT_say_to)->args.data[1].expected_type == ARGTYPE_text);
+			String8 speech = TextChunkString8(ret.args.data[1].text);
+			TextPlacementSettings *to_wrap_to = &speech_bubble;
+			PlacedWordList placed = place_wrapped_words(frame_arena, split_by_word(frame_arena, speech), to_wrap_to->text_scale, to_wrap_to->text_width_in_pixels, *to_wrap_to->font, JUST_LEFT);
+			int words_over_limit = 0;
+			for (PlacedWord *cur = placed.first; cur; cur = cur->next)
+			{
+				if (cur->line_index >= to_wrap_to->lines_per_page * to_wrap_to->maximum_pages_from_ai) // the max number of lines of text on a bubble
+				{
+					words_over_limit += 1;
+				}
+			}
+
+			if (words_over_limit > 0)
+			{
+				error("Your speech is %d words over the maximum limit, you must be more succinct and remove at least that many words", words_over_limit);
+			}
+		}
+		break;
+	}
+
+	#undef error
+	return ret;
+}
+
 Vec3 point_on_plane_from_camera_point(Mat4 view, Vec2 screenspace_camera_point)
 {
 	Vec3 view_cam_pos = MulM4V4(InvGeneralM4(view), V4(0, 0, 0, 1)).xyz;
@@ -5740,25 +5792,7 @@ CharacterSituation *generate_situation(Arena *arena, GameState *gs, Entity *e) {
 			.kind = TARGET_person,
 		})
 	);
-	BUFF_APPEND(&ret->actions, ((SituationAction) {
-		.name = TextChunkLit("none"),
-		.description = TextChunkLit("Do nothing"),
-	}));
-	BUFF_APPEND(&ret->actions, ((SituationAction) {
-		.name = TextChunkLit("say_to"),
-		.description = TextChunkLit("Say something to the target"),
-		.args.cur_index = 2,
-		.args.data = {
-			{
-				.name = TextChunkLit("target"),
-				.description = TextChunkLit("The target of your speech. Must be a valid target specified earlier, must match exactly that target")
-			},
-			{
-				.name = TextChunkLit("speech"),
-				.description = TextChunkLit("The content of your speech, is a string that's whatever you want it to be."),
-			},
-		},
-	}));
+	ARR_ITER(SituationAction, gamecode_actions) BUFF_APPEND(&ret->actions, *it);
 	return ret;
 }
 
@@ -6432,43 +6466,30 @@ void frame(void)
 									TextChunk sentence_chunk = gen_request_content(it->gen_request_id);
 									String8 sentence_str = TextChunkString8(sentence_chunk);
 
-									// parse out from the sentence NPC action and dialog
-									ActionOld out = {0};
-
 									Log("Parsing `%.*s`...\n", S8VArg(sentence_str));
-									String8 parse_response = parse_chatgpt_response(frame_arena, &gs, it, sentence_str, &out);
+									String8 error = {0};
+									ParsedFullResponse *parsed = parse_output(frame_arena, generate_situation(frame_arena, &gs, it), sentence_str, &error);
 
-									// check that it wraps in below two lines
-									TextPlacementSettings *to_wrap_to = &speech_bubble;
-									PlacedWordList placed = place_wrapped_words(frame_arena, split_by_word(frame_arena, TextChunkString8(out.speech)), to_wrap_to->text_scale, to_wrap_to->text_width_in_pixels, *to_wrap_to->font, JUST_LEFT);
-									int words_over_limit = 0;
-									for (PlacedWord *cur = placed.first; cur; cur = cur->next)
-									{
-										if (cur->line_index >= to_wrap_to->lines_per_page * to_wrap_to->maximum_pages_from_ai) // the max number of lines of text on a bubble
-										{
-											words_over_limit += 1;
+									if(error.size == 0) {
+										Entity *e = it;
+										BUFF_ITER(ParsedResponse, &parsed->parsed) {
+											String8 error = {0}; // error with the current action
+											Action out;
+											if (error.size == 0)
+											{
+												out = bake_into_action(frame_arena, &error, &gs, e, it);
+											}
+											if(error.size == 0) {
+												perform_action(&gs, it, &out);
+												// perform_action_old(&gs, it, out);
+											} else {
+												Log("TODO handle error on specific action here\n");
+											}
 										}
 									}
-
-									if (words_over_limit > 0)
-									{
-										String8 new_err = FmtWithLint(frame_arena, "Your speech is %d words over the maximum limit, you must be more succinct and remove at least that many words", words_over_limit);
-										append_to_errors(it, make_memory(out, (MemoryContext){.i_said_this = true, .author_npc_kind = it->npc_kind,}), new_err);
+									if(error.size != 0) {
+										Log("TODO handle parse error here\n");
 									}
-									else
-									{
-										if (parse_response.size == 0)
-										{
-											Log("Performing action %s!\n", actions[out.kind].name);
-											perform_action(&gs, it, out);
-										}
-										else
-										{
-											Log("There was a parse error: `%.*s`\n", S8VArg(parse_response));
-											append_to_errors(it, (Memory){0}, parse_response);
-										}
-									}
-
 									done_with_request(it->gen_request_id);
 									it->gen_request_id = 0;
 								}
@@ -6947,7 +6968,7 @@ void frame(void)
 									String8 error_message = S8Lit("Something really bad happened bro. File " STRINGIZE(__FILE__) " Line " STRINGIZE(__LINE__));
 									if (succeeded)
 									{
-										error_message = parse_chatgpt_response(frame_arena, &gs, it, ai_response, &a);
+										// TODO parse here for mocking
 									}
 
 									assert(succeeded);
@@ -6955,7 +6976,7 @@ void frame(void)
 
 									String8 valid_str = is_action_valid(frame_arena, it, a);
 									assert(valid_str.size == 0);
-									perform_action(&gs, it, a);
+									perform_action_old(&gs, it, a);
 								}
 								else
 								{
@@ -6989,7 +7010,7 @@ void frame(void)
 								chunk_from_s8(&to_perform.speech, what_player_said);
 								Entity * speaking = gete(player(&gs)->talking_to);
 								to_perform.talking_to_kind = speaking ? speaking->npc_kind : NPC_nobody;
-								perform_action(&gs, player(&gs), to_perform);
+								perform_action_old(&gs, player(&gs), to_perform);
 							}
 						}
 						// do dialog
