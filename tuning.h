@@ -61,8 +61,6 @@
 #define MAX_ASTAR_NODES 512
 #define TIME_BETWEEN_PATH_GENS (0.5f)
 
-
-
 //Rendering
 #define FIELD_OF_VIEW (0.6911112070083618) // FOV
 #define NEAR_PLANE_DISTANCE (0.01f)

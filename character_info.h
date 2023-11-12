@@ -24,6 +24,7 @@ const char *top_of_header = ""
 
 // shorthand to save typing.
 #define TCS8(t) TextChunkString8(t)
+#define TCVArg(t) TextChunkVArg(t)
 typedef struct TextChunk
 {
 	char text[MAX_SENTENCE_LENGTH];

@@ -598,7 +598,6 @@ void generation_thread(void* my_request_voidptr)
 
 			if(dwSize == 0)
 			{
-				Log("Didn't get anything back.\n");
 			}
 			else
 			{
@@ -2036,6 +2035,10 @@ void perform_action(GameState *gs, Entity *from, Action *a) {
 		{
 			Entity* target = a->args.data[0].character;
 			String8 speech = TCS8(a->args.data[1].text);
+			(void) target;
+			(void) speech;
+			(void) gs;
+			(void) from;
 			// basically, there needs to be a thing where the speech is displayed and animated into view to the user,
 			// and all the entities nearby hear it and it goes into their remembered events log.
 			// Probably refactor into global array of undismissed actions that the game is "playing through" constantly
@@ -6480,9 +6483,11 @@ void frame(void)
 												out = bake_into_action(frame_arena, &error, &gs, e, it);
 											}
 											if(error.size == 0) {
-												perform_action(&gs, it, &out);
+												Log("Parsed out and performing action: %.*s\n", TCVArg(parsed->parsed.data[0].taken->name));
+												// perform_action(&gs, it, &out);
 												// perform_action_old(&gs, it, out);
 											} else {
+												Log("Got error: %.*s\n", S8VArg(error));
 												Log("TODO handle error on specific action here\n");
 											}
 										}

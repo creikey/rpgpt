@@ -417,7 +417,6 @@ func completion(w http.ResponseWriter, req *http.Request) {
 	 if false { // temporary testing AI
 		 response = "ACT_holo \"Garbage\""
 	 } else {
-
 		 resp, err := c.CreateChatCompletion(
 			 context.Background(),
 			 openai.ChatCompletionRequest{
