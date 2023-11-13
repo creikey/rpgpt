@@ -12,6 +12,7 @@
 #define SWORD_SWIPE_RADIUS (TILE_SIZE*3.0f)
 #define ARROW_SPEED 200.0f
 #define SECONDS_PER_ARROW 1.3f
+#define MAX_WORD_COUNT 25
 #define DIALOG_INTERACT_SIZE 5.0f // length of the centered AABB (not halfsize) around the player of who they're interacting with
 
 #define CAM_DISTANCE 15.0f
@@ -27,11 +28,11 @@
 #ifdef DEVTOOLS
 // server url cannot have trailing slash
 //#define MOCK_AI_RESPONSE
-#define SERVER_DOMAIN "localhost"
-#define SERVER_PORT 8090
+#define SERVER_DOMAIN "127.0.0.1"
+#define SERVER_PORT 8787
 #define IS_SERVER_SECURE 0
 #else
-#define SERVER_DOMAIN "rpgpt.duckdns.org"
+#define SERVER_DOMAIN "cloudflare-worker.cameronreikes.workers.dev"
 #define SERVER_PORT 443
 #define IS_SERVER_SECURE 1
 #endif

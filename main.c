@@ -197,6 +197,7 @@ void web_arena_set_auto_align(WebArena *arena, size_t align)
 #pragma warning(pop)
 
 #include "ser.h"
+#include "json_interop.h"
 
 #include <math.h>
 
@@ -533,7 +534,7 @@ typedef struct ChatRequest
 	bool should_close;
 	int id;
 	int status;
-	TextChunk generated;
+	String8 generated;
 	uintptr_t thread_handle;
 	Arena *arena;
 	String8 post_req_body; // allocated on thread_arena
@@ -551,7 +552,7 @@ void generation_thread(void* my_request_voidptr)
 
 	bool succeeded = true;
 
-#define WinAssertWithErrorCode(X) if( !( X ) ) { unsigned int error = GetLastError(); Log("Error %u in %s\n", error, #X); my_request->status = 2; return; }
+#define WinAssertWithErrorCode(X) if( !( X ) ) { unsigned int error = GetLastError(); Log("Error %u in %s\n", error, #X); my_request->status = GEN_Failed; return; }
 
 	HINTERNET hSession = WinHttpOpen(L"PlayGPT winhttp backend", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
 	WinAssertWithErrorCode(hSession);
@@ -576,7 +577,7 @@ void generation_thread(void* my_request_voidptr)
 	if(!succeeded)
 	{
 		Log("Couldn't do the web: %lu\n", GetLastError());
-		my_request->status = 2;
+		my_request->status = GEN_Failed;
 	}
 	if(succeeded)
 	{
@@ -601,38 +602,49 @@ void generation_thread(void* my_request_voidptr)
 			}
 			else
 			{
-				u8* out_buffer = PushArray(my_request->arena, u8, dwSize + 1);
+				u8* out_buffer = PushArrayZero(my_request->arena, u8, dwSize + 1);
 				DWORD dwDownloaded = 0;
 				WinAssertWithErrorCode(WinHttpReadData(hRequest, (LPVOID)out_buffer, dwSize, &dwDownloaded));
-				out_buffer[dwDownloaded - 1] = '\0';
 				Log("Got this from http, size %lu: %s\n", dwDownloaded, out_buffer);
-				S8ListPush(my_request->arena, &received_data_list, S8(out_buffer, dwDownloaded - 1));  // the string shouldn't include a null terminator in its length, and WinHttpReadData has a null terminator here
+				S8ListPush(my_request->arena, &received_data_list, S8(out_buffer, dwDownloaded));
 			}
 		} while (dwSize > 0);
-		String8 received_data = S8ListJoin(my_request->arena, received_data_list, &(StringJoin){0});
-
-		String8 ai_response = S8Substring(received_data, 1, received_data.size);
-		if(ai_response.size > ARRLEN(my_request->generated.text))
-		{
-			Log("%lld too big for %lld\n", ai_response.size, ARRLEN(my_request->generated.text));
-			my_request->status = 2;
-			return;
-		}
-		chunk_from_s8(&my_request->generated, ai_response);
-		my_request->status = 1;
+		my_request->generated = S8ListJoin(my_request->arena, received_data_list, &(StringJoin){0});
+		my_request->status = GEN_Success;
 	}
 	my_request->thread_is_done_with_this_request = true; // @TODO Threads that finish and users who forget to mark them as done aren't collected right now, we should do that to prevent leaks
+}
+
+
+
+
+// json_in isn't the file node, it's the first child. So should be an array
+FullResponse *json_to_responses(Arena *arena, Node *json_in, String8 *error_out) {
+	FullResponse *ret = PushArrayZero(arena, FullResponse, 1);
+	Response *cur_response = PushArrayZero(frame_arena, Response, 1);
+	for(Node *cur = json_in; !NodeIsNil(cur); cur = cur->next) {
+		chunk_from_s8(&cur_response->action, get_string(arena, cur, S8Lit("action")));
+		if(cur_response->action.text_length == 0) {
+			*error_out = FmtWithLint(arena, "Every action in the actions array has to have a field called 'action' which is the case sensitive action you are to perform");
+			return ret;
+		}
+
+		String8List args = get_string_array(arena, cur, S8Lit("arguments"));
+		for(String8Node *cur = args.first; cur; cur = cur->next) {
+			TextChunk into = {0};
+			chunk_from_s8(&into, cur->string);
+			BUFF_APPEND(&cur_response->arguments, into);
+		}
+
+		BUFF_APPEND(ret, *cur_response);
+	}
+	return ret;
 }
 
 int make_generation_request(String8 prompt)
 {
 	ArenaTemp scratch = GetScratch(0,0);
-	String8 post_req_body = FmtWithLint(scratch.arena, "|%.*s", S8VArg(prompt));
-	// checking for taken characters, pipe should only occur at the beginning
-	for(u64 i = 1; i < post_req_body.size; i++)
-	{
-		assert(post_req_body.str[i] != '|');
-	}
+	String8 post_req_body = prompt;
 
 	ChatRequest *to_return = 0;
 	if(requests_free_list)
@@ -703,7 +715,8 @@ GenRequestStatus gen_request_status(int id)
 	else
 		return req->status;
 }
-TextChunk gen_request_content(int id)
+// string does not last. Freed with the generation request
+String8 gen_request_content(int id)
 {
 	assert(get_by_id(id));
 	return get_by_id(id)->generated;
@@ -758,48 +771,6 @@ void done_with_request(int id)
 #endif // WEB
 
 Memory *memories_free_list = 0;
-RememberedError *remembered_error_free_list = 0;
-
-// s.size must be less than MAX_SENTENCE_LENGTH, or assert fails
-
-RememberedError *allocate_remembered_error(Arena *arena)
-{
-	RememberedError *to_return = 0;
-	if(remembered_error_free_list)
-	{
-		to_return = remembered_error_free_list;
-		StackPop(remembered_error_free_list);
-	}
-	else
-	{
-		to_return = PushArray(arena, RememberedError, 1);
-	}
-	*to_return = (RememberedError){0};
-	return to_return;
-}
-void remove_remembered_error_from(RememberedError **first, RememberedError **last, RememberedError *chunk)
-{
-	DblRemove(*first, *last, chunk);
-	StackPush(remembered_error_free_list, chunk);
-}
-
-void append_to_errors(Entity *from, Memory incorrect_memory, String8 s)
-{
-	RememberedError *err = allocate_remembered_error(persistent_arena);
-	chunk_from_s8(&err->reason_why_its_bad, s);
-	err->offending_self_output = incorrect_memory;
-
-	while(true)
-	{
-		int count = 0;
-		for(RememberedError *cur = from->errorlist_first; cur; cur = cur->next) count++;
-
-		if(count < REMEMBERED_ERRORS) break;
-		remove_remembered_error_from(&from->errorlist_first, &from->errorlist_last, from->errorlist_first);
-	}
-	DblPushBack(from->errorlist_first, from->errorlist_last, err);
-	from->perceptions_dirty = true;
-}
 
 String8 tprint(char *format, ...)
 {
@@ -1655,6 +1626,22 @@ Entity *npcs_entity(NpcKind kind) {
 	}
 	return ret;
 }
+CutsceneEvent *event_free_first = 0;
+CutsceneEvent *event_free_last = 0;
+
+CutsceneEvent *make_cutscene_event() {
+	CutsceneEvent *ret = 0;
+	if(event_free_first) {
+		ret = event_free_first;
+		DblRemove(event_free_first, event_free_last, event_free_first);
+		*ret = (CutsceneEvent){0};
+	} else {
+		ret = PushArrayZero(persistent_arena, CutsceneEvent, 1);
+	}
+	ret->id = gs.next_cutscene_id;
+	gs.next_cutscene_id += 1;
+	return ret;
+}
 
 Vec4 IsPoint(Vec3 point)
 {
@@ -1824,63 +1811,58 @@ Entity *gete(EntityRef ref)
 	return gete_specified(&gs, ref);
 }
 
-void push_memory(GameState *gs, Entity *e, Memory new_memory)
-{
-	Memory *memory_allocated = 0;
-	if (memories_free_list)
-	{
-		memory_allocated = memories_free_list;
-		StackPop(memories_free_list);
-	}
-	else
-	{
-		memory_allocated = PushArray(persistent_arena, Memory, 1);
-	}
-	*memory_allocated = new_memory;
 
-	int count = 0;
-	for (Memory *cur = e->memories_first; cur; cur = cur->next)
-		count += 1;
-	while (count >= REMEMBERED_MEMORIES)
-	{
-		Memory *to_remove = e->memories_first;
-		DblRemove(e->memories_first, e->memories_last, to_remove);
-		StackPush(memories_free_list, to_remove);
-		count -= 1;
-	}
-	if (gs->stopped_time)
-		StackPush(e->memories_added_while_time_stopped, memory_allocated);
-	else
-		DblPushBack(e->memories_first, e->memories_last, memory_allocated);
-
-	if (!new_memory.context.i_said_this)
-	{
-		// self speech doesn't dirty
-		e->perceptions_dirty = true;
+String8 stringify_identity(Entity *whos_perspective, NpcKind kind) {
+	if(whos_perspective->npc_kind == kind) {
+		return S8Lit("I");
+	} else {
+		return TCS8(npc_data(&gs, kind)->name);
 	}
 }
 
-typedef struct ActualActionArgument
-{
-	// could be a union but meh.
-	Entity *character;
-	TextChunk text;
-} ActualActionArgument;
+void remember_action(Entity *who_should_remember, Entity *from, Action act) {
+	assert(who_should_remember); assert(from);
+	String8 from_identified = stringify_identity(who_should_remember, from->npc_kind);
+	String8 memory = {0};
+	switch(act.kind){
+		case ACT_invalid:
+		break;
+		case ACT_none:
+		break;
+		case ACT_say_to:
+		String8 to_identified = stringify_identity(who_should_remember, act.args.data[0].character->npc_kind);
+		memory = FmtWithLint(frame_arena, "%.*s said '%.*s' to %.*s", S8VArg(from_identified), TCVArg(act.args.data[1].text), S8VArg(to_identified));
+		break;
+	}
+	if(memory.size > 0) {
+		Memory new_memory = {0};
+		chunk_from_s8(&new_memory.description_from_my_perspective, S8Chop(memory, MAX_SENTENCE_LENGTH));
+		BUFF_QUEUE_APPEND(&who_should_remember->memories, new_memory);
+		if(who_should_remember != from) who_should_remember->perceptions_dirty = true;
+	}
+}
 
-// actions are only relevant at a certain point in time when the character in question is alive, the targets are there, etc
-typedef struct Action
-{
-	ActionKind kind;
-	BUFF(ActualActionArgument, MAX_ARGS) args;
-} Action;
+void perform_action(Entity *from, Action act) {
+	ENTITIES_ITER(gs.entities) {
+		if(it->is_npc && it->current_roomid == from->current_roomid) {
+			remember_action(it, from, act);
+		}
+	}
+	
+	// turn the action into a cutscene
+	if(from->npc_kind != NPC_player) {
+		CutsceneEvent *new_event = make_cutscene_event();
+		new_event->action = act;
+		new_event->author = frome(from);
+		DblPushBack(gs.unprocessed_first, gs.unprocessed_last, new_event);
+	}
+}
 
 String8 npc_name(Entity *e){
 	if(e->npc_kind == NPC_player) return S8Lit("The Player");
 	else if(e->is_npc) return TCS8(npc_data(&gs, e->npc_kind)->name);
 	else return S8Lit("");
 }
-
-
 
 CanTalkTo get_can_talk_to(Entity *e)
 {
@@ -1910,28 +1892,6 @@ Entity *get_targeted(Entity *from, NpcKind targeted)
 	return 0;
 }
 
-Memory make_memory(ActionOld a, MemoryContext context)
-{
-	Memory new_memory = {0};
-	new_memory.action = a;
-	new_memory.context = context;
-	return new_memory;
-}
-
-void remember_action(GameState *gs, Entity *to_modify, ActionOld a, MemoryContext context)
-{
-	Memory new_memory = make_memory(a, context);
-	push_memory(gs, to_modify, new_memory);
-
-	if (context.i_said_this && (a.speech.text_length > 0 || a.kind != ACT_none))
-	{
-		to_modify->undismissed_action = true;
-		to_modify->undismissed_action_tick = gs->tick;
-		to_modify->characters_of_word_animated = 0.0f;
-		to_modify->words_said_on_page = 0;
-		to_modify->cur_page_index = 0;
-	}
-}
 u8 CharToUpper(u8 c);
 
 String8 npc_identifier(String8 name)
@@ -2024,99 +1984,6 @@ void cause_action_side_effects(Entity *from, ActionOld a)
 	ReleaseScratch(scratch);
 }
 
-// performs the action. The action must be a valid thing to do before calling this, if not the game may crash
-void perform_action(GameState *gs, Entity *from, Action *a) {
-	switch(a->kind) {
-		case ACT_invalid:
-		break;
-		case ACT_none:
-		break;
-		case ACT_say_to:
-		{
-			Entity* target = a->args.data[0].character;
-			String8 speech = TCS8(a->args.data[1].text);
-			(void) target;
-			(void) speech;
-			(void) gs;
-			(void) from;
-			// basically, there needs to be a thing where the speech is displayed and animated into view to the user,
-			// and all the entities nearby hear it and it goes into their remembered events log.
-			// Probably refactor into global array of undismissed actions that the game is "playing through" constantly
-		}
-		break;
-	}
-}
-
-// only called when the action is instantiated, correctly propagates the information
-// of the action physically and through the party
-// If the action is invalid, remembers the error if it's an NPC, and does nothing else
-// Returns if the action was valid or not
-bool perform_action_old(GameState *gs, Entity *from, ActionOld a)
-{
-	ArenaTemp scratch = GetScratch(0, 0);
-
-	MemoryContext context = {0};
-	context.author_npc_kind = from->npc_kind;
-
-	if (a.speech.text_length > 0)
-		from->dialog_fade = 2.5f;
-
-	String8 is_valid = is_action_valid(scratch.arena, from, a);
-	bool proceed_propagating = true;
-	if (is_valid.size > 0)
-	{
-		assert(from->npc_kind != NPC_player);
-		append_to_errors(from, make_memory(a, context), is_valid);
-		proceed_propagating = false;
-	}
-
-	Entity *targeted = 0;
-	if (proceed_propagating)
-	{
-		targeted = get_targeted(from, a.talking_to_kind);
-		if (from->errorlist_first)
-			StackPush(remembered_error_free_list, from->errorlist_first);
-		from->errorlist_first = 0;
-		from->errorlist_last = 0;
-
-		cause_action_side_effects(from, a);
-
-		// self memory
-		if (from->npc_kind != NPC_player)
-		{
-			MemoryContext my_context = context;
-			my_context.i_said_this = true;
-			remember_action(gs, from, a, my_context);
-		}
-
-		if (a.speech.text_length == 0 && a.kind == ACT_none)
-		{
-			proceed_propagating = false; // didn't say or do anything
-		}
-	}
-
-	if (proceed_propagating)
-	{
-		// memory of target
-		if (targeted)
-		{
-			remember_action(gs, targeted, a, context);
-		}
-
-		// propagate to other npcs in the room
-		ENTITIES_ITER(gs->entities)
-		{
-			if (
-				it->npc_kind != NPC_player && it->current_roomid == from->current_roomid && it != from && it != targeted)
-			{
-				remember_action(gs, it, a, context);
-			}
-		}
-	}
-
-	ReleaseScratch(scratch);
-	return proceed_propagating;
-}
 
 bool eq(EntityRef ref1, EntityRef ref2)
 {
@@ -2403,32 +2270,6 @@ void ser_Entity(SerState *ser, Entity *e)
 		}
 	}
 	*/
-
-	if (ser->serializing)
-	{
-		Memory *cur = e->memories_first;
-		bool more_memories = cur != 0;
-		ser_bool(ser, &more_memories);
-		while (more_memories)
-		{
-			ser_Memory(ser, cur);
-			cur = cur->next;
-			more_memories = cur != 0;
-			ser_bool(ser, &more_memories);
-		}
-	}
-	else
-	{
-		bool more_memories;
-		ser_bool(ser, &more_memories);
-		while (more_memories)
-		{
-			Memory *new_chunk = PushArray(ser->arena, Memory, 1);
-			ser_Memory(ser, new_chunk);
-			DblPushBack(e->memories_first, e->memories_last, new_chunk);
-			ser_bool(ser, &more_memories);
-		}
-	}
 
 	ser_float(ser, &e->dialog_panel_opacity);
 
@@ -3064,45 +2905,6 @@ void do_metadesk_tests()
 
 	Log("Testing passed!\n");
 }
-void do_parsing_tests()
-{
-	Log("Testing chatgpt parsing...\n");
-
-	ArenaTemp scratch = GetScratch(0, 0);
-	
-	String8 err = {0};
-	parse_output(scratch.arena, &situation_0, S8Lit("say_to(\"The Player\")"), &err);
-	assert(err.size > 0);
-
-	err = (String8){0};
-	ParsedFullResponse *parsed = parse_output(scratch.arena, &situation_0, S8Lit("say_to(\"The Player\", \"What's up!\")"), &err);
-	assert(parsed->parsed.cur_index == 1);
-	ParsedResponse *taken = &parsed->parsed.data[0];
-	
-	assert(S8Match(TCS8(taken->taken->name), S8Lit("say_to"), 0));
-	assert(taken->arguments.cur_index == 2);
-	assert(S8Match(TCS8(taken->arguments.data[0]), S8Lit("The Player"), 0));
-	assert(S8Match(TCS8(taken->arguments.data[1]), S8Lit("What's up!"), 0));
-	assert(err.size == 0);
-	
-	// some rounds of random fuzzing just to make sure it doesn't crash or infinite loop
-	rnd_gamerand_t fuzzing_random = {0};
-	rnd_gamerand_seed(&fuzzing_random, 42);
-	for(int i = 0; i < 10000; i++) {
-		const int fuzzed_str_length = 1000;
-		u8 *data = PushArrayZero(scratch.arena, u8, fuzzed_str_length);
-		for(int i = 0; i < fuzzed_str_length; i++) {
-			data[i] = (u8)(rnd_gamerand_range(&fuzzing_random, '0', 'z') % 255);
-		}
-		String8 input = S8(data, fuzzed_str_length);
-		String8 err = {0};
-		ParsedFullResponse *parsed = parse_output(scratch.arena, &situation_0, input, &err);
-		(void)parsed;
-		ReleaseScratch(scratch);
-		scratch = GetScratch(0, 0);
-	}
-	ReleaseScratch(scratch);
-}
 
 // these tests rely on the base level having been loaded
 void do_serialization_tests()
@@ -3379,7 +3181,6 @@ void init(void)
 
 #ifdef DEVTOOLS
 	do_metadesk_tests();
-	do_parsing_tests();
 	do_serialization_tests();
 	do_float_encoding_tests();
 #endif
@@ -4400,6 +4201,17 @@ typedef struct TextParams
 	Layer layer;
 } TextParams;
 
+AABB update_bounds(AABB bounds, Quad quad) {
+	for (int i = 0; i < 4; i++)
+	{
+		bounds.upper_left.X = fminf(bounds.upper_left.X, quad.points[i].X);
+		bounds.upper_left.Y = fmaxf(bounds.upper_left.Y, quad.points[i].Y);
+		bounds.lower_right.X = fmaxf(bounds.lower_right.X, quad.points[i].X);
+		bounds.lower_right.Y = fminf(bounds.lower_right.Y, quad.points[i].Y);
+	}
+	return bounds;
+}
+
 // returns bounds. To measure text you can set dry run to true and get the bounds
 AABB draw_text(TextParams t)
 {
@@ -4467,13 +4279,7 @@ AABB draw_text(TextParams t)
 				}
 
 				PROFILE_SCOPE("bounds computation")
-				for (int i = 0; i < 4; i++)
-				{
-					bounds.upper_left.X = fminf(bounds.upper_left.X, to_draw.points[i].X);
-					bounds.upper_left.Y = fmaxf(bounds.upper_left.Y, to_draw.points[i].Y);
-					bounds.lower_right.X = fmaxf(bounds.lower_right.X, to_draw.points[i].X);
-					bounds.lower_right.Y = fminf(bounds.lower_right.Y, to_draw.points[i].Y);
-				}
+				bounds = update_bounds(bounds, to_draw);
 
 				PROFILE_SCOPE("shifting points")
 				for (int i = 0; i < 4; i++)
@@ -4862,7 +4668,7 @@ PlacedWordList place_wrapped_words(Arena *arena, String8List words, float text_s
 		break;
 	case JUST_CENTER:
 	{
-		// PlacedWord **by_line_index = PushArray(scratch.arena, PlacedWord*, current_line_index);
+		if(to_return.first)
 		for (int i = to_return.first->line_index; i <= to_return.last->line_index; i++)
 		{
 			PlacedWord *first_on_line = 0;
@@ -4912,23 +4718,6 @@ void translate_words_by(PlacedWordList words, Vec2 translation)
 	}
 }
 
-String8 last_said_sentence(Entity *npc)
-{
-	assert(npc->is_npc);
-
-	String8 to_return = (String8){0};
-
-	for (Memory *cur = npc->memories_last; cur; cur = cur->prev)
-	{
-		if (cur->context.author_npc_kind == npc->npc_kind && cur->action.speech.text_length > 0)
-		{
-			to_return = TextChunkString8(cur->action.speech);
-			break;
-		}
-	}
-
-	return to_return;
-}
 
 typedef enum
 {
@@ -5654,7 +5443,7 @@ TextPlacementSettings speech_bubble = {
 // Unsaid words are still there, so you gotta handle the animation homie
 String8List words_on_current_page(Entity *it, TextPlacementSettings *settings)
 {
-	String8 last = last_said_sentence(it);
+	String8 last = S8Lit(""); // TODO
 	PlacedWordList placed = place_wrapped_words(frame_arena, split_by_word(frame_arena, last), settings->text_scale, settings->text_width_in_pixels, *settings->font, JUST_LEFT);
 
 	String8List on_current_page = {0};
@@ -5684,18 +5473,30 @@ String8List words_on_current_page_without_unsaid(Entity *it, TextPlacementSettin
 	return to_return;
 }
 
-// the returned action is also checked to ensure that it's allowed according to the current gamestate
-Action bake_into_action(Arena *error_arena, String8 *error_out, GameState *gs, Entity *taking_the_action, ParsedResponse *parsed) {
-	assert(parsed->taken); // if this is null, then it's likely a constant action where the parsed action isn't meant to be mapped back to a gameplay action. 
-
+// the returned action is checked to ensure that it's allowed according to the current gamestate
+// the error out is fed into the AI, so make it make sense.
+Action bake_into_action(Arena *error_arena, String8 *error_out, GameState *gs, Entity *taking_the_action, Response *resp) {
 	#define error(...) *error_out = FmtWithLint(error_arena, __VA_ARGS__)
 	*error_out = S8Lit("");
 
-	Action ret = {0};
-	ret.kind = parsed->taken->gameplay_action;
+	// TODO restrict the actions you're allowed to do here
+	SituationAction *cur_action = 0;
+	ARR_ITER(SituationAction, gamecode_actions) {
+		if(S8Match(TCS8(it->name), TCS8(resp->action), 0)) {
+			cur_action = it;
+			break;
+		}
+	}
+	if(!cur_action) {
+		error("You output action '%.*s', don't know what that is\n", TCVArg(resp->action));
+	}
 
-	BUFF_ITER_I(ArgumentSpecification, &parsed->taken->args, arg_index) {
-		TextChunk argtext = parsed->arguments.data[arg_index];
+
+	Action ret = {0};
+	ret.kind = cur_action->gameplay_action;
+
+	BUFF_ITER_I(ArgumentSpecification, &cur_action->args, arg_index) {
+		TextChunk argtext = resp->arguments.data[arg_index];
 		ActualActionArgument out = {0};
 		switch(it->expected_type) {
 			case ARGTYPE_invalid:
@@ -5707,16 +5508,17 @@ Action bake_into_action(Arena *error_arena, String8 *error_out, GameState *gs, E
 			break;
 
 			case ARGTYPE_character:
-
-			bool found = false;
-			ENTITIES_ITER(gs->entities) {
-				if(S8Match(npc_name(it), TCS8(argtext), 0)) {
-					found = true;
-					out.character = it;
+			{
+				bool found = false;
+				ENTITIES_ITER(gs->entities) {
+					if(S8Match(npc_name(it), TCS8(argtext), 0)) {
+						found = true;
+						out.character = it;
+					}
 				}
-			}
-			if(!found) {
-				error("The character you're referring to at index %d, `%.*s`, doesn't exist in the game", arg_index, TextChunkVArg(argtext));
+				if(!found) {
+					error("The character you're referring to at index %d, `%.*s`, doesn't exist in the game", arg_index, TextChunkVArg(argtext));
+				}
 			}
 			break;
 		}
@@ -5724,7 +5526,8 @@ Action bake_into_action(Arena *error_arena, String8 *error_out, GameState *gs, E
 			ret.args.data[arg_index] = out;
 		}
 	}
-	ret.args.cur_index = parsed->taken->args.cur_index;
+	if(error_out->size == 0)
+		ret.args.cur_index = cur_action->args.cur_index;
 
 	// validate that the action is allowed in the gameplay, and everything there looks good
 	switch(ret.kind) {
@@ -5741,19 +5544,10 @@ Action bake_into_action(Arena *error_arena, String8 *error_out, GameState *gs, E
 				error("You can't speak to character '%.*s', they're not in the same room as you", S8VArg(npc_name(ret.args.data[0].character)));
 			}
 
-			// must wrap
+			// arbitrary max word count to make it more succinct
 			assert(act_by_enum(ACT_say_to)->args.data[1].expected_type == ARGTYPE_text);
 			String8 speech = TextChunkString8(ret.args.data[1].text);
-			TextPlacementSettings *to_wrap_to = &speech_bubble;
-			PlacedWordList placed = place_wrapped_words(frame_arena, split_by_word(frame_arena, speech), to_wrap_to->text_scale, to_wrap_to->text_width_in_pixels, *to_wrap_to->font, JUST_LEFT);
-			int words_over_limit = 0;
-			for (PlacedWord *cur = placed.first; cur; cur = cur->next)
-			{
-				if (cur->line_index >= to_wrap_to->lines_per_page * to_wrap_to->maximum_pages_from_ai) // the max number of lines of text on a bubble
-				{
-					words_over_limit += 1;
-				}
-			}
+			int words_over_limit = (int)split_by_word(frame_arena, speech).node_count - MAX_WORD_COUNT;
 
 			if (words_over_limit > 0)
 			{
@@ -5850,11 +5644,19 @@ void frame(void)
 			cam_target_pos.x = gs.edit.camera_panning.x;
 			cam_target_pos.z = gs.edit.camera_panning.y;
 		}
+		else if(gs.unprocessed_first)
+		{
+			if(gs.unprocessed_first->action.kind == ACT_say_to) {
+				cam_target_pos.x = gete(gs.unprocessed_first->author)->pos.x;
+				cam_target_pos.z = gete(gs.unprocessed_first->author)->pos.y;
+			}
+		}
 		else if (player(&gs))
 		{
 			cam_target_pos.x = player(&gs)->pos.x;
 			cam_target_pos.z = player(&gs)->pos.y;
 		}
+		gs.cur_cam_pos = LerpV3(gs.cur_cam_pos, 9.0f * unwarped_dt, cam_target_pos);
 		// dbgline(V2(0,0), V2(500, 500));
 		const float vertical_to_horizontal_ratio = CAM_VERTICAL_TO_HORIZONTAL_RATIO;
 		const float cam_distance = CAM_DISTANCE;
@@ -5870,7 +5672,7 @@ void frame(void)
 		{
 			cam_offset_from_target = get_cur_room(&gs, &level_threedee)->camera_offset;
 		}
-		Vec3 cam_pos = AddV3(cam_target_pos, cam_offset_from_target);
+		Vec3 cam_pos = AddV3(gs.cur_cam_pos, cam_offset_from_target);
 
 		Vec2 movement = {0};
 		if (mobile_controls)
@@ -5900,7 +5702,7 @@ void frame(void)
 		}
 
 		// make movement relative to camera forward
-		Vec3 facing = NormV3(SubV3(cam_target_pos, cam_pos));
+		Vec3 facing = NormV3(SubV3(gs.cur_cam_pos, cam_pos));
 		Vec3 right = Cross(facing, V3(0, 1, 0));
 		Vec2 forward_2d = NormV2(V2(facing.x, facing.z));
 		Vec2 right_2d = NormV2(V2(right.x, right.z));
@@ -5910,7 +5712,7 @@ void frame(void)
 			movement = V2(0, 0);
 
 		view = Translate(V3(0.0, 1.0, -5.0f));
-		Mat4 normal_cam_view = LookAt_RH(cam_pos, cam_target_pos, V3(0, 1, 0));
+		Mat4 normal_cam_view = LookAt_RH(cam_pos, gs.cur_cam_pos, V3(0, 1, 0));
 		if (flycam)
 		{
 			Basis basis = flycam_basis();
@@ -6311,7 +6113,8 @@ void frame(void)
 						blendalpha(WHITE, dialog_alpha),
 						.layer = LAYER_UI_FG,
 					});
-					String8List words_to_say = words_on_current_page(it, &speech_bubble);
+					// String8List words_to_say = words_on_current_page(it, &speech_bubble);
+					String8List words_to_say = {0};
 					if (unread)
 					{
 						draw_quad((DrawParams){
@@ -6356,7 +6159,8 @@ void frame(void)
 					});
 					AABB placing_text_in = aabb_centered(AddV2(bubble_center, V2(0, 10.0f)), V2(speech_bubble.text_width_in_pixels, size.y * 0.15f));
 
-					String8List to_draw = words_on_current_page_without_unsaid(it, &speech_bubble);
+					// String8List to_draw = words_on_current_page_without_unsaid(it, &speech_bubble);
+					String8List to_draw = {0};
 					if (to_draw.node_count != 0)
 					{
 						PlacedWordList placed = place_wrapped_words(frame_arena, to_draw, text_scale, aabb_size(placing_text_in).x, default_font, JUST_LEFT);
@@ -6373,6 +6177,79 @@ void frame(void)
 			}
 		}
 
+
+		// draw and manage cutscene 
+		if(gs.unprocessed_first)
+		{
+			bool delete = false;
+			do {
+				CutsceneEvent *cut = gs.unprocessed_first;
+				if(!gete(cut->author)) {
+					delete = true;
+				} else {
+					switch (cut->action.kind)
+					{
+						case ACT_none:
+						case ACT_invalid:
+							delete = true;
+							break;
+						case ACT_say_to:
+						{
+							Entity *e = gete(cut->author);
+							Vec3 threedee_point_at_head = AddV3(plane_point(e->pos), V3(0, 1.7f, 0)); // 1.7 meters is about 5'8", average person height
+							Vec2 bubble_center = AddV2(threedee_to_screenspace(threedee_point_at_head), V2(0, 50.0f));
+
+							String8 whole_speech = TCS8(cut->action.args.data[1].text);
+							String8 trimmed = S8Substring(whole_speech, 0, (u64)cut->said_letters_of_speech);
+							
+							PlacedWordList wrapped = place_wrapped_words(frame_arena, split_by_word(frame_arena, trimmed), 1.0f, screen_size().x*0.7f, default_font, JUST_CENTER);
+							// for(PlacedWord *cur = wrapped.first; cur; cur = cur->next) {
+							// 	width = max(width, cur->lower_left_corner.x + cur->size.x);
+							// }
+							// float height = -wrapped.last->lower_left_corner.y + get_vertical_dist_between_lines(default_font, 1.0f);
+							translate_words_by(wrapped,  V2(screen_size().x*0.3f/2.0f, -get_vertical_dist_between_lines(default_font, 1.0f) + bubble_center.y));
+							AABB bounds = (AABB){
+								.upper_left = V2(INFINITY, -INFINITY),
+								.lower_right = V2(-INFINITY, INFINITY),
+							};
+							for(PlacedWord *cur = wrapped.first; cur; cur = cur->next) {
+								AABB word_bounds = draw_text((TextParams){false, cur->text, cur->lower_left_corner, blendalpha(WHITE, 1.0f),1.0f, .layer = LAYER_UI_FG});
+								bounds = update_bounds(bounds, quad_aabb(word_bounds));
+							}
+							if(trimmed.size > 0) {
+								AABB bg = grow_from_center(bounds, V2(25.0f, 25.0f));
+								draw_quad((DrawParams){quad_aabb(bg), IMG(image_white_square), blendalpha(BLACK, 0.8f), .layer = LAYER_UI});
+							}
+
+							cut->said_letters_of_speech += unwarped_dt_double*CHARACTERS_PER_SEC;
+
+							if(!mobile_controls) {
+								draw_centered_text((TextParams){
+									false,
+									S8Lit("(Press E)"),
+									V2(screen_size().x/2.0f, screen_size().y*0.20f),
+									WHITE,
+									1.0f,
+									.layer = LAYER_UI_FG,
+								});
+							}
+							if(pressed.interact) {
+								if(cut->said_letters_of_speech < whole_speech.size) {
+									cut->said_letters_of_speech = whole_speech.size + 1.0;
+								} else {
+									delete = true;
+								}
+								pressed.interact = false;
+							}
+						}
+						break;
+					}
+				}
+				if(delete) DblRemove(gs.unprocessed_first, gs.unprocessed_last, gs.unprocessed_first);
+			} while(delete && gs.unprocessed_first); // so that events that shouldn't be there like none events or broken ones, the camera doesn't pan to them, delete them in sequence lik this, such that either the currnet unprocessed first should be animated/focusd on or it shouldn't be there anymore 
+		}
+
+
 		// gameplay processing loop, do multiple if lagging
 		// these are static so that, on frames where no gameplay processing is necessary and just rendering, the rendering uses values from last frame
 		// @Place(gameplay processing loops)
@@ -6380,7 +6257,7 @@ void frame(void)
 		static bool player_in_combat = false;
 
 		float speed_target = 1.0f;
-		gs.stopped_time = cur_unread_entity != 0;
+		gs.stopped_time = gs.unprocessed_first != 0;
 		if (gs.stopped_time)
 			speed_target = 0.0f;
 		// pausing the game
@@ -6434,7 +6311,8 @@ void frame(void)
 							// @Place(entity processing)
 							if (it->dialog_fade > 0.0f)
 								it->dialog_fade -= dt / DIALOG_FADE_TIME;
-
+							Entity *e = it;
+								
 							Entity *toface = 0;
 							if (gete(it->aiming_shotgun_at))
 							{
@@ -6443,6 +6321,10 @@ void frame(void)
 							else if (gete(it->looking_at))
 							{
 								toface = gete(it->looking_at);
+							}
+							else if(gs.unprocessed_first && gs.unprocessed_first->action.kind == ACT_say_to && gete(gs.unprocessed_first->author) == it)
+							{
+								toface = gs.unprocessed_first->action.args.data[0].character;
 							}
 							if (toface)
 								it->target_rotation = AngleOfV2(SubV2(toface->pos, it->pos));
@@ -6466,35 +6348,52 @@ void frame(void)
 								{
 									having_errors = false;
 									// done! we can get the string
-									TextChunk sentence_chunk = gen_request_content(it->gen_request_id);
-									String8 sentence_str = TextChunkString8(sentence_chunk);
-
-									Log("Parsing `%.*s`...\n", S8VArg(sentence_str));
-									String8 error = {0};
-									ParsedFullResponse *parsed = parse_output(frame_arena, generate_situation(frame_arena, &gs, it), sentence_str, &error);
-
-									if(error.size == 0) {
-										Entity *e = it;
-										BUFF_ITER(ParsedResponse, &parsed->parsed) {
-											String8 error = {0}; // error with the current action
-											Action out;
-											if (error.size == 0)
-											{
-												out = bake_into_action(frame_arena, &error, &gs, e, it);
-											}
-											if(error.size == 0) {
-												Log("Parsed out and performing action: %.*s\n", TCVArg(parsed->parsed.data[0].taken->name));
-												// perform_action(&gs, it, &out);
-												// perform_action_old(&gs, it, out);
-											} else {
-												Log("Got error: %.*s\n", S8VArg(error));
-												Log("TODO handle error on specific action here\n");
-											}
+									String8 content = gen_request_content(it->gen_request_id);
+									ParseResult parsed = ParseWholeString(frame_arena, S8Lit("generated"), content);
+									if(!having_errors && parsed.errors.node_count > 0) {
+										Log("The server returned bogged data:\n");
+										for(Message *cur = parsed.errors.first; cur; cur = cur->next) {
+											Log("%.*s\n", S8VArg(cur->string));
+										}
+										having_errors = true;
+									}
+									ServerResponse response = {0};
+									if(!having_errors) {
+										Node *root = parsed.node->first_child;
+										parse_response(frame_arena, &response, root);
+										if(response.error.size > 0) {
+											Log("Error from server: %.*s\n", S8VArg(response.error));
+											having_errors = true;
+										} 
+									}
+									if(NodeIsNil(response.ai_response)) {
+										if(response.ai_error.size == 0) {
+											Log("When the root node is nil, there should be an AI error to explain why. But this isn't the case. Either a logic or server error\n");
+											having_errors = true;
 										}
 									}
-									if(error.size != 0) {
-										Log("TODO handle parse error here\n");
+									if(!having_errors) {
+										if(response.ai_error.size > 0) {
+											Log("Got an AI error: '%.*s'", S8VArg(response.ai_error));
+											TextChunk err = {0};
+											chunk_from_s8(&err, S8Chop(response.ai_error, MAX_SENTENCE_LENGTH));
+											BUFF_APPEND(&e->error_notices, err);
+										}
+										String8 err = {0};
+										FullResponse *resp = json_to_responses(frame_arena, response.ai_response, &err);
+										BUFF_ITER(Response, resp) {
+											Action baked = bake_into_action(frame_arena, &err, &gs, e, it);
+											if(err.size > 0) {
+												Log("Error while baking to action: '%.*s'", S8VArg(err));
+												TextChunk out_err = {0};
+												chunk_from_s8(&out_err, S8Chop(err, MAX_SENTENCE_LENGTH));
+												BUFF_APPEND(&e->error_notices, out_err);
+												break;
+											}
+											perform_action(e, baked);
+										}
 									}
+
 									done_with_request(it->gen_request_id);
 									it->gen_request_id = 0;
 								}
@@ -6520,8 +6419,10 @@ void frame(void)
 							{
 								ArenaTemp scratch = GetScratch(0, 0);
 
-								String8List to_say = words_on_current_page(it, &speech_bubble);
-								String8List to_say_without_unsaid = words_on_current_page_without_unsaid(it, &speech_bubble);
+								// String8List to_say = words_on_current_page(it, &speech_bubble);
+								// String8List to_say_without_unsaid = words_on_current_page_without_unsaid(it, &speech_bubble);
+								String8List to_say = {0};
+								String8List to_say_without_unsaid = {0};
 								if (to_say.node_count > 0 && it->words_said_on_page < to_say.node_count)
 								{
 									if (cur_unread_entity == it)
@@ -6896,16 +6797,6 @@ void frame(void)
 						Entity *it = &gs.entities[i];
 						if (it->destroy)
 						{
-							// add all memories to memory free list
-							for (Memory *cur = it->memories_first; cur;)
-							{
-								Memory *prev = cur;
-								cur = cur->next;
-								StackPush(memories_free_list, prev);
-							}
-							it->memories_first = 0;
-							it->memories_last = 0;
-
 							int gen = it->generation;
 							*it = (Entity){0};
 							it->generation = gen;
@@ -6915,7 +6806,7 @@ void frame(void)
 					ENTITIES_ITER(gs.entities)
 					if (it->is_npc)
 					{
-						bool doesnt_prompt_on_dirty_perceptions = false || it->current_roomid != get_cur_room(&gs, &level_threedee)->roomid;
+						bool doesnt_prompt_on_dirty_perceptions = false || it->current_roomid != get_cur_room(&gs, &level_threedee)->roomid || it->npc_kind == NPC_player;
 						if (it->perceptions_dirty && doesnt_prompt_on_dirty_perceptions)
 						{
 							it->perceptions_dirty = false;
@@ -6936,52 +6827,9 @@ void frame(void)
 								mocking_the_ai_response = true;
 #endif												   // mock
 #endif												   // devtools
-								bool succeeded = true; // couldn't get AI response if false
 								if (mocking_the_ai_response)
 								{
-									String8 ai_response = {0};
-									if (it->memories_last->action.talking_to_kind == it->npc_kind)
-									// if (it->memories_last->context.author_npc_kind != it->npc_kind)
-									{
-										const char *action = 0;
-										const char *action_argument = "Raphael";
-										if (gete(it->aiming_shotgun_at))
-										{
-											action = "fire_shotgun";
-										}
-										else
-										{
-											action = "aim_shotgun";
-										}
-										char *rigged_dialog[] = {
-											"Repeated amounts of testing dialog overwhelmingly in support of the mulaney brothers",
-										};
-										char *next_dialog = rigged_dialog[it->times_talked_to % ARRLEN(rigged_dialog)];
-										String8 target = TextChunkString8(npc_data(&gs, it->memories_last->context.author_npc_kind)->name);
-										ai_response = FmtWithLint(frame_arena, "{\"target\": \"%.*s\", \"action\": \"%s\", \"action_argument\": \"%s\", \"speech\": \"%s\"}", S8VArg(target), action, action_argument, next_dialog);
-										it->times_talked_to += 1;
-									}
-									else
-									{
-										ai_response = S8Lit("{\"target\": \"nobody\", \"action\": \"none\", \"speech\": \"\"}");
-									}
-
-									// something to mock
-									assert(ai_response.size > 0);
-									Log("Mocking...\n");
-									ActionOld a = {0};
-									String8 error_message = S8Lit("Something really bad happened bro. File " STRINGIZE(__FILE__) " Line " STRINGIZE(__LINE__));
-									if (succeeded)
-									{
-										// TODO parse here for mocking
-									}
-
-									assert(succeeded);
-									assert(error_message.size == 0);
-
-									String8 valid_str = is_action_valid(frame_arena, it, a);
-									assert(valid_str.size == 0);
-									perform_action_old(&gs, it, a);
+									Log("TODO unimplemented\n");
 								}
 								else
 								{
@@ -7006,16 +6854,19 @@ void frame(void)
 							}
 							else
 							{
-								String8 what_player_said = text_to_say;
-								what_player_said = S8ListJoin(frame_arena, S8Split(frame_arena, what_player_said, 1, &S8Lit("\n")), &(StringJoin){0});
-
-								ActionOld to_perform = {0};
-								what_player_said = S8Substring(what_player_said, 0, ARRLEN(to_perform.speech.text));
-
-								chunk_from_s8(&to_perform.speech, what_player_said);
-								Entity * speaking = gete(player(&gs)->talking_to);
-								to_perform.talking_to_kind = speaking ? speaking->npc_kind : NPC_nobody;
-								perform_action_old(&gs, player(&gs), to_perform);
+								Entity *targeting = gete(player(&gs)->talking_to);
+								if(targeting)
+								{
+									String8 what_player_said = text_to_say;
+									what_player_said = S8ListJoin(frame_arena, S8Split(frame_arena, what_player_said, 1, &S8Lit("\n")), &(StringJoin){0});
+									Action act = {
+										.kind = ACT_say_to,
+									};
+									act.args.data[0].character = targeting;
+									chunk_from_s8(&act.args.data[1].text, what_player_said);
+									act.args.cur_index = 2;
+									perform_action(player(&gs), act);
+								}
 							}
 						}
 						// do dialog
@@ -7349,30 +7200,10 @@ void frame(void)
 							AABB bounds = draw_text((TextParams){false, S8Fmt(frame_arena, "--Memories for %.*s--", TextChunkVArg(npc_data(&gs, to_view->npc_kind)->name)), cur_pos, WHITE, 1.0});
 							cur_pos.y -= aabb_size(bounds).y;
 
-							for (Memory *cur = to_view->memories_first; cur; cur = cur->next)
-								if (cur->action.speech.text_length > 0)
-								{
-									String8 to_text = cur->action.talking_to_kind != NPC_nobody ? S8Fmt(frame_arena, " to %.*s ", TextChunkVArg(npc_data(&gs, cur->action.talking_to_kind)->name)) : S8Lit("");
-									String8 text = S8Fmt(frame_arena, "%s%.*s%.*s: %.*s", to_view->npc_kind == cur->context.author_npc_kind ? "(Me) " : "", TextChunkVArg(npc_data(&gs, cur->context.author_npc_kind)->name), S8VArg(to_text), cur->action.speech.text_length, cur->action.speech);
-									AABB bounds = draw_text((TextParams){false, text, cur_pos, WHITE, 1.0});
-									cur_pos.y -= aabb_size(bounds).y;
-								}
-
 							if (keypressed[SAPP_KEYCODE_Q] && !receiving_text_input)
 							{
 								Log("\n\n==========------- Printing debugging information for %.*s -------==========\n", TextChunkVArg(npc_data(&gs, to_view->npc_kind)->name));
 								Log("\nMemories-----------------------------\n");
-								int mem_idx = 0;
-								for (Memory *cur = to_view->memories_first; cur; cur = cur->next)
-								{
-									String8 to_text = cur->action.talking_to_kind != NPC_nobody ? S8Fmt(frame_arena, " to %.*s ", TextChunkVArg(npc_data(&gs, cur->action.talking_to_kind)->name)) : S8Lit("");
-									String8 speech = TextChunkString8(cur->action.speech);
-									if (speech.size == 0)
-										speech = S8Lit("<said nothing>");
-									String8 text = S8Fmt(frame_arena, "%s%.*s%.*s: %.*s", to_view->npc_kind == cur->context.author_npc_kind ? "(Me) " : "", TextChunkVArg(npc_data(&gs, cur->context.author_npc_kind)->name), S8VArg(to_text), S8VArg(speech));
-									printf("Memory %d: %.*s\n", mem_idx, S8VArg(text));
-									mem_idx++;
-								}
 								Log("\nPrompt-----------------------------\n");
 								Log("UNIMPLEMENTED!")
 								// String8 prompt = generate_chatgpt_prompt(frame_arena, &gs, to_view, get_can_talk_to(to_view));

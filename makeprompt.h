@@ -103,7 +103,6 @@ typedef struct
 	NpcKind targeting;
 } ActionArgument;
 
-
 typedef struct ActionOld
 {
 	ActionKind kind;
@@ -114,20 +113,9 @@ typedef struct ActionOld
 	NpcKind talking_to_kind;
 } ActionOld;
 
-typedef struct 
-{
-	bool i_said_this; // don't trigger npc action on own self memory modification
-	NpcKind author_npc_kind;
-} MemoryContext;
-
-// memories are subjective to an individual NPC
 typedef struct Memory
 {
-	struct Memory *prev;
-	struct Memory *next;
-
-	ActionOld action;
-	MemoryContext context;
+	TextChunk description_from_my_perspective;
 } Memory;
 
 void chunk_from_s8(TextChunk *into, String8 from)
@@ -185,15 +173,8 @@ typedef struct
 } Target;
 
 
-typedef struct RememberedError
-{
-	struct RememberedError *next;
-	struct RememberedError *prev;
-	Memory offending_self_output; // sometimes is just zero value if reason why it's bad is severe enough.
-	TextChunk reason_why_its_bad;
-} RememberedError;
-
 typedef int TextInputResultKey;
+typedef int CutsceneID;
 
 typedef struct Entity
 {
@@ -216,6 +197,12 @@ typedef struct Entity
 	bool dead;
 	u64 current_roomid;
 
+	// speech bubbles
+	bool is_speech_bubble;
+	TextChunk speech_bubble_text;
+	float speech_bubble_opacity;
+	CutsceneID for_cutscene;
+
 	// npcs
 	TextInputResultKey player_input_key;
 	void *armature; // copied into the gamestate's arena, created if null. Don't serialize
@@ -227,13 +214,10 @@ typedef struct Entity
 	bool being_hovered;
 	bool perceptions_dirty;
 	float dialog_fade;
-	RememberedError *errorlist_first;
-	RememberedError *errorlist_last;
 	int times_talked_to; // for better mocked response string
 	float loading_anim_in;
-	Memory *memories_first;
-	Memory *memories_last;
-	Memory *memories_added_while_time_stopped;
+	BUFF(Memory, 5) memories;
+	BUFF(TextChunk, 3) error_notices; // things to tell the AI about bad stuff it output. when it outputs good stuff this is cleared
 	float dialog_panel_opacity;
 
 	// last_said_sentence(entity) contains the dialog the player has yet to see
@@ -330,7 +314,6 @@ typedef struct Target {
 	TargetKind kind;
 } SituationTarget;
 
-
 // the situation for somebody
 typedef struct CharacterSituation {
 	TextChunk room_description;
@@ -349,18 +332,6 @@ typedef struct Response {
 
 #define MAX_ACTIONS 5
 typedef BUFF(Response, MAX_ACTIONS) FullResponse; // what the AI is allowed to output 
-
-typedef struct ParsedResponse {
-	// this is picking which situation action out of the situation struct provided, it's choosing. 
-	// the idea is you provide some user data on the SituationAction then when acting in the gameplay the game code
-	// can map the situation action's real action information back to the gameplay side effects
-	SituationAction *taken; 
-	ArgList arguments;
-} ParsedResponse;
-
-typedef struct ParsedFullResponse {
-	BUFF(ParsedResponse, MAX_ACTIONS) parsed;
-} ParsedFullResponse;
 
 CharacterSituation situation_0 = {
 	.room_description = TextChunkLitC("A lush forest, steeped in shade. Some mysterious gears are scattered across the floor"),
@@ -463,6 +434,37 @@ typedef struct EditorState {
 	Vec2 player_spawn_position;
 } EditorState;
 
+typedef struct ActualActionArgument
+{
+	// could be a union but meh.
+	Entity* character;
+	TextChunk text;
+} ActualActionArgument;
+
+// actions are only relevant at a certain point in time when the character in question is alive, the targets are there, etc
+// the transformation from the AI's text output into an Action means that it's valid, right now, and can be easily worked with.
+// Without asserting that various things are there or true.
+typedef struct Action
+{
+	ActionKind kind;
+	BUFF(ActualActionArgument, MAX_ARGS) args;
+} Action;
+
+// these are like, dismissed when you press E. Animate in. speech bubbles.
+// and when there's a cutscene, any player rigamaroll (e.g text input) is paused while it plays.
+// character actions cause cutscenes to occur
+// so character action -> processing -> CutsceneEvent which is appented to the main state's unprocessed_events
+// something like that.
+typedef struct CutsceneEvent {
+	struct CutsceneEvent *next;
+	struct CutsceneEvent *prev;
+
+	CutsceneID id;
+	Action action;
+	EntityRef author;
+	double said_letters_of_speech;
+} CutsceneEvent;
+
 typedef struct GameState {
 	Arena *arena; // all allocations done with the lifecycle of a gamestate (loading/reloading entire levels essentially) must be allocated on this arena.
 	uint64_t tick;
@@ -470,7 +472,12 @@ typedef struct GameState {
 	
 	EditorState edit;
 	
+	CutsceneID next_cutscene_id;
+	CutsceneEvent *unprocessed_first;
+	CutsceneEvent *unprocessed_last;
+	
 	bool finished_reading_dying_dialog;
+	Vec3 cur_cam_pos;
 
 	double time; // in seconds, fraction of length of day
 
@@ -485,7 +492,6 @@ typedef struct GameState {
 } GameState;
 
 #define ENTITIES_ITER(ents) for (Entity *it = ents; it < ents + ARRLEN(ents); it++) if (it->exists && !it->destroy && it->generation > 0)
-
 
 
 Npc nobody_data = { 
@@ -584,118 +590,27 @@ typedef enum
 	MSG_SYSTEM,
 	MSG_USER,
 	MSG_ASSISTANT,
-} MessageType;
+} MessageRole;
 
 // for no trailing comma just trim the last character
-String8 make_json_node(Arena *arena, MessageType type, String8 content)
+String8 make_json_node(Arena *arena, MessageRole role, String8 content)
 {
 	ArenaTemp scratch = GetScratch(&arena, 1);
 
-	const char *type_str = 0;
-	if (type == MSG_SYSTEM)
-		type_str = "system";
-	else if (type == MSG_USER)
-		type_str = "user";
-	else if (type == MSG_ASSISTANT)
-		type_str = "assistant";
-	assert(type_str);
+	const char *role_str = 0;
+	if (role == MSG_SYSTEM)
+		role_str = "system";
+	else if (role == MSG_USER)
+		role_str = "user";
+	else if (role == MSG_ASSISTANT)
+		role_str = "assistant";
+	assert(role_str);
 
 	String8 escaped = escape_for_json(scratch.arena, content);
-	String8 to_return = FmtWithLint(arena, "{\"type\": \"%s\", \"content\": \"%.*s\"},", type_str, S8VArg(escaped));
+	String8 to_return = FmtWithLint(arena, "{\"role\": \"%s\", \"content\": \"%.*s\"},", role_str, S8VArg(escaped));
 	ReleaseScratch(scratch);
 
 	return to_return;
-}
-
-
-String8List dump_memory_as_json(Arena *arena, GameState *gs, Memory *it)
-{
-	ArenaTemp scratch = GetScratch(&arena, 1);
-	String8List current_list = {0};
-	#define AddFmt(...) PushWithLint(arena, &current_list, __VA_ARGS__)
-
-	AddFmt("{");
-	AddFmt("\"speech\":\"%.*s\",", TextChunkVArg(it->action.speech));
-	AddFmt("\"action\":\"%.*s\",", TextChunkVArg(gamecode_actions[it->action.kind].name));
-	String8 arg_str = action_argument_string(scratch.arena, gs, it->action.argument);
-	AddFmt("\"action.argument\":\"%.*s\",", S8VArg(arg_str));
-	AddFmt("\"target\":\"%.*s\"}", TextChunkVArg(npc_data(gs, it->action.talking_to_kind)->name));
-
- #undef AddFmt
-	ReleaseScratch(scratch);
-	return current_list;
-}
-
-String8List memory_description(Arena *arena, GameState *gs, Entity *e, Memory *it)
-{
-	String8List current_list = {0};
-	#define AddFmt(...) PushWithLint(arena, &current_list, __VA_ARGS__)
-	// dump a human understandable sentence description of what happened in this memory
-	bool no_longer_wants_to_converse = false; // add the no longer wants to converse text after any speech, it makes more sense reading it
-	
-#define HUMAN(kind) S8VArg(npc_to_human_readable(gs, e, kind))
-	(void)no_longer_wants_to_converse;
-	(void)arena;
-	(void)gs;
-	(void)e;
-	(void)it;
- /*
-	if (it->action.kind != ACT_none)
-	{
-		switch (it->action.kind)
-		{
-		case ACT_none:
-			break;
-		case ACT_say_to:
-			AddFmt("%.*s said \"%.*s\" to  %.*s\n", HUMAN(it->context.author_npc_kind), it->action.speech, HUMAN(it->action.argument.targeting));
-			break;
-		}
-	}
-	if (it->action.speech.text_length > 0)
-	{
-		String8 target_string = S8Lit("the world");
-		if (it->action.talking_to_kind != NPC_nobody)
-		{
-			if (it->action.talking_to_kind == e->npc_kind)
-				target_string = S8Lit("you");
-			else
-				target_string = TextChunkString8(npc_data(gs, it->action.talking_to_kind)->name);
-		}
-
-		if(!e->is_world)
-		{
-			if(it->action.talking_to_kind == e->npc_kind)
-			{
-				AddFmt("(Speaking directly you) ");
-			}
-			else
-			{
-				AddFmt("(Overheard conversation, they aren't speaking directly to you) ");
-			}
-		}
-		AddFmt("%.*s said \"%.*s\" to %.*s", TextChunkVArg(npc_data(gs, it->context.author_npc_kind)->name), TextChunkVArg(it->action.speech), S8VArg(target_string));
-		if(!e->is_world)
-		{
-			// AddFmt(" (you are %.*s)", TextChunkVArg(npc_data(gs, e->npc_kind)->name));
-		}
-		AddFmt("\n");
-	}
-
-	if (no_longer_wants_to_converse)
-	{
-		if (it->action.argument.targeting == NPC_nobody)
-		{
-			AddFmt("%.*s no longer wants to converse with everybody\n", HUMAN(it->context.author_npc_kind));
-		}
-		else
-		{
-			AddFmt("%.*s no longer wants to converse with %.*s\n", HUMAN(it->context.author_npc_kind), HUMAN(it->action.argument.targeting));
-		}
-	}
-	*/
-#undef HUMAN
-#undef AddFmt
-	return current_list;
 }
 
 String8List describe_situation(Arena *arena, CharacterSituation *situation) {
@@ -711,7 +626,7 @@ String8List describe_situation(Arena *arena, CharacterSituation *situation) {
 	}
 	AddFmt("\n");
 
-	AddFmt("The actions you can take, and the arguments they expect. Actions are called like `ACTION(\"Arg 1\", \"Arg 2\")`\n");
+	AddFmt("The actions you can take, and the arguments they expect. Actions are specified in an array of JSON objects, like [{\"action\": \"the_action\", \"arguments\": [\"argument 1\", \"argument 2\"]}]`\n");
 	BUFF_ITER(SituationAction, &situation->actions) {
 		AddFmt("%.*s - %.*s - ", TextChunkVArg(it->name), TextChunkVArg(it->description));
 		SituationAction *action = it;
@@ -728,144 +643,6 @@ String8List describe_situation(Arena *arena, CharacterSituation *situation) {
 	}
 
 	#undef AddFmt
-	return ret;
-}
-
-// Parses something like this: `action_one("arg 1", "arg 2"), action_two("arg 3", "arg 4")`
-ParsedFullResponse *parse_output(Arena *arena, CharacterSituation *situation, String8 raw_output, String8 *error_out) {
-	#define error(...) *error_out = FmtWithLint(arena, __VA_ARGS__)
-
-	ParsedFullResponse *ret = PushArrayZero(arena, ParsedFullResponse, 1);
-	String8 output = S8SkipWhitespace(S8ChopWhitespace(raw_output));
-
-	ArenaTemp scratch = GetScratch(&arena, 1);
-
-	typedef enum {
-		ST_invalid,
-		ST_action,
-		ST_in_args,
-		ST_in_string,
-	} State;
-
-	State stat = ST_action;
-
-	typedef struct ParsedActionCall {
-		struct ParsedActionCall *next;
-		String8 action_name;
-		BUFF(String8, MAX_ARGS) arguments;
-	} ParsedActionCall;
-
-	ParsedActionCall *parsed = 0;
-
-	ParsedActionCall cur_parsed = {0};
-	u64 cur = 0;
-	while(cur < output.size && error_out->size == 0) {
-		switch(stat) {
-			case ST_invalid:
-			assert(false);
-			break;
-
-			case ST_action:
-			{
-				if(output.str[cur] == ' ' || output.str[cur] == ',') {
-					cur = cur + 1;
-				} else {
-					u64 args = S8FindSubstring(output, S8Lit("("), cur, 0);
-					if(args == output.size) {
-						error("Expected a '(' after action '%.*s'", S8VArg(S8Substring(output, cur, output.size)));
-					} else {
-						cur_parsed.action_name = S8Substring(output, cur, args);
-						stat = ST_in_args;
-						cur = args + 1;
-					}
-				}
-			}
-			break;
-
-			case ST_in_args:
-			{
-				if(output.str[cur] == ')') {
-					ParsedActionCall *newly_parsed = PushArrayZero(scratch.arena, ParsedActionCall, 1);
-					*newly_parsed = cur_parsed;
-					StackPush(parsed, newly_parsed);
-					cur_parsed = (ParsedActionCall){0};
-					cur = cur + 1;
-					stat = ST_action;
-				} else {
-					if(output.str[cur] == '"') {
-						BUFF_APPEND(&cur_parsed.arguments, S8(output.str + cur + 1, 0));
-						stat = ST_in_string;
-						cur = cur + 1;
-					} else if(output.str[cur] == ',' || output.str[cur] == ' ') {
-						cur = cur + 1;
-					} else {
-						error("Expected a `\"` to mark the beginning of a string in an action");
-					}
-				}
-			}
-			break;
-
-			case ST_in_string:
-			{
-				assert(cur_parsed.arguments.cur_index > 0);
-				u64 end = S8FindSubstring(output, S8Lit("\""), cur, 0);
-				String8 *outputting = &cur_parsed.arguments.data[cur_parsed.arguments.cur_index - 1];
-				outputting->size = end - (outputting->str - output.str);
-				cur = end + 1;
-				stat = ST_in_args;
-			}
-			break;
-
-			default:
-			assert(false);
-			break;
-		}
-	}
-	if(stat != ST_action) {
-		// output ended before unfinished business
-		error("Unclosed `(` or `\"` detected. Not allowed!");
-	}
-
-	if(error_out->size == 0) {
-		// convert into the parsed response, potentially erroring
-		for(ParsedActionCall *cur = parsed; cur; cur = cur->next) {
-			if(error_out->size != 0) break;
-
-			ParsedResponse newly_parsed = {0};
-
-			SituationAction *found = 0;
-			BUFF_ITER(SituationAction, &situation->actions) {
-				if(S8Match(cur->action_name, TextChunkString8(it->name), 0)) {
-					found = it;
-				}
-			}
-			if(!found) {
-				error("Couldn't find action of name '%.*s'", S8VArg(cur->action_name));
-			}
-
-			if(error_out->size == 0) {
-				newly_parsed.taken = found;
-				if(cur->arguments.cur_index != found->args.cur_index) {
-					error("For action '%.*s', expected %d arguments but found %d", S8VArg(cur->action_name), found->args.cur_index, cur->arguments.cur_index);
-				} else {
-					BUFF_CLEAR(&newly_parsed.arguments);
-					BUFF_ITER(String8, &cur->arguments) {
-						TextChunk arg_out = {0};
-						chunk_from_s8(&arg_out, *it);
-						BUFF_APPEND(&newly_parsed.arguments, arg_out);
-					}
-				}
-			}
-
-			if(error_out->size == 0) {
-				BUFF_APPEND(&ret->parsed, newly_parsed);
-			}
-		}
-	}
-
-	ReleaseScratch(scratch);
-
-	#undef error
 	return ret;
 }
 
@@ -900,15 +677,21 @@ String8 generate_chatgpt_prompt(Arena *arena, Npc *personality, CharacterSituati
 		{
 			String8List current_list = {0};
 			FullResponse *sample_response = &it->response;
+			AddFmt("[");
 			BUFF_ITER_I(Response, sample_response, i) {
-				AddFmt("%.*s(", TextChunkVArg(it->action));
 				Response *resp = it;
+				AddFmt("{");
+				AddFmt("\"action\":\"%.*s\",", TextChunkVArg(it->action));
+				AddFmt("\"arguments\":[");
 				BUFF_ITER_I(TextChunk, &resp->arguments, i) {
-					AddFmt("\"%.*s\"", TextChunkVArg(*it));
-					if(i < resp->arguments.cur_index - 1) AddFmt(", ");
+					String8 escaped = escape_for_json(scratch.arena, TCS8(*it));
+					AddFmt("\"%.*s\"", S8VArg(escaped));
+					if(i != resp->arguments.cur_index - 1) {
+						AddFmt(",");
+					}
 				}
-				AddFmt(")");
-				if(i < sample_response->cur_index - 1) AddFmt(", ");
+				AddFmt("]");
+				AddFmt("}");
 			}
 			AddNewNode(MSG_ASSISTANT);
 		}
