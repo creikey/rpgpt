@@ -20,7 +20,7 @@
 }
 @image retry:
 {
- filepath: "retry.png",
+ filepath: "Retry.png",
 }
 @image unread_triangle:
 {

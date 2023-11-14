@@ -615,37 +615,6 @@ void generation_thread(void* my_request_voidptr)
 	my_request->thread_is_done_with_this_request = true; // @TODO Threads that finish and users who forget to mark them as done aren't collected right now, we should do that to prevent leaks
 }
 
-
-
-
-// json_in isn't the file node, it's the first child. So should be an array
-FullResponse *json_to_responses(Arena *arena, Node *json_in, String8 *error_out) {
-	FullResponse *ret = PushArrayZero(arena, FullResponse, 1);
-	Response *cur_response = PushArrayZero(frame_arena, Response, 1);
-	for(Node *cur = json_in; !NodeIsNil(cur); cur = cur->next) {
-		memset(cur_response, 0, sizeof(*cur_response));
-		chunk_from_s8(&cur_response->action, get_string(arena, cur, S8Lit("action")));
-		if(cur_response->action.text_length == 0) {
-			*error_out = FmtWithLint(arena, "Every action in the actions array has to have a field called 'action' which is the case sensitive action you are to perform");
-			return ret;
-		}
-
-		String8List args = get_string_array(arena, cur, S8Lit("arguments"));
-		if(args.node_count >= MAX_ARGS) {
-			*error_out = FmtWithLint(arena, "You supplied %d arguments to the action %.*s but the maximum number of arguments is %d", (int)args.node_count, TCVArg(cur_response->action), MAX_ARGS);
-			return ret;
-		}
-		for(String8Node *cur = args.first; cur; cur = cur->next) {
-			TextChunk into = {0};
-			chunk_from_s8(&into, cur->string);
-			BUFF_APPEND(&cur_response->arguments, into);
-		}
-
-		BUFF_APPEND(ret, *cur_response);
-	}
-	return ret;
-}
-
 int make_generation_request(String8 prompt)
 {
 	ArenaTemp scratch = GetScratch(0,0);
@@ -721,10 +690,10 @@ GenRequestStatus gen_request_status(int id)
 		return req->status;
 }
 // string does not last. Freed with the generation request
-String8 gen_request_content(int id)
+String8 gen_request_content(Arena *arena, int id)
 {
 	assert(get_by_id(id));
-	return get_by_id(id)->generated;
+	return S8Copy(arena, get_by_id(id)->generated);
 }
 
 #else
@@ -752,19 +721,30 @@ GenRequestStatus gen_request_status(int id)
 
 	return status;
 }
-TextChunk gen_request_content(int id)
+String8 gen_request_content(Arena *arena, int id)
 {
-	char sentence_cstr[MAX_SENTENCE_LENGTH] = {0};
+	int length_in_bytes = EM_ASM_INT({
+		let generation = get_generation_request_content($0);
+		return lengthBytesUTF8(generation);
+	}, id) + 1;
+
+	String8 ret = {0};
+	ret.size = length_in_bytes;
+	ret.str = PushArrayZero(arena, u8, ret.size);
+
+	Log("Making string with length: %d\n", length_in_bytes);
+
 	EM_ASM({
 		let generation = get_generation_request_content($0);
 		stringToUTF8(generation, $1, $2);
 	},
-		   id, sentence_cstr, ARRLEN(sentence_cstr) - 1); // I think minus one for null terminator...
+		   id, ret.str, ret.size);
 
-	TextChunk to_return = {0};
-	memcpy(to_return.text, sentence_cstr, MAX_SENTENCE_LENGTH);
-	to_return.text_length = strlen(sentence_cstr);
-	return to_return;
+	ret = S8Substring(ret, 0, ret.size - 1); // chop off the null terminator
+	Log("Received string with content '%.*s'\n", S8VArg(ret));
+	Log("The last character of the string is '%d'\n", ret.str[ret.size - 1]);
+
+	return ret;
 }
 void done_with_request(int id)
 {
@@ -775,7 +755,33 @@ void done_with_request(int id)
 }
 #endif // WEB
 
-Memory *memories_free_list = 0;
+// json_in isn't the file node, it's the first child. So should be an array
+FullResponse *json_to_responses(Arena *arena, Node *json_in, String8 *error_out) {
+	FullResponse *ret = PushArrayZero(arena, FullResponse, 1);
+	Response *cur_response = PushArrayZero(frame_arena, Response, 1);
+	for(Node *cur = json_in; !NodeIsNil(cur); cur = cur->next) {
+		memset(cur_response, 0, sizeof(*cur_response));
+		chunk_from_s8(&cur_response->action, get_string(arena, cur, S8Lit("action")));
+		if(cur_response->action.text_length == 0) {
+			*error_out = FmtWithLint(arena, "Every action in the actions array has to have a field called 'action' which is the case sensitive action you are to perform");
+			return ret;
+		}
+
+		String8List args = get_string_array(arena, cur, S8Lit("arguments"));
+		if(args.node_count >= MAX_ARGS) {
+			*error_out = FmtWithLint(arena, "You supplied %d arguments to the action %.*s but the maximum number of arguments is %d", (int)args.node_count, TCVArg(cur_response->action), MAX_ARGS);
+			return ret;
+		}
+		for(String8Node *cur = args.first; cur; cur = cur->next) {
+			TextChunk into = {0};
+			chunk_from_s8(&into, cur->string);
+			BUFF_APPEND(&cur_response->arguments, into);
+		}
+
+		BUFF_APPEND(ret, *cur_response);
+	}
+	return ret;
+}
 
 String8 tprint(char *format, ...)
 {
@@ -946,10 +952,11 @@ sg_image load_image(String8 path)
 		free_the_pixels = false;
 		stbi_image_free(old_pixels);
 	}
-
+	
+	Log("Path %.*s | Loading image with dimensions %d %d\n", S8VArg(path), png_width, png_height);
 	assert(pixels);
 	assert(desired_channels == num_channels);
-	//Log("Path %.*s | Loading image with dimensions %d %d\n", S8VArg(path), png_width, png_height);
+	
 	to_return = sg_make_image(&(sg_image_desc)
 			{
 			.width = png_width,
@@ -1835,8 +1842,10 @@ void remember_action(Entity *who_should_remember, Entity *from, Action act) {
 		case ACT_none:
 		break;
 		case ACT_say_to:
-		String8 to_identified = stringify_identity(who_should_remember, act.args.data[0].character->npc_kind);
-		memory = FmtWithLint(frame_arena, "%.*s said out loud '%.*s' to %.*s", S8VArg(from_identified), TCVArg(act.args.data[1].text), S8VArg(to_identified));
+		{
+			String8 to_identified = stringify_identity(who_should_remember, act.args.data[0].character->npc_kind);
+			memory = FmtWithLint(frame_arena, "%.*s said out loud '%.*s' to %.*s", S8VArg(from_identified), TCVArg(act.args.data[1].text), S8VArg(to_identified));
+		}
 		break;
 	}
 	if(memory.size > 0) {
@@ -2352,7 +2361,7 @@ void ser_GameState(SerState *ser, GameState *gs)
 		}
 	}
 
-	if(!ser->serializing)
+	if(!ser->serializing && gs->arena == 0)
 		initialize_gamestate(gs, gs->current_roomid);
 }
 
@@ -2407,14 +2416,17 @@ GameState *load_from_string(Arena *arena, Arena *error_arena, String8 data, Stri
 {
 	ArenaTemp temp = ArenaBeginTemp(arena);
 
+	GameState *to_return = PushArrayZero(temp.arena, GameState, 1);
+	initialize_gamestate(to_return, level_threedee.room_list_first->roomid);
+
 	SerState ser = {
 		.serializing = false,
 		.data = data.str,
 		.max = data.size,
-		.arena = temp.arena,
+		.arena = to_return->arena,
 		.error_arena = error_arena,
 	};
-	GameState *to_return = PushArrayZero(temp.arena, GameState, 1);
+
 	ser_GameState(&ser, to_return);
 	if (ser.cur_error.failed)
 	{
@@ -2452,11 +2464,16 @@ void dump_save_data()
 EMSCRIPTEN_KEEPALIVE
 void read_from_save_data(char *data, size_t length)
 {
+	// this leaks the gs memory if called over and voer again
+
 	ArenaTemp scratch = GetScratch(0, 0);
 	String8 data_str = S8((u8 *)data, length);
 
+	// cleanup_gamestate()
+	// initialize_gamestate(&gs, level_threedee.room_list_first->roomid);
+
 	String8 error = {0};
-	GameState new_gs = load_from_string(persistent_arena, scratch.arena, data_str, &error);
+	GameState *new_gs = load_from_string(scratch.arena, scratch.arena, data_str, &error);
 
 	if (error.size > 0)
 	{
@@ -2464,7 +2481,7 @@ void read_from_save_data(char *data, size_t length)
 	}
 	else
 	{
-		gs = new_gs;
+		gs = *new_gs;
 	}
 
 	ReleaseScratch(scratch);
@@ -6358,7 +6375,7 @@ void frame(void)
 								{
 									having_errors = false;
 									// done! we can get the string
-									String8 content = gen_request_content(it->gen_request_id);
+									String8 content = gen_request_content(frame_arena, it->gen_request_id);
 									ParseResult parsed = ParseWholeString(frame_arena, S8Lit("generated"), content);
 									if(!having_errors && parsed.errors.node_count > 0) {
 										Log("The server returned bogged data:\n");

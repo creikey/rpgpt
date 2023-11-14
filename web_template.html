@@ -1,541 +1,541 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
 <html lang="en">
- <head>
-  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 
-<title>Dante's Cowboy</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
-<style type="text/css">
-body {
-    margin: 0;
-    background-color: black;
-}
-.game {
-    position: absolute;
-    top: 0px;
-    left: 0px;
-    margin: 0px;
-    border: 0;
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-    display: block;
-    image-rendering: optimizeSpeed;
-    image-rendering: -moz-crisp-edges;
-    image-rendering: -o-crisp-edges;
-    image-rendering: -webkit-optimize-contrast;
-    image-rendering: optimize-contrast;
-    image-rendering: crisp-edges;
-    image-rendering: pixelated;
-    -ms-interpolation-mode: nearest-neighbor;
-}
-#inputdiv, #buy_menu {
-    position: absolute;
-    top: 0px;
-    left: 0px;
-    margin: 0px;
-    border: 0;
-    width: 100%;
-    height: 100%;
-    justify-content: center;
-    align-items: center;
-}
-#inputdiv {
-    z-index: 10;
-    display: none; /* set to flex by javascript */
-    overflow: hidden;
-    background: #00000090;
-}
-#inputtext {
-    position: absolute;
-    top: 0;
-    left: 0;
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 
-    background: none;
-    width: 90%;
-    height: 50%;
-    margin-left: 5%;
-    margin-right: 5%;
-    border-top-style: hidden;
-    border-right-style: hidden;
-    border-left-style: hidden;
-    border-bottom-style: hidden;
-    transform: translateY(100%);
-    text-align: center;
-    font-size: 2em;
-    font-family: Arial;
-    color: white;
-}
+    <title>Dante's Cowboy</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <style type="text/css">
+        body {
+            margin: 0;
+            background-color: black;
+        }
 
-#inputtext:focus {
- outline: none;
-}
+        .game {
+            position: absolute;
+            top: 0px;
+            left: 0px;
+            margin: 0px;
+            border: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            display: block;
+            image-rendering: optimizeSpeed;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: -o-crisp-edges;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: optimize-contrast;
+            image-rendering: crisp-edges;
+            image-rendering: pixelated;
+            -ms-interpolation-mode: nearest-neighbor;
+        }
 
-#inputbuttondiv {
- position: absolute;
- display: flex;
- width: 100vw;
- justify-content: center;
- flex-wrap: wrap;
- height: 170px;
- margin-top: 40vh;
-}
+        #inputdiv,
+        #buy_menu {
+            position: absolute;
+            top: 0px;
+            left: 0px;
+            margin: 0px;
+            border: 0;
+            width: 100%;
+            height: 100%;
+            justify-content: center;
+            align-items: center;
+        }
 
-#inputbutton {
- font-family: Arial;
- font-size: 3em;
- color: white;
- background: none;
- border-radius: 10px;
- border: 2px solid;
- border-color: white;
- padding: 10px;
- margin: 30px;
-}
+        #inputdiv {
+            z-index: 10;
+            display: none;
+            /* set to flex by javascript */
+            overflow: hidden;
+            background: #00000090;
+        }
 
-#buy_menu {
- display: none; /* set in javascript when shown when error code */
- flex-direction: column;
- justify-content: center;
- word-wrap: break-word;
- align-items: center;
- text-align: center;
- height: 100vh;
- background: #000000D0;
- font-family: arial;
- gap: 20px;
- color: #fff;
- z-index: 20;
-}
+        #inputtext {
+            position: absolute;
+            top: 0;
+            left: 0;
 
-#buy_menu h1, #daypass {
- margin-left: 30px;
- margin-right: 30px;
-}
+            background: none;
+            width: 90%;
+            height: 50%;
+            margin-left: 5%;
+            margin-right: 5%;
+            border-top-style: hidden;
+            border-right-style: hidden;
+            border-left-style: hidden;
+            border-bottom-style: hidden;
+            transform: translateY(100%);
+            text-align: center;
+            font-size: 2em;
+            font-family: Arial;
+            color: white;
+        }
 
-/* Style the payment screen title */
-#buy_menu h1 {
- font-size: 32px;
-}
+        #inputtext:focus {
+            outline: none;
+        }
 
-/* Style the payment button */
-#payment-button, #submit-button {
- background-color: #fff;
- color: #000;
- font-size: 24px;
- padding: 10px 20px;
- border: none;
- border-radius: 5px;
- cursor: pointer;
-}
-#daypass {
-    border: 4px solid white;
-    border-radius: 25px;
-    padding: 10px;
-    display: flex;
-    gap: 20px;
-}
-#codebox {
-    border: 4px solid white;
-    border-radius: 10px;
-    padding: 10px;
-    margin: 30px;
-}
-#visibility-toggle, #closebutton {
- border: none;
- font-size: 30px;
- background: none;
- color: white;
-}
-#closebutton {
- float: right;
-}
-/* Media queries for smaller screens */
-@media screen and (max-width: 480px) {
- #buy_menu h1 {
-   font-size: 24px;
-   margin-bottom: 20px;
- }
- 
- #payment-button {
-   font-size: 20px;
-   padding: 8px 16px;
- }
-}
-</style>
-  <link rel="icon" type="image/x-icon" href="/favicon.ico">
- </head>
+        #inputbuttondiv {
+            position: absolute;
+            display: flex;
+            width: 100vw;
+            justify-content: center;
+            flex-wrap: wrap;
+            height: 170px;
+            margin-top: 40vh;
+        }
+
+        #inputbutton {
+            font-family: Arial;
+            font-size: 3em;
+            color: white;
+            background: none;
+            border-radius: 10px;
+            border: 2px solid;
+            border-color: white;
+            padding: 10px;
+            margin: 30px;
+        }
+
+        #buy_menu {
+            display: none;
+            /* set in javascript when shown when error code */
+            flex-direction: column;
+            justify-content: center;
+            word-wrap: break-word;
+            align-items: center;
+            text-align: center;
+            height: 100vh;
+            background: #000000D0;
+            font-family: arial;
+            gap: 20px;
+            color: #fff;
+            z-index: 20;
+        }
+
+        #buy_menu h1,
+        #daypass {
+            margin-left: 30px;
+            margin-right: 30px;
+        }
+
+        /* Style the payment screen title */
+        #buy_menu h1 {
+            font-size: 32px;
+        }
+
+        /* Style the payment button */
+        #payment-button,
+        #submit-button {
+            background-color: #fff;
+            color: #000;
+            font-size: 24px;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        #daypass {
+            border: 4px solid white;
+            border-radius: 25px;
+            padding: 10px;
+            display: flex;
+            gap: 20px;
+        }
+
+        #codebox {
+            border: 4px solid white;
+            border-radius: 10px;
+            padding: 10px;
+            margin: 30px;
+        }
+
+        #visibility-toggle,
+        #closebutton {
+            border: none;
+            font-size: 30px;
+            background: none;
+            color: white;
+        }
+
+        #closebutton {
+            float: right;
+        }
+
+        /* Media queries for smaller screens */
+        @media screen and (max-width: 480px) {
+            #buy_menu h1 {
+                font-size: 24px;
+                margin-bottom: 20px;
+            }
+
+            #payment-button {
+                font-size: 20px;
+                padding: 8px 16px;
+            }
+        }
+    </style>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+</head>
 
 <body style="background:black">
- <div id="buy_menu">
-  <h1>AI is expensive so you need to pay for it</h1>
-  <p>You can play free 10 minutes a day. If you're seeing this you must buy a day pass to continue. If you already bought one, but are still seeing this, check that the code matches up. If you're unsatisfied with your service, you can get a refund via the email stripe sent you.</p>
-  <div id="daypass">
-   <button id="closebutton" onclick="closepayment()"><i class="fa-regular fa-xmark"></i></button>
-   <p>24 Hour Pass</p>
-   <button id="payment-button" onclick="do_checkout()">Buy Now</button>
-  </div>
-  <div id="codebox">
-   <label for="pass">Day pass code:</label>
-   <input type="password" name="pass" id="codeinput" onkeyup='on_codeinput_key(event);' required>
-   <button id="visibility-toggle" onclick="visibility_toggle()"><i class="fa fa-eye-slash" id="visibility-toggle-eye"></i></button>
-  </div>
- </div>
- <div id="inputdiv" class="inputdiv">
-  <textarea onkeyup='on_textarea_key(event);' id="inputtext">
+    <div id="buy_menu">
+        <h1>AI is expensive so you need to pay for it</h1>
+        <p>You can play free 10 minutes a day. If you're seeing this you must buy a day pass to continue. If you already
+            bought one, but are still seeing this, check that the code matches up. If you're unsatisfied with your
+            service, you can get a refund via the email stripe sent you.</p>
+        <div id="daypass">
+            <button id="closebutton" onclick="closepayment()"><i class="fa-regular fa-xmark"></i></button>
+            <p>24 Hour Pass</p>
+            <button id="payment-button" onclick="do_checkout()">Buy Now</button>
+        </div>
+        <div id="codebox">
+            <label for="pass">Day pass code:</label>
+            <input type="password" name="pass" id="codeinput" onkeyup='on_codeinput_key(event);' required>
+            <button id="visibility-toggle" onclick="visibility_toggle()"><i class="fa fa-eye-slash"
+                    id="visibility-toggle-eye"></i></button>
+        </div>
+    </div>
+    <div id="inputdiv" class="inputdiv">
+        <textarea onkeyup='on_textarea_key(event);' id="inputtext">
   </textarea>
-  <div id="inputbuttondiv">
-  <button id="inputbutton" onclick="end_dialog()"> Submit </button>
-  <button id="inputbutton" onclick="end_without_saying()"> Cancel </button>
-  </div>
- </div>
-  <canvas class="game" id="canvas" oncontextmenu="event.preventDefault()" width="1504" height="864"></canvas>
+        <div id="inputbuttondiv">
+            <button id="inputbutton" onclick="end_dialog()"> Submit </button>
+            <button id="inputbutton" onclick="end_without_saying()"> Cancel </button>
+        </div>
+    </div>
+    <canvas class="game" id="canvas" oncontextmenu="event.preventDefault()" width="1504" height="864"></canvas>
 
-  <script type="text/javascript">
-    var Module = {
-        preRun: [],
-        postRun: [],
-        print: (function() {
-            return function(text) {
+    <script type="text/javascript">
+        var Module = {
+            preRun: [],
+            postRun: [],
+            print: (function () {
+                return function (text) {
+                    text = Array.prototype.slice.call(arguments).join(' ');
+                    console.log(text);
+                };
+            })(),
+            printErr: function (text) {
                 text = Array.prototype.slice.call(arguments).join(' ');
-                console.log(text);
-            };
-        })(),
-        printErr: function(text) {
-            text = Array.prototype.slice.call(arguments).join(' ');
-            console.error(text);
-        },
-        canvas: (function() {
-            var canvas = document.getElementById('canvas');
-            canvas.addEventListener("webglcontextlost", function(e) { alert('FIXME: WebGL context lost, please reload the page'); e.preventDefault(); }, false);
-            return canvas;
-        })(),
-        setStatus: function(text) { },
-        monitorRunDependencies: function(left) { },
-    };
-    window.onerror = function(event) {
-        console.log("onerror: " + event.message);
-			  //for(;;) {}
-    };
-  </script>
-  <script type="text/javascript">
+                console.error(text);
+            },
+            canvas: (function () {
+                var canvas = document.getElementById('canvas');
+                canvas.addEventListener("webglcontextlost", function (e) { alert('FIXME: WebGL context lost, please reload the page'); e.preventDefault(); }, false);
+                return canvas;
+            })(),
+            setStatus: function (text) { },
+            monitorRunDependencies: function (left) { },
+        };
+        window.onerror = function (event) {
+            console.log("onerror: " + event.message);
+            //for(;;) {}
+        };
+    </script>
+    <script type="text/javascript">
 
-let game_doing_input = true;
-let server_url = "";
-let codeinput = document.getElementById("codeinput");
-function set_my_code(new_code) {
- let final_codeinput_string = "";
- for(let i = 0; i < new_code.length; i++) {
-  let cur = new_code[i];
-  let cur_charcode = cur.charCodeAt(0);
-  if(cur_charcode >= "a".charCodeAt(0) && cur_charcode <= "z".charCodeAt(0)) {
-   final_codeinput_string += String.fromCharCode(cur_charcode + ("A".charCodeAt(0) - "a".charCodeAt(0)));
-  } else {
-   if((cur_charcode >= "A".charCodeAt(0) && cur_charcode <= "Z".charCodeAt(0)) || (cur_charcode >= "0".charCodeAt(0) && cur_charcode <= "9".charCodeAt(0))) {
-    final_codeinput_string += cur;
-   }
-  }
- }
- codeinput.value = final_codeinput_string;
-}
-function get_my_code() {
- return codeinput.value;
-}
-let code_visible = false;
-let input_modal = document.getElementById("inputdiv");
-let pause_modal = document.getElementById("buy_menu");
-let save_game_data = null;
-
-function visibility_toggle() {
- if(code_visible) {
-  code_visible = false;
-  document.getElementById("codeinput").type = "password";
-  document.getElementById("visibility-toggle-eye").className = "fa fa-eye-slash";
- } else {
-  code_visible = true;
-  document.getElementById("codeinput").type = "text";
-  document.getElementById("visibility-toggle-eye").className = "fa fa-eye";
- }
-}
-
-function frame(delta) {
- let input_visible = input_modal.style.display === "flex";
- let pause_visible = pause_modal.style.display === "flex";
-
- if( Module.ccall('is_receiving_text_input', 'bool', [], [])) {
-  if(!input_visible) {
-   document.getElementById("inputtext").value = "";
-   setTimeout(function(){document.getElementById("inputtext").focus();},50); // for some reason focus doesn't work immediately here
-   document.getElementById("inputdiv").style.display = "flex";
-  }
- }
-
- if( (input_visible || pause_visible) && game_doing_input)
- {
-  Module.ccall('stop_controlling_input', 'void', [], []);
-  game_doing_input = false;
- }
- if( !input_visible && !pause_visible && !game_doing_input)
- {
-  Module.ccall('start_controlling_input', 'void', [], []);
-  game_doing_input = true;
- }
-
- window.requestAnimationFrame(frame);
-}
-Module.onRuntimeInitialized = () => {
- window.requestAnimationFrame(frame);
-}
-
-const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-// Use a lookup table to find the index.
-const lookup = typeof Uint8Array === 'undefined' ? [] : new Uint8Array(256);
-for (let i = 0; i < chars.length; i++) {
-    lookup[chars.charCodeAt(i)] = i;
-}
-const encode = (arraybuffer) => {
-    let bytes = new Uint8Array(arraybuffer), i, len = bytes.length, base64 = '';
-    for (i = 0; i < len; i += 3) {
-        base64 += chars[bytes[i] >> 2];
-        base64 += chars[((bytes[i] & 3) << 4) | (bytes[i + 1] >> 4)];
-        base64 += chars[((bytes[i + 1] & 15) << 2) | (bytes[i + 2] >> 6)];
-        base64 += chars[bytes[i + 2] & 63];
-    }
-    if (len % 3 === 2) {
-        base64 = base64.substring(0, base64.length - 1) + '=';
-    }
-    else if (len % 3 === 1) {
-        base64 = base64.substring(0, base64.length - 2) + '==';
-    }
-    return base64;
-};
-const decode = (base64) => {
-    let bufferLength = base64.length * 0.75, len = base64.length, i, p = 0, encoded1, encoded2, encoded3, encoded4;
-    if (base64[base64.length - 1] === '=') {
-        bufferLength--;
-        if (base64[base64.length - 2] === '=') {
-            bufferLength--;
+        let game_doing_input = true;
+        let server_url = "";
+        let codeinput = document.getElementById("codeinput");
+        function set_my_code(new_code) {
+            let final_codeinput_string = "";
+            for (let i = 0; i < new_code.length; i++) {
+                let cur = new_code[i];
+                let cur_charcode = cur.charCodeAt(0);
+                if (cur_charcode >= "a".charCodeAt(0) && cur_charcode <= "z".charCodeAt(0)) {
+                    final_codeinput_string += String.fromCharCode(cur_charcode + ("A".charCodeAt(0) - "a".charCodeAt(0)));
+                } else {
+                    if ((cur_charcode >= "A".charCodeAt(0) && cur_charcode <= "Z".charCodeAt(0)) || (cur_charcode >= "0".charCodeAt(0) && cur_charcode <= "9".charCodeAt(0))) {
+                        final_codeinput_string += cur;
+                    }
+                }
+            }
+            codeinput.value = final_codeinput_string;
         }
-    }
-    const arraybuffer = new ArrayBuffer(bufferLength), bytes = new Uint8Array(arraybuffer);
-    for (i = 0; i < len; i += 4) {
-        encoded1 = lookup[base64.charCodeAt(i)];
-        encoded2 = lookup[base64.charCodeAt(i + 1)];
-        encoded3 = lookup[base64.charCodeAt(i + 2)];
-        encoded4 = lookup[base64.charCodeAt(i + 3)];
-        bytes[p++] = (encoded1 << 2) | (encoded2 >> 4);
-        bytes[p++] = ((encoded2 & 15) << 4) | (encoded3 >> 2);
-        bytes[p++] = ((encoded3 & 3) << 6) | (encoded4 & 63);
-    }
-    return arraybuffer;
-};
+        function get_my_code() {
+            return codeinput.value;
+        }
+        let code_visible = false;
+        let input_modal = document.getElementById("inputdiv");
+        let pause_modal = document.getElementById("buy_menu");
+        let save_game_data = null;
+
+        function visibility_toggle() {
+            if (code_visible) {
+                code_visible = false;
+                document.getElementById("codeinput").type = "password";
+                document.getElementById("visibility-toggle-eye").className = "fa fa-eye-slash";
+            } else {
+                code_visible = true;
+                document.getElementById("codeinput").type = "text";
+                document.getElementById("visibility-toggle-eye").className = "fa fa-eye";
+            }
+        }
+
+        function frame(delta) {
+            let input_visible = input_modal.style.display === "flex";
+            let pause_visible = pause_modal.style.display === "flex";
+
+            if (Module.ccall('is_receiving_text_input', 'bool', [], [])) {
+                if (!input_visible) {
+                    document.getElementById("inputtext").value = "";
+                    setTimeout(function () { document.getElementById("inputtext").focus(); }, 50); // for some reason focus doesn't work immediately here
+                    document.getElementById("inputdiv").style.display = "flex";
+                }
+            }
+
+            if ((input_visible || pause_visible) && game_doing_input) {
+                Module.ccall('stop_controlling_input', 'void', [], []);
+                game_doing_input = false;
+            }
+            if (!input_visible && !pause_visible && !game_doing_input) {
+                Module.ccall('start_controlling_input', 'void', [], []);
+                game_doing_input = true;
+            }
+
+            window.requestAnimationFrame(frame);
+        }
+        Module.onRuntimeInitialized = () => {
+            window.requestAnimationFrame(frame);
+        }
+
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+        // Use a lookup table to find the index.
+        const lookup = typeof Uint8Array === 'undefined' ? [] : new Uint8Array(256);
+        for (let i = 0; i < chars.length; i++) {
+            lookup[chars.charCodeAt(i)] = i;
+        }
+        const encode = (arraybuffer) => {
+            let bytes = new Uint8Array(arraybuffer), i, len = bytes.length, base64 = '';
+            for (i = 0; i < len; i += 3) {
+                base64 += chars[bytes[i] >> 2];
+                base64 += chars[((bytes[i] & 3) << 4) | (bytes[i + 1] >> 4)];
+                base64 += chars[((bytes[i + 1] & 15) << 2) | (bytes[i + 2] >> 6)];
+                base64 += chars[bytes[i + 2] & 63];
+            }
+            if (len % 3 === 2) {
+                base64 = base64.substring(0, base64.length - 1) + '=';
+            }
+            else if (len % 3 === 1) {
+                base64 = base64.substring(0, base64.length - 2) + '==';
+            }
+            return base64;
+        };
+        const decode = (base64) => {
+            let bufferLength = base64.length * 0.75, len = base64.length, i, p = 0, encoded1, encoded2, encoded3, encoded4;
+            if (base64[base64.length - 1] === '=') {
+                bufferLength--;
+                if (base64[base64.length - 2] === '=') {
+                    bufferLength--;
+                }
+            }
+            const arraybuffer = new ArrayBuffer(bufferLength), bytes = new Uint8Array(arraybuffer);
+            for (i = 0; i < len; i += 4) {
+                encoded1 = lookup[base64.charCodeAt(i)];
+                encoded2 = lookup[base64.charCodeAt(i + 1)];
+                encoded3 = lookup[base64.charCodeAt(i + 2)];
+                encoded4 = lookup[base64.charCodeAt(i + 3)];
+                bytes[p++] = (encoded1 << 2) | (encoded2 >> 4);
+                bytes[p++] = ((encoded2 & 15) << 4) | (encoded3 >> 2);
+                bytes[p++] = ((encoded3 & 3) << 6) | (encoded4 & 63);
+            }
+            return arraybuffer;
+        };
 
 
-function end_dialog() {
- document.getElementById("inputdiv").style.display = "none";
- Module.ccall('end_text_input', 'void', ['string'], [document.getElementById("inputtext").value]);
-}
+        function end_dialog() {
+            document.getElementById("inputdiv").style.display = "none";
+            Module.ccall('end_text_input', 'void', ['string'], [document.getElementById("inputtext").value]);
+        }
 
-function show_paywall() {
- document.getElementById('buy_menu').style.display = "flex";
-}
+        function show_paywall() {
+            document.getElementById('buy_menu').style.display = "flex";
+        }
 
-function hide_paywall() {
- document.getElementById('buy_menu').style.display = "none";
-}
+        function hide_paywall() {
+            document.getElementById('buy_menu').style.display = "none";
+        }
 
-function on_codeinput_key(event) {
- set_my_code(get_my_code());
-}
+        function on_codeinput_key(event) {
+            set_my_code(get_my_code());
+        }
 
-function save_all() {
- document.cookie = get_my_code();
- if (typeof(Storage) !== "undefined") {
-  console.log("Saving full game");
-  Module.ccall('dump_save_data', 'void', [], []);
-  localStorage.setItem("game", encode(save_game_data));
- }
-}
+        function save_all() {
+            document.cookie = get_my_code();
+            if (typeof (Storage) !== "undefined") {
+                console.log("Saving full game");
+                Module.ccall('dump_save_data', 'void', [], []);
+                localStorage.setItem("game", encode(save_game_data));
+            }
+        }
 
-function load_all() {
- set_my_code(document.cookie);
- if (typeof(Storage) !== "undefined") {
-  console.log("Attempting read of full game...");
-  let read_data = localStorage.getItem("game");
-  if (read_data != null) {
-   console.log("Reading full game");
-   let decoded = decode(read_data);
-   Module.ccall('read_from_save_data', 'void', ['array', 'number'], [new Uint8Array(decoded), decoded.byteLength]);
-  } else {
-    console.log("Couldn't find full game");
-  }
- }
-}
+        function load_all() {
+            set_my_code(document.cookie);
+            if (typeof (Storage) !== "undefined") {
+                console.log("Attempting read of full game...");
+                let read_data = localStorage.getItem("game");
+                if (read_data != null) {
+                    console.log("Reading full game");
+                    let decoded = decode(read_data);
+                    Module.ccall('read_from_save_data', 'void', ['array', 'number'], [new Uint8Array(decoded), decoded.byteLength]);
+                } else {
+                    console.log("Couldn't find full game");
+                }
+            }
+        }
 
-function end_without_saying()
-{
- document.getElementById("inputtext").value = "";
- end_dialog();
-}
+        function end_without_saying() {
+            document.getElementById("inputtext").value = "";
+            end_dialog();
+        }
 
-function on_textarea_key(event) {
- let final_textarea_string = "";
- let cur_textarea_string = document.getElementById("inputtext").value;
- let should_end = false;
- for(let i = 0; i < Math.min(cur_textarea_string.length, 800); i++)
- {
-  let cur = cur_textarea_string[i];
-  if(cur === "\n") {
-   should_end = true;
-   continue;
-  }
-  if(cur.charCodeAt(0) >= 255) continue; // non ascii gtfo
-  if(cur === "|") continue; // used for splitting
-  final_textarea_string += cur_textarea_string[i];
- }
- document.getElementById("inputtext").value = final_textarea_string;
- if(event.key === "Enter") should_end = true;
- if(event.key === "Escape")
- {
-  document.getElementById("inputtext").value = "";
-  should_end = true;
- }
- // have a boolean flag here and call it once so the game's end dialog function isn't called twice
- if(should_end) end_dialog();
-}
+        function on_textarea_key(event) {
+            let final_textarea_string = "";
+            let cur_textarea_string = document.getElementById("inputtext").value;
+            let should_end = false;
+            for (let i = 0; i < Math.min(cur_textarea_string.length, 800); i++) {
+                let cur = cur_textarea_string[i];
+                if (cur === "\n") {
+                    should_end = true;
+                    continue;
+                }
+                if (cur.charCodeAt(0) >= 255) continue; // non ascii gtfo
+                if (cur === "|") continue; // used for splitting
+                final_textarea_string += cur_textarea_string[i];
+            }
+            document.getElementById("inputtext").value = final_textarea_string;
+            if (event.key === "Enter") should_end = true;
+            if (event.key === "Escape") {
+                document.getElementById("inputtext").value = "";
+                should_end = true;
+            }
+            // have a boolean flag here and call it once so the game's end dialog function isn't called twice
+            if (should_end) end_dialog();
+        }
 
-const max_retries = 5;
-let cur_id = 1; // zero is not a valid id, the zero value means no async request currently active
-let generation_requests = []; // array of dictionaries with structure:
-/*
-   { id: number,
-   request: XMLHTTPRequest,
-   request_info: { url: string, body: string }
-   retries_remaining: number, // on failure, retries over and over until out of retries
-   }
- */
-function do_checkout() {
- fetch(server_url + "/checkout").then((response) => response.text()).then((text) => {
-  split_up = text.split("|");
-  if(split_up.length !== 2) {
-   console.log("Weird response from server, length isn't 2");
-  } else {
-   set_my_code(split_up[0])
-   save_all();
-   let url_to_go_to = split_up[1];
-   window.location.href = url_to_go_to;
-  }
- }).catch((error) => {
-   console.log("Error doing checkout: " + error);
- });
-}
+        const max_retries = 5;
+        let cur_id = 1; // zero is not a valid id, the zero value means no async request currently active
+        let generation_requests = []; // array of dictionaries with structure:
+        /*
+           { id: number,
+           request: XMLHTTPRequest,
+           request_info: { url: string, body: string }
+           retries_remaining: number, // on failure, retries over and over until out of retries
+           }
+         */
+        function do_checkout() {
+            fetch(server_url + "/checkout").then((response) => response.text()).then((text) => {
+                split_up = text.split("|");
+                if (split_up.length !== 2) {
+                    console.log("Weird response from server, length isn't 2");
+                } else {
+                    set_my_code(split_up[0])
+                    save_all();
+                    let url_to_go_to = split_up[1];
+                    window.location.href = url_to_go_to;
+                }
+            }).catch((error) => {
+                console.log("Error doing checkout: " + error);
+            });
+        }
 
-function resend_request(r) {
-    r.failed = false;
-    r.request = new XMLHttpRequest();
-    r.request.onerror = function(e) {
-     r.failed = true;
-    };
-    r.request.open("POST", r.request_info.url, true);
-    r.request.send(get_my_code() + "|" + r.request_info.body);
-}
+        function resend_request(r) {
+            r.failed = false;
+            r.request = new XMLHttpRequest();
+            r.request.onerror = function (e) {
+                r.failed = true;
+            };
+            r.request.open("POST", r.request_info.url, true);
+            r.request.send(r.request_info.body);
+        }
 
-// server URL is decided in C
-function set_server_url(p) {
- server_url = p;
-}
+        // server URL is decided in C
+        function set_server_url(p) {
+            server_url = p;
+        }
 
-// Returns an integer, a "handle" into the generation request. Takes in the string prompt, and api URL
-// the api url must start with `http://` or https.
-function make_generation_request(p, api) {
+        // Returns an integer, a "handle" into the generation request. Takes in the string prompt, and api URL
+        // the api url must start with `http://` or https.
+        function make_generation_request(p, api) {
 
- cur_id += 1;
- let to_push = {
-  "id": cur_id,
-  "request": new XMLHttpRequest(),
-  "retries_remaining": max_retries,
-  "request_info": {"url": (' ' + api).slice(1), "body": p},
-  "failed": false,
- }
- console.log("Making generation request with id " + to_push.id);
- generation_requests.push(to_push)
- resend_request(to_push)
- return cur_id;
-}
+            cur_id += 1;
+            let to_push = {
+                "id": cur_id,
+                "request": new XMLHttpRequest(),
+                "retries_remaining": max_retries,
+                "request_info": { "url": (' ' + api).slice(1), "body": p },
+                "failed": false,
+            }
+            console.log("Making generation request with id " + to_push.id);
+            generation_requests.push(to_push)
+            resend_request(to_push)
+            return cur_id;
+        }
 
-// returns 0 if not done yet, 1 if succeeded, 2 if failed after too many retries (i.e server down, or no internet)
-// -1 if it doesn't exist
-function get_generation_request_status(id) {
- for(let i = 0; i < generation_requests.length; i++) {
-  if(generation_requests[i].id == id) {
-   if(generation_requests[i].failed)
-   {
-   }
-   else
-   {
-    let http_status = generation_requests[i].request.status;
-    if(http_status == 200) {
-     if(generation_requests[i].request.responseText[0] === "0")
-     {
-      show_paywall();
-      return 2;
-     }
-     else if(generation_requests[i].request.responseText[0] === "1")
-     {
-      return 1; // done, everything ok
-     }
-     else
-     {
-      console.log("Unknown body code " + generation_requests[i].request.responseText);
-     }
-    }
-    else if(http_status == 0) { // not done yet
-     return 0;
-    }
-   }
+        // returns 0 if not done yet, 1 if succeeded, 2 if failed after too many retries (i.e server down, or no internet)
+        // -1 if it doesn't exist
+        function get_generation_request_status(id) {
+            for (let i = 0; i < generation_requests.length; i++) {
+                if (generation_requests[i].id == id) {
+                    if (generation_requests[i].failed) {
+                    }
+                    else {
+                        let http_status = generation_requests[i].request.status;
+                        if (http_status == 200) {
+                            return 1; // done, everything ok
+                        }
+                        else if (http_status == 0) { // not done yet
+                            return 0;
+                        }
+                    }
 
-   { // errored
-    if(generation_requests[i].retries_remaining > 0) {
-     console.log("Retrying request");
-     generation_requests[i].retries_remaining -= 1;
-     resend_request(generation_requests[i]);
-     return 0;
-    } else {
-     return 2; // too many retries, failed
-    }
-   }
-  }
- }
- return -1;
-}
+                    { // errored
+                        if (generation_requests[i].retries_remaining > 0) {
+                            console.log("Retrying request");
+                            generation_requests[i].retries_remaining -= 1;
+                            resend_request(generation_requests[i]);
+                            return 0;
+                        } else {
+                            return 2; // too many retries, failed
+                        }
+                    }
+                }
+            }
+            return -1;
+        }
 
-function done_with_generation_request(id) {
- console.log("Removing request with id " + id);
- let new_generation_requests = [];
- for(let i = 0; i < generation_requests.length; i++) {
-  if(generation_requests[i].id == id)
-  {
-  } else {
-   new_generation_requests.push(generation_requests[i])
-  }
- }
- generation_requests = new_generation_requests;
-}
+        function done_with_generation_request(id) {
+            console.log("Removing request with id " + id);
+            let new_generation_requests = [];
+            for (let i = 0; i < generation_requests.length; i++) {
+                if (generation_requests[i].id == id) {
+                } else {
+                    new_generation_requests.push(generation_requests[i])
+                }
+            }
+            generation_requests = new_generation_requests;
+        }
 
-// doesn't fill string if not done yet, or the id doesn't exist
-function get_generation_request_content(id) {
- let to_return = "";
- for(let i = 0; i < generation_requests.length; i++) {
-  if(generation_requests[i].id == id) {
-   to_return = generation_requests[i].request.responseText;
-   break;
-  }
- }
- return to_return.slice(1); // first character is a code that says if the request was successful or not
-}
-  </script>
-  {{{ SCRIPT }}}
+        // doesn't fill string if not done yet, or the id doesn't exist
+        function get_generation_request_content(id) {
+            let to_return = "";
+            for (let i = 0; i < generation_requests.length; i++) {
+                if (generation_requests[i].id == id) {
+                    to_return = generation_requests[i].request.responseText;
+                    break;
+                }
+            }
+            return to_return;
+        }
+    </script>
+    {{{ SCRIPT }}}
 
-</body></html>
+</body>
 
+</html>

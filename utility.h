@@ -25,5 +25,13 @@
 #endif
 #define assert game_assert
 
+// stuff not in emscripten
+#ifdef WEB
+ #define max(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+     _a > _b ? _a : _b; })
+#endif
+
 #define Log(...) { printf("%s Log %d | ", __FILE__, __LINE__); printf(__VA_ARGS__); }
 
