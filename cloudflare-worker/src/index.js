@@ -43,6 +43,7 @@ export default {
 
 		return new Response(json, {
 			headers: {
+				"Access-Control-Allow-Origin": "*",
 				"content-type": "application/json;charset=UTF-8",
 			},
 		});
