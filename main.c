@@ -2998,21 +2998,21 @@ LoadedFont load_font(Arena *arena, String8 font_filepath, float font_size)
 	to_return.font_buffer = LoadEntireFile(arena, font_filepath);
 	to_return.font_size = font_size;
 
-	unsigned char *font_bitmap = ArenaPush(arena, 512 * 512);
-
 	const int font_bitmap_width = 512;
+
+	unsigned char *font_bitmap = ArenaPush(arena, font_bitmap_width * font_bitmap_width  );
 
 	stbtt_BakeFontBitmap(to_return.font_buffer.str, 0, to_return.font_size, font_bitmap, font_bitmap_width, font_bitmap_width, 32, 96, to_return.cdata);
 
 	unsigned char *font_bitmap_rgba = ArenaPush(frame_arena, 4 * font_bitmap_width * font_bitmap_width);
 
 	// also flip the image, because I think opengl or something I'm too tired
-	for (int row = 0; row < 512; row++)
+	for (int row = 0; row < font_bitmap_width; row++)
 	{
-		for (int col = 0; col < 512; col++)
+		for (int col = 0; col < font_bitmap_width; col++)
 		{
 			int i = row * 512 + col;
-			int flipped_i = (512 - row) * 512 + col;
+			int flipped_i = (511 - row) * 512 + col;
 			font_bitmap_rgba[i * 4 + 0] = 255;
 			font_bitmap_rgba[i * 4 + 1] = 255;
 			font_bitmap_rgba[i * 4 + 2] = 255;
