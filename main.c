@@ -7168,6 +7168,7 @@ void frame(void)
 		}
 
 #ifdef DEVTOOLS
+		if(RELOAD_ON_MOUSEUP)
 		if(pressed.mouse_up) {
 			String8 error = {0};
 			Log("Saving gamestate...\n");

@@ -1,6 +1,7 @@
 #ifndef TUNING_H // #pragma once isn't supported by sokol-shdc yet
 #define TUNING_H
 
+#define RELOAD_ON_MOUSEUP 0
 #define RANDOM_SEED 42
 #define LEVEL_TILES 150 // width and height of level tiles array
 #define LAYERS 3

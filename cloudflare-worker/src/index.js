@@ -24,7 +24,7 @@ export default {
 			//responseObject["ai_error"] = "Failed to parse what you output: Expected ',' or ']' after array element in JSON at position 124 (line 1 column 125)";
 		} else {
 			const openai = new OpenAI({
-				apiKey: env.OPENAI_KEY, // defaults to process.env["OPENAI_API_KEY"]
+				apiKey: env.OPENAI_KEY,
 			});
 			const chatCompletion = await openai.chat.completions.create({
 				messages: requestBody,
