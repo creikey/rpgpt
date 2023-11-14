@@ -217,7 +217,7 @@ typedef struct Entity
 	int times_talked_to; // for better mocked response string
 	float loading_anim_in;
 	BUFF(Memory, 5) memories;
-	BUFF(TextChunk, 3) error_notices; // things to tell the AI about bad stuff it output. when it outputs good stuff this is cleared
+	BUFF(TextChunk, MAX_ERRORS) error_notices; // things to tell the AI about bad stuff it output. when it outputs good stuff this is cleared
 	float dialog_panel_opacity;
 
 	// last_said_sentence(entity) contains the dialog the player has yet to see
@@ -320,6 +320,7 @@ typedef struct CharacterSituation {
 	BUFF(TextChunk, 5) events; // events that this character has observed in the plain english form
 	BUFF(SituationTarget, 10) targets;
 	BUFF(SituationAction, 10) actions;
+	BUFF(TextChunk, MAX_ERRORS) errors;
 } CharacterSituation;
 
 typedef BUFF(TextChunk, MAX_ARGS) ArgList;
@@ -333,44 +334,6 @@ typedef struct Response {
 #define MAX_ACTIONS 5
 typedef BUFF(Response, MAX_ACTIONS) FullResponse; // what the AI is allowed to output 
 
-CharacterSituation situation_0 = {
-	.room_description = TextChunkLitC("A lush forest, steeped in shade. Some mysterious gears are scattered across the floor"),
-	.events.cur_index = 2,
-	.events.data = {
-		TextChunkLitC("The player approached you"),
-		TextChunkLitC("The player said to you, 'What's up fool?'"),
-	},
-	.targets.cur_index = 1,
-	.targets.data = {
-		{
-			.name = TextChunkLitC("The Player"),
-			.description = TextChunkLitC("The Player. They just spawned in out of nowhere, and are causing a bit of a ruckus."),
-			.kind = TARGET_person,
-		},
-	},
-	.actions.cur_index = 2,
-	.actions.data = {
-		{
-			.name = TextChunkLitC("none"),
-			.description = TextChunkLitC("Do nothing"),
-		},
-		{
-			.name = TextChunkLitC("say_to"),
-			.description = TextChunkLitC("Say something to the target"),
-			.args.cur_index = 2,
-			.args.data = {
-				{
-					.name = TextChunkLitC("target"),
-					.description = TextChunkLitC("The target of your speech. Must be a valid target specified earlier, must match exactly that target")
-				},
-				{
-					.name = TextChunkLitC("speech"),
-					.description = TextChunkLitC("The content of your speech, is a string that's whatever you want it to be."),
-				},
-			},
-		},
-	},
-};
 
 /*
 Training samples must remain stable as the game is changed, is the decision here: i.e, if the characters
@@ -398,27 +361,177 @@ typedef struct Npc {
 	BUFF(TrainingSample, 4) soul;
 } Npc;
 
-Npc *get_npc(Arena *arena) {
-	Npc *ret = PushArrayZero(arena, Npc, 1);
-	ret->name = TextChunkLit("Bill");
-	ret->kind = 1;
-	ret->description = TextChunkLit("You have an intense drinking problem, and you talk like Theo Von, often saying offensive statements accidentally. You bumble around and will do anything for more whiskey. Often you go on bizarre, weird tangents and stories, that seem to just barely make sense. Your storied background has no rival: growing up adventurous and poor has given you texture and character. You have zero self awareness, and never directly state to anybody why you do things with a clear explanation, it's always cryptic, bizarre, and out of pocket.");
-	BUFF_APPEND(&ret->soul,
-		((TrainingSample){
-			.situation = situation_0,
-			.response.cur_index = 1,
-			.response.data = {
+Npc nobody_data = { 
+	.name = TextChunkLitC("Nobody"),
+	.kind = NPC_nobody,
+};
+#define PLAYER_DESCRIPTION TextChunkLitC("The Player. They just spawned in out of nowhere, and are causing a bit of a ruckus.")
+Npc player_data = {
+	.name = TextChunkLitC("The Player"),
+	.description = PLAYER_DESCRIPTION,
+	.kind = NPC_player,
+};
+
+CharacterSituation situation_0 = {
+	.room_description = TextChunkLitC("A lush forest, steeped in shade. Some mysterious gears are scattered across the floor"),
+	.events.cur_index = 2,
+	.events.data = {
+		TextChunkLitC("The player approached you"),
+		TextChunkLitC("The player said to you, 'What's up fool?'"),
+	},
+	.targets.cur_index = 1,
+	.targets.data = {
+		{
+			.name = TextChunkLitC("The Player"),
+			.description = PLAYER_DESCRIPTION,
+			.kind = TARGET_person,
+		},
+	},
+	.actions.cur_index = 2,
+	.actions.data = {
+		{
+			.name = TextChunkLitC("none"),
+			.description = TextChunkLitC("Do nothing"),
+		},
+		{
+			.name = TextChunkLitC("say_to"),
+			.description = TextChunkLitC("Say something to the target"),
+			.args.cur_index = 2,
+			.args.data = {
 				{
-					.action = TextChunkLitC("say_to"),
-					.arguments.cur_index = 2,
-					.arguments.data[0] = TextChunkLitC("The Player"),
-					.arguments.data[1] = TextChunkLitC("Don't *hic* 'fool' me partner. I'm jus-*hic* tryna' relax over here."),
+					.name = TextChunkLitC("target"),
+					.description = TextChunkLitC("The target of your speech. Must be a valid target specified earlier, must match exactly that target")
+				},
+				{
+					.name = TextChunkLitC("speech"),
+					.description = TextChunkLitC("The content of your speech, is a string that's whatever you want it to be."),
 				},
 			},
-		})
-	);
+		},
+	},
+};
+
+CharacterSituation situation_1 = {
+	.room_description = TextChunkLitC("A lush forest, steeped in shade. Some mysterious gears are scattered across the floor"),
+	.events.cur_index = 2,
+	.events.data = {
+		TextChunkLitC("The Player said to Daniel, 'jfsdkfjdslf'"),
+		TextChunkLitC("Daniel said to The Player, 'What in 'tarnation are you spoutin on about?'"),
+	},
+	.targets.cur_index = 2,
+	.targets.data = {
+		{
+			.name = TextChunkLitC("The Player"),
+			.description = PLAYER_DESCRIPTION,
+			.kind = TARGET_person,
+		},
+		{
+			.name = TextChunkLitC("Daniel"),
+			.description = TextChunkLitC("Daniel is an ordinary farmer just standing there doing nothing"),
+			.kind = TARGET_person,
+		},
+	},
+	.actions.cur_index = 2,
+	.actions.data = {
+		{
+			.name = TextChunkLitC("none"),
+			.description = TextChunkLitC("Do nothing"),
+		},
+		{
+			.name = TextChunkLitC("say_to"),
+			.description = TextChunkLitC("Say something to the target"),
+			.args.cur_index = 2,
+			.args.data = {
+				{
+					.name = TextChunkLitC("target"),
+					.description = TextChunkLitC("The target of your speech. Must be a valid target specified earlier, must match exactly that target")
+				},
+				{
+					.name = TextChunkLitC("speech"),
+					.description = TextChunkLitC("The content of your speech, is a string that's whatever you want it to be."),
+				},
+			},
+		},
+	},
+};
+
+CharacterSituation situation_2 = {
+	.room_description = TextChunkLitC("A lush forest, steeped in shade. Some mysterious gears are scattered across the floor"),
+	.events.cur_index = 2,
+	.events.data = {
+		TextChunkLitC("The player approached you"),
+		TextChunkLitC("The player said to you, '*steals your kidney*'"),
+	},
+	.targets.cur_index = 1,
+	.targets.data = {
+		{
+			.name = TextChunkLitC("The Player"),
+			.description = PLAYER_DESCRIPTION,
+			.kind = TARGET_person,
+		},
+	},
+	.actions.cur_index = 2,
+	.actions.data = {
+		{
+			.name = TextChunkLitC("none"),
+			.description = TextChunkLitC("Do nothing"),
+		},
+		{
+			.name = TextChunkLitC("say_to"),
+			.description = TextChunkLitC("Say something to the target"),
+			.args.cur_index = 2,
+			.args.data = {
+				{
+					.name = TextChunkLitC("target"),
+					.description = TextChunkLitC("The target of your speech. Must be a valid target specified earlier, must match exactly that target")
+				},
+				{
+					.name = TextChunkLitC("speech"),
+					.description = TextChunkLitC("The content of your speech, is a string that's whatever you want it to be."),
+				},
+			},
+		},
+	},
+};
+
+
+Npc *get_hardcoded_npc(Arena *arena, String8 by_name, NpcKind kind) {
+	if(kind == NPC_player) {
+		return &player_data;
+	}
+
+	Npc *ret = PushArrayZero(arena, Npc, 1);
+	chunk_from_s8(&ret->name, by_name);
+	ret->kind = kind;
+	ret->soul.cur_index = 3;
+	ret->soul.data[0].situation = situation_0;
+	ret->soul.data[1].situation = situation_1;
+	ret->soul.data[2].situation = situation_2;
+	if(S8Match(by_name, S8Lit("Bill"), 0)) {
+		chunk_from_s8(&ret->description, S8Lit("You have an intense drinking problem, and you talk like Theo Von, often saying offensive statements accidentally. You bumble around and will do anything for more whiskey. Often you go on bizarre, weird tangents and stories, that seem to just barely make sense. Your storied background has no rival: growing up adventurous and poor has given you texture and character. You have zero self awareness, and never directly state to anybody why you do things with a clear explanation, it's always cryptic, bizarre, and out of pocket."));
+		BUFF_APPEND(&ret->soul.data[0].response, ((Response){
+			.action = TextChunkLitC("say_to"),
+			.arguments.cur_index = 2,
+			.arguments.data[0] = TextChunkLitC("The Player"),
+			.arguments.data[1] = TextChunkLitC("Don't *hic* 'fool' me partner. I'm jus-*hic* tryna' relax over here."),
+		}));
+		BUFF_APPEND(&ret->soul.data[1].response, ((Response){
+			.action = TextChunkLitC("none"),
+		}));
+		BUFF_APPEND(&ret->soul.data[2].response, ((Response){
+			.action = TextChunkLitC("say_to"),
+			.arguments.cur_index = 2,
+			.arguments.data[0] = TextChunkLitC("The Player"),
+			.arguments.data[1] = TextChunkLitC("What do you mean star-this star-that? Your confusin' me partner."),
+		}));
+
+	} else {
+		return &nobody_data;
+	}
+
 	return ret;
 }
+
 
 typedef struct EditorState {
 	bool enabled;
@@ -494,14 +607,6 @@ typedef struct GameState {
 #define ENTITIES_ITER(ents) for (Entity *it = ents; it < ents + ARRLEN(ents); it++) if (it->exists && !it->destroy && it->generation > 0)
 
 
-Npc nobody_data = { 
-	.name = TextChunkLitC("Nobody"),
-	.kind = NPC_nobody,
-};
-Npc player_data = {
-	.name = TextChunkLitC("The Player"),
-	.kind = NPC_player,
-};
 Npc *npc_data_by_name(GameState *gs, String8 name) {
 	BUFF_ITER(Npc, &gs->characters) {
 		if(S8Match(TextChunkString8(it->name), name, 0)) {
@@ -640,6 +745,13 @@ String8List describe_situation(Arena *arena, CharacterSituation *situation) {
 	AddFmt("Previous events you need to respond to:\n");
 	BUFF_ITER(TextChunk, &situation->events) {
 		AddFmt("%.*s\n", TextChunkVArg(*it));
+	}
+
+	if(situation->errors.cur_index > 0) {
+		AddFmt("You've previously made these errors:\n");
+		BUFF_ITER(TextChunk, &situation->errors) {
+			AddFmt("%.*s\n", TextChunkVArg(*it));
+		}
 	}
 
 	#undef AddFmt

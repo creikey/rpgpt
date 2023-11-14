@@ -40,5 +40,6 @@ String8List get_string_array(Arena *arena, Node *root, String8 field) {
 void parse_response(Arena *arena, ServerResponse *response, Node *root) {
     response->rate_limited = get_bool(root, S8Lit("rate_limited"));
     response->error = get_string(arena, root, S8Lit("error"));
+    response->ai_error = get_string(arena, root, S8Lit("ai_error"));
     response->ai_response = MD_ChildFromString(root, S8Lit("ai_response"), 0)->first_child;
 }

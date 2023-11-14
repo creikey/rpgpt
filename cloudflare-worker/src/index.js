@@ -9,7 +9,7 @@ export default {
 			"rate_limited": false,
 		}
 
-		if (true) {
+		if (false) {
 			// mock the response
 			responseObject["ai_response"] = [
 				{
@@ -21,6 +21,7 @@ export default {
 					"arguments": [],
 				}
 			];
+			//responseObject["ai_error"] = "Failed to parse what you output: Expected ',' or ']' after array element in JSON at position 124 (line 1 column 125)";
 		} else {
 			const openai = new OpenAI({
 				apiKey: env.OPENAI_KEY, // defaults to process.env["OPENAI_API_KEY"]
@@ -29,10 +30,12 @@ export default {
 				messages: requestBody,
 				model: 'gpt-3.5-turbo',
 			});
+			const content = chatCompletion.choices[0].message.content;
 			try {
-				responseObject["ai_response"] = JSON.parse(chatCompletion.choices[0].message.content);
+				responseObject["ai_response"] = JSON.parse(content);
 			} catch (e) {
-				responseObject["ai_error"] = "Failed to parse what you output: " + e.message;
+				console.log(`Ai parse error ${e.message} for its output '${content}`);
+				responseObject["ai_error"] = `Failed to parse what you output, '${content}': ${e.message}`;
 			}
 		}
 

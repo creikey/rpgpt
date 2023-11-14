@@ -12,8 +12,9 @@
 #define SWORD_SWIPE_RADIUS (TILE_SIZE*3.0f)
 #define ARROW_SPEED 200.0f
 #define SECONDS_PER_ARROW 1.3f
-#define MAX_WORD_COUNT 25
+#define MAX_WORD_COUNT 35
 #define DIALOG_INTERACT_SIZE 5.0f // length of the centered AABB (not halfsize) around the player of who they're interacting with
+#define MAX_ERRORS 3
 
 #define CAM_DISTANCE 15.0f
 #define CAM_VERTICAL_TO_HORIZONTAL_RATIO 0.95f

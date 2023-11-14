@@ -623,6 +623,7 @@ FullResponse *json_to_responses(Arena *arena, Node *json_in, String8 *error_out)
 	FullResponse *ret = PushArrayZero(arena, FullResponse, 1);
 	Response *cur_response = PushArrayZero(frame_arena, Response, 1);
 	for(Node *cur = json_in; !NodeIsNil(cur); cur = cur->next) {
+		memset(cur_response, 0, sizeof(*cur_response));
 		chunk_from_s8(&cur_response->action, get_string(arena, cur, S8Lit("action")));
 		if(cur_response->action.text_length == 0) {
 			*error_out = FmtWithLint(arena, "Every action in the actions array has to have a field called 'action' which is the case sensitive action you are to perform");
@@ -630,6 +631,10 @@ FullResponse *json_to_responses(Arena *arena, Node *json_in, String8 *error_out)
 		}
 
 		String8List args = get_string_array(arena, cur, S8Lit("arguments"));
+		if(args.node_count >= MAX_ARGS) {
+			*error_out = FmtWithLint(arena, "You supplied %d arguments to the action %.*s but the maximum number of arguments is %d", (int)args.node_count, TCVArg(cur_response->action), MAX_ARGS);
+			return ret;
+		}
 		for(String8Node *cur = args.first; cur; cur = cur->next) {
 			TextChunk into = {0};
 			chunk_from_s8(&into, cur->string);
@@ -1831,7 +1836,7 @@ void remember_action(Entity *who_should_remember, Entity *from, Action act) {
 		break;
 		case ACT_say_to:
 		String8 to_identified = stringify_identity(who_should_remember, act.args.data[0].character->npc_kind);
-		memory = FmtWithLint(frame_arena, "%.*s said '%.*s' to %.*s", S8VArg(from_identified), TCVArg(act.args.data[1].text), S8VArg(to_identified));
+		memory = FmtWithLint(frame_arena, "%.*s said out loud '%.*s' to %.*s", S8VArg(from_identified), TCVArg(act.args.data[1].text), S8VArg(to_identified));
 		break;
 	}
 	if(memory.size > 0) {
@@ -1947,8 +1952,6 @@ String8 is_action_valid(Arena *arena, Entity *from, ActionOld a)
 			error_message = FmtWithLint(arena, "Character you're talking to, %.*s, isn't in the same room and so can't be talked to", S8VArg(npc_identifier_chunk(npc_data(&gs, a.talking_to_kind)->name)));
 		}
 	}
-
-
 
 	assert(error_message.size < MAX_SENTENCE_LENGTH); // is copied into text chunks
 
@@ -5551,7 +5554,7 @@ Action bake_into_action(Arena *error_arena, String8 *error_out, GameState *gs, E
 
 			if (words_over_limit > 0)
 			{
-				error("Your speech is %d words over the maximum limit, you must be more succinct and remove at least that many words", words_over_limit);
+				error("Your speech '%.*s...' %d words over the maximum limit %d, you must be more succinct and remove at least that many words", S8VArg(S8Chop(speech, 100)), words_over_limit, MAX_WORD_COUNT);
 			}
 		}
 		break;
@@ -5582,14 +5585,21 @@ CharacterSituation *generate_situation(Arena *arena, GameState *gs, Entity *e) {
 	CharacterSituation *ret = PushArrayZero(arena, CharacterSituation, 1);
 	ret->room_description = TextChunkLit("A lush forest, steeped in shade. Some mysterious gears are scattered across the floor");
 
-	BUFF_APPEND(&ret->events, TextChunkLit("The player approached you"));
-	BUFF_APPEND(&ret->targets, ((SituationTarget) {
-			.name = TextChunkLit("The Player"),
-			.description = TextChunkLit("The Player. They just spawned in out of nowhere, and are causing a bit of a ruckus."),
-			.kind = TARGET_person,
-		})
-	);
+	BUFF_ITER(Memory, &e->memories) {
+		BUFF_APPEND(&ret->events, it->description_from_my_perspective);
+	}
+	ENTITIES_ITER(gs->entities){
+		if(it->is_npc && it != e) {
+			BUFF_APPEND(&ret->targets, ((SituationTarget) {
+					.name = TextChunkLit("The Player"),
+					.description = TextChunkLit("The Player. They just spawned in out of nowhere, and are causing a bit of a ruckus."),
+					.kind = TARGET_person,
+				})
+			);
+		}
+	}
 	ARR_ITER(SituationAction, gamecode_actions) BUFF_APPEND(&ret->actions, *it);
+	BUFF_ITER(TextChunk, &e->error_notices) BUFF_APPEND(&ret->errors, *it);
 	return ret;
 }
 
@@ -6372,12 +6382,14 @@ void frame(void)
 											having_errors = true;
 										}
 									}
+									bool ai_error = false;
 									if(!having_errors) {
 										if(response.ai_error.size > 0) {
 											Log("Got an AI error: '%.*s'", S8VArg(response.ai_error));
+											ai_error = true;
 											TextChunk err = {0};
 											chunk_from_s8(&err, S8Chop(response.ai_error, MAX_SENTENCE_LENGTH));
-											BUFF_APPEND(&e->error_notices, err);
+											BUFF_QUEUE_APPEND(&e->error_notices, err);
 										}
 										String8 err = {0};
 										FullResponse *resp = json_to_responses(frame_arena, response.ai_response, &err);
@@ -6385,9 +6397,10 @@ void frame(void)
 											Action baked = bake_into_action(frame_arena, &err, &gs, e, it);
 											if(err.size > 0) {
 												Log("Error while baking to action: '%.*s'", S8VArg(err));
+												ai_error = true;
 												TextChunk out_err = {0};
 												chunk_from_s8(&out_err, S8Chop(err, MAX_SENTENCE_LENGTH));
-												BUFF_APPEND(&e->error_notices, out_err);
+												BUFF_QUEUE_APPEND(&e->error_notices, out_err);
 												break;
 											}
 											perform_action(e, baked);
@@ -6396,6 +6409,11 @@ void frame(void)
 
 									done_with_request(it->gen_request_id);
 									it->gen_request_id = 0;
+									if(ai_error) {
+										it->perceptions_dirty = true;
+									} else if(!having_errors) {
+										BUFF_CLEAR(&it->error_notices);
+									}
 								}
 								break;
 								case GEN_Failed:
@@ -6818,7 +6836,8 @@ void frame(void)
 								it->perceptions_dirty = false; // needs to be in beginning because they might be redirtied by the new perception
 								String8 prompt_str = {0};
 								// prompt_str = generate_chatgpt_prompt(frame_arena, &gs, it, get_can_talk_to(it));
-								prompt_str = generate_chatgpt_prompt(frame_arena, get_npc(frame_arena), generate_situation(frame_arena, &gs, it));
+								Npc *npc = get_hardcoded_npc(frame_arena, TCS8(npc_data(&gs, it->npc_kind)->name), it->npc_kind);
+								prompt_str = generate_chatgpt_prompt(frame_arena, npc, generate_situation(frame_arena, &gs, it));
 								Log("Want to make request with prompt `%.*s`\n", S8VArg(prompt_str));
 
 								bool mocking_the_ai_response = false;
