@@ -436,8 +436,8 @@ def export_meshes_and_levels():
 
     # export all the meshes that the rooms file is referring to, and all the meshes that just need to be plain exported
     for m in meshes_to_export:
-        assert o.type == "MESH"
-        assert o.parent == None, f"Mesh '{m.name}' has a parent, but exporting mesh objects with parents isn't supported"
+        assert m.type == "MESH"
+        assert m.parent == None, f"Mesh '{m.name}' has a parent, but exporting mesh objects with parents isn't supported"
         mesh_name = m.name
         image_filename = ensure_tex_saved_and_get_name(m)
         output_filepath = bpy.path.abspath(f"//{EXPORT_DIRECTORY}/{mesh_name}.bin")

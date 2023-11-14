@@ -939,6 +939,7 @@ sg_image load_image(String8 path)
 	bool free_the_pixels = true;
 	if(num_channels == 3)
 	{
+		Log("Forced to flip pixels for image '%.*s'\n", S8VArg(path));
 		stbi_uc *old_pixels = pixels;
 		pixels = ArenaPush(scratch.arena, png_width * png_height * 4 * sizeof(stbi_uc));
 		for(u64 pixel_i = 0; pixel_i < png_width * png_height; pixel_i++)
@@ -6210,14 +6211,15 @@ void frame(void)
 		{
 			bool delete = false;
 			do {
+				delete = false;
 				CutsceneEvent *cut = gs.unprocessed_first;
 				if(!gete(cut->author)) {
 					delete = true;
 				} else {
 					switch (cut->action.kind)
 					{
-						case ACT_none:
 						case ACT_invalid:
+						case ACT_none:
 							delete = true;
 							break;
 						case ACT_say_to:
