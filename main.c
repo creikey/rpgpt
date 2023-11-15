@@ -1909,6 +1909,8 @@ String8 stringify_identity(Entity *whos_perspective, NpcKind kind, bool at_end_o
 	}
 }
 
+// important to be called before side effects. This means all future state must
+// be encoded in arguments actions to be described properly
 void remember_action(Entity *who_should_remember, Entity *from, Action act) {
 	assert(who_should_remember); assert(from);
 	String8 memory = {0};
@@ -1946,6 +1948,18 @@ void remember_action(Entity *who_should_remember, Entity *from, Action act) {
 			);
 		}
 		break;
+		case ACT_drop_item:
+		{
+			assert(gete(from->held_item));
+			String8 from_str = stringify_identity(who_should_remember, from->npc_kind, false);
+			TextChunk held_name = item_by_enum(gete(from->held_item)->item_kind)->name;
+			memory = FmtWithLint(frame_arena, "%.*s dropped the item they were holding, %.*s, onto the floor",
+				S8VArg(from_str),
+				TCVArg(held_name)
+			);
+		}
+		break;
+
 	}
 	if(memory.size > 0) {
 		Memory new_memory = {0};
@@ -5736,6 +5750,17 @@ Action bake_into_action(Arena *error_arena, String8 *error_out, GameState *gs, E
 				}
 			}
 		}
+		break;
+
+		case ACT_drop_item:
+		{
+			Entity *item = gete(taking_the_action->held_item);
+			if(!item) {
+				error("You can't drop an item when you're not currently holding one!");
+			}
+		}
+		break;
+
 	}
 
 	#undef error
@@ -5865,6 +5890,7 @@ void frame(void)
 
 				case ACT_say_to:
 				case ACT_use_item:
+				case ACT_drop_item:
 				target = gete(gs.unprocessed_first->author)->pos;
 				break;
 
@@ -6624,8 +6650,21 @@ void frame(void)
 									break;
 								}
 							}
-							delete = cut->time_cutscene_shown >= ITEM_USE_CUT_TIME;
+							delete = cut->time_cutscene_shown >= ITEM_CUT_TIME;
 						}
+						break;
+
+						case ACT_drop_item:
+						{
+							Entity *item = gete(author->held_item);
+							if(item) {
+								author->held_item = (EntityRef){0};
+								item->vel = MulV2F(RotateV2(V2(1.0, 0.0), author->rotation), 10.0f);
+							}
+							delete = cut->time_cutscene_shown >= ITEM_CUT_TIME;
+						}
+						break;
+
 					}
 				}
 				if(delete) DblRemove(gs.unprocessed_first, gs.unprocessed_last, gs.unprocessed_first);
@@ -7188,6 +7227,10 @@ void frame(void)
 						}
 						else if (it->is_item)
 						{
+							if(!who_is_holding(it)) {
+								it->vel = LerpV2(it->vel, dt*5.0f, V2(0, 0));
+								it->pos = AddV2(it->pos, MulV2F(it->vel, dt));
+							}
 						}
 						else
 						{

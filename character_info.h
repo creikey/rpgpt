@@ -57,6 +57,7 @@ typedef enum
 	ACT_say_to,
 	ACT_pick_up,
 	ACT_use_item,
+	ACT_drop_item,
 } ActionKind;
 
 typedef enum
@@ -155,6 +156,11 @@ SituationAction gamecode_actions[] = {
 			},
 		},
 		.gameplay_action = ACT_use_item,
+	},
+	{
+		.name = TextChunkLitC("drop_item"),
+		.description = TextChunkLitC("Drop the item you're currently holding"),
+		.gameplay_action = ACT_drop_item,
 	},
 };
 
