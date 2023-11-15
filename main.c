@@ -5862,8 +5862,8 @@ void frame(void)
 
 		text_input_fade = Lerp(text_input_fade, unwarped_dt * 8.0f, receiving_text_input ? 1.0f : 0.0f);
 
-		bool player_do_drop = false;
-		bool player_do_use = false;
+		bool player_do_drop = false || keypressed[SAPP_KEYCODE_R];
+		bool player_do_use = false || keypressed[SAPP_KEYCODE_F];
 		PROFILE_SCOPE("Mobile button rendering and processing")
 		{
 			if(mobile_controls)
@@ -5878,10 +5878,10 @@ void frame(void)
 
 				Entity *p = player(&gs);
 				if(p && gete(p->held_item)) {
-					button_pos = AddV2(button_pos, V2(0, -button_height - btwn_margin));
+					button_pos = AddV2(button_pos, V2(0, button_height + btwn_margin));
 					player_do_drop = imbutton(aabb_centered(button_pos, button_size), 1.0f, S8Lit("Drop Item"));
 
-					button_pos = AddV2(button_pos, V2(0, -button_height - btwn_margin));
+					button_pos = AddV2(button_pos, V2(0, button_height + btwn_margin));
 					player_do_use  = imbutton(aabb_centered(button_pos, button_size), 1.0f, S8Lit("Use Item"));
 				}
 			}
@@ -7389,6 +7389,19 @@ void frame(void)
 							interacting_with = closest_interact_with;
 
 							player(&gs)->interacting_with = frome(interacting_with);
+						}
+
+						bool has_item = gete(player(&gs)->held_item);
+						if(player_do_use && has_item && closest_interact_with && closest_interact_with->is_npc) {
+							Response *resp = PushArrayZero(frame_arena, Response, 1);
+							resp->action = TextChunkLit("use_item");
+							BUFF_APPEND(&resp->arguments, npc_data(&gs, closest_interact_with->npc_kind)->name);
+							perform_action(player(&gs), resp);
+						}
+						if(player_do_drop && has_item) {
+							Response *resp = PushArrayZero(frame_arena, Response, 1);
+							resp->action = TextChunkLit("drop_item");
+							perform_action(player(&gs), resp);
 						}
 
 						if (!player(&gs)->killed && pressed.interact)

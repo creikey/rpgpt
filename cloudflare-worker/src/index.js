@@ -13,6 +13,10 @@ export default {
 			// mock the response
 			responseObject["ai_response"] = [
 				{
+					"action": "none",
+				}
+				/*
+				{
 					"action": "say_to",
 					"arguments": [
 						"The Player",
@@ -39,6 +43,7 @@ export default {
 						"Now that we got some whiskey, let's sit down and have a drink. Maybe then we can figure things out, or at least forget 'em."
 					]
 				}
+				*/
 			];
 			//responseObject["ai_error"] = "Failed to parse what you output: Expected ',' or ']' after array element in JSON at position 124 (line 1 column 125)";
 		} else {
