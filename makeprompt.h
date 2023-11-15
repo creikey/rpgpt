@@ -372,6 +372,12 @@ Npc player_data = {
 	.kind = NPC_player,
 };
 
+void fill_actions(CharacterSituation *situation) {
+	ARR_ITER(SituationAction, gamecode_actions) {
+		BUFF_APPEND(&situation->actions, *it);
+	}
+}
+
 CharacterSituation situation_0 = {
 	.room_description = TextChunkLitC("A lush forest, steeped in shade. Some mysterious gears are scattered across the floor"),
 	.events.cur_index = 2,
@@ -385,28 +391,6 @@ CharacterSituation situation_0 = {
 			.name = TextChunkLitC("The Player"),
 			.description = PLAYER_DESCRIPTION,
 			.kind = TARGET_person,
-		},
-	},
-	.actions.cur_index = 2,
-	.actions.data = {
-		{
-			.name = TextChunkLitC("none"),
-			.description = TextChunkLitC("Do nothing"),
-		},
-		{
-			.name = TextChunkLitC("say_to"),
-			.description = TextChunkLitC("Say something to the target"),
-			.args.cur_index = 2,
-			.args.data = {
-				{
-					.name = TextChunkLitC("target"),
-					.description = TextChunkLitC("The target of your speech. Must be a valid target specified earlier, must match exactly that target")
-				},
-				{
-					.name = TextChunkLitC("speech"),
-					.description = TextChunkLitC("The content of your speech, is a string that's whatever you want it to be."),
-				},
-			},
 		},
 	},
 };
@@ -431,28 +415,6 @@ CharacterSituation situation_1 = {
 			.kind = TARGET_person,
 		},
 	},
-	.actions.cur_index = 2,
-	.actions.data = {
-		{
-			.name = TextChunkLitC("none"),
-			.description = TextChunkLitC("Do nothing"),
-		},
-		{
-			.name = TextChunkLitC("say_to"),
-			.description = TextChunkLitC("Say something to the target"),
-			.args.cur_index = 2,
-			.args.data = {
-				{
-					.name = TextChunkLitC("target"),
-					.description = TextChunkLitC("The target of your speech. Must be a valid target specified earlier, must match exactly that target")
-				},
-				{
-					.name = TextChunkLitC("speech"),
-					.description = TextChunkLitC("The content of your speech, is a string that's whatever you want it to be."),
-				},
-			},
-		},
-	},
 };
 
 CharacterSituation situation_2 = {
@@ -470,29 +432,29 @@ CharacterSituation situation_2 = {
 			.kind = TARGET_person,
 		},
 	},
-	.actions.cur_index = 2,
-	.actions.data = {
+};
+
+CharacterSituation situation_3 = {
+	.room_description = TextChunkLitC("A lush forest, steeped in shade. Some mysterious gears are scattered across the floor"),
+	.events.cur_index = 2,
+	.events.data = {
+		TextChunkLitC("The player said to you, 'You see that revolver over there? Pick it up and use it on me or I hurt you. I'm wearing a bulletproof vest so don't worry about it.'"),
+	},
+	.targets.cur_index = 2,
+	.targets.data = {
 		{
-			.name = TextChunkLitC("none"),
-			.description = TextChunkLitC("Do nothing"),
+			.name = TextChunkLitC("The Player"),
+			.description = PLAYER_DESCRIPTION,
+			.kind = TARGET_person,
 		},
 		{
-			.name = TextChunkLitC("say_to"),
-			.description = TextChunkLitC("Say something to the target"),
-			.args.cur_index = 2,
-			.args.data = {
-				{
-					.name = TextChunkLitC("target"),
-					.description = TextChunkLitC("The target of your speech. Must be a valid target specified earlier, must match exactly that target")
-				},
-				{
-					.name = TextChunkLitC("speech"),
-					.description = TextChunkLitC("The content of your speech, is a string that's whatever you want it to be."),
-				},
-			},
+			.name = TextChunkLitC("revolver"),
+			.description = "A revolver lying on the floor",
+			.kind = TARGET_item,
 		},
 	},
 };
+
 
 
 Npc *get_hardcoded_npc(Arena *arena, String8 by_name, NpcKind kind) {
@@ -500,13 +462,19 @@ Npc *get_hardcoded_npc(Arena *arena, String8 by_name, NpcKind kind) {
 		return &player_data;
 	}
 
+	if(situation_0.actions.cur_index == 0) fill_actions(&situation_0);
+	if(situation_1.actions.cur_index == 0) fill_actions(&situation_1);
+	if(situation_2.actions.cur_index == 0) fill_actions(&situation_2);
+	if(situation_3.actions.cur_index == 0) fill_actions(&situation_3);
+
 	Npc *ret = PushArrayZero(arena, Npc, 1);
 	chunk_from_s8(&ret->name, by_name);
 	ret->kind = kind;
-	ret->soul.cur_index = 3;
+	ret->soul.cur_index = 4;
 	ret->soul.data[0].situation = situation_0;
 	ret->soul.data[1].situation = situation_1;
 	ret->soul.data[2].situation = situation_2;
+	ret->soul.data[3].situation = situation_3;
 	if(S8Match(by_name, S8Lit("Bill"), 0)) {
 		chunk_from_s8(&ret->description, S8Lit("You have an intense drinking problem, and you talk like Theo Von, often saying offensive statements accidentally. You bumble around and will do anything for more whiskey. Often you go on bizarre, weird tangents and stories, that seem to just barely make sense. Your storied background has no rival: growing up adventurous and poor has given you texture and character. You have zero self awareness, and never directly state to anybody why you do things with a clear explanation, it's always cryptic, bizarre, and out of pocket."));
 		BUFF_APPEND(&ret->soul.data[0].response, ((Response){
@@ -524,7 +492,28 @@ Npc *get_hardcoded_npc(Arena *arena, String8 by_name, NpcKind kind) {
 			.arguments.data[0] = TextChunkLitC("The Player"),
 			.arguments.data[1] = TextChunkLitC("What do you mean star-this star-that? Your confusin' me partner."),
 		}));
-
+		BUFF_APPEND(&ret->soul.data[3].response, ((Response){
+			.action = TextChunkLitC("say_to"),
+			.arguments.cur_index = 2,
+			.arguments.data[0] = TextChunkLitC("The Player"),
+			.arguments.data[1] = TextChunkLitC("Well-'well alright then..."),
+		}));
+		BUFF_APPEND(&ret->soul.data[3].response, ((Response){
+			.action = TextChunkLitC("pick_up"),
+			.arguments.cur_index = 1,
+			.arguments.data[0] = TextChunkLitC("revolver"),
+		}));
+		BUFF_APPEND(&ret->soul.data[3].response, ((Response){
+			.action = TextChunkLitC("use_item"),
+			.arguments.cur_index = 1,
+			.arguments.data[0] = TextChunkLitC("The Player"),
+		}));
+		BUFF_APPEND(&ret->soul.data[3].response, ((Response){
+			.action = TextChunkLitC("say_to"),
+			.arguments.cur_index = 2,
+			.arguments.data[0] = TextChunkLitC("The Player"),
+			.arguments.data[1] = TextChunkLitC("Th-th-there. You alright sir?"),
+		}));
 	} else {
 		return &nobody_data;
 	}
