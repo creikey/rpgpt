@@ -1899,9 +1899,9 @@ Entity *gete(EntityRef ref)
 }
 
 
-String8 stringify_identity(Entity *whos_perspective, NpcKind kind) {
+String8 stringify_identity(Entity *whos_perspective, NpcKind kind, bool at_end_of_sentence) {
 	if(whos_perspective->npc_kind == kind) {
-		return S8Lit("I");
+		return at_end_of_sentence ? S8Lit("me") : S8Lit("I");
 	} else {
 		return TCS8(npc_data(&gs, kind)->name);
 	}
@@ -1909,7 +1909,6 @@ String8 stringify_identity(Entity *whos_perspective, NpcKind kind) {
 
 void remember_action(Entity *who_should_remember, Entity *from, Action act) {
 	assert(who_should_remember); assert(from);
-	String8 from_identified = stringify_identity(who_should_remember, from->npc_kind);
 	String8 memory = {0};
 	switch(act.kind){
 		case ACT_invalid:
@@ -1918,8 +1917,8 @@ void remember_action(Entity *who_should_remember, Entity *from, Action act) {
 		break;
 		case ACT_say_to:
 		{
-			String8 to_identified = stringify_identity(who_should_remember, act.args.data[0].character->npc_kind);
-			memory = FmtWithLint(frame_arena, "%.*s said out loud '%.*s' to %.*s", S8VArg(from_identified), TCVArg(act.args.data[1].text), S8VArg(to_identified));
+			String8 to_identified = stringify_identity(who_should_remember, act.args.data[0].character->npc_kind, true);
+			memory = FmtWithLint(frame_arena, "%.*s said out loud '%.*s' to %.*s", S8VArg(stringify_identity(who_should_remember, from->npc_kind, false)), TCVArg(act.args.data[1].text), S8VArg(to_identified));
 		}
 		break;
 	}
@@ -5908,8 +5907,10 @@ void frame(void)
 		flush_all_drawn_things(shadow);
 
 		// draw the 3d render
+		static float outline_alpha = 1.0f;
+		outline_alpha = Lerp(outline_alpha, unwarped_dt * 9.0f, gs.unprocessed_first ? 0.0f : 1.0f);
 		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.threedee_pass_resolve_image), WHITE, .layer = LAYER_WORLD, .custom_pipeline = state.twodee_colorcorrect_pip});
-		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.outline_pass_resolve_image), WHITE, .custom_pipeline = state.twodee_outline_pip, .layer = LAYER_UI});
+		draw_quad((DrawParams){quad_at(V2(0.0, screen_size().y), screen_size()), IMG(state.outline_pass_resolve_image), blendalpha(WHITE, outline_alpha), .custom_pipeline = state.twodee_outline_pip, .layer = LAYER_UI});
 
 		// 2d drawing TODO move this to when the drawing is flushed.
 		sg_begin_default_pass(&state.clear_depth_buffer_pass_action, sapp_width(), sapp_height());

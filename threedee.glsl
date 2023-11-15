@@ -411,7 +411,7 @@ void main() {
 		accum_i = sqrt(accum_i); // cheap gamma-undo
 
 		float accum = mix(accum_o, accum_i, lerp_t);
-		frag_color = vec4(1, 1, 1, accum);
+		frag_color = vec4(1, 1, 1, accum * tint.a);
 }
 @end
 
