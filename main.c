@@ -5749,6 +5749,20 @@ void frame(void)
 
 		text_input_fade = Lerp(text_input_fade, unwarped_dt * 8.0f, receiving_text_input ? 1.0f : 0.0f);
 
+		PROFILE_SCOPE("Mobile button rendering and processing")
+		{
+			if(mobile_controls)
+			{
+				float screen_margin = 25.0f;
+				float btwn_margin = screen_margin;
+				float button_width = screen_size().x / 2.0f - screen_margin;
+				float button_height = screen_size().y / 8.0f;
+				Vec2 button_size = V2(button_width, button_height);
+				Vec2 button_pos = V2(screen_size().x - screen_margin - button_width/2.0f, screen_margin + button_height/2.0f);
+				pressed.interact = imbutton(aabb_centered(button_pos, button_size), 1.0f, S8Lit("Interact"));
+			}
+		}
+
 		Vec3 cam_target_pos = V3(0, 0, 0);
 		if (gs.edit.enabled)
 		{
@@ -6011,22 +6025,6 @@ void frame(void)
 							thumbstick_nub_pos = thumbstick_base_pos;
 						}
 					}
-					if (LenV2(SubV2(touchpoint_screen_pos, roll_button_pos())) < mobile_button_size() * 0.5f)
-					{
-						roll_pressed_by = activate(point.identifier);
-						mobile_roll_pressed = true;
-					}
-					if (LenV2(SubV2(touchpoint_screen_pos, interact_button_pos())) < mobile_button_size() * 0.5f)
-					{
-						interact_pressed_by = activate(point.identifier);
-						mobile_interact_pressed = true;
-						pressed.interact = true;
-					}
-					if (LenV2(SubV2(touchpoint_screen_pos, attack_button_pos())) < mobile_button_size() * 0.5f)
-					{
-						attack_pressed_by = activate(point.identifier);
-						mobile_attack_pressed = true;
-					}
 				}
 
 				if (e->type == SAPP_EVENTTYPE_TOUCHES_MOVED)
@@ -6050,18 +6048,6 @@ void frame(void)
 				{
 					if (point.changed) // only some of the touch events are released
 					{
-						if (maybe_deactivate(&interact_pressed_by, point.identifier))
-						{
-							mobile_interact_pressed = false;
-						}
-						if (maybe_deactivate(&roll_pressed_by, point.identifier))
-						{
-							mobile_roll_pressed = false;
-						}
-						if (maybe_deactivate(&attack_pressed_by, point.identifier))
-						{
-							mobile_attack_pressed = false;
-						}
 						if (maybe_deactivate(&movement_touch, point.identifier))
 						{
 							thumbstick_nub_pos = thumbstick_base_pos;
@@ -6082,6 +6068,7 @@ void frame(void)
 				player(&gs)->destroy = true;
 			}
 		}
+
 		PROFILE_SCOPE("Editor Rendering")
 		{
 			if (keypressed[SAPP_KEYCODE_TAB])
@@ -7346,13 +7333,6 @@ void frame(void)
 			float thumbstick_nub_size = (img_size(image_mobile_thumbstick_nub).x / img_size(image_mobile_thumbstick_base).x) * thumbstick_base_size();
 			draw_quad((DrawParams){quad_centered(thumbstick_base_pos, V2(thumbstick_base_size(), thumbstick_base_size())), IMG(image_mobile_thumbstick_base), WHITE, .layer = LAYER_UI_FG});
 			draw_quad((DrawParams){quad_centered(thumbstick_nub_pos, V2(thumbstick_nub_size, thumbstick_nub_size)), IMG(image_mobile_thumbstick_nub), WHITE, .layer = LAYER_UI_FG});
-
-			if (interacting_with)
-			{
-				draw_quad((DrawParams){quad_centered(interact_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .layer = LAYER_UI_FG});
-			}
-			draw_quad((DrawParams){quad_centered(roll_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .layer = LAYER_UI_FG});
-			draw_quad((DrawParams){quad_centered(attack_button_pos(), V2(mobile_button_size(), mobile_button_size())), IMG(image_mobile_button), WHITE, .layer = LAYER_UI_FG});
 		}
 
 #ifdef DEVTOOLS
@@ -7601,6 +7581,7 @@ void frame(void)
 			for(TouchEvent *t = events_this_frame_first; t; t = t->next) {
 				if(t->consumed) {
 					DblRemove(events_this_frame_first, events_this_frame_last, t);
+					StackPush(touch_event_freelist, t);
 					found_removed = true;
 					break;
 				}
