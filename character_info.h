@@ -38,6 +38,7 @@ typedef enum
 	ARGTYPE_invalid = 0,
 	ARGTYPE_text,
 	ARGTYPE_character,
+	ARGTYPE_item,
 } ArgType;
 
 typedef struct ArgumentSpecification
@@ -54,8 +55,49 @@ typedef enum
 	ACT_invalid = 0,
 	ACT_none,
 	ACT_say_to,
+	ACT_pick_up,
+	ACT_use_item,
 } ActionKind;
 
+typedef enum
+{
+	ITEM_invalid = 0,
+	ITEM_revolver,
+	ITEM_size
+} ItemKind;
+
+typedef struct ItemInfo
+{
+	TextChunk name;
+	TextChunk description;
+	ItemKind gameplay_kind;
+} ItemInfo;
+ItemInfo item_information[] = {
+	{
+		.name = TextChunkLitC("invalid"),
+		.description = TextChunkLitC("invalid"),
+		.gameplay_kind = ITEM_invalid,
+	},
+	{
+		.name = TextChunkLitC("revolver"),
+		.description = TextChunkLitC("A revolver that kills on sight"),
+		.gameplay_kind = ITEM_revolver,
+	}
+};
+
+bool kind_valid(ItemKind kind) {
+	return kind != ITEM_invalid && (kind >= 1 && kind < ITEM_size);
+}
+
+ItemInfo *item_by_enum(ItemKind item) {
+	ARR_ITER(ItemInfo, item_information) {
+		if(it->gameplay_kind == item) {
+			return it;
+		}
+	}
+	assert(false);
+	return 0;
+}
 typedef struct SituationAction
 {
 	TextChunk name;
@@ -87,6 +129,32 @@ SituationAction gamecode_actions[] = {
 			},
 		},
 		.gameplay_action = ACT_say_to,
+	},
+	{
+		.name = TextChunkLitC("pick_up"),
+		.description = TextChunkLitC("Pick up the provided item"),
+		.args.cur_index = 1,
+		.args.data = {
+			{
+				.name = TextChunkLitC("target"),
+				.description = TextChunkLitC("The target item to pick up"),
+				.expected_type = ARGTYPE_item,
+			},
+		},
+		.gameplay_action = ACT_pick_up,
+	},
+	{
+		.name = TextChunkLitC("use_item"),
+		.description = TextChunkLitC("Use the item you're currently holding"),
+		.args.cur_index = 1,
+		.args.data = {
+			{
+				.name = TextChunkLitC("target"),
+				.description = TextChunkLitC("The target to use the item at."),
+				.expected_type = ARGTYPE_character,
+			},
+		},
+		.gameplay_action = ACT_use_item,
 	},
 };
 

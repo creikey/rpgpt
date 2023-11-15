@@ -296,7 +296,7 @@ float AngleOfV2(Vec2 v)
 
 
 
-float lerp_angle(float from, float t, float to)
+float LerpAngle(float from, float t, float to)
 {
 	double difference = fmod(to - from, TAU);
 	double distance = fmod(2.0 * difference, TAU) - difference;
@@ -825,7 +825,7 @@ AABB grow_from_ml(Vec2 ml, Vec2 offset, Vec2 size) {
 // aabb advice by iRadEntertainment
 Vec2 entity_aabb_size(Entity *e)
 {
-	if (e->is_npc)
+	if (e->is_npc || e->is_item)
 	{
 		return V2(1,1);
 	}
@@ -984,6 +984,7 @@ SER_MAKE_FOR_TYPE(double);
 SER_MAKE_FOR_TYPE(float);
 SER_MAKE_FOR_TYPE(PropKind);
 SER_MAKE_FOR_TYPE(NpcKind);
+SER_MAKE_FOR_TYPE(ItemKind);
 SER_MAKE_FOR_TYPE(ActionKind);
 SER_MAKE_FOR_TYPE(Memory);
 SER_MAKE_FOR_TYPE(Vec2);
@@ -1230,6 +1231,7 @@ void initialize_animated_properties(Arena *arena, Armature *armature) {
 	for(int i = 0; i < armature->bones_length; i++)
 	{
 		armature->anim_blended_poses[i] = (Transform){.scale = V3(1,1,1), .rotation = Make_Q(1,0,0,1)};
+		armature->current_poses[i] = (Transform){.scale = V3(1,1,1), .rotation = Make_Q(1,0,0,1)};
 	}
 }
 
@@ -1913,12 +1915,35 @@ void remember_action(Entity *who_should_remember, Entity *from, Action act) {
 	switch(act.kind){
 		case ACT_invalid:
 		break;
+
 		case ACT_none:
 		break;
+
 		case ACT_say_to:
 		{
 			String8 to_identified = stringify_identity(who_should_remember, act.args.data[0].character->npc_kind, true);
 			memory = FmtWithLint(frame_arena, "%.*s said out loud '%.*s' to %.*s", S8VArg(stringify_identity(who_should_remember, from->npc_kind, false)), TCVArg(act.args.data[1].text), S8VArg(to_identified));
+		}
+		break;
+
+		case ACT_pick_up:
+		{
+			TextChunk pickedup_name = item_by_enum(act.args.data[0].item->item_kind)->name;
+			memory = FmtWithLint(frame_arena, "%.*s picked up the %.*s", S8VArg(stringify_identity(who_should_remember, from->npc_kind, false)), TCVArg(pickedup_name));
+		}
+		break;
+
+		case ACT_use_item:
+		{
+			assert(gete(from->held_item));
+			String8 from_str = stringify_identity(who_should_remember, from->npc_kind, false);
+			String8 to_str = stringify_identity(who_should_remember, act.args.data[0].character->npc_kind, true);
+			TextChunk pickedup_name = item_by_enum(gete(from->held_item)->item_kind)->name;
+			memory = FmtWithLint(frame_arena, "%.*s used %.*s on %.*s",
+				S8VArg(from_str),
+				TCVArg(pickedup_name),
+				S8VArg(to_str)
+			);
 		}
 		break;
 	}
@@ -1930,17 +1955,12 @@ void remember_action(Entity *who_should_remember, Entity *from, Action act) {
 	}
 }
 
-void perform_action(Entity *from, Action act) {
-	ENTITIES_ITER(gs.entities) {
-		if(it->is_npc && it->current_roomid == from->current_roomid) {
-			remember_action(it, from, act);
-		}
-	}
+void perform_action(Entity *from, Response *response) {
 	
 	// turn the action into a cutscene
-	if(from->npc_kind != NPC_player) {
+	{
 		CutsceneEvent *new_event = make_cutscene_event();
-		new_event->action = act;
+		new_event->response = *response;
 		new_event->author = frome(from);
 		DblPushBack(gs.unprocessed_first, gs.unprocessed_last, new_event);
 	}
@@ -1979,6 +1999,8 @@ Entity *get_targeted(Entity *from, NpcKind targeted)
 	}
 	return 0;
 }
+
+Armature player_armature = {0};
 
 u8 CharToUpper(u8 c);
 
@@ -2264,13 +2286,6 @@ void initialize_gamestate(GameState *gs, u64 roomid) {
 	rnd_gamerand_seed(&gs->random, RANDOM_SEED);
 }
 
-void reset_level()
-{
-	Log("STUB\n");
-	// you prob want to do something like all dead entities are alive and reset to their editor positions.
-	// This means entities need an editor spawnpoint position and a gameplay position....
-}
-
 enum
 {
 	V0,
@@ -2280,6 +2295,11 @@ enum
 	VEditingDialog,
 	VDescription,
 	VDead,
+	VItem,
+	VCamPan,
+	VPlaceRevolver,
+	VItemKind,
+	VHeldItem,
 
 	VMax,
 } Version;
@@ -2321,6 +2341,13 @@ void ser_Entity(SerState *ser, Entity *e)
 		ser_u64(ser, &e->current_roomid);
 	}
 
+	if(ser->version >= VItem)
+		ser_bool(ser, &e->is_item);
+	if(ser->version >= VItemKind)
+		ser_ItemKind(ser, &e->item_kind);
+
+	if(ser->version >= VHeldItem)
+		ser_EntityRef(ser, &e->held_item);
 	ser_bool(ser, &e->is_world);
 	ser_bool(ser, &e->is_npc);
 
@@ -2392,6 +2419,9 @@ void ser_EditorState(SerState *ser, EditorState *ed) {
 		ser_bool(ser, &ed->editing_dialog_open);
 
 	ser_bool(ser, &ed->placing_spawn);
+	if(ser->version >= VPlaceRevolver)
+		ser_bool(ser, &ed->placing_revolver);
+
 	ser_u64(ser, &ed->player_spawn_roomid);
 	ser_Vec2(ser, &ed->player_spawn_position);
 }
@@ -2410,6 +2440,9 @@ void ser_GameState(SerState *ser, GameState *gs)
 	ser_bool(ser, &gs->won);
 
 	ser_EditorState(ser, &gs->edit);
+
+	if(ser->version >= VCamPan)
+		ser_Vec3(ser, &gs->cur_cam_pos);
 
 	ser_double(ser, &gs->time);
 	SER_BUFF(ser, Npc, &gs->characters);
@@ -2510,6 +2543,7 @@ GameState *load_from_string(Arena *arena, Arena *error_arena, String8 data, Stri
 	}
 	return to_return;
 }
+
 
 #ifdef WEB
 EMSCRIPTEN_KEEPALIVE
@@ -3120,20 +3154,25 @@ LoadedFont load_font(Arena *arena, String8 font_filepath, float font_size)
 	return to_return;
 }
 
-Armature player_armature = {0};
-Armature farmer_armature = {0};
-Armature shifted_farmer_armature = {0};
-Armature man_in_black_armature = {0};
-Armature angel_armature = {0};
+void reload_game() {
+	cleanup_gamestate(&gs);
+	bool loaded_from_file = false;
+	{
+		String8 game_file = LoadEntireFile(frame_arena, S8Lit("assets/main_game_level.bin"));
+		String8 error = {0};
+		GameState *deserialized_gs = load_from_string(frame_arena, frame_arena, game_file, &error);
 
-// armatureanimations are processed once every visual frame from this list
-Armature *armatures[] = {
-	&player_armature,
-	&farmer_armature,
-	&shifted_farmer_armature,
-	&man_in_black_armature,
-	&angel_armature,
-};
+		if(error.size == 0) {
+			gs = *deserialized_gs;
+			loaded_from_file = true;
+		}  else {
+			Log("Failed to load from saved gamestate: %.*s\n", S8VArg(error));
+		}
+	}
+	if(!loaded_from_file)
+		initialize_gamestate(&gs, level_threedee.room_list_first->roomid);
+}
+
 
 Mesh mesh_simple_worm = {0};
 Mesh mesh_shotgun = {0};
@@ -3241,38 +3280,23 @@ void init(void)
 	binary_file = LoadEntireFile(frame_arena, S8Lit("assets/exported_3d/NormalGuyArmature.bin"));
 	player_armature = load_armature(persistent_arena, binary_file, S8Lit("NormalGuyArmature.bin"));
 
-	man_in_black_armature = load_armature(persistent_arena, binary_file, S8Lit("Man In Black"));
-	man_in_black_armature.image = image_man_in_black;
+	// man_in_black_armature = load_armature(persistent_arena, binary_file, S8Lit("Man In Black"));
+	// man_in_black_armature.image = image_man_in_black;
 
-	angel_armature = load_armature(persistent_arena, binary_file, S8Lit("Angel"));
-	angel_armature.image = image_angel;
+	// angel_armature = load_armature(persistent_arena, binary_file, S8Lit("Angel"));
+	// angel_armature.image = image_angel;
 
-	binary_file = LoadEntireFile(frame_arena, S8Lit("assets/exported_3d/FarmerArmature.bin"));
-	farmer_armature = load_armature(persistent_arena, binary_file, S8Lit("FarmerArmature.bin"));
+	// binary_file = LoadEntireFile(frame_arena, S8Lit("assets/exported_3d/FarmerArmature.bin"));
+	// farmer_armature = load_armature(persistent_arena, binary_file, S8Lit("FarmerArmature.bin"));
 
-	shifted_farmer_armature = load_armature(persistent_arena, binary_file, S8Lit("Farmer.bin"));
-	shifted_farmer_armature.image = image_shifted_farmer;
+	// shifted_farmer_armature = load_armature(persistent_arena, binary_file, S8Lit("Farmer.bin"));
+	// shifted_farmer_armature.image = image_shifted_farmer;
 
 	Log("Done. Used %f of the frame arena, %d kB\n", (double)frame_arena->pos / (double)frame_arena->cap, (int)(frame_arena->pos / 1024));
 
 	ArenaClear(frame_arena);
 
-	cleanup_gamestate(&gs);
-	bool loaded_from_file = false;
-	{
-		String8 game_file = LoadEntireFile(frame_arena, S8Lit("assets/main_game_level.bin"));
-		String8 error = {0};
-		GameState *deserialized_gs = load_from_string(frame_arena, frame_arena, game_file, &error);
-
-		if(error.size == 0) {
-			gs = *deserialized_gs;
-			loaded_from_file = true;
-		}  else {
-			Log("Failed to load from saved gamestate: %.*s\n", S8VArg(error));
-		}
-	}
-	if(!loaded_from_file)
-		initialize_gamestate(&gs, level_threedee.room_list_first->roomid);
+	reload_game();
 
 #ifdef DEVTOOLS
 	do_metadesk_tests();
@@ -3967,6 +3991,13 @@ int rendering_compare(const void *a, const void *b)
 	return (int)((a_draw->sorting_key - b_draw->sorting_key));
 }
 
+Entity *who_is_holding(Entity *item) {
+	ENTITIES_ITER(gs.entities) {
+		if(gete(it->held_item) == item) return it;
+	}
+	return 0;
+}
+
 void swapVec2(Vec2 *p1, Vec2 *p2)
 {
 	Vec2 tmp = *p1;
@@ -4522,7 +4553,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 	{
 		ENTITIES_ITER(gs.entities)
 		{
-			if (it != p.from && !(it->is_npc && it->dead) && !it->is_world && it->current_roomid == p.from->current_roomid)
+			if (it != p.from && !(it->is_npc && it->dead) && !it->is_world && !it->is_item && it->current_roomid == p.from->current_roomid)
 			{
 				BUFF_APPEND(&to_check, ((CollisionObj){(CollisionShape){.circle.center = it->pos, .circle.radius = entity_radius(it)}, it}));
 			}
@@ -5233,6 +5264,7 @@ void actually_draw_thing(DrawnThing *it, Mat4 light_space_matrix, bool for_outli
 	sg_draw(0, num_vertices_to_draw, 1);
 }
 
+
 typedef struct
 {
 	Mat4 view;
@@ -5577,6 +5609,7 @@ String8List words_on_current_page_without_unsaid(Entity *it, TextPlacementSettin
 	return to_return;
 }
 
+
 // the returned action is checked to ensure that it's allowed according to the current gamestate
 // the error out is fed into the AI, so make it make sense.
 Action bake_into_action(Arena *error_arena, String8 *error_out, GameState *gs, Entity *taking_the_action, Response *resp) {
@@ -5592,48 +5625,66 @@ Action bake_into_action(Arena *error_arena, String8 *error_out, GameState *gs, E
 		}
 	}
 	if(!cur_action) {
-		error("You output action '%.*s', don't know what that is\n", TCVArg(resp->action));
+		error("You output action '%.*s', this is an invalid action as it doesn't exist in the game\n", TCVArg(resp->action));
 	}
 
 
 	Action ret = {0};
-	ret.kind = cur_action->gameplay_action;
 
-	BUFF_ITER_I(ArgumentSpecification, &cur_action->args, arg_index) {
-		TextChunk argtext = resp->arguments.data[arg_index];
-		ActualActionArgument out = {0};
-		switch(it->expected_type) {
-			case ARGTYPE_invalid:
-			error("At index %d expected no argument, but found one.", arg_index);
-			break;
+	if(error_out->size == 0) {
+		ret.kind = cur_action->gameplay_action;
+		BUFF_ITER_I(ArgumentSpecification, &cur_action->args, arg_index) {
+			TextChunk argtext = resp->arguments.data[arg_index];
+			ActualActionArgument out = {0};
+			switch(it->expected_type) {
+				case ARGTYPE_invalid:
+				error("At index %d expected no argument, but found one.", arg_index);
+				break;
 
-			case ARGTYPE_text:
-			out.text = argtext;
-			break;
+				case ARGTYPE_text:
+				out.text = argtext;
+				break;
 
-			case ARGTYPE_character:
-			{
-				bool found = false;
-				ENTITIES_ITER(gs->entities) {
-					if(S8Match(npc_name(it), TCS8(argtext), 0)) {
-						found = true;
-						out.character = it;
+				case ARGTYPE_character:
+				{
+					bool found = false;
+					ENTITIES_ITER(gs->entities) {
+						if(S8Match(npc_name(it), TCS8(argtext), 0)) {
+							found = true;
+							out.character = it;
+						}
+					}
+					if(!found) {
+						error("The character you're referring to at argument index %d, `%.*s`, doesn't exist in the game", arg_index, TextChunkVArg(argtext));
 					}
 				}
-				if(!found) {
-					error("The character you're referring to at index %d, `%.*s`, doesn't exist in the game", arg_index, TextChunkVArg(argtext));
+				break;
+				case ARGTYPE_item:
+				{
+					bool found = false;
+					ENTITIES_ITER(gs->entities) {
+						if(it->is_item && S8Match(TCS8(item_by_enum(it->item_kind)->name), TCS8(argtext), 0)) {
+							found = true;
+							out.item = it;
+						}
+					}
+					if(!found) {
+						error("The item you're referring to at argument index %d, `%.*s`, doesn't exist in the game", arg_index, TextChunkVArg(argtext));
+					}
+				
 				}
+				break;
 			}
-			break;
-		}
-		if(error_out->size == 0) {
-			ret.args.data[arg_index] = out;
+			if(error_out->size == 0) {
+				ret.args.data[arg_index] = out;
+			}
 		}
 	}
 	if(error_out->size == 0)
 		ret.args.cur_index = cur_action->args.cur_index;
 
 	// validate that the action is allowed in the gameplay, and everything there looks good
+	if(error_out->size == 0)
 	switch(ret.kind) {
 		case ACT_invalid:
 		assert(false);
@@ -5659,6 +5710,32 @@ Action bake_into_action(Arena *error_arena, String8 *error_out, GameState *gs, E
 			}
 		}
 		break;
+		case ACT_pick_up:
+		{
+			assert(act_by_enum(ACT_pick_up)->args.data[0].expected_type == ARGTYPE_item);
+			Entity *holding = who_is_holding(ret.args.data[0].item);
+			if(holding)
+			{
+				assert(holding->is_npc);
+				error("You can't pick up the item '%.*s', %.*s is already holding it", TCVArg(item_by_enum(ret.args.data[0].item->item_kind)->name), S8VArg(npc_name(holding)));
+			}
+			else if(ret.args.data[0].item->current_roomid != taking_the_action->current_roomid) {
+				error("You can't pick up the item '%.*s', it's not in the same room as you", TCVArg(item_by_enum(ret.args.data[0].item->item_kind)->name));
+			}
+		}
+		break;
+
+		case ACT_use_item:
+		{
+			Entity *item = gete(taking_the_action->held_item);
+			if(!item) {
+				error("You can't use an item when you're not currently holding one!");
+			} else {
+				if(ret.args.data[0].character == 0) {
+					error("You must provide a target character as the first argument when using an item");
+				}
+			}
+		}
 	}
 
 	#undef error
@@ -5754,7 +5831,7 @@ void frame(void)
 			if(mobile_controls)
 			{
 				float screen_margin = 25.0f;
-				float btwn_margin = screen_margin;
+				// float btwn_margin = screen_margin;
 				float button_width = screen_size().x / 2.0f - screen_margin;
 				float button_height = screen_size().y / 8.0f;
 				Vec2 button_size = V2(button_width, button_height);
@@ -5771,10 +5848,23 @@ void frame(void)
 		}
 		else if(gs.unprocessed_first)
 		{
-			if(gs.unprocessed_first->action.kind == ACT_say_to) {
-				cam_target_pos.x = gete(gs.unprocessed_first->author)->pos.x;
-				cam_target_pos.z = gete(gs.unprocessed_first->author)->pos.y;
+			Vec2 target = V2(cam_target_pos.x, cam_target_pos.z);
+			switch(gs.unprocessed_first->action.kind) {
+				case ACT_invalid:
+				case ACT_none:
+				break;
+
+				case ACT_say_to:
+				case ACT_use_item:
+				target = gete(gs.unprocessed_first->author)->pos;
+				break;
+
+				case ACT_pick_up:
+				target = gs.unprocessed_first->action.args.data[0].item->pos;
+				break;
 			}
+			cam_target_pos.x = target.x;
+			cam_target_pos.z = target.y;
 		}
 		else if (player(&gs))
 		{
@@ -5884,6 +5974,7 @@ void frame(void)
 
 		// @Place(draw 3d things)
 
+		PROFILE_SCOPE("Draw level stuff")
 		for (PlacedMesh *cur = get_cur_room(&gs, &level_threedee)->placed_mesh_list; cur; cur = cur->next)
 		{
 			float seed = (float)((int64_t)cur % 1024);
@@ -5919,11 +6010,22 @@ void frame(void)
 		}
 
 		// @Place(Draw entities)
+		PROFILE_SCOPE("Draw 3d entities")
 		ENTITIES_ITER(gs.entities)
+		if(it->current_roomid == get_cur_room(&gs, &level_threedee)->roomid)
 		{
-			if (it->is_npc && it->current_roomid == get_cur_room(&gs, &level_threedee)->roomid)
+			if(it->is_item) 
 			{
-				assert(it->is_npc);
+				Transform draw_with = entity_transform(it);
+				float scale = 4.0f;
+				draw_with.scale = V3(scale, scale, scale);
+				draw_thing((DrawnThing){
+					.mesh = &mesh_shotgun,
+					.t = draw_with,
+				});
+			}
+			else if (it->is_npc)
+			{
 				Transform draw_with = entity_transform(it);
 				if(!it->armature) {
 					it->armature = duplicate_armature(gs.arena, &player_armature);
@@ -6065,7 +6167,7 @@ void frame(void)
 			float margin = size/2.0f;
 			bool kill_self = imbutton(aabb_centered(AddV2(stats(screen_aabb()).ur, V2(-margin, -margin)), V2(size, size)), .icon = &image_retry, .icon_padding = size * 0.1f, .nobg = true);
 			if(kill_self && player(&gs)) {
-				player(&gs)->destroy = true;
+				gs.want_reset = true;
 			}
 		}
 
@@ -6129,6 +6231,11 @@ void frame(void)
 					gs.edit.placing_spawn = true;
 				}
 
+				if (imbutton(grow_from_ml(stats(screen_aabb()).ml, V2(10.0f, -70.0f), V2(200.0f, 60.0f)), 1.0f, S8Lit("Place Revolver")))
+				{
+					gs.edit.placing_revolver = true;
+				}
+
 				if (gs.edit.placing_spawn)
 				{
 					gs.edit.player_spawn_position = point_plane(point_on_plane_from_camera_point(view, mouse_pos));
@@ -6136,6 +6243,31 @@ void frame(void)
 					if (pressed.mouse_down)
 					{
 						gs.edit.placing_spawn = false;
+					}
+				}
+				if (gs.edit.placing_revolver)
+				{
+					Entity *revolver = 0;
+					ENTITIES_ITER(gs.entities) {
+						if(it->is_item && it->item_kind == ITEM_revolver) {
+							revolver = it;
+						}
+					}
+
+					if(!revolver) {
+						revolver = new_entity(&gs);
+						revolver->is_item = true;
+						revolver->item_kind = ITEM_revolver;
+					}
+
+					Entity *holding = who_is_holding(revolver);
+					if(holding) holding->held_item = (EntityRef){0};
+
+					revolver->pos = point_plane(point_on_plane_from_camera_point(view, mouse_pos));
+					revolver->current_roomid = get_cur_room(&gs, &level_threedee)->roomid;
+					if (pressed.mouse_down)
+					{
+						gs.edit.placing_revolver = false;
 					}
 				}
 
@@ -6369,9 +6501,33 @@ void frame(void)
 			do {
 				delete = false;
 				CutsceneEvent *cut = gs.unprocessed_first;
-				if(!gete(cut->author)) {
+				Entity *author = gete(cut->author);
+				if(!author) {
 					delete = true;
 				} else {
+					if(cut->action.kind == 0) {
+						Entity *e = author;
+						String8 err = {0};
+						cut->action = bake_into_action(frame_arena, &err, &gs, e, &cut->response);
+						if(err.size > 0) {
+							Log("Error while baking to action: '%.*s'", S8VArg(err));
+							TextChunk out_err = {0};
+							chunk_from_s8(&out_err, S8Chop(err, MAX_SENTENCE_LENGTH));
+							BUFF_QUEUE_APPEND(&e->error_notices, out_err);
+							break;
+						} else {
+							// the action is happening!
+							ENTITIES_ITER(gs.entities) {
+								if(it->is_npc && it->current_roomid == author->current_roomid) {
+									remember_action(it, author, cut->action);
+								}
+							}
+						}
+					}
+
+					if(author->npc_kind == NPC_player) {
+						delete = true;
+					} else
 					switch (cut->action.kind)
 					{
 						case ACT_invalid:
@@ -6380,7 +6536,7 @@ void frame(void)
 							break;
 						case ACT_say_to:
 						{
-							Entity *e = gete(cut->author);
+							Entity *e = author;
 							Vec3 threedee_point_at_head = AddV3(plane_point(e->pos), V3(0, 1.7f, 0)); // 1.7 meters is about 5'8", average person height
 							Vec2 bubble_center = AddV2(threedee_to_screenspace(threedee_point_at_head), V2(0, 50.0f));
 
@@ -6428,10 +6584,47 @@ void frame(void)
 							}
 						}
 						break;
+						case ACT_pick_up:
+						{
+							// action side effects
+							if(cut->action.kind == ACT_pick_up) {
+								author->held_item = frome(cut->action.args.data[0].item);
+							}
+
+							delete = cut->time_cutscene_shown >= ITEM_PICKUP_CUT_TIME;
+						}
+						break;
+						case ACT_use_item:
+						{
+							Entity *item = gete(author->held_item);
+							if(!item) {
+								Log("No item for cutscene...\n");
+								delete = true;
+							} else {
+								switch(item->item_kind) {
+									case ITEM_invalid:
+									case ITEM_size:
+									delete = true;
+									break;
+
+									case ITEM_revolver:
+									{
+										Entity *target = cut->action.args.data[0].character;
+										target->killed = true;
+									}
+									break;
+								}
+							}
+							delete = cut->time_cutscene_shown >= ITEM_USE_CUT_TIME;
+						}
 					}
 				}
 				if(delete) DblRemove(gs.unprocessed_first, gs.unprocessed_last, gs.unprocessed_first);
 			} while(delete && gs.unprocessed_first); // so that events that shouldn't be there like none events or broken ones, the camera doesn't pan to them, delete them in sequence lik this, such that either the currnet unprocessed first should be animated/focusd on or it shouldn't be there anymore 
+		}
+
+		if(gs.unprocessed_first) {
+			gs.unprocessed_first->time_cutscene_shown += unwarped_dt_double;
 		}
 
 
@@ -6489,7 +6682,7 @@ void frame(void)
 						assert(!(it->exists && it->generation == 0));
 
 						if (LenV2(it->last_moved) > 0.0f && !it->killed)
-							it->rotation = lerp_angle(it->rotation, dt * (it->quick_turning_timer > 0 ? 12.0f : 8.0f), AngleOfV2(it->last_moved));
+							it->rotation = LerpAngle(it->rotation, dt * (it->quick_turning_timer > 0 ? 12.0f : 8.0f), AngleOfV2(it->last_moved));
 
 						if (it->is_npc)
 						{
@@ -6497,6 +6690,12 @@ void frame(void)
 							if (it->dialog_fade > 0.0f)
 								it->dialog_fade -= dt / DIALOG_FADE_TIME;
 							Entity *e = it;
+							 
+							Entity *held = gete(it->held_item);
+							if(held) {
+								held->pos = LerpV2(held->pos, unwarped_dt*9.0f, it->pos);
+								held->rotation = LerpAngle(held->rotation, unwarped_dt*9.0f, it->rotation);
+							}
 								
 							Entity *toface = 0;
 							if (gete(it->aiming_shotgun_at))
@@ -6515,7 +6714,7 @@ void frame(void)
 								it->target_rotation = AngleOfV2(SubV2(toface->pos, it->pos));
 
 							if (it->npc_kind != NPC_player)
-								it->rotation = lerp_angle(it->rotation, unwarped_dt * 8.0f, it->target_rotation);
+								it->rotation = LerpAngle(it->rotation, unwarped_dt * 8.0f, it->target_rotation);
 
 							if (it->gen_request_id != 0 && !gs.stopped_time)
 							{
@@ -6568,17 +6767,19 @@ void frame(void)
 										}
 										String8 err = {0};
 										FullResponse *resp = json_to_responses(frame_arena, response.ai_response, &err);
-										BUFF_ITER(Response, resp) {
-											Action baked = bake_into_action(frame_arena, &err, &gs, e, it);
-											if(err.size > 0) {
-												Log("Error while baking to action: '%.*s'", S8VArg(err));
-												ai_error = true;
-												TextChunk out_err = {0};
-												chunk_from_s8(&out_err, S8Chop(err, MAX_SENTENCE_LENGTH));
-												BUFF_QUEUE_APPEND(&e->error_notices, out_err);
-												break;
+										if(err.size > 0) {
+											Log("Error while parsing ai response: '%.*s'", S8VArg(err));
+											ai_error = true;
+											TextChunk out_err = {0};
+											chunk_from_s8(&out_err, S8Chop(err, MAX_SENTENCE_LENGTH));
+											BUFF_QUEUE_APPEND(&e->error_notices, out_err);
+										} else {
+											// the reason I perform all of the actions one by one instead of validating them all before acting,
+											// is because sometimes actions in the full response aren't valid until the ones before have completed their
+											// side effects. E.g if ai outputs pick_up then use_item, use_item is invalid until the previous one completes.
+											BUFF_ITER(Response, resp) {
+												perform_action(e, it);
 											}
-											perform_action(e, baked);
 										}
 									}
 
@@ -6976,6 +7177,9 @@ void frame(void)
 						else if (it->is_world)
 						{
 						}
+						else if (it->is_item)
+						{
+						}
 						else
 						{
 							assert(false);
@@ -7053,13 +7257,10 @@ void frame(void)
 								{
 									String8 what_player_said = text_to_say;
 									what_player_said = S8ListJoin(frame_arena, S8Split(frame_arena, what_player_said, 1, &S8Lit("\n")), &(StringJoin){0});
-									Action act = {
-										.kind = ACT_say_to,
-									};
-									act.args.data[0].character = targeting;
-									chunk_from_s8(&act.args.data[1].text, what_player_said);
-									act.args.cur_index = 2;
-									perform_action(player(&gs), act);
+									Response *resp = PushArrayZero(frame_arena, Response, 1);
+									resp->action = TextChunkLit("say_to");
+									BUFF_APPEND(&resp->arguments, npc_data(&gs, targeting->npc_kind)->name);
+									perform_action(player(&gs), resp);
 								}
 							}
 						}
@@ -7103,7 +7304,7 @@ void frame(void)
 							player(&gs)->interacting_with = frome(interacting_with);
 						}
 
-						if (pressed.interact)
+						if (!player(&gs)->killed && pressed.interact)
 						{
 							if (closest_interact_with)
 							{
@@ -7171,7 +7372,7 @@ void frame(void)
 						// health
 						if (player(&gs)->damage >= 1.0)
 						{
-							reset_level();
+							gs.want_reset = true;
 						}
 					}
 
@@ -7275,39 +7476,7 @@ void frame(void)
 
 			if (imbutton(aabb_centered(V2(screen_size().x / 2.0f, screen_size().y * 0.25f), MulV2F(V2(170.0f, 60.0f), visible)), 1.5f * visible, S8Lit("Restart")))
 			{
-				reset_level();
-			}
-		}
-
-		// killed screen
-		if (player(&gs))
-		{
-			static float visible = 0.0f;
-			float target = 0.0f;
-			bool anybody_unread = false;
-			ENTITIES_ITER(gs.entities)
-			{
-				if (it->undismissed_action)
-					anybody_unread = true;
-			}
-			if (player(&gs)->killed && (!anybody_unread || gs.finished_reading_dying_dialog))
-			{
-				gs.finished_reading_dying_dialog = true;
-				target = 1.0f;
-			}
-			visible = Lerp(visible, unwarped_dt * 4.0f, target);
-
-			draw_quad((DrawParams){quad_at(V2(0, screen_size().y), screen_size()), IMG(image_white_square), blendalpha(BLACK, visible * 0.7f), .layer = LAYER_UI});
-			float shake_speed = 9.0f;
-			Vec2 win_offset = V2(sinf((float)unwarped_elapsed_time * shake_speed * 1.5f + 0.1f), sinf((float)unwarped_elapsed_time * shake_speed + 0.3f));
-			win_offset = MulV2F(win_offset, 10.0f);
-			draw_centered_text((TextParams){false, S8Lit("YOU FAILED TO SAVE DANIEL"), AddV2(MulV2F(screen_size(), 0.5f), win_offset), WHITE, 3.0f * visible}); // YOU DIED
-
-			if (imbutton(aabb_centered(V2(screen_size().x / 2.0f, screen_size().y * 0.25f), MulV2F(V2(170.0f, 60.0f), visible)), 1.5f * visible, S8Lit("Continue")))
-			{
-				player(&gs)->killed = false;
-				// transition_to_room(&gs, &level_threedee, S8Lit("StartingRoom"));
-				reset_level();
+				gs.want_reset = true;
 			}
 		}
 
@@ -7587,6 +7756,12 @@ void frame(void)
 				}
 			}
 		} while(found_removed);
+	}
+
+	if(gs.want_reset)
+	{
+		Log("Resetting\n");
+		reload_game();
 	}
 }
 

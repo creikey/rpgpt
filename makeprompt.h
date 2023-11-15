@@ -197,11 +197,9 @@ typedef struct Entity
 	bool dead;
 	u64 current_roomid;
 
-	// speech bubbles
-	bool is_speech_bubble;
-	TextChunk speech_bubble_text;
-	float speech_bubble_opacity;
-	CutsceneID for_cutscene;
+	// items
+	bool is_item;
+	ItemKind item_kind;
 
 	// npcs
 	TextInputResultKey player_input_key;
@@ -209,6 +207,7 @@ typedef struct Entity
 	EntityRef joined;
 	EntityRef aiming_shotgun_at;
 	EntityRef looking_at; // aiming shotgun at takes facing priority over this
+	EntityRef held_item;
 	bool killed;
 	float target_rotation; // turns towards this angle in conversation
 	bool being_hovered;
@@ -543,6 +542,7 @@ typedef struct EditorState {
 	bool editing_dialog_open; // this is so while it's animated being closed the editing_npc data is still there
 
 	bool placing_spawn;
+	bool placing_revolver;
 	u64 player_spawn_roomid;
 	Vec2 player_spawn_position;
 } EditorState;
@@ -550,7 +550,8 @@ typedef struct EditorState {
 typedef struct ActualActionArgument
 {
 	// could be a union but meh.
-	Entity* character;
+	Entity *character;
+	Entity *item;
 	TextChunk text;
 } ActualActionArgument;
 
@@ -573,12 +574,15 @@ typedef struct CutsceneEvent {
 	struct CutsceneEvent *prev;
 
 	CutsceneID id;
-	Action action;
+	Response response;
+	Action action; // baked from the response. If there's an error the AI is notified and the cutscene skipped
 	EntityRef author;
 	double said_letters_of_speech;
+	double time_cutscene_shown;
 } CutsceneEvent;
 
 typedef struct GameState {
+	bool want_reset; // not serialized
 	Arena *arena; // all allocations done with the lifecycle of a gamestate (loading/reloading entire levels essentially) must be allocated on this arena.
 	uint64_t tick;
 	bool won;
