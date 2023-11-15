@@ -81,6 +81,8 @@ __declspec(dllexport) uint32_t AmdPowerXpressRequestHighPerformance = 0x00000001
 #include "dr_wav.h"
 #define STB_DS_IMPLEMENTATION
 #include "stb_ds.h" // placed last because it includes <assert.h>
+#define CUTE_C2_IMPLEMENTATION
+#include "cute_c2.h"
 
 #undef assert
 #define assert game_assert
@@ -1409,11 +1411,80 @@ Armature load_armature(Arena *arena, String8 binary_file, String8 armature_name)
 	return to_return;
 }
 
-typedef struct CollisionCylinder
+typedef struct
 {
-	struct CollisionCylinder *next;
-	Circle bounds;
-} CollisionCylinder;
+	Vec2 ul; // upper left
+	Vec2 um; // upper middle
+	Vec2 ur; // upper right
+	Vec2 mr; // middle right
+	Vec2 lr; // lower right
+	Vec2 lm; // lower middle
+	Vec2 ll; // lower left
+	Vec2 ml; // middle left
+} AABBStats;
+
+bool aabb_is_valid(AABB aabb)
+{
+	Vec2 size_vec = SubV2(aabb.lower_right, aabb.upper_left); // negative in vertical direction
+	return size_vec.Y <= 0.0f && size_vec.X >= 0.0f;
+}
+
+
+// positive in both directions
+Vec2 aabb_size(AABB aabb)
+{
+	assert(aabb_is_valid(aabb));
+	Vec2 size_vec = SubV2(aabb.lower_right, aabb.upper_left); // negative in vertical direction
+	size_vec.y *= -1.0;
+	return size_vec;
+}
+
+AABBStats stats(AABB aabb)
+{
+	Vec2 size = aabb_size(aabb);
+	return (AABBStats){
+		.ul = aabb.upper_left,
+		.um = AddV2(aabb.upper_left, V2(size.x / 2.0f, 0.0)),
+		.ur = AddV2(aabb.upper_left, V2(size.x, 0.0)),
+		.mr = AddV2(aabb.lower_right, V2(0.0, size.y / 2.0f)),
+		.lr = aabb.lower_right,
+		.lm = AddV2(aabb.lower_right, V2(-size.x / 2.0f, 0.0)),
+		.ll = AddV2(aabb.lower_right, V2(-size.x, 0.0)),
+		.ml = AddV2(aabb.upper_left, V2(0.0, -size.y / 2.0f)),
+	};
+}
+
+typedef struct CollisionShape
+{
+	struct CollisionShape *next;
+	bool is_rect;
+	AABB aabb;
+	Circle circle;
+} CollisionShape;
+
+c2v v2_to_c2(Vec2 v) {
+	return (c2v){.x = v.x, .y = v.y};
+}
+Vec2 c2_to_v2(c2v v) {
+	return V2(v.x, v.y);
+}
+
+c2Circle shape_circle(CollisionShape shape) {
+	return (c2Circle) {
+		.p = v2_to_c2(shape.circle.center),
+		.r = shape.circle.radius,
+	};
+}
+
+c2AABB shape_aabb(CollisionShape shape) {
+	return (c2AABB) {
+		.min = v2_to_c2(stats(shape.aabb).ll),
+		.max = v2_to_c2(stats(shape.aabb).ur),
+	};
+}
+
+
+
 
 typedef struct Room
 {
@@ -1425,7 +1496,7 @@ typedef struct Room
 	String8 name;
 	u64 roomid;
 	PlacedMesh *placed_mesh_list;
-	CollisionCylinder *collision_list;
+	CollisionShape *collision_list;
 	PlacedEntity *placed_entity_list;
 } Room;
 
@@ -1551,14 +1622,17 @@ ThreeDeeLevel load_level(Arena *arena, String8 binary_file)
 		ser_u64(&ser, &num_collision_cubes);
 		for (u64 i = 0; i < num_collision_cubes; i++)
 		{
-			CollisionCylinder *new_cylinder = PushArray(arena, CollisionCylinder, 1);
+			CollisionShape *new_shape = PushArray(arena, CollisionShape, 1);
 			Vec2 twodee_pos;
 			Vec2 size;
 			ser_Vec2(&ser, &twodee_pos);
 			ser_Vec2(&ser, &size);
-			new_cylinder->bounds.center = twodee_pos;
-			new_cylinder->bounds.radius = (size.x + size.y) * 0.5f; // @TODO(Phillip): @Temporary
-			StackPush(new_room->collision_list, new_cylinder);
+			new_shape->is_rect = true;
+			new_shape->aabb.upper_left = AddV2(twodee_pos, V2(-size.x, size.y));
+			new_shape->aabb.lower_right = AddV2(twodee_pos, V2(size.x, -size.y));
+			// new_shape->circle.center = twodee_pos;
+			// new_shape->circle.radius = (size.x + size.y) * 0.5f; // @TODO(Phillip): @Temporary
+			StackPush(new_room->collision_list, new_shape);
 		}
 
 		// placed entities
@@ -3578,20 +3652,7 @@ Quad quad_rotated_centered(Vec2 at, Vec2 size, float rotation)
 	return to_return;
 }
 
-bool aabb_is_valid(AABB aabb)
-{
-	Vec2 size_vec = SubV2(aabb.lower_right, aabb.upper_left); // negative in vertical direction
-	return size_vec.Y <= 0.0f && size_vec.X >= 0.0f;
-}
 
-// positive in both directions
-Vec2 aabb_size(AABB aabb)
-{
-	assert(aabb_is_valid(aabb));
-	Vec2 size_vec = SubV2(aabb.lower_right, aabb.upper_left); // negative in vertical direction
-	size_vec.y *= -1.0;
-	return size_vec;
-}
 
 Quad quad_aabb(AABB aabb)
 {
@@ -4357,33 +4418,6 @@ AABB draw_centered_text(TextParams t)
 	return draw_text(t);
 }
 
-typedef struct
-{
-	Vec2 ul; // upper left
-	Vec2 um; // upper middle
-	Vec2 ur; // upper right
-	Vec2 mr; // middle right
-	Vec2 lr; // lower right
-	Vec2 lm; // lower middle
-	Vec2 ll; // lower left
-	Vec2 ml; // middle left
-} AABBStats;
-
-AABBStats stats(AABB aabb)
-{
-	Vec2 size = aabb_size(aabb);
-	return (AABBStats){
-		.ul = aabb.upper_left,
-		.um = AddV2(aabb.upper_left, V2(size.x / 2.0f, 0.0)),
-		.ur = AddV2(aabb.upper_left, V2(size.x, 0.0)),
-		.mr = AddV2(aabb.lower_right, V2(0.0, size.y / 2.0f)),
-		.lr = aabb.lower_right,
-		.lm = AddV2(aabb.lower_right, V2(-size.x / 2.0f, 0.0)),
-		.ll = AddV2(aabb.lower_right, V2(-size.x, 0.0)),
-		.ml = AddV2(aabb.upper_left, V2(0.0, -size.y / 2.0f)),
-	};
-}
-
 int sorting_key_at(Vec2 pos)
 {
 	return -(int)pos.y;
@@ -4471,16 +4505,16 @@ Vec2 move_and_slide(MoveSlideParams p)
 	Circle at_new = {new_pos, collision_radius};
 	typedef struct
 	{
-		Circle circle;
+		CollisionShape shape;
 		Entity *e; // required
 	} CollisionObj;
 	BUFF(CollisionObj, 256)
 	to_check = {0};
 
 	// add world boxes
-	for (CollisionCylinder *cur = get_cur_room(&gs, &level_threedee)->collision_list; cur; cur = cur->next)
+	for (CollisionShape *cur = get_cur_room(&gs, &level_threedee)->collision_list; cur; cur = cur->next)
 	{
-		BUFF_APPEND(&to_check, ((CollisionObj){cur->bounds, world(&gs)}));
+		BUFF_APPEND(&to_check, ((CollisionObj){*cur, world(&gs)}));
 	}
 
 	// add entity boxes
@@ -4490,7 +4524,7 @@ Vec2 move_and_slide(MoveSlideParams p)
 		{
 			if (it != p.from && !(it->is_npc && it->dead) && !it->is_world && it->current_roomid == p.from->current_roomid)
 			{
-				BUFF_APPEND(&to_check, ((CollisionObj){.circle.center = it->pos, .circle.radius = entity_radius(it), it}));
+				BUFF_APPEND(&to_check, ((CollisionObj){(CollisionShape){.circle.center = it->pos, .circle.radius = entity_radius(it)}, it}));
 			}
 		}
 	}
@@ -4504,10 +4538,16 @@ Vec2 move_and_slide(MoveSlideParams p)
 
 	BUFF_ITER(CollisionObj, &to_check)
 	{
-		if (overlapping_circle(at_new, it->circle))
-		{
-			BUFF_APPEND(&actually_overlapping, *it);
+		c2Circle as_circle = shape_circle((CollisionShape){.circle = at_new});
+		bool overlapping = false;
+		if(it->shape.is_rect) {
+			c2AABB into = shape_aabb(it->shape);
+			overlapping = c2Collided(&as_circle, 0, C2_TYPE_CIRCLE, &into, 0, C2_TYPE_AABB);
+		} else {
+			c2Circle into = shape_circle(it->shape);
+			overlapping = c2Collided(&as_circle, 0, C2_TYPE_CIRCLE, &into, 0, C2_TYPE_CIRCLE);
 		}
+		if(overlapping) BUFF_APPEND(&actually_overlapping, *it);
 	}
 
 	float smallest_distance = FLT_MAX;
@@ -4515,7 +4555,12 @@ Vec2 move_and_slide(MoveSlideParams p)
 	int i = 0;
 	BUFF_ITER(CollisionObj, &actually_overlapping)
 	{
-		float cur_dist = LenV2(SubV2(at_new.center, it->circle.center));
+		float cur_dist;
+		if(it->shape.is_rect) {
+			cur_dist = LenV2(SubV2(at_new.center, aabb_center(it->shape.aabb)));
+		} else {
+			cur_dist = LenV2(SubV2(at_new.center, it->shape.circle.center));
+		}
 		if (cur_dist < smallest_distance)
 		{
 			smallest_distance = cur_dist;
@@ -4541,32 +4586,25 @@ Vec2 move_and_slide(MoveSlideParams p)
 	}
 
 	// overlapping
-	BUFF_ITER(CollisionObj, &overlapping_smallest_first)
-	{
-		dbgcol(GREEN)
-		{
-			dbgplanerect(aabb_centered(it->circle.center, (Vec2){it->circle.radius, it->circle.radius}));
-		}
-	}
 
 	// overlapping_smallest_first = actually_overlapping;
-
-	BUFF_ITER(CollisionObj, &actually_overlapping)
-	dbgcol(WHITE)
-		dbgplanerect(aabb_centered(it->circle.center, (Vec2){it->circle.radius, it->circle.radius}));
-
-	BUFF_ITER(CollisionObj, &overlapping_smallest_first)
-	dbgcol(WHITE)
-		dbgplanesquare(it->circle.center);
 
 	CollisionInfo info = {0};
 	for (int col_iter_i = 0; col_iter_i < 1; col_iter_i++)
 		BUFF_ITER(CollisionObj, &overlapping_smallest_first)
 		{
-			Circle to_depenetrate_from = it->circle;
+			CollisionShape from = {.circle = at_new};
+			c2Manifold manifold = {0};
+			if(it->shape.is_rect) {
+				c2CircletoAABBManifold(shape_circle(from), shape_aabb(it->shape), &manifold);
+			} else {
+				c2CircletoCircleManifold(shape_circle(from), shape_circle(it->shape), &manifold);
+			}
+			Vec2 resolution_vector = NozV2(MulV2F(c2_to_v2(manifold.n), -1.0f));
+			for(int i = 0; i < manifold.count; i++) {
+				at_new.center = AddV2(at_new.center, MulV2F(resolution_vector, manifold.depths[i]));
+			}
 
-			Vec2 resolution_vector = NozV2(SubV2(at_new.center, to_depenetrate_from.center));
-			at_new.center = AddV2(to_depenetrate_from.center, MulV2F(resolution_vector, to_depenetrate_from.radius + at_new.radius));
 			bool happened_with_this_one = true;
 
 			if (happened_with_this_one)
