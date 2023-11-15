@@ -6076,7 +6076,7 @@ void frame(void)
 		PROFILE_SCOPE("Random ui rendering")
 		{
 			float size = 100.0f;
-			float margin = size;
+			float margin = size/2.0f;
 			bool kill_self = imbutton(aabb_centered(AddV2(stats(screen_aabb()).ur, V2(-margin, -margin)), V2(size, size)), .icon = &image_retry, .icon_padding = size * 0.1f, .nobg = true);
 			if(kill_self && player(&gs)) {
 				player(&gs)->destroy = true;
