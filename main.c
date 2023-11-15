@@ -5768,10 +5768,19 @@ CharacterSituation *generate_situation(Arena *arena, GameState *gs, Entity *e) {
 	}
 	ENTITIES_ITER(gs->entities){
 		if(it->is_npc && it != e) {
+			Npc *this_npc = get_hardcoded_npc(frame_arena, TextChunkString8(npc_data(gs, it->npc_kind)->name), it->npc_kind);
 			BUFF_APPEND(&ret->targets, ((SituationTarget) {
-					.name = TextChunkLit("The Player"),
-					.description = TextChunkLit("The Player. They just spawned in out of nowhere, and are causing a bit of a ruckus."),
+					.name = this_npc->name,
+					.description = this_npc->description,
 					.kind = TARGET_person,
+				})
+			);
+		} else if (it->is_item) {
+			ItemInfo *info = item_by_enum(it->item_kind);
+			BUFF_APPEND(&ret->targets, ((SituationTarget) {
+					.name = info->name,
+					.description = info->description,
+					.kind = TARGET_item,
 				})
 			);
 		}
@@ -7260,6 +7269,9 @@ void frame(void)
 									Response *resp = PushArrayZero(frame_arena, Response, 1);
 									resp->action = TextChunkLit("say_to");
 									BUFF_APPEND(&resp->arguments, npc_data(&gs, targeting->npc_kind)->name);
+									TextChunk as_chunk = {0};
+									chunk_from_s8(&as_chunk, what_player_said);
+									BUFF_APPEND(&resp->arguments, as_chunk);
 									perform_action(player(&gs), resp);
 								}
 							}

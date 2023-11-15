@@ -305,6 +305,7 @@ typedef struct CharacterStatus {
 typedef enum TargetKind {
 	TARGET_invalid,
 	TARGET_person,
+	TARGET_item,
 } TargetKind;
 
 typedef struct Target {

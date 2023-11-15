@@ -9,7 +9,7 @@ export default {
 			"rate_limited": false,
 		}
 
-		if (true) {
+		if (false) {
 			// mock the response
 			responseObject["ai_response"] = [
 				{
@@ -38,7 +38,7 @@ export default {
 			});
 			const chatCompletion = await openai.chat.completions.create({
 				messages: requestBody,
-				model: 'gpt-3.gpt-3.5-turbo',
+				model: 'gpt-3.5-turbo',
 				// model: 'gpt-4-1106-preview'
 			});
 			const content = chatCompletion.choices[0].message.content;
