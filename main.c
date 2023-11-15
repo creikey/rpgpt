@@ -3086,7 +3086,8 @@ LoadedFont load_font(Arena *arena, String8 font_filepath, float font_size)
 		for (int col = 0; col < font_bitmap_width; col++)
 		{
 			int i = row * 512 + col;
-			int flipped_i = (511 - row) * 512 + col;
+			int flipped_row = (font_bitmap_width - row);
+			int flipped_i = flipped_row * 512 + col;
 			font_bitmap_rgba[i * 4 + 0] = 255;
 			font_bitmap_rgba[i * 4 + 1] = 255;
 			font_bitmap_rgba[i * 4 + 2] = 255;
