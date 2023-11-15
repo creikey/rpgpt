@@ -259,14 +259,6 @@ typedef struct Health {
 } Health;
 
 
-// these are items and events that are available during the game, but 'rendered' to different structs
-// when sent to the AI as text so that they're more stable. I.E, if you change the name of an item or an index,
-// old memories still work, old reactions to items in a room still work, etc. 
-typedef enum ItemKind {
-	ITEM_none,
-	ITEM_whiskey,
-} ItemKind;
-
 typedef struct Item {
 	ItemKind kind;
 	int times_used;

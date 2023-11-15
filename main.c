@@ -5013,7 +5013,7 @@ bool imbutton_key(ImbuttonArgs args)
 
 	state->pressed_amount = Lerp(state->pressed_amount, args.dt * 20.0f, pressed_target);
 
-	float button_alpha = Lerp(0.5f, state->pressed_amount, 1.0f);
+	float button_alpha = Lerp(0.5f, state->pressed_amount, BUTTON_ALPHA);
 
 	if (aabb_is_valid(args.button_aabb))
 	{
@@ -5817,6 +5817,8 @@ CharacterSituation *generate_situation(Arena *arena, GameState *gs, Entity *e) {
 
 void frame(void)
 {
+
+
 	static float speed_factor = 1.0f;
 	// elapsed_time
 	double unwarped_dt_double = 0.0;
@@ -5860,19 +5862,176 @@ void frame(void)
 
 		text_input_fade = Lerp(text_input_fade, unwarped_dt * 8.0f, receiving_text_input ? 1.0f : 0.0f);
 
+		bool player_do_drop = false;
+		bool player_do_use = false;
 		PROFILE_SCOPE("Mobile button rendering and processing")
 		{
 			if(mobile_controls)
 			{
 				float screen_margin = 25.0f;
-				// float btwn_margin = screen_margin;
+				float btwn_margin = screen_margin;
 				float button_width = screen_size().x / 2.0f - screen_margin;
 				float button_height = screen_size().y / 8.0f;
 				Vec2 button_size = V2(button_width, button_height);
 				Vec2 button_pos = V2(screen_size().x - screen_margin - button_width/2.0f, screen_margin + button_height/2.0f);
 				pressed.interact = imbutton(aabb_centered(button_pos, button_size), 1.0f, S8Lit("Interact"));
+
+				Entity *p = player(&gs);
+				if(p && gete(p->held_item)) {
+					button_pos = AddV2(button_pos, V2(0, -button_height - btwn_margin));
+					player_do_drop = imbutton(aabb_centered(button_pos, button_size), 1.0f, S8Lit("Drop Item"));
+
+					button_pos = AddV2(button_pos, V2(0, -button_height - btwn_margin));
+					player_do_use  = imbutton(aabb_centered(button_pos, button_size), 1.0f, S8Lit("Use Item"));
+				}
 			}
 		}
+
+		// draw and manage cutscene 
+		if(gs.unprocessed_first)
+		{
+			bool delete = false;
+			do {
+				delete = false;
+				CutsceneEvent *cut = gs.unprocessed_first;
+				Entity *author = gete(cut->author);
+				if(!author) {
+					delete = true;
+				} else {
+					if(cut->action.kind == 0) {
+						Entity *e = author;
+						String8 err = {0};
+						cut->action = bake_into_action(frame_arena, &err, &gs, e, &cut->response);
+						if(err.size > 0) {
+							Log("Error while baking to action: '%.*s'", S8VArg(err));
+							TextChunk out_err = {0};
+							chunk_from_s8(&out_err, S8Chop(err, MAX_SENTENCE_LENGTH));
+							BUFF_QUEUE_APPEND(&e->error_notices, out_err);
+							break;
+						} else {
+							// the action is happening!
+							ENTITIES_ITER(gs.entities) {
+								if(it->is_npc && it->current_roomid == author->current_roomid) {
+									remember_action(it, author, cut->action);
+								}
+							}
+						}
+					}
+
+					if(author->npc_kind == NPC_player) {
+						delete = true;
+					}
+					switch (cut->action.kind)
+					{
+						case ACT_invalid:
+						case ACT_none:
+							delete = true;
+							break;
+						case ACT_say_to:
+						{
+							if(author->npc_kind != NPC_player) {
+								Entity *e = author;
+								Vec3 threedee_point_at_head = AddV3(plane_point(e->pos), V3(0, 1.7f, 0)); // 1.7 meters is about 5'8", average person height
+								Vec2 bubble_center = AddV2(threedee_to_screenspace(threedee_point_at_head), V2(0, 50.0f));
+
+								String8 whole_speech = TCS8(cut->action.args.data[1].text);
+								String8 trimmed = S8Substring(whole_speech, 0, (u64)cut->said_letters_of_speech);
+								
+								PlacedWordList wrapped = place_wrapped_words(frame_arena, split_by_word(frame_arena, trimmed), 1.0f, screen_size().x*0.7f, default_font, JUST_CENTER);
+								// for(PlacedWord *cur = wrapped.first; cur; cur = cur->next) {
+								// 	width = max(width, cur->lower_left_corner.x + cur->size.x);
+								// }
+								// float height = -wrapped.last->lower_left_corner.y + get_vertical_dist_between_lines(default_font, 1.0f);
+								translate_words_by(wrapped,  V2(screen_size().x*0.3f/2.0f, -get_vertical_dist_between_lines(default_font, 1.0f) + bubble_center.y));
+								AABB bounds = (AABB){
+									.upper_left = V2(INFINITY, -INFINITY),
+									.lower_right = V2(-INFINITY, INFINITY),
+								};
+								for(PlacedWord *cur = wrapped.first; cur; cur = cur->next) {
+									AABB word_bounds = draw_text((TextParams){false, cur->text, cur->lower_left_corner, blendalpha(WHITE, 1.0f),1.0f, .layer = LAYER_UI_FG});
+									bounds = update_bounds(bounds, quad_aabb(word_bounds));
+								}
+								if(trimmed.size > 0) {
+									AABB bg = grow_from_center(bounds, V2(25.0f, 25.0f));
+									draw_quad((DrawParams){quad_aabb(bg), IMG(image_white_square), blendalpha(BLACK, 0.8f), .layer = LAYER_UI});
+								}
+
+								cut->said_letters_of_speech += unwarped_dt_double*CHARACTERS_PER_SEC;
+
+								if(!mobile_controls) {
+									draw_centered_text((TextParams){
+										false,
+										S8Lit("(Press E)"),
+										V2(screen_size().x/2.0f, screen_size().y*0.20f),
+										WHITE,
+										1.0f,
+										.layer = LAYER_UI_FG,
+									});
+								}
+								if(pressed.interact) {
+									if(cut->said_letters_of_speech < whole_speech.size) {
+										cut->said_letters_of_speech = whole_speech.size + 1.0;
+									} else {
+										delete = true;
+									}
+									pressed.interact = false;
+								}
+							}
+						}
+						break;
+						case ACT_pick_up:
+						{
+							// action side effects
+							if(cut->action.kind == ACT_pick_up) {
+								author->held_item = frome(cut->action.args.data[0].item);
+							}
+
+							delete = author->npc_kind == NPC_player || cut->time_cutscene_shown >= ITEM_PICKUP_CUT_TIME;
+						}
+						break;
+						case ACT_use_item:
+						{
+							Entity *item = gete(author->held_item);
+							if(!item) {
+								Log("No item for cutscene...\n");
+								delete = true;
+							} else {
+								switch(item->item_kind) {
+									case ITEM_invalid:
+									case ITEM_size:
+									delete = true;
+									break;
+
+									case ITEM_revolver:
+									{
+										Entity *target = cut->action.args.data[0].character;
+										target->killed = true;
+									}
+									break;
+								}
+							}
+							delete = author->npc_kind == NPC_player || cut->time_cutscene_shown >= ITEM_PICKUP_CUT_TIME;
+						}
+						break;
+
+						case ACT_drop_item:
+						{
+							Entity *item = gete(author->held_item);
+							if(item) {
+								author->held_item = (EntityRef){0};
+								item->vel = MulV2F(RotateV2(V2(1.0, 0.0), author->rotation), 10.0f);
+							}
+							delete = author->npc_kind == NPC_player || cut->time_cutscene_shown >= ITEM_PICKUP_CUT_TIME;
+						}
+						break;
+
+					}
+				}
+				if(delete) DblRemove(gs.unprocessed_first, gs.unprocessed_last, gs.unprocessed_first);
+			} while(delete && gs.unprocessed_first); // so that events that shouldn't be there like none events or broken ones, the camera doesn't pan to them, delete them in sequence lik this, such that either the currnet unprocessed first should be animated/focusd on or it shouldn't be there anymore 
+		}
+
+
 
 		Vec3 cam_target_pos = V3(0, 0, 0);
 		if (gs.edit.enabled)
@@ -5891,11 +6050,13 @@ void frame(void)
 				case ACT_say_to:
 				case ACT_use_item:
 				case ACT_drop_item:
-				target = gete(gs.unprocessed_first->author)->pos;
+				if(gete(gs.unprocessed_first->author))
+					target = gete(gs.unprocessed_first->author)->pos;
 				break;
 
 				case ACT_pick_up:
-				target = gs.unprocessed_first->action.args.data[0].item->pos;
+				if(gs.unprocessed_first->action.args.data[0].item)
+					target = gs.unprocessed_first->action.args.data[0].item->pos;
 				break;
 			}
 			cam_target_pos.x = target.x;
@@ -6057,6 +6218,7 @@ void frame(void)
 				draw_thing((DrawnThing){
 					.mesh = &mesh_shotgun,
 					.t = draw_with,
+					.outline = player(&gs) && gete(player(&gs)->interacting_with) == it
 				});
 			}
 			else if (it->is_npc)
@@ -6203,6 +6365,17 @@ void frame(void)
 			bool kill_self = imbutton(aabb_centered(AddV2(stats(screen_aabb()).ur, V2(-margin, -margin)), V2(size, size)), .icon = &image_retry, .icon_padding = size * 0.1f, .nobg = true);
 			if(kill_self && player(&gs)) {
 				gs.want_reset = true;
+			}
+
+			if(!mobile_controls) {
+				draw_text((TextParams){
+					false,
+					S8Lit("E to interact/pick up items, R to drop, and F to use"),
+					V2(25.0f, screen_size().y/2.0f),
+					WHITE,
+					1.0f,
+					.layer = LAYER_UI,
+				});
 			}
 		}
 
@@ -6529,147 +6702,6 @@ void frame(void)
 		}
 
 
-		// draw and manage cutscene 
-		if(gs.unprocessed_first)
-		{
-			bool delete = false;
-			do {
-				delete = false;
-				CutsceneEvent *cut = gs.unprocessed_first;
-				Entity *author = gete(cut->author);
-				if(!author) {
-					delete = true;
-				} else {
-					if(cut->action.kind == 0) {
-						Entity *e = author;
-						String8 err = {0};
-						cut->action = bake_into_action(frame_arena, &err, &gs, e, &cut->response);
-						if(err.size > 0) {
-							Log("Error while baking to action: '%.*s'", S8VArg(err));
-							TextChunk out_err = {0};
-							chunk_from_s8(&out_err, S8Chop(err, MAX_SENTENCE_LENGTH));
-							BUFF_QUEUE_APPEND(&e->error_notices, out_err);
-							break;
-						} else {
-							// the action is happening!
-							ENTITIES_ITER(gs.entities) {
-								if(it->is_npc && it->current_roomid == author->current_roomid) {
-									remember_action(it, author, cut->action);
-								}
-							}
-						}
-					}
-
-					if(author->npc_kind == NPC_player) {
-						delete = true;
-					} else
-					switch (cut->action.kind)
-					{
-						case ACT_invalid:
-						case ACT_none:
-							delete = true;
-							break;
-						case ACT_say_to:
-						{
-							Entity *e = author;
-							Vec3 threedee_point_at_head = AddV3(plane_point(e->pos), V3(0, 1.7f, 0)); // 1.7 meters is about 5'8", average person height
-							Vec2 bubble_center = AddV2(threedee_to_screenspace(threedee_point_at_head), V2(0, 50.0f));
-
-							String8 whole_speech = TCS8(cut->action.args.data[1].text);
-							String8 trimmed = S8Substring(whole_speech, 0, (u64)cut->said_letters_of_speech);
-							
-							PlacedWordList wrapped = place_wrapped_words(frame_arena, split_by_word(frame_arena, trimmed), 1.0f, screen_size().x*0.7f, default_font, JUST_CENTER);
-							// for(PlacedWord *cur = wrapped.first; cur; cur = cur->next) {
-							// 	width = max(width, cur->lower_left_corner.x + cur->size.x);
-							// }
-							// float height = -wrapped.last->lower_left_corner.y + get_vertical_dist_between_lines(default_font, 1.0f);
-							translate_words_by(wrapped,  V2(screen_size().x*0.3f/2.0f, -get_vertical_dist_between_lines(default_font, 1.0f) + bubble_center.y));
-							AABB bounds = (AABB){
-								.upper_left = V2(INFINITY, -INFINITY),
-								.lower_right = V2(-INFINITY, INFINITY),
-							};
-							for(PlacedWord *cur = wrapped.first; cur; cur = cur->next) {
-								AABB word_bounds = draw_text((TextParams){false, cur->text, cur->lower_left_corner, blendalpha(WHITE, 1.0f),1.0f, .layer = LAYER_UI_FG});
-								bounds = update_bounds(bounds, quad_aabb(word_bounds));
-							}
-							if(trimmed.size > 0) {
-								AABB bg = grow_from_center(bounds, V2(25.0f, 25.0f));
-								draw_quad((DrawParams){quad_aabb(bg), IMG(image_white_square), blendalpha(BLACK, 0.8f), .layer = LAYER_UI});
-							}
-
-							cut->said_letters_of_speech += unwarped_dt_double*CHARACTERS_PER_SEC;
-
-							if(!mobile_controls) {
-								draw_centered_text((TextParams){
-									false,
-									S8Lit("(Press E)"),
-									V2(screen_size().x/2.0f, screen_size().y*0.20f),
-									WHITE,
-									1.0f,
-									.layer = LAYER_UI_FG,
-								});
-							}
-							if(pressed.interact) {
-								if(cut->said_letters_of_speech < whole_speech.size) {
-									cut->said_letters_of_speech = whole_speech.size + 1.0;
-								} else {
-									delete = true;
-								}
-								pressed.interact = false;
-							}
-						}
-						break;
-						case ACT_pick_up:
-						{
-							// action side effects
-							if(cut->action.kind == ACT_pick_up) {
-								author->held_item = frome(cut->action.args.data[0].item);
-							}
-
-							delete = cut->time_cutscene_shown >= ITEM_PICKUP_CUT_TIME;
-						}
-						break;
-						case ACT_use_item:
-						{
-							Entity *item = gete(author->held_item);
-							if(!item) {
-								Log("No item for cutscene...\n");
-								delete = true;
-							} else {
-								switch(item->item_kind) {
-									case ITEM_invalid:
-									case ITEM_size:
-									delete = true;
-									break;
-
-									case ITEM_revolver:
-									{
-										Entity *target = cut->action.args.data[0].character;
-										target->killed = true;
-									}
-									break;
-								}
-							}
-							delete = cut->time_cutscene_shown >= ITEM_CUT_TIME;
-						}
-						break;
-
-						case ACT_drop_item:
-						{
-							Entity *item = gete(author->held_item);
-							if(item) {
-								author->held_item = (EntityRef){0};
-								item->vel = MulV2F(RotateV2(V2(1.0, 0.0), author->rotation), 10.0f);
-							}
-							delete = cut->time_cutscene_shown >= ITEM_CUT_TIME;
-						}
-						break;
-
-					}
-				}
-				if(delete) DblRemove(gs.unprocessed_first, gs.unprocessed_last, gs.unprocessed_first);
-			} while(delete && gs.unprocessed_first); // so that events that shouldn't be there like none events or broken ones, the camera doesn't pan to them, delete them in sequence lik this, such that either the currnet unprocessed first should be animated/focusd on or it shouldn't be there anymore 
-		}
 
 		if(gs.unprocessed_first) {
 			gs.unprocessed_first->time_cutscene_shown += unwarped_dt_double;
@@ -7341,7 +7373,7 @@ void frame(void)
 										entity_talkable = entity_talkable && (*it)->gen_request_id == 0;
 #endif
 
-									bool entity_interactible = entity_talkable;
+									bool entity_interactible = entity_talkable || (gete(player(&gs)->held_item) == 0 && (*it)->is_item);
 
 									if (entity_interactible)
 									{
@@ -7368,6 +7400,16 @@ void frame(void)
 									// begin dialog with closest npc
 									player(&gs)->talking_to = frome(closest_interact_with);
 									player(&gs)->player_input_key = begin_text_input(S8Lit(""));
+								}
+								else if(closest_interact_with->is_item)
+								{
+									// can't use items on other items right now
+									if(gete(player(&gs)->held_item) == 0) {
+										Response *resp = PushArrayZero(frame_arena, Response, 1);
+										resp->action = TextChunkLit("pick_up");
+										BUFF_APPEND(&resp->arguments, item_by_enum(closest_interact_with->item_kind)->name);
+										perform_action(player(&gs), resp);
+									}
 								}
 								else
 								{

@@ -4,6 +4,7 @@
 #define RELOAD_ON_MOUSEUP 0
 #define RANDOM_SEED 42
 #define ITEM_PICKUP_CUT_TIME 1.0
+#define BUTTON_ALPHA 0.8f
 #define ITEM_CUT_TIME 0.7f
 #define LEVEL_TILES 150 // width and height of level tiles array
 #define LAYERS 3

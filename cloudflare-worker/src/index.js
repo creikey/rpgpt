@@ -9,27 +9,36 @@ export default {
 			"rate_limited": false,
 		}
 
-		if (false) {
+		if (true) {
 			// mock the response
 			responseObject["ai_response"] = [
 				{
 					"action": "say_to",
-					"arguments": ["The Player", "Hey what's going on. bla bla bla this is some testing text. Really I'm quite surprised about how long I'm speaking for."],
+					"arguments": [
+						"The Player",
+						"Whoa there, partner! Be careful with that revolver. It's got a real mean streak, ya know?"
+					]
+				},
+				{
+					"action": "say_to",
+					"arguments": [
+						"The Player",
+						"I reckon we can talk it out instead. Let's find some whiskey, loosen those nerves."
+					]
 				},
 				{
 					"action": "pick_up",
-					"arguments": ["revolver"],
+					"arguments": [
+						"Whiskey"
+					]
 				},
 				{
-					"action": "use_item",
-					"arguments": ["The Player"],
-				},
-				/*
-				{
-					"action": "drop_item",
-					"arguments": [],
-				},
-				*/
+					"action": "say_to",
+					"arguments": [
+						"The Player",
+						"Now that we got some whiskey, let's sit down and have a drink. Maybe then we can figure things out, or at least forget 'em."
+					]
+				}
 			];
 			//responseObject["ai_error"] = "Failed to parse what you output: Expected ',' or ']' after array element in JSON at position 124 (line 1 column 125)";
 		} else {
