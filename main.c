@@ -4843,6 +4843,33 @@ float get_total_trail_len(BuffRef trail)
 
 Vec2 mouse_pos = {0}; // in screen space
 
+#define TOUCHPOINT_SCREEN(point) V2(point.pos_x, screen_size().y - point.pos_y)
+typedef struct TouchEvent {
+	struct TouchEvent *next;
+	struct TouchEvent *prev;
+	bool consumed;
+	sapp_event event;
+	sapp_touchpoint this_touchpoint; // The array of touchpoints in `event` is wrong, use this. Each touchpoint gets its own TouchEvent
+} TouchEvent;
+
+TouchEvent *touch_event_freelist = 0;
+
+TouchEvent *new_touch_event() {
+	TouchEvent *ret = 0;
+	if(touch_event_freelist) {
+		ret = touch_event_freelist;
+		StackPop(touch_event_freelist);
+		memset(ret, 0, sizeof(*ret));
+	} else {
+		ret = PushArrayZero(persistent_arena, TouchEvent, 1);
+	}
+	return ret;
+}
+
+TouchEvent *events_this_frame_first = 0;
+TouchEvent *events_this_frame_last = 0;
+
+
 #define ROLL_KEY SAPP_KEYCODE_LEFT_SHIFT
 double elapsed_time = 0.0;
 double unwarped_elapsed_time = 0.0;
@@ -4892,17 +4919,35 @@ bool imbutton_key(ImbuttonArgs args)
 	if (args.font)
 		font = args.font;
 	get_state(
-		state, struct { float pressed_amount; bool is_being_pressed; }, "%.*s", S8VArg(args.key));
+		state, struct { float pressed_amount; bool is_being_pressed; TouchMemory touch_memory; }, "%.*s", S8VArg(args.key));
 
 	float raise = Lerp(0.0f, state->pressed_amount, 5.0f);
 	args.button_aabb.upper_left.y += raise;
 	args.button_aabb.lower_right.y += raise;
 
+	bool touch_has = false;
+	bool touch_stop = false;
+	for(TouchEvent *t = events_this_frame_first; t; t = t->next) {
+		sapp_event *e = &t->event;
+		if(e->type == SAPP_EVENTTYPE_TOUCHES_BEGAN)
+		{
+			if(has_point(args.button_aabb, TOUCHPOINT_SCREEN(t->this_touchpoint))) {
+				touch_has = true;
+				state->touch_memory= activate(t->this_touchpoint.identifier);
+			}
+			// if(has_point(args.button_aabb, TOUCHPOINT_SCREEN()))
+		}
+		else if(e->type == SAPP_EVENTTYPE_TOUCHES_ENDED)
+		{
+			touch_stop = maybe_deactivate(&state->touch_memory, t->this_touchpoint.identifier);
+		}
+	}
+
 	bool to_return = false;
 	float pressed_target = 0.5f;
-	if (has_point(args.button_aabb, mouse_pos))
+	if (has_point(args.button_aabb, mouse_pos) || touch_has || touch_stop)
 	{
-		if (pressed.mouse_down)
+		if (pressed.mouse_down || touch_has)
 		{
 			state->is_being_pressed = true;
 			pressed.mouse_down = false;
@@ -4910,12 +4955,12 @@ bool imbutton_key(ImbuttonArgs args)
 
 		pressed_target = 1.0f; // when hovering button like pops out a bit
 
-		if (pressed.mouse_up && state->is_being_pressed)
+		if ((pressed.mouse_up && state->is_being_pressed) || touch_stop)
 		{
 			to_return = true; // when mouse released, and hovering over button, this is a button press - Lao Tzu
 		}
 	}
-	if (pressed.mouse_up)
+	if (pressed.mouse_up || touch_stop)
 		state->is_being_pressed = false;
 
 	if (state->is_being_pressed || args.force_down)
@@ -5943,12 +5988,96 @@ void frame(void)
 			}
 		}
 
+		PROFILE_SCOPE("Touch event handling") {
+			for(TouchEvent *t = events_this_frame_first; t; t = t->next)
+			if(!t->consumed) {
+				t->consumed = true;
+				sapp_event *e = &t->event;
+				sapp_touchpoint point = t->this_touchpoint;
+
+				if(e->type == SAPP_EVENTTYPE_TOUCHES_BEGAN)
+				{
+					Vec2 touchpoint_screen_pos = TOUCHPOINT_SCREEN(point);
+					if (touchpoint_screen_pos.x < screen_size().x * 0.4f)
+					{
+						if (!movement_touch.active)
+						{
+							// if(LenV2(SubV2(touchpoint_screen_pos, thumbstick_base_pos)) > 1.25f * thumbstick_base_size())
+							if (true)
+							{
+								thumbstick_base_pos = touchpoint_screen_pos;
+							}
+							movement_touch = activate(point.identifier);
+							thumbstick_nub_pos = thumbstick_base_pos;
+						}
+					}
+					if (LenV2(SubV2(touchpoint_screen_pos, roll_button_pos())) < mobile_button_size() * 0.5f)
+					{
+						roll_pressed_by = activate(point.identifier);
+						mobile_roll_pressed = true;
+					}
+					if (LenV2(SubV2(touchpoint_screen_pos, interact_button_pos())) < mobile_button_size() * 0.5f)
+					{
+						interact_pressed_by = activate(point.identifier);
+						mobile_interact_pressed = true;
+						pressed.interact = true;
+					}
+					if (LenV2(SubV2(touchpoint_screen_pos, attack_button_pos())) < mobile_button_size() * 0.5f)
+					{
+						attack_pressed_by = activate(point.identifier);
+						mobile_attack_pressed = true;
+					}
+				}
+
+				if (e->type == SAPP_EVENTTYPE_TOUCHES_MOVED)
+				{
+					if (movement_touch.active)
+					{
+						if (point.identifier == movement_touch.identifier)
+						{
+							thumbstick_nub_pos = TOUCHPOINT_SCREEN(point);
+							Vec2 move_vec = SubV2(thumbstick_nub_pos, thumbstick_base_pos);
+							float clampto_size = thumbstick_base_size() / 2.0f;
+							if (LenV2(move_vec) > clampto_size)
+							{
+								thumbstick_nub_pos = AddV2(thumbstick_base_pos, MulV2F(NormV2(move_vec), clampto_size));
+							}
+						}
+					}
+				}
+
+				if (e->type == SAPP_EVENTTYPE_TOUCHES_ENDED)
+				{
+					if (point.changed) // only some of the touch events are released
+					{
+						if (maybe_deactivate(&interact_pressed_by, point.identifier))
+						{
+							mobile_interact_pressed = false;
+						}
+						if (maybe_deactivate(&roll_pressed_by, point.identifier))
+						{
+							mobile_roll_pressed = false;
+						}
+						if (maybe_deactivate(&attack_pressed_by, point.identifier))
+						{
+							mobile_attack_pressed = false;
+						}
+						if (maybe_deactivate(&movement_touch, point.identifier))
+						{
+							thumbstick_nub_pos = thumbstick_base_pos;
+						}
+					}
+				}
+			}
+		}
+
+
 		// @Place(UI rendering that happens before gameplay processing so can consume events before the gameplay needs them)
 		PROFILE_SCOPE("Random ui rendering")
 		{
 			float size = 100.0f;
 			float margin = size;
-			bool kill_self = imbutton(aabb_centered(V2(margin, margin), V2(size, size)), .icon = &image_retry, .icon_padding = size * 0.1f, .nobg = true);
+			bool kill_self = imbutton(aabb_centered(AddV2(stats(screen_aabb()).ur, V2(-margin, -margin)), V2(size, size)), .icon = &image_retry, .icon_padding = size * 0.1f, .nobg = true);
 			if(kill_self && player(&gs)) {
 				player(&gs)->destroy = true;
 			}
@@ -7138,7 +7267,7 @@ void frame(void)
 		{
 			Vec2 text_center = V2(screen_size().x / 2.0f, screen_size().y * 0.8f);
 			draw_quad((DrawParams){centered_quad(text_center, V2(screen_size().x * 0.8f, screen_size().y * 0.1f)), IMG(image_white_square), blendalpha(BLACK, 0.5f), .layer = LAYER_ULTRA_IMPORTANT_NOTIFICATIONS});
-			draw_centered_text((TextParams){false, S8Lit("The AI server is having technical difficulties..."), text_center, WHITE, 1.0f, .layer = LAYER_ULTRA_IMPORTANT_NOTIFICATIONS});
+			draw_centered_text((TextParams){false, S8Lit("Server isn't responding"), text_center, WHITE, 1.0f, .layer = LAYER_ULTRA_IMPORTANT_NOTIFICATIONS});
 		}
 
 		// win screen
@@ -7458,6 +7587,7 @@ void frame(void)
 			sg_commit();
 		}
 
+
 		last_frame_processing_time = stm_sec(stm_diff(stm_now(), time_start_frame));
 
 		ArenaClear(frame_arena);
@@ -7465,6 +7595,17 @@ void frame(void)
 		memset(keypressed, 0, sizeof(keypressed));
 		pressed = (PressedState){0};
 		mouse_movement = V2(0, 0);
+		bool found_removed = false;
+		do {
+			found_removed = false;
+			for(TouchEvent *t = events_this_frame_first; t; t = t->next) {
+				if(t->consumed) {
+					DblRemove(events_this_frame_first, events_this_frame_last, t);
+					found_removed = true;
+					break;
+				}
+			}
+		} while(found_removed);
 	}
 }
 
@@ -7596,85 +7737,19 @@ void event(const sapp_event *e)
 	// mobile handling touch controls handling touch input
 	if (mobile_controls)
 	{
-		if (e->type == SAPP_EVENTTYPE_TOUCHES_BEGAN)
+		if (
+				e->type == SAPP_EVENTTYPE_TOUCHES_BEGAN
+			||  e->type == SAPP_EVENTTYPE_TOUCHES_MOVED
+			||  e->type == SAPP_EVENTTYPE_TOUCHES_ENDED
+		)
 		{
-#define TOUCHPOINT_SCREEN(point) V2(point.pos_x, screen_size().y - point.pos_y)
-			for (int i = 0; i < e->num_touches; i++)
-			{
-				sapp_touchpoint point = e->touches[i];
-				Vec2 touchpoint_screen_pos = TOUCHPOINT_SCREEN(point);
-				if (touchpoint_screen_pos.x < screen_size().x * 0.4f)
-				{
-					if (!movement_touch.active)
-					{
-						// if(LenV2(SubV2(touchpoint_screen_pos, thumbstick_base_pos)) > 1.25f * thumbstick_base_size())
-						if (true)
-						{
-							thumbstick_base_pos = touchpoint_screen_pos;
-						}
-						movement_touch = activate(point.identifier);
-						thumbstick_nub_pos = thumbstick_base_pos;
-					}
-				}
-				if (LenV2(SubV2(touchpoint_screen_pos, roll_button_pos())) < mobile_button_size() * 0.5f)
-				{
-					roll_pressed_by = activate(point.identifier);
-					mobile_roll_pressed = true;
-				}
-				if (LenV2(SubV2(touchpoint_screen_pos, interact_button_pos())) < mobile_button_size() * 0.5f)
-				{
-					interact_pressed_by = activate(point.identifier);
-					mobile_interact_pressed = true;
-					pressed.interact = true;
-				}
-				if (LenV2(SubV2(touchpoint_screen_pos, attack_button_pos())) < mobile_button_size() * 0.5f)
-				{
-					attack_pressed_by = activate(point.identifier);
-					mobile_attack_pressed = true;
-				}
+			for(int i = 0; i < e->num_touches; i++) {
+				TouchEvent *t = new_touch_event();
+				t->event = *e;
+				t->event.num_touches = 0;
+				t->this_touchpoint = e->touches[i];
+				DblPushBack(events_this_frame_first, events_this_frame_last, t);
 			}
-		}
-		if (e->type == SAPP_EVENTTYPE_TOUCHES_MOVED)
-		{
-			for (int i = 0; i < e->num_touches; i++)
-			{
-				if (movement_touch.active)
-				{
-					if (e->touches[i].identifier == movement_touch.identifier)
-					{
-						thumbstick_nub_pos = TOUCHPOINT_SCREEN(e->touches[i]);
-						Vec2 move_vec = SubV2(thumbstick_nub_pos, thumbstick_base_pos);
-						float clampto_size = thumbstick_base_size() / 2.0f;
-						if (LenV2(move_vec) > clampto_size)
-						{
-							thumbstick_nub_pos = AddV2(thumbstick_base_pos, MulV2F(NormV2(move_vec), clampto_size));
-						}
-					}
-				}
-			}
-		}
-		if (e->type == SAPP_EVENTTYPE_TOUCHES_ENDED)
-		{
-			for (int i = 0; i < e->num_touches; i++)
-				if (e->touches[i].changed) // only some of the touch events are released
-				{
-					if (maybe_deactivate(&interact_pressed_by, e->touches[i].identifier))
-					{
-						mobile_interact_pressed = false;
-					}
-					if (maybe_deactivate(&roll_pressed_by, e->touches[i].identifier))
-					{
-						mobile_roll_pressed = false;
-					}
-					if (maybe_deactivate(&attack_pressed_by, e->touches[i].identifier))
-					{
-						mobile_attack_pressed = false;
-					}
-					if (maybe_deactivate(&movement_touch, e->touches[i].identifier))
-					{
-						thumbstick_nub_pos = thumbstick_base_pos;
-					}
-				}
 		}
 	}
 
