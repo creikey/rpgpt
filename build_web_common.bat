@@ -9,6 +9,9 @@ if "%do_blender_export%"=="1" ( call blender_export.bat || goto :error )
 if "%do_codegen%"=="1"        ( call run_codegen.bat || goto :error )
 
 copy marketing_page\favicon.ico %OUTPUT_FOLDER%\favicon.ico
+copy Hamburger.png %OUTPUT_FOLDER%\Hamburger.ico
+copy discord.svg %OUTPUT_FOLDER%\discord.svg
+copy assets\PalanquinDark-Regular.ttf %OUTPUT_FOLDER%\PalanquinDark-Regular.ttf
 @REM copy main.c %OUTPUT_FOLDER%\main.c || goto :error
 
 @echo off
