@@ -406,12 +406,6 @@ bool keydown[SAPP_KEYCODE_MAX] = { 0 };
 bool keypressed[SAPP_KEYCODE_MAX] = { 0 };
 Vec2 mouse_movement = { 0 };
 
-typedef struct {
-	bool open;
-	bool for_giving;
-} ItemgridState;
-ItemgridState item_grid_state = {0};
-
 struct { char *key; void *value; } *immediate_state = 0;
 
 void init_immediate_state() {
@@ -5898,7 +5892,8 @@ void frame(void)
 				if(!author) {
 					delete = true;
 				} else {
-					if(cut->action.kind == 0) {
+					bool error = false;
+					if(cut->action.kind == 0) { // checking for uninitialized action
 						Entity *e = author;
 						String8 err = {0};
 						cut->action = bake_into_action(frame_arena, &err, &gs, e, &cut->response);
@@ -5907,7 +5902,8 @@ void frame(void)
 							TextChunk out_err = {0};
 							chunk_from_s8(&out_err, S8Chop(err, MAX_SENTENCE_LENGTH));
 							BUFF_QUEUE_APPEND(&e->error_notices, out_err);
-							break;
+							delete = true;
+							error = true;
 						} else {
 							// the action is happening!
 							ENTITIES_ITER(gs.entities) {
@@ -5921,7 +5917,8 @@ void frame(void)
 					if(author->npc_kind == NPC_player) {
 						delete = true;
 					}
-					switch (cut->action.kind)
+					if(!error)
+					switch (cut->action.kind) // side effects
 					{
 						case ACT_invalid:
 						case ACT_none:
@@ -7287,7 +7284,7 @@ void frame(void)
 					ENTITIES_ITER(gs.entities)
 					if (it->is_npc)
 					{
-						bool doesnt_prompt_on_dirty_perceptions = false || it->current_roomid != get_cur_room(&gs, &level_threedee)->roomid || it->npc_kind == NPC_player;
+						bool doesnt_prompt_on_dirty_perceptions = false || it->current_roomid != get_cur_room(&gs, &level_threedee)->roomid || it->npc_kind == NPC_player || it->killed;
 						if (it->perceptions_dirty && doesnt_prompt_on_dirty_perceptions)
 						{
 							it->perceptions_dirty = false;
@@ -7373,7 +7370,7 @@ void frame(void)
 										entity_talkable = entity_talkable && (*it)->gen_request_id == 0;
 #endif
 
-									bool entity_interactible = entity_talkable || (gete(player(&gs)->held_item) == 0 && (*it)->is_item);
+									bool entity_interactible = entity_talkable || (gete(player(&gs)->held_item) == 0 && (*it)->is_item && who_is_holding(*it) == 0);
 
 									if (entity_interactible)
 									{

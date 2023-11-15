@@ -12,10 +12,10 @@ export default {
 		if (true) {
 			// mock the response
 			responseObject["ai_response"] = [
+				/*
 				{
 					"action": "none",
 				}
-				/*
 				{
 					"action": "say_to",
 					"arguments": [
@@ -30,12 +30,14 @@ export default {
 						"I reckon we can talk it out instead. Let's find some whiskey, loosen those nerves."
 					]
 				},
+				*/
 				{
 					"action": "pick_up",
 					"arguments": [
-						"Whiskey"
+						"revolver"
 					]
 				},
+				/*
 				{
 					"action": "say_to",
 					"arguments": [
