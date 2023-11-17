@@ -1,8 +1,10 @@
-package codes
+package codes_test
 
 import (
     "testing"
     "runtime"
+
+    "github.com/creikey/rpgpt/server/codes"
 )
 
 func assert(t *testing.T, cond bool) {
@@ -13,22 +15,21 @@ func assert(t *testing.T, cond bool) {
 }
 
 func TestCodes(t *testing.T) {
- parsed, err := ParseUserCode("AAAA")
+ parsed, err := codes.ParseUserCode("AAAA")
  assert(t, err == nil)
  assert(t, int(parsed) == 0)
 
  var stringed string
- stringed, err = CodeToString(UserCode(1))
+ stringed, err = codes.CodeToString(codes.UserCode(1))
  assert(t, err == nil)
  assert(t, stringed == "AAAB")
 
- parsed, err = ParseUserCode("AAAB")
+ parsed, err = codes.ParseUserCode("AAAB")
  assert(t, err == nil)
  assert(t, int(parsed) == 1)
 
- parsed, err = ParseUserCode("BAAA")
+ parsed, err = codes.ParseUserCode("BAAA")
  assert(t, err == nil)
  assert(t, int(parsed) == 46656)
 
 }
-
